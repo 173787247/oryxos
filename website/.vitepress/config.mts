@@ -35,6 +35,7 @@ export default defineConfig({
         nav: [
           { text: 'Home', link: '/' },
           { text: 'Docs', link: '/docs/what' },
+          { text: 'Contribute', link: '/docs/contributing' },
           { text: 'Demo', link: 'http://demo.robustmq.com:1524/admin/' },
           { text: 'GitHub', link: 'https://github.com/oryx-labs/oryxos' },
         ],
@@ -72,6 +73,14 @@ export default defineConfig({
                 { text: 'Roadmap', link: '/docs/roadmap' },
               ],
             },
+            {
+              text: 'Community',
+              items: [
+                { text: 'Contributing Guide', link: '/docs/contributing' },
+                { text: 'Maintainer Guide', link: '/docs/maintainer' },
+                { text: 'GitHub Contribution Basics', link: '/docs/github-workflow' },
+              ],
+            },
           ],
         },
       },
@@ -84,6 +93,7 @@ export default defineConfig({
         nav: [
           { text: '首页', link: '/zh/' },
           { text: '文档', link: '/zh/docs/what' },
+          { text: '贡献', link: '/zh/docs/contributing' },
           { text: 'Demo', link: 'http://demo.robustmq.com:1524/admin/' },
           { text: 'GitHub', link: 'https://github.com/oryx-labs/oryxos' },
         ],
@@ -119,6 +129,14 @@ export default defineConfig({
                 { text: 'CLI 命令', link: '/zh/docs/cli' },
                 { text: 'Profile YAML', link: '/zh/docs/profile' },
                 { text: '路线图', link: '/zh/docs/roadmap' },
+              ],
+            },
+            {
+              text: '社区',
+              items: [
+                { text: '贡献指南', link: '/zh/docs/contributing' },
+                { text: 'Maintainer 指南', link: '/zh/docs/maintainer' },
+                { text: 'GitHub 贡献入门', link: '/zh/docs/github-workflow' },
               ],
             },
           ],
