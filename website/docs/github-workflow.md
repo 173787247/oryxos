@@ -6,15 +6,7 @@ Open source has one common workflow and one common set of "slang". They're the s
 
 ## The core flow: Fork → Branch → PR → Review → Merge
 
-```
-You fork the repo → branch → write code → push → open a PR
-                                              ↓
-                          CI runs ← → maintainer reviews
-                                              ↓
-                    you address feedback → get LGTM/Approve
-                                              ↓
-                              maintainer merges 🎉
-```
+![Fork → Branch → Open a PR → CI runs · review → LGTM → Merge](/images/gh-flow-en.svg)
 
 ### 1. Fork
 
