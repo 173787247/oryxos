@@ -6,15 +6,7 @@
 
 ## 核心流程：Fork → Branch → PR → Review → Merge
 
-```
-你 Fork 仓库 → 拉一个分支 → 写代码 → 推上去 → 开 PR
-                                              ↓
-                        CI 自动跑 ← → maintainer 评审
-                                              ↓
-                            你按意见改 → 拿到 LGTM/Approve
-                                              ↓
-                                   maintainer 合并 🎉
-```
+![Fork → Branch → 开 PR → CI 跑 · 评审 → LGTM → Merge](/images/gh-flow-zh.svg)
 
 ### 1. Fork（复刻）
 
