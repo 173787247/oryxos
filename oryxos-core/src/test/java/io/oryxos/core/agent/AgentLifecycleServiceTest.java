@@ -24,6 +24,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 /** 课件《第30节》验收 harness：AgentLifecycleServiceTest——编排顺序 + 失败回滚 + 删除时序。 */
@@ -187,5 +188,30 @@ class AgentLifecycleServiceTest {
         noSkills,
         AgentLifecycleService.ensureRequiredSkills(noSkills, List.of()),
         "未勾选任何 Skill → 原样不动");
+  }
+
+  @Test
+  @DisplayName("updateBasicInfo 改 description/provider/model/skills，正文与其它字段保留")
+  void updateBasicInfo_editsFrontmatterPreservesBodyAndOtherKeys() throws Exception {
+    when(agentStore.read("demo")).thenReturn(MD);
+    Path dir = Path.of("agents", "demo");
+    when(agentStore.write(eq("demo"), any())).thenReturn(dir);
+    Profile updated = profile("demo");
+    doReturn(updated).when(agentLoader).parse(any(), eq("demo"));
+    doReturn(updated).when(agentLoader).deriveProfile(dir);
+
+    service.updateBasicInfo("demo", "新描述", "openai", "gpt-4o", List.of("s1", "s2"));
+
+    ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+    verify(agentStore).write(eq("demo"), markdownCaptor.capture());
+    String written = markdownCaptor.getValue();
+    assertTrue(written.contains("description: 新描述"), "description 被更新");
+    assertTrue(written.contains("name: openai"), "provider.name 被更新");
+    assertTrue(written.contains("model: gpt-4o"), "provider.model 被更新");
+    assertTrue(written.contains("skills:"), "skills 块被写入");
+    assertTrue(written.contains("- s1"), "skills 包含 s1");
+    assertTrue(written.contains("- s2"), "skills 包含 s2");
+    assertTrue(written.contains("name: demo"), "name 保留");
+    assertTrue(written.contains("正文"), "正文保留");
   }
 }

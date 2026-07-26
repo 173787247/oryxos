@@ -21,6 +21,9 @@ import java.util.Map;
  * 消息及其后全部消息）④可用工具——不进文本， 经 {@link ProviderRequest#availableTools()} 传递，schema 挂载由 16 节
  * ToolSchemaAdapter 单点负责。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "EI_EXPOSE_REP2",
+    justification = "contextLoader 是 Spring 注入的共享单例，构造注入共享同一引用正是意图。")
 public class PromptBuilder {
 
   private static final DateTimeFormatter DATE_TIME =

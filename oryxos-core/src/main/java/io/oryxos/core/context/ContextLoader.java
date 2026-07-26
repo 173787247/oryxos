@@ -22,6 +22,9 @@ import org.slf4j.LoggerFactory;
  * SkillRegistry} 解析，把 Skill 正文注入 system prompt——这样 Skill 才能"强约束"Agent 产出（而非靠模型自觉 read_file）。引用了不存在的
  * Skill 记 WARN 跳过，同 Bootstrap 缺失的处理。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "EI_EXPOSE_REP2",
+    justification = "skillRegistry 是 Spring 注入的共享单例，构造注入共享同一引用正是意图。")
 public class ContextLoader {
 
   private static final Logger LOG = LoggerFactory.getLogger(ContextLoader.class);

@@ -60,7 +60,10 @@ public class WorkspaceApiController {
   public ApiResponse<FileNode> tree() {
     List<FileNode> roots = new ArrayList<>();
     roots.add(treeOf(oryxosRoot.resolve("agents")));
-    roots.add(treeOf(oryxosRoot.resolve("skills"))); // 全局 Skill 库：每个 Skill 一个目录（SKILL.md + 可选脚本/子文档），供详情查看文件列表
+    roots.add(
+        treeOf(
+            oryxosRoot.resolve(
+                "skills"))); // 全局 Skill 库：每个 Skill 一个目录（SKILL.md + 可选脚本/子文档），供详情查看文件列表
     roots.add(treeOf(oryxosRoot.resolve("output"))); // 第 32 节：Agent 产出的共享目录（研报/汇总/导出）
     roots.add(treeOf(oryxosRoot.resolve("archive")));
     // 根节点显示名取实际工作区目录名（自定义 oryxos.root 时不再写死 .oryxos）

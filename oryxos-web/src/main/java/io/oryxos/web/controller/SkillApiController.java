@@ -38,7 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 404（`ResourceNotFoundException`）；统一 `ApiResponse` 信封。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-    value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2", "URLCONNECTION_SSRF_FD"},
+    value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2", "URLCONNECTION_SSRF_FD", "IMPROPER_UNICODE"},
     justification =
         "core-stage web API is unauthenticated by design (internal network + gateway); auth is extension-phase. 协作者是 Spring 注入的共享单例，构造注入共享同一引用正是意图。/import 拉取运营者给定的 URL（等同安装插件），已做 SSRF 防护：限 http/https + 超时 + 大小上限 + 禁自动重定向、每跳校验目标主机非回环/内网/链路本地(含云元数据 169.254.169.254)/CGNAT。")
 @RestController
@@ -47,6 +47,11 @@ public class SkillApiController {
 
   private static final int MAX_SKILL_BYTES = 512 * 1024;
   private static final int MAX_REDIRECTS = 5;
+  private static final String SCHEME_HTTP = "http";
+  private static final String SCHEME_HTTPS = "https";
+  private static final String LOCALHOST = "localhost";
+  private static final String METADATA_GOOGLE_INTERNAL = "metadata.google.internal";
+  private static final String INTERNAL_SUFFIX = ".internal";
 
   private final SkillService skills;
 
@@ -101,7 +106,7 @@ public class SkillApiController {
       throw new IllegalArgumentException("非法 URL: " + url);
     }
     String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-    if (!"http".equals(scheme) && !"https".equals(scheme)) {
+    if (!SCHEME_HTTP.equals(scheme) && !SCHEME_HTTPS.equals(scheme)) {
       throw new IllegalArgumentException("仅支持 http/https URL: " + url);
     }
     return uri;
@@ -161,7 +166,7 @@ public class SkillApiController {
       throw new IllegalArgumentException("URL 缺少主机名: " + uri);
     }
     String h = host.toLowerCase(Locale.ROOT);
-    if (h.equals("localhost") || h.equals("metadata.google.internal") || h.endsWith(".internal")) {
+    if (LOCALHOST.equals(h) || METADATA_GOOGLE_INTERNAL.equals(h) || h.endsWith(INTERNAL_SUFFIX)) {
       throw new IllegalArgumentException("拒绝访问内网 / 元数据主机: " + host);
     }
     InetAddress[] addresses;

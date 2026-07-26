@@ -19,6 +19,7 @@ import io.oryxos.web.controller.dto.MessageResponse;
 import io.oryxos.web.controller.dto.SaveFilesRequest;
 import io.oryxos.web.controller.dto.SessionView;
 import io.oryxos.web.controller.dto.TriggerResponse;
+import io.oryxos.web.controller.dto.UpdateAgentBasicRequest;
 import io.oryxos.web.controller.dto.UpdateAgentRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
 import java.util.List;
@@ -86,7 +87,9 @@ public class AgentApiController {
     if (req == null || req.name() == null || req.name().isBlank()) {
       throw new IllegalArgumentException("Agent 名为空");
     }
-    return ApiResponse.ok(AgentView.from(lifecycle.create(req.name(), req.description())));
+    return ApiResponse.ok(
+        AgentView.from(
+            lifecycle.create(req.name(), req.description(), req.provider(), req.model())));
   }
 
   @GetMapping
@@ -119,6 +122,22 @@ public class AgentApiController {
     }
     lifecycle.delete(name);
     return ApiResponse.ok(null);
+  }
+
+  /**
+   * 结构化编辑基本信息（description / provider / model / skills）：只改 AGENT.md frontmatter 的对应 key，正文与其他配置原样保留。
+   * 非法定义 → 400（不破坏原文件）；不存在 → 404。
+   */
+  @PutMapping("/{name}/basic")
+  public ApiResponse<AgentView> updateBasic(
+      @PathVariable String name, @RequestBody UpdateAgentBasicRequest req) {
+    if (lifecycle.get(name).isEmpty()) {
+      throw new ResourceNotFoundException("Agent 不存在: " + name); // → 404
+    }
+    return ApiResponse.ok(
+        AgentView.from(
+            lifecycle.updateBasicInfo(
+                name, req.description(), req.provider(), req.model(), req.skills())));
   }
 
   @PostMapping("/{name}/invoke")
@@ -221,8 +240,11 @@ public class AgentApiController {
     String description = req == null ? null : req.description();
     String notifyChannel = req == null ? null : req.notifyChannel();
     List<String> skills = req == null ? List.of() : req.skills();
+    String provider = req == null ? null : req.provider();
+    String model = req == null ? null : req.model();
     return ApiResponse.ok(
-        new GeneratedFilesView(lifecycle.generateFiles(name, description, notifyChannel, skills)));
+        new GeneratedFilesView(
+            lifecycle.generateFiles(name, description, notifyChannel, skills, provider, model)));
   }
 
   /** 保存（可能被改过的）一组 Agent 文件，写入即生效（AGENT.md 非法 → 400，不写坏目录）。 */

@@ -45,8 +45,9 @@ class WorkspaceApiControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.children[0].name").value("agents"))
         .andExpect(jsonPath("$.data.children[0].children[0].name").value("demo"))
-        .andExpect(jsonPath("$.data.children[1].name").value("output"))
-        .andExpect(jsonPath("$.data.children[2].name").value("archive"));
+        .andExpect(jsonPath("$.data.children[1].name").value("skills"))
+        .andExpect(jsonPath("$.data.children[2].name").value("output"))
+        .andExpect(jsonPath("$.data.children[3].name").value("archive"));
   }
 
   @Test

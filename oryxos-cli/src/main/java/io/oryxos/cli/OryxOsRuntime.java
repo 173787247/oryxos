@@ -503,6 +503,7 @@ public class OryxOsRuntime {
   }
 
   /** 32 节：异步触发的后台执行器——虚拟线程（宪法 VII：虚拟线程处理并发，非 Reactor/WebFlux）。 */
+  @SuppressWarnings("PMD.ThreadPoolCreationRule")
   @Bean(destroyMethod = "shutdown")
   ExecutorService agentExecutionExecutor() {
     return Executors.newVirtualThreadPerTaskExecutor();

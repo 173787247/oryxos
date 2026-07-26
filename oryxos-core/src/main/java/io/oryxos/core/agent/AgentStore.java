@@ -28,6 +28,22 @@ public class AgentStore {
     this.archiveDir = oryxosRoot.resolve("archive");
   }
 
+  /**
+   * 读 .oryxos/agents/&lt;name&gt;/AGENT.md 的原始文本；缺文件抛 {@link IllegalStateException}（调用方应先确认 Agent
+   * 存在）。
+   */
+  public String read(String name) {
+    Path file = agentsDir.resolve(safe(name)).resolve(AGENT_FILE);
+    if (!Files.isRegularFile(file)) {
+      throw new IllegalStateException("Agent 目录缺少 AGENT.md: " + name);
+    }
+    try {
+      return Files.readString(file);
+    } catch (IOException e) {
+      throw new UncheckedIOException("读取 Agent 目录失败: " + name, e);
+    }
+  }
+
   /** 写 .oryxos/agents/&lt;name&gt;/AGENT.md，返回该 Agent 目录。 */
   public Path write(String name, String agentMarkdown) {
     Path dir = agentsDir.resolve(safe(name));
