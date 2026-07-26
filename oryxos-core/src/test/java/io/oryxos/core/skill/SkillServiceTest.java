@@ -93,7 +93,7 @@ class SkillServiceTest {
   }
 
   @Test
-  @DisplayName("importMarkdown：解析 frontmatter 建库；name 缺省用 fallback；nameOverride 优先；同名 400")
+  @DisplayName("importMarkdown：完整 frontmatter 建库；nameOverride 优先；元数据缺失和同名均拒绝")
   void importMarkdown_parsesAndCreates() {
     Skill s =
         service.importMarkdown(null, "---\nname: imp\ndescription: 导入的\n---\n\n正文X", "fallback");
@@ -101,10 +101,12 @@ class SkillServiceTest {
     assertEquals("导入的", s.description());
     assertTrue(s.body().contains("正文X"));
 
-    Skill s2 = service.importMarkdown(null, "没有 frontmatter 的正文", "url-derived");
-    assertEquals("url-derived", s2.name());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> service.importMarkdown(null, "没有 frontmatter 的正文", "url-derived"));
 
-    Skill s3 = service.importMarkdown("myname", "---\nname: ignored\n---\nz", "fb");
+    Skill s3 =
+        service.importMarkdown("myname", "---\nname: ignored\ndescription: 覆盖名\n---\nz", "fb");
     assertEquals("myname", s3.name());
 
     assertThrows(

@@ -26,6 +26,11 @@ import io.oryxos.core.provider.ProviderService;
 import io.oryxos.core.sandbox.SandboxWhitelist.Category;
 import io.oryxos.core.sandbox.SandboxWhitelistStore;
 import io.oryxos.core.session.SessionManager;
+import io.oryxos.core.skill.AgentSkillBindingService;
+import io.oryxos.core.skill.AgentSkillMigrationService;
+import io.oryxos.core.skill.AgentSkillStartupReport;
+import io.oryxos.core.skill.InstalledSkillCatalog;
+import io.oryxos.core.skill.SkillCatalog;
 import io.oryxos.core.skill.SkillLoader;
 import io.oryxos.core.skill.SkillRegistry;
 import io.oryxos.core.skill.SkillService;
@@ -190,7 +195,8 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  ProfileRegistry profileRegistry(AgentLoader agentLoader) {
+  ProfileRegistry profileRegistry(
+      AgentLoader agentLoader, AgentSkillStartupReport ignoredSkillStartupReport) {
     // 启动全量扫；30 节 WorkspaceWatcher 负责启动后的实时变更（同一段 register）
     return agentLoader.loadAll();
   }
@@ -213,6 +219,8 @@ public class OryxOsRuntime {
       NotifyChannelRegistry notifyChannelRegistry,
       io.oryxos.core.mcp.McpServerAdmin mcpServerAdmin,
       SkillRegistry skillRegistry,
+      AgentSkillBindingService skillBindings,
+      SkillCatalog skillCatalog,
       @Value("${oryxos.author.provider:}") String authorProvider,
       @Value("${oryxos.author.model:}") String authorModel) {
     String defaultProvider =
@@ -234,7 +242,9 @@ public class OryxOsRuntime {
         tools,
         notifyChannelRegistry,
         mcpServerAdmin,
-        skillRegistry);
+        skillRegistry,
+        skillBindings,
+        skillCatalog);
   }
 
   /** 30 节 WorkspaceWatcher 专用守护线程执行器（跟 25 节调度线程池同类，不手工 new Thread）。 */
@@ -258,9 +268,8 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  ContextLoader contextLoader(SkillRegistry skillRegistry) {
-    // 32 节：Agent 引用的全局 Skill 由 ContextLoader 按名从注册表解析并注入 system prompt（约束产出）
-    return new ContextLoader(oryxosRoot(), skillRegistry);
+  ContextLoader contextLoader(AgentSkillBindingService skillBindings) {
+    return new ContextLoader(oryxosRoot(), skillBindings);
   }
 
   @Bean
@@ -279,13 +288,32 @@ public class OryxOsRuntime {
     return skillLoader.loadAll();
   }
 
+  @Bean
+  AgentSkillBindingService agentSkillBindingService(SkillLoader skillLoader) {
+    return new AgentSkillBindingService(oryxosRoot(), skillLoader);
+  }
+
+  @Bean
+  SkillCatalog skillCatalog(SkillRegistry skillRegistry) {
+    return new InstalledSkillCatalog(skillRegistry);
+  }
+
   /** 32 节：全局 Skill 库 CRUD；启动播种内置 Skill（report-format，幂等——用户改过不覆盖）。 */
   @Bean
   SkillService skillService(
-      SkillStore skillStore, SkillRegistry skillRegistry, SkillLoader skillLoader) {
-    SkillService service = new SkillService(skillStore, skillRegistry, skillLoader);
+      SkillStore skillStore,
+      SkillRegistry skillRegistry,
+      SkillLoader skillLoader,
+      AgentSkillBindingService skillBindings) {
+    SkillService service = new SkillService(skillStore, skillRegistry, skillLoader, skillBindings);
     service.seedBuiltins();
     return service;
+  }
+
+  @Bean
+  AgentSkillStartupReport agentSkillStartupReport(
+      SkillService ignoredSeededSkills, AgentSkillBindingService skillBindings) {
+    return new AgentSkillMigrationService(oryxosRoot(), skillBindings).migrateAll();
   }
 
   /** 31 节：Sandbox 白名单持久化（SQLite）。运行时增删写穿落库、重启保留。 */
@@ -503,8 +531,8 @@ public class OryxOsRuntime {
   }
 
   /** 32 节：异步触发的后台执行器——虚拟线程（宪法 VII：虚拟线程处理并发，非 Reactor/WebFlux）。 */
-  @SuppressWarnings("PMD.ThreadPoolCreationRule")
   @Bean(destroyMethod = "shutdown")
+  @SuppressWarnings("PMD.ThreadPoolCreationRule") // Spring 管理完整生命周期；Java 21 虚拟线程无池参数可配置。
   ExecutorService agentExecutionExecutor() {
     return Executors.newVirtualThreadPerTaskExecutor();
   }

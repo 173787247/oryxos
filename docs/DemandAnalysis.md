@@ -141,8 +141,8 @@ API 覆盖六类操作：
 
 | 术语 | 定义 |
 |------|------|
-| **Agent（智能体）** | 一个具象的业务智能体，定义本体是一个目录 `.oryxos/agents/<name>/`：`AGENT.md`（frontmatter 是这个 Agent 自己的 profile——用哪个模型、能用哪些工具、绑定哪个渠道、要不要定时；正文是任务指令——做什么、什么时候该做）加可选 `skills/*.md` 子指令、`scripts/` 脚本、`REFERENCE.md` 参考。一个目录就是一个完整可用的业务 Agent，不是写代码写出来的 |
-| **Profile（配置）** | 底座内部的运行时宿主配置对象，决定一个 Agent"怎么跑"：绑定的 LLM Provider、可用 Tool 列表、绑定 Channel、Tool Policy、引用的 Skill、定时规则。它不再是一份单独手写的 YAML——`AgentLoader.deriveProfile()` 把 `AGENT.md` 的 frontmatter 派生成 `Profile`，让 Agent 目录零改动复用整台底座 |
+| **Agent（智能体）** | 一个具象的业务智能体，定义本体是一个目录 `.oryxos/agents/<name>/`：`AGENT.md`（frontmatter 是运行配置、正文是任务指令）加可选 `skills/` 公共 Skill 软连接、`scripts/` 脚本、`REFERENCE.md` 参考。一个目录就是一个完整可用的业务 Agent，不是写代码写出来的 |
+| **Profile（配置）** | 底座内部的运行时宿主配置对象，决定一个 Agent"怎么跑"：绑定的 LLM Provider、可用 Tool 列表、Channel、Tool Policy 和定时规则。它不再是一份单独手写的 YAML——`AgentLoader.deriveProfile()` 把 `AGENT.md` 的 frontmatter 派生成 `Profile`；Skill 绑定由 Agent 本地 `skills/` 软连接集合独立表达 |
 | **Provider（供应商）** | LLM API 服务的抽象，实现统一接口让 Agent 不感知具体调的是哪家模型 |
 | **ReAct 循环** | Agent 的核心工作机制，Reason + Act。LLM 思考是否调用工具，调用后看结果，再决定下一步，直到给出最终响应 |
 | **Tool（工具）** | Agent 可以调用的外部能力。内置 Tool 是 OryxOS 自带的（文件、Shell、HTTP、通知推送）；Plugin Tool 是业务方自己写的 |
@@ -152,7 +152,7 @@ API 覆盖六类操作：
 | **Session（会话）** | 用户和 Agent 一次对话的上下文容器，包含对话历史、当前上下文、临时变量 |
 | **Sandbox（沙箱）** | 工具执行的隔离环境。核心阶段是应用层白名单校验，扩展阶段补容器级隔离 |
 | **Tool Policy（工具策略）** | 控制 Agent 可用工具的允许或拒绝规则，在 Profile 级别配置 |
-| **Skill（技能）** | 全局共享的能力库，存 `.oryxos/skills/<name>/SKILL.md`（frontmatter 加约束指令正文）。Agent 在 `AGENT.md` frontmatter 用 `skills: [名]` 按名引用，`ContextLoader` 组装 system prompt 时把引用到的 Skill 正文注入，用来强约束产出。Skill 不是可执行 Tool，不进 `ToolRegistry` |
+| **Skill（技能）** | 公共实体存 `.oryxos/skills/<name>/`，Agent 通过自身 `skills/<name>` 相对软连接选择可见集合。`ContextLoader` 每轮只注入已绑定 Skill 的 name、description 和本地读取路径；正文与附属资源经 `read_file`/`shell` 按需进入上下文。Skill 不是 Tool，不进 `ToolRegistry` |
 | **Bootstrap（引导文件）** | 加载到系统提示词中的上下文文件：AGENTS.md（项目级 agent 行为说明）、SOUL.md（agent 人格定义）、USER.md（用户偏好） |
 | **Workspace（工作区）** | OryxOS 实例的工作目录，默认是 `.oryxos/`，包含 Agent 目录、全局 Skill 库、Bootstrap 文件、记忆、会话、产出物、日志的子目录 |
 
@@ -211,8 +211,8 @@ oryxos init   # 在当前目录下创建 .oryxos/ 工作区
 
 ```
 .oryxos/
-├── agents/            # 每个子目录 = 一个 Agent（AGENT.md + 可选 skills/ scripts/ REFERENCE.md）
-├── skills/            # 全局 Skill 库（每个子目录一个 SKILL.md），Agent 按名引用
+├── agents/            # 每个子目录 = 一个 Agent（AGENT.md + skills/软连接 + scripts/ REFERENCE.md）
+├── skills/            # 公共 Skill 实体库（每个子目录一个 SKILL.md + 可选附属资源）
 ├── output/            # Agent 产出物
 ├── memory/
 │   └── MEMORY.md      # 长期记忆文件
@@ -230,7 +230,7 @@ oryxos init   # 在当前目录下创建 .oryxos/ 工作区
 
 ### 5.2 定义一个 Agent：AGENT.md
 
-一个目录 = 一个 Agent。`.oryxos/agents/<name>/AGENT.md` 由两部分组成：**frontmatter** 是这个 Agent 自己的 profile（用哪个 Provider/模型、能用哪些 Tool、引用哪些全局 Skill、绑定哪个 Channel、要不要定时），**正文**是任务指令（"这个 Agent 具体做什么"）。`AgentLoader.deriveProfile()` 把 frontmatter 派生成底座认识的 `Profile`，所以不需要另写一份 Profile YAML。
+一个目录 = 一个 Agent。`.oryxos/agents/<name>/AGENT.md` 由两部分组成：**frontmatter** 是这个 Agent 自己的 profile（用哪个 Provider/模型、能用哪些 Tool、绑定哪个 Channel、要不要定时），**正文**是任务指令。`AgentLoader.deriveProfile()` 把 frontmatter 派生成底座认识的 `Profile`。Agent 的 Skill 绑定不写进 frontmatter，而由同目录 `skills/` 下的相对软连接表达。
 
 **AGENT.md frontmatter 结构：**
 
@@ -249,9 +249,6 @@ provider:
 
 tools:
   - string                      # 可用 Tool 名称列表
-
-skills:
-  - string                      # 按名引用全局 Skill 库（.oryxos/skills/<名>/），正文注入 system prompt
 
 mcp_servers:
   - string                      # 引用的 MCP Server 列表
@@ -377,7 +374,7 @@ Tool 是 Agent 可以调用的外部能力。Agent 通过 LLM Function Calling �
 **零代码示例**：想做"每天早上推送昨日 GitHub PR 评审进度到 Slack"，只需：
 1. 建 `.oryxos/agents/daily-pr-digest/`，写一份 `AGENT.md`：frontmatter 声明 provider、`mcp_servers`、`schedules`，正文写任务指令
 2. 复用社区现成的 `github-mcp` 和 `slack-mcp`，配置在 `mcp_servers.yaml`
-3. 需要固定产出格式就在 frontmatter 用 `skills: [名]` 引用全局 Skill 库里的规范
+3. 需要固定产出格式就在 Agent 的 `skills/` 下绑定对应公共 Skill；下一轮 prompt 自动出现其名称和描述，正文按需读取
 
 整个过程不写一行代码。
 
@@ -516,7 +513,7 @@ OryxOS 作为开源项目，需要一个独立的主页作为对外门面，讲�
 - **Memory 语义检索**：集成向量数据库（Milvus、Qdrant、Weaviate、PostgreSQL pgvector），按语义相似度匹配
 - **情景记忆**：补齐 Memory 第三层，记录任务过程中修改的文件、决策、成果
 - **Memory Wiki**：结构化 claim/evidence、矛盾检测、新鲜度管理
-- **Skill 库增强**：全局 Skill 库（`.oryxos/skills/<name>/SKILL.md`，按名引用、正文注入）在核心阶段已落地；扩展阶段补语义检索选 Skill、版本管理、以及从 agentskills.io 等开放格式导入时的企业审查流程
+- **Skill 库增强**：公共 Skill 实体 + Agent 本地软连接绑定 + 元数据发现/正文按需加载在核心阶段落地；扩展阶段补语义推荐、版本管理和企业审查流程
 
 ### 6.3 工具和安全层
 
@@ -826,7 +823,7 @@ OryxOS 核心功能的实施按 **4 周节奏**组织，每周 3 小时，合计
 | Demo | 验证能力 | 场景描述 | 验收标准 |
 |------|---------|---------|---------|
 | **Demo 一：每日天气** | 能力一+二（LLM + ReAct）、能力四（内置 HTTP Tool）、定时任务（`AgentScheduler`） | 每天早上到点自动查天气、生成穿搭建议，推送到企业 IM 群 | 不需要人工触发，到点自动跑完整 ReAct 循环；查天气和推送各一次 HTTP 调用，都过 Sandbox 域名白名单且都写入 `tool_invocations`；`GET /api/v1/sessions/{id}` 能查到这次自动触发的完整对话记录 |
-| **Demo 二：每日科技日报** | 能力四（Plugin Tool 方式一 Agent 目录零代码 + 方式二 MCP）、能力三（Memory）、定时任务（`AgentScheduler`） | 每天到点自动汇总当日科技新闻并推送，且日报内容会体现用户之前说过的关注方向（比如"更关注 AI 和芯片"） | 业务方全程不写 Java 代码，只写 `AGENT.md`（含 `schedules` 字段）+ 目录内 `skills/` 子指令 + `mcp_servers.yaml`；LLM 自己决定调新闻 MCP 工具、自己组织日报、自己调推送 MCP 工具，OryxOS 不解析任务步骤；日报内容能体现 `MEMORY.md` 里记住的偏好 |
+| **Demo 二：每日科技日报** | 能力四（Plugin Tool 方式一 Agent 目录零代码 + 方式二 MCP）、能力三（Memory）、定时任务（`AgentScheduler`） | 每天到点自动汇总当日科技新闻并推送，且日报内容会体现用户之前说过的关注方向（比如"更关注 AI 和芯片"） | 业务方全程不写 Java 代码，只写 `AGENT.md`（含 `schedules` 字段）并在 Agent `skills/` 绑定公共 Skill，再配置 `mcp_servers.yaml`；prompt 只出现 Skill 元数据，模型按需读取正文并完成日报 |
 
 两个 Demo 都是"钟推"（`AgentScheduler` 到点自动触发），但都要能同时支持"人推"手动补跑一次做验证（`oryxos chat` 或 `POST /agents/{name}/invoke`），验证同一个 Agent 不管从哪个入口触发，走的都是同一条 `AgentService` 链路。
 

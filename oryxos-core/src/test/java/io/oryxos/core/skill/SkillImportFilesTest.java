@@ -52,7 +52,7 @@ class SkillImportFilesTest {
   @Test
   @DisplayName("importFiles：nameOverride 优先于 frontmatter 的 name")
   void importFiles_nameOverrideTakesPriority() {
-    Map<String, String> files = Map.of("SKILL.md", "---\nname: ignored\n---\n正文");
+    Map<String, String> files = Map.of("SKILL.md", "---\nname: ignored\ndescription: 覆盖名\n---\n正文");
 
     Skill s = service.importFiles("myname", files, "fb");
 

@@ -123,8 +123,32 @@ function refresh() {
   if (NAV.find((n) => n.key === key)?.path) load(key)
 }
 
-// —— Skill 列表（第 32 节）：全局 Skill 库 CRUD。Agent 通过 AGENT.md 的 skills:[名] 引用，运行时注入正文约束产出 ——
+// —— Skill 实体、外部 catalog 与绑定一致性。绑定真相源是 Agent 目录中的固定相对软连接。——
 const skills = ref({ loading: false, error: null, data: [] })
+const skillCatalog = ref({ loading: false, error: null, data: [] })
+const skillIssues = ref({ loading: false, error: null, data: [] })
+const skillCatalogFilter = reactive({ q: '', visibility: 'all' })
+async function loadSkillCatalog() {
+  skillCatalog.value = { loading: true, error: null, data: [] }
+  const params = new URLSearchParams()
+  if (skillCatalogFilter.q.trim()) params.set('q', skillCatalogFilter.q.trim())
+  params.set('visibility', skillCatalogFilter.visibility)
+  try {
+    const res = await fetch(`/api/v1/skills/catalog?${params}`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || 'catalog 加载失败')
+    skillCatalog.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) { skillCatalog.value = { loading: false, error: e.message, data: [] } }
+}
+async function loadSkillIssues() {
+  skillIssues.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch('/api/v1/skills/binding-issues')
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '绑定检查失败')
+    skillIssues.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) { skillIssues.value = { loading: false, error: e.message, data: [] } }
+}
 async function loadSkills() {
   skills.value = { loading: true, error: null, data: [] }
   try {
@@ -133,6 +157,7 @@ async function loadSkills() {
     if (body.code !== 0) throw new Error(body.message || '加载失败')
     skills.value = { loading: false, error: null, data: body.data || [] }
   } catch (e) { skills.value = { loading: false, error: e.message, data: [] } }
+  await Promise.all([loadSkillCatalog(), loadSkillIssues()])
 }
 const skillForm = reactive({ open: false, editing: null, name: '', description: '', body: '', busy: false, error: null })
 function newSkill() {
@@ -166,11 +191,14 @@ async function saveSkill() {
   } catch (e) { skillForm.error = e.message } finally { skillForm.busy = false }
 }
 async function deleteSkill(name) {
-  if (!confirm(`删除 Skill「${name}」？引用它的 Agent 下次触发将跳过该约束。`)) return
+  if (!confirm(`归档 Skill「${name}」？存在活跃或归档 Agent 引用时会拒绝，实体不会被物理删除。`)) return
   try {
     const res = await fetch(`/api/v1/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
     const body = await res.json()
-    if (body.code !== 0) throw new Error(body.message || '删除失败')
+    if (body.code !== 0) {
+      const refs = (body.data?.references || []).map((r) => `${r.agentName}(${r.state})`).join('、')
+      throw new Error(`${body.message || '归档失败'}${refs ? `：${refs}` : ''}`)
+    }
     await loadSkills()
   } catch (e) { skills.value = { ...skills.value, error: e.message } }
 }
@@ -209,7 +237,7 @@ async function openSkillDetail(row) {
 function closeSkillDetail() { skillDetail.value = null; fileView.value = null }
 // 该 Skill 目录的文件行（扁平带缩进，复用 Agent 工作区同一个 flatten）
 const skillDetailRows = computed(() => (skillDetail.value?.node ? flatten(skillDetail.value.node, 0, []) : []))
-// 回退：旧后端 tree 无 skills 节点时，直接渲染 SKILL.md 正文（body）
+// 回退：工作区树暂不可用时，直接渲染已安装实体返回的 SKILL.md 正文。
 const skillDetailBodyMd = computed(() =>
   skillDetail.value?.body ? DOMPurify.sanitize(marked.parse(skillDetail.value.body)) : ''
 )
@@ -313,7 +341,10 @@ async function loadAgents() {
 
 // 新建 Agent：独立成页（不再是弹框），把「大模型生成」折叠进来。
 // 只填 name + description 可直接按模板脚手架；也可先「用大模型生成」各文件、编辑后再创建。
-const agentCreate = reactive({ open: false, name: '', description: '', provider: '', model: '', notifyChannel: '', skills: [], files: null, busy: false, error: '' })
+const agentCreate = reactive({
+  open: false, name: '', description: '', provider: '', model: '', notifyChannel: '', skills: [],
+  requiredSkills: [], suggestedSkills: [], files: null, busy: false, error: '',
+})
 
 // 新建页用的 provider / model 下拉数据源：provider 来自 GET /providers；model 来自 GET /providers/{name}/models（服务端代理）
 const createProviders = ref({ loading: false, error: null, data: [] })
@@ -348,6 +379,8 @@ function openCreate() {
   agentCreate.model = ''
   agentCreate.notifyChannel = ''
   agentCreate.skills = []
+  agentCreate.requiredSkills = []
+  agentCreate.suggestedSkills = []
   agentCreate.files = null
   agentCreate.busy = false
   agentCreate.error = ''
@@ -365,11 +398,14 @@ async function generateFiles() {
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentCreate.name)}/generate-files`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: agentCreate.description, notifyChannel: agentCreate.notifyChannel, skills: agentCreate.skills, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined }),
+      body: JSON.stringify({ description: agentCreate.description, notifyChannel: agentCreate.notifyChannel, requiredSkills: agentCreate.skills, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined }),
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '生成失败')
     agentCreate.files = body.data.files || {}
+    agentCreate.requiredSkills = body.data.requiredSkills || []
+    agentCreate.suggestedSkills = body.data.suggestedSkills || []
+    agentCreate.skills = body.data.bindingSkills || []
   } catch (e) { agentCreate.error = e.message } finally { agentCreate.busy = false }
 }
 
@@ -381,11 +417,11 @@ async function submitCreate() {
     const res = agentCreate.files
       ? await fetch(`/api/v1/agents/${encodeURIComponent(agentCreate.name)}/files`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: agentCreate.files }),
+          body: JSON.stringify({ files: agentCreate.files, skillBindings: agentCreate.skills }),
         })
         : await fetch('/api/v1/agents', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: agentCreate.name, description: agentCreate.description, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined }),
+          body: JSON.stringify({ name: agentCreate.name, description: agentCreate.description, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined, skillBindings: agentCreate.skills }),
         })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '创建失败')
@@ -734,9 +770,10 @@ async function deleteWhitelist(category, value) {
 
 // —— Agent 详情：Tab 切换（基本信息 / 文件 / 会话 / 记忆）——
 const agentDetail = ref(null) // { name, agent, tab, loading, error, node, editing }
+const agentBinding = reactive({ selected: [], saving: false, error: null, issues: [] })
 const fileView = ref(null) // { path, loading, error, content, saving, saved }
 // 详情页「编辑基本信息」表单态 + 编辑态的 model 下拉数据源（与新建页的 createModels 分开，避免串台）
-const editBasic = reactive({ description: '', provider: '', model: '', skills: [] })
+const editBasic = reactive({ description: '', provider: '', model: '' })
 const editModels = ref({ loading: false, error: null, data: [] })
 const editSaving = ref(false)
 const editError = ref(null)
@@ -827,20 +864,52 @@ const agentMemory = reactive({ text: '', loading: false, error: null })
 
 async function openAgent(agent) {
   agentDetail.value = { name: agent.name, agent, tab: 'info', loading: true, error: null, node: null, editing: false }
+  agentDetail.value = { name: agent.name, agent, tab: 'info', loading: true, error: null, node: null, editing: false }
+  agentBinding.selected = [...(agent.skills || [])]
+  agentBinding.error = null
+  agentBinding.issues = []
   fileView.value = null
   resetChat()
   resetAgentMemory()
   try {
-    const res = await fetch('/api/v1/workspace/tree')
-    const body = await res.json()
+    const [treeRes, bindingRes] = await Promise.all([
+      fetch('/api/v1/workspace/tree'),
+      fetch(`/api/v1/agents/${encodeURIComponent(agent.name)}/skills`),
+      loadSkillCatalog(),
+    ])
+    const body = await treeRes.json()
+    const bindingBody = await bindingRes.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
+    if (bindingBody.code !== 0) throw new Error(bindingBody.message || '绑定加载失败')
     const agentsNode = (body.data.children || []).find((c) => c.name === 'agents')
     const node = (agentsNode?.children || []).find((c) => c.name === agent.name) || null
     const outputTree = (body.data.children || []).find((c) => c.name === 'output') || null
+    agentBinding.selected = (bindingBody.data.bindings || []).map((b) => b.name)
+    agentBinding.issues = bindingBody.data.issues || []
     agentDetail.value = { ...agentDetail.value, loading: false, node, outputTree }
   } catch (e) {
     agentDetail.value = { ...agentDetail.value, loading: false, error: e.message }
   }
+}
+
+async function saveAgentBindings() {
+  if (!agentDetail.value) return
+  agentBinding.saving = true; agentBinding.error = null
+  try {
+    const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/skills`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skills: agentBinding.selected }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存绑定失败')
+    agentBinding.selected = (body.data.bindings || []).map((b) => b.name)
+    agentBinding.issues = body.data.issues || []
+    agentDetail.value = {
+      ...agentDetail.value,
+      agent: { ...agentDetail.value.agent, skills: [...agentBinding.selected] },
+    }
+    await loadAgents()
+  } catch (e) { agentBinding.error = e.message } finally { agentBinding.saving = false }
 }
 
 // 重新拉取当前 Agent 的元数据 + 文件树（保存文件后刷新基本信息）
@@ -891,11 +960,9 @@ function startEditBasic() {
   editBasic.description = a.description || ''
   editBasic.provider = a.provider || ''
   editBasic.model = a.model || ''
-  editBasic.skills = (a.skills || []).slice()
   editError.value = null
   agentDetail.value = { ...agentDetail.value, editing: true }
   loadCreateProviders() // provider 下拉数据源（与新建页共用）
-  loadSkills() // Skill 选择器数据源
   loadEditModels(editBasic.provider) // 拉当前 provider 的模型列表
 }
 function cancelEditBasic() {
@@ -924,7 +991,6 @@ async function saveEditBasic() {
         description: editBasic.description,
         provider: editBasic.provider,
         model: editBasic.model,
-        skills: editBasic.skills,
       }),
     })
     const body = await res.json()
@@ -1186,13 +1252,34 @@ const outputRows = computed(() =>
             <button class="btn" @click="refresh()">刷新</button>
           </div>
 
-          <!-- Skill 列表（第 32 节）：全局 Skill 库 CRUD。Agent 按名引用、运行时注入正文约束产出 -->
+          <!-- Skill：已安装实体、公共/私有 catalog 与软连接绑定一致性 -->
           <div v-if="active === 'skills'">
             <template v-if="!skillDetail">
             <div class="toolbar">
               <button class="btn btn-primary" @click="newImport()">从 GitHub 拉取</button>
               <button class="btn btn-primary" @click="newSkill()">+ 新建 Skill</button>
             </div>
+            <h3 class="sec">候选 catalog</h3>
+            <div class="toolbar">
+              <input v-model="skillCatalogFilter.q" class="gen-input" placeholder="按名称或描述查询" @keyup.enter="loadSkillCatalog" />
+              <select v-model="skillCatalogFilter.visibility" class="gen-input" @change="loadSkillCatalog">
+                <option value="all">全部</option><option value="public">公共</option><option value="private">私有</option>
+              </select>
+              <button class="btn" @click="loadSkillCatalog">查询</button>
+            </div>
+            <p v-if="skillCatalog.loading" class="empty">catalog 加载中…</p>
+            <p v-else-if="skillCatalog.error" class="error">catalog 不可用：{{ skillCatalog.error }}</p>
+            <table v-else>
+              <thead><tr><th>名称</th><th>可见性</th><th>来源</th><th>本机状态</th><th>描述</th></tr></thead>
+              <tbody>
+                <tr v-if="!skillCatalog.data.length"><td colspan="5" class="empty">（没有匹配候选）</td></tr>
+                <tr v-for="s in skillCatalog.data" :key="`${s.source}:${s.name}`">
+                  <td class="mono">{{ s.name }}</td><td>{{ s.visibility }}</td><td>{{ s.source }}</td>
+                  <td>{{ s.installed ? '已安装' : '未安装' }}</td><td>{{ s.description || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <h3 class="sec">已安装实体</h3>
             <!-- 从 GitHub 拉取 Skill 弹出框：导入整个目录（SKILL.md + 附带文件），不是抓网页正文 -->
             <div v-if="skillImport.open" class="modal-overlay" @click.self="cancelImport()">
               <div class="modal-card">
@@ -1224,7 +1311,7 @@ const outputRows = computed(() =>
                   <input v-model="skillForm.name" class="gen-input" :disabled="!!skillForm.editing"
                          placeholder="Skill 名（字母/数字/下划线/连字符，如 report-format）" />
                   <input v-model="skillForm.description" class="gen-input" placeholder="一句话描述：这个 Skill 约束什么" />
-                  <label class="empty" style="display:block;margin:6px 0 2px">正文（约束指令，会注入引用它的 Agent 的 system prompt）</label>
+                  <label class="empty" style="display:block;margin:6px 0 2px">正文（仅在 Agent 判断任务需要后，经 read_file 按需读取）</label>
                   <textarea v-model="skillForm.body" class="gen-draft" rows="10"
                             placeholder="例如：产出报告时严格遵守——开头一句总览；正文按重要性排序，每条含标题+点评+来源；事实与推断分开；不编造。"></textarea>
                   <p v-if="skillForm.error" class="error">{{ skillForm.error }}</p>
@@ -1252,6 +1339,19 @@ const outputRows = computed(() =>
                 </tr>
               </tbody>
             </table>
+            <h3 class="sec">绑定一致性</h3>
+            <p v-if="skillIssues.loading" class="empty">检查中…</p>
+            <p v-else-if="skillIssues.error" class="error">检查失败：{{ skillIssues.error }}</p>
+            <table v-else>
+              <thead><tr><th>Agent</th><th>状态</th><th>条目</th><th>分类</th><th>说明</th></tr></thead>
+              <tbody>
+                <tr v-if="!skillIssues.data.length"><td colspan="5" class="empty">（未发现残留或损坏绑定）</td></tr>
+                <tr v-for="(issue, i) in skillIssues.data" :key="`${issue.path}:${i}`">
+                  <td class="mono">{{ issue.agentName }}</td><td>{{ issue.agentState }}</td>
+                  <td class="mono">{{ issue.entryName || '—' }}</td><td>{{ issue.type }}</td><td>{{ issue.message }}</td>
+                </tr>
+              </tbody>
+            </table>
             </template>
 
             <!-- Skill 详情：文件列表 + 复用同一套文件浏览器（openFile/fileView + md 预览/源码） -->
@@ -1268,7 +1368,8 @@ const outputRows = computed(() =>
                        :class="['ws-node', { file: node.type === 'file', on: fileView && fileView.path === node.path }]"
                        :style="{ paddingLeft: (node.depth * 14) + 'px' }"
                        @click="openFile(node)">
-                    <span class="mono">{{ node.type === 'dir' ? '📁' : '📄' }} {{ node.name }}</span>
+                    <span class="mono">{{ node.type === 'dir' ? '📁' : node.type === 'link' ? '🔗' : '📄' }} {{ node.name }}</span>
+                    <span v-if="node.type === 'link'" class="empty"> → {{ node.linkTarget }} · {{ node.linkStatus }}</span>
                     <a v-if="node.type === 'file'" class="dl" :href="downloadUrl(node.path)"
                        :download="node.name" @click.stop title="下载">⬇</a>
                   </div>
@@ -1378,15 +1479,16 @@ const outputRows = computed(() =>
                   <option value="">不通知</option>
                   <option v-for="c in (notifyChannels.data || [])" :key="c.name" :value="c.name">{{ c.name }}（{{ c.type }}）</option>
                 </select>
-                <label class="empty" style="display:block;margin:6px 0 2px">Skill（约束产出，勾选=生成时必启用；不勾则由大模型按需自动选）</label>
+                <label class="empty" style="display:block;margin:6px 0 2px">Skill 绑定（勾选=required；作者可从已安装 catalog 再建议）</label>
                 <div class="skill-picker">
-                  <span v-if="!(skills.data || []).length" class="empty">（暂无 Skill · 去「Skill 列表」新建）</span>
-                  <label v-for="s in (skills.data || [])" :key="s.name" class="skill-opt" :title="s.description">
+                  <span v-if="!(skillCatalog.data || []).filter((s) => s.installed).length" class="empty">（catalog 中暂无可绑定的已安装 Skill）</span>
+                  <label v-for="s in (skillCatalog.data || []).filter((s) => s.installed)" :key="`${s.source}:${s.name}`" class="skill-opt" :title="s.description">
                     <input type="checkbox" :value="s.name" v-model="agentCreate.skills" />
-                    <span class="mono">{{ s.name }}</span>
+                    <span class="mono">{{ s.name }}</span><span class="empty">{{ s.visibility }}</span>
                   </label>
                 </div>
-                <p class="empty">可先「用大模型生成」各文件、编辑后再创建；也可直接「创建」，后台按模板脚手架出完整目录（AGENT.md + scripts/ + skills/ + REFERENCE.md）。</p>
+                <p v-if="agentCreate.suggestedSkills.length" class="empty">作者建议：{{ agentCreate.suggestedSkills.join('、') }}；已合并到最终绑定，可在创建前取消。</p>
+                <p class="empty">绑定保存为 agents/&lt;name&gt;/skills/&lt;skill&gt; 固定相对软连接；AGENT.md 不保存 skills 字段，也不预载正文。</p>
                 <div class="ops">
                   <button class="btn" :disabled="agentCreate.busy || !agentCreate.name.trim()" @click="generateFiles">用大模型生成</button>
                   <button class="btn btn-primary" :disabled="agentCreate.busy || !agentCreate.name.trim()" @click="submitCreate">创建</button>
@@ -1441,15 +1543,6 @@ const outputRows = computed(() =>
                     <p v-if="editModels.loading" class="empty">加载模型列表…</p>
                     <p v-else-if="editModels.error" class="error">模型列表加载失败：{{ editModels.error }}</p>
                   </div>
-                  <div class="info-row edit">
-                    <label class="k">skills</label>
-                    <div class="skill-picker">
-                      <label v-for="s in (skills.data || [])" :key="s.name" class="skill-opt">
-                        <input type="checkbox" :value="s.name" v-model="editBasic.skills" /> {{ s.name }}
-                      </label>
-                      <span v-if="!(skills.data || []).length" class="empty">（暂无 Skill）</span>
-                    </div>
-                  </div>
                   <div class="info-actions">
                     <button class="btn btn-primary" :disabled="editSaving" @click="saveEditBasic">保存</button>
                     <button class="btn" :disabled="editSaving" @click="cancelEditBasic">取消</button>
@@ -1464,7 +1557,19 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">provider</span><span>{{ agentDetail.agent.provider || '—' }}</span></div>
                   <div class="info-row"><span class="k">model</span><span>{{ agentDetail.agent.model || '—' }}</span></div>
                   <div class="info-row"><span class="k">tools</span><span>{{ (agentDetail.agent.tools || []).join(', ') || '—' }}</span></div>
-                  <div class="info-row"><span class="k">skills</span><span>{{ (agentDetail.agent.skills || []).join(', ') || '—' }}</span></div>
+                  <div class="info-row"><span class="k">skills</span>
+                    <div>
+                      <div class="skill-picker">
+                        <label v-for="s in (skillCatalog.data || []).filter((s) => s.installed)" :key="`${s.source}:${s.name}`" class="skill-opt" :title="s.description">
+                          <input type="checkbox" :value="s.name" v-model="agentBinding.selected" />
+                          <span class="mono">{{ s.name }}</span><span class="empty">{{ s.visibility }}</span>
+                        </label>
+                      </div>
+                      <div class="ops"><button class="btn" :disabled="agentBinding.saving" @click="saveAgentBindings">{{ agentBinding.saving ? '保存中…' : '保存绑定' }}</button></div>
+                      <p v-if="agentBinding.error" class="error">{{ agentBinding.error }}</p>
+                      <p v-for="(issue, i) in agentBinding.issues" :key="i" class="error">{{ issue.type }}：{{ issue.message }}</p>
+                    </div>
+                  </div>
                   <div class="info-row"><span class="k">定时</span><span class="mono">{{ (agentDetail.agent.schedules || []).map((s) => s.cron + ' (' + s.zone + ')').join('；') || '—' }}</span></div>
                 </template>
               </div>
@@ -1480,7 +1585,8 @@ const outputRows = computed(() =>
                          :class="['ws-node', { file: node.type === 'file', on: fileView && fileView.path === node.path }]"
                          :style="{ paddingLeft: (node.depth * 14) + 'px' }"
                          @click="openFile(node)">
-                      <span class="mono">{{ node.type === 'dir' ? '📁' : '📄' }} {{ node.name }}</span>
+                      <span class="mono">{{ node.type === 'dir' ? '📁' : node.type === 'link' ? '🔗' : '📄' }} {{ node.name }}</span>
+                      <span v-if="node.type === 'link'" class="empty"> → {{ node.linkTarget }} · {{ node.linkStatus }}</span>
                       <a v-if="node.type === 'file'" class="dl" :href="downloadUrl(node.path)"
                          :download="node.name" @click.stop title="下载">⬇</a>
                     </div>

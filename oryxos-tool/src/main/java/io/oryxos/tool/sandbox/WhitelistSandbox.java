@@ -1,7 +1,9 @@
 package io.oryxos.tool.sandbox;
 
+import io.oryxos.core.fs.RealPathBoundary;
 import io.oryxos.core.sandbox.SandboxWhitelist;
 import io.oryxos.core.sandbox.SandboxWhitelistStore;
+import java.net.IDN;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
@@ -35,11 +37,9 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** 域名白名单里的通配前缀；命中后转成"以 . 之后部分结尾"的点号边界匹配。 */
   private static final String WILDCARD_PREFIX = "*.";
 
-  /** SSRF 防护：已知内部主机名。 */
   private static final String LOCALHOST = "localhost";
-
-  private static final String METADATA_GOOGLE_INTERNAL = "metadata.google.internal";
-  private static final String INTERNAL_SUFFIX = ".internal";
+  private static final String GOOGLE_METADATA_HOST = "metadata.google.internal";
+  private static final String INTERNAL_DOMAIN_SUFFIX = ".internal";
 
   // 具体类型 CopyOnWriteArrayList（而非 List 接口）：需要 addIfAbsent 的原子"不存在才加"语义
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
@@ -93,7 +93,7 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   private static Path normalizeRoot(String rawPath) {
-    return Path.of(rawPath).toAbsolutePath().normalize();
+    return RealPathBoundary.project(Path.of(rawPath)).projectedReal();
   }
 
   @Override
@@ -121,7 +121,12 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   private void checkFilePath(String rawPath) {
-    Path target = Path.of(rawPath).normalize().toAbsolutePath();
+    Path target;
+    try {
+      target = RealPathBoundary.project(Path.of(rawPath)).projectedReal();
+    } catch (RuntimeException e) {
+      throw new SandboxViolationException("路径真实目标无法安全解析，拒绝访问: " + rawPath);
+    }
     boolean allowed = allowedRoots.stream().anyMatch(target::startsWith);
     if (!allowed) {
       throw new SandboxViolationException(
@@ -180,14 +185,23 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** SSRF 兜底：拒绝主机解析到回环/任意本地/链路本地(含云元数据 169.254.169.254)/站点内网/组播/CGNAT，及 localhost、*.internal。 */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
-      justification = "toLowerCase(Locale.ROOT) 已是稳定的大小写转换；主机名不含特殊 Unicode 字符，误报。")
+      justification =
+          "IDN.toASCII canonicalizes the complete DNS host before security checks; no substring is transformed independently.")
   private static void assertNotInternalHost(String host) {
-    String h = host.toLowerCase(Locale.ROOT);
-    if (LOCALHOST.equals(h) || METADATA_GOOGLE_INTERNAL.equals(h) || h.endsWith(INTERNAL_SUFFIX)) {
+    String asciiHost;
+    try {
+      asciiHost = IDN.toASCII(host);
+    } catch (IllegalArgumentException e) {
+      throw new SandboxViolationException("非法主机名: " + host);
+    }
+    if (isInternalName(asciiHost)) {
       throw new SandboxViolationException("拒绝访问内网 / 元数据主机（SSRF 防护）: " + host + "。这是安全策略，请勿重试。");
     }
     // IPv6 字面量 getHost() 带方括号（如 [fd00::1]），解析前剥掉，ULA/回环等判断才生效
-    String lookup = h.startsWith("[") && h.endsWith("]") ? h.substring(1, h.length() - 1) : host;
+    String lookup =
+        asciiHost.startsWith("[") && asciiHost.endsWith("]")
+            ? asciiHost.substring(1, asciiHost.length() - 1)
+            : asciiHost;
     InetAddress[] addresses;
     try {
       addresses = InetAddress.getAllByName(lookup);
@@ -206,6 +220,20 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
             "拒绝访问内网 / 保留地址（SSRF 防护）: " + host + " → " + addr.getHostAddress() + "。这是安全策略，请勿重试。");
       }
     }
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "DNS labels are case-insensitive and the complete IDN-canonicalized host is compared.")
+  private static boolean isInternalName(String host) {
+    if (LOCALHOST.equalsIgnoreCase(host) || GOOGLE_METADATA_HOST.equalsIgnoreCase(host)) {
+      return true;
+    }
+    int offset = host.length() - INTERNAL_DOMAIN_SUFFIX.length();
+    return offset >= 0
+        && host.regionMatches(
+            true, offset, INTERNAL_DOMAIN_SUFFIX, 0, INTERNAL_DOMAIN_SUFFIX.length());
   }
 
   /** 100.64.0.0/10（运营商级 NAT，isSiteLocalAddress 不覆盖，单独判）。 */

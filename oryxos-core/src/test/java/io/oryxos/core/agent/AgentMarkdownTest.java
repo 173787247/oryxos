@@ -3,6 +3,7 @@ package io.oryxos.core.agent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -45,5 +46,20 @@ class AgentMarkdownTest {
     AgentMarkdown.Parsed parsed = AgentMarkdown.split(content);
     assertEquals("ops", parsed.frontmatter().get("name"));
     assertTrue(parsed.body().contains("正文里的分隔线"), "首个闭合围栏之后的 --- 属于正文");
+  }
+
+  @Test
+  @DisplayName("legacy 迁移只移除顶层 skills 块并保留 CRLF、其它字段和正文")
+  void removeLegacySkillsPreservesEverythingElse() {
+    String input =
+        "---\r\nname: ops\r\nsettings:\r\n  skills: nested-kept\r\nskills:\r\n  - report\r\n  - web\r\nprovider: mock\r\n---\r\n正文 skills: 不动\r\n";
+
+    String output = AgentMarkdown.removeLegacySkills(input);
+
+    assertEquals(
+        "---\r\nname: ops\r\nsettings:\r\n  skills: nested-kept\r\nprovider: mock\r\n---\r\n正文 skills: 不动\r\n",
+        output);
+    assertEquals(List.of("report", "web"), AgentMarkdown.legacySkills(input));
+    assertTrue(AgentMarkdown.hasLegacySkills(input));
   }
 }
