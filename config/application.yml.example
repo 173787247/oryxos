@@ -75,4 +75,4 @@ oryxos:
   # 「一句话生成 Agent 草稿」调 LLM 用的作者模型；provider 缺省取 providers 第一个
   author:
     provider: deepseek
-    model: deepseek-chat
+    model: deepseek-v4-flash     # deepseek-chat 已废弃；可选 deepseek-v4-flash（快/省）| deepseek-v4-pro（强）
