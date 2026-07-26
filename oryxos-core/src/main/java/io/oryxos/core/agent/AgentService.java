@@ -46,8 +46,14 @@ public class AgentService {
     ProfileContext.set(profile); // 工具执行时靠它知道"当前是哪个 Agent"
     try {
       String reply = reActLoop.run(session, userMessage, profile);
-      sessionManager.save(session); // 把累积完的历史持久化（仅正常路径）
-      recordTrigger(profile.name(), userMessage, reply); // 每次触发留一条归档记忆（运行足迹）
+      // 达到最大迭代上限时 ReAct 返回占位文本（不抛异常），这里检测并转为异常，
+      // 让 triggerAsync 把执行记成失败状态（否则前端显示"执行成功"——错误引导用户）
+      boolean exhausted = ReActLoop.MAX_ITERATIONS_REPLY.equals(reply);
+      sessionManager.save(session); // 无论是正常结束还是迭代耗尽，保存现场供审计/排查
+      if (exhausted) {
+        throw new AgentMaxIterationsExceededException(reply);
+      }
+      recordTrigger(profile.name(), userMessage, reply); // 正常完成才记运行足迹
       return reply;
     } finally {
       ProfileContext.clear(); // 虚拟线程每请求独立，用完必须清

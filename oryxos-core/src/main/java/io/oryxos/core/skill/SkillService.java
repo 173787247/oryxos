@@ -13,6 +13,9 @@ import java.util.Optional;
  * 层解耦：{@link #get} 返回 {@link Optional}，404 由 web 决定；非法入参抛 {@link IllegalArgumentException}（web 映射
  * 400）。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "EI_EXPOSE_REP2",
+    justification = "registry / store 均为 Spring 注入的共享单例，构造注入共享同一引用正是意图（全局 Skill 库必须是同一份）。")
 public class SkillService {
 
   /** 内置 Skill 名（供测试与外部引用）。 */

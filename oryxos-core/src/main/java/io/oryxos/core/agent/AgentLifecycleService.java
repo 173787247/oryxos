@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.DumperOptions.FlowStyle;
+import org.yaml.snakeyaml.Yaml;
 
 /**
  * Agent 生命周期编排（第 30 节）：三条录入（API create / WorkspaceWatcher 事件 / 启动扫描）都汇到同一段 {@link
@@ -45,7 +48,7 @@ public class AgentLifecycleService {
         prompt: 你是一个乐于助人的助手。
       provider:
         name: {provider}
-        model: 请在此填写模型名
+        model: {model}
       tools:
         - read_file
         - shell
@@ -105,7 +108,7 @@ public class AgentLifecycleService {
       硬性规则：
       1. AGENT.md 以 YAML frontmatter 开头结尾（--- 与 ---），frontmatter 必须含 name、description、identity(agent_name/prompt)、\
       provider(name/model)、tools、settings(max_iterations/max_history_turns)；有定时需求再加 schedules。
-      2. name 必须是「{name}」；provider.name 必须是「{provider}」；model 填该 provider 下合理的模型名。
+      2. name 必须是「{name}」；provider.name 必须是「{provider}」；model 必须是「{model}」（若该 provider 下没有这个 exact 模型名，就填该 provider 下合理的默认模型名）。
       3. tools 只能从下面【可用工具】里按需挑选，**绝不允许编造清单以外的工具名**。常见映射：查网页/接口数据用 http_get / http_post；\
       抓网页正文用 fetch_webpage；读写文件用 read_file / write_file；跑脚本用 shell。
       4. schedules 每条的字段只有：id（任务标识）、cron（Spring 6 段 cron，如 "0 0 9 * * *" 表示每天 9 点）、zone（时区，如 Asia/Shanghai）、\
@@ -166,6 +169,14 @@ public class AgentLifecycleService {
 
   /** Markdown 代码围栏标记（模型偶尔会用 ``` 包住输出，剥掉它）。 */
   private static final String CODE_FENCE = "```";
+
+  /** YAML frontmatter 围栏（与 AgentMarkdown 一致）。 */
+  private static final String YAML_FENCE = "---";
+
+  /** YAML 层级的缩进字面量。 */
+  private static final String INDENT_SPACE = " ";
+
+  private static final String INDENT_TAB = "\t";
 
   private final AgentLoader agentLoader;
   private final ProfileRegistry profileRegistry;
@@ -269,10 +280,24 @@ public class AgentLifecycleService {
    * 冲突第一步就拒；中途失败回滚已写目录，不留半个 Agent。
    */
   public Profile create(String name, String description) {
+    return create(name, description, null, null);
+  }
+
+  /**
+   * 创建：name + description + 可选 provider/model；provider/model 写进 AGENT.md 的 frontmatter，新建时即可选模型。
+   * provider/model 为空则回退默认 provider（oryxos.agent.default-provider）与占位模型名。
+   */
+  public Profile create(String name, String description, String provider, String model) {
     if (profileRegistry.exists(name)) {
       throw new IllegalArgumentException("Agent 已存在: " + name);
     }
-    Path agentDir = agentStore.writeAll(name, scaffold(name, description));
+    String resolvedProvider =
+        (provider == null || provider.isBlank())
+            ? (defaultProvider == null || defaultProvider.isBlank() ? "deepseek" : defaultProvider)
+            : provider;
+    String resolvedModel = (model == null || model.isBlank()) ? "请在此填写模型名" : model;
+    Path agentDir =
+        agentStore.writeAll(name, scaffold(name, description, resolvedProvider, resolvedModel));
     try {
       return register(agentDir);
     } catch (RuntimeException e) {
@@ -281,17 +306,17 @@ public class AgentLifecycleService {
     }
   }
 
-  private Map<String, String> scaffold(String name, String description) {
+  private Map<String, String> scaffold(
+      String name, String description, String provider, String model) {
     String desc = description == null || description.isBlank() ? "描述这个 Agent 做什么" : description;
-    String provider =
-        defaultProvider == null || defaultProvider.isBlank() ? "deepseek" : defaultProvider;
     Map<String, String> files = new LinkedHashMap<>();
     files.put(
         "AGENT.md",
         AGENT_MD_TEMPLATE
             .replace("{name}", name)
             .replace("{description}", desc)
-            .replace("{provider}", provider));
+            .replace("{provider}", provider)
+            .replace("{model}", model));
     files.put("scripts/example.py", SCRIPT_TEMPLATE);
     files.put("skills/example.md", SKILL_TEMPLATE);
     files.put("REFERENCE.md", REFERENCE_TEMPLATE);
@@ -343,6 +368,63 @@ public class AgentLifecycleService {
   }
 
   /**
+   * 编辑基本信息：只改 AGENT.md frontmatter 里的若干 key（description / provider.name / provider.model /
+   * skills），正文与未提及的 frontmatter 字段原样保留（不丢指令、不丢定时/工具等配置）。 传 null 的字段保持原值；description 清空→置空；
+   * provider.model 为空则沿用原值（model 为必填，不允许清空）。 先合成新 markdown 并用 {@link AgentLoader#parse} 预校验（非法→抛
+   * ProfileValidationException，且不落盘、不破坏原文件），通过再走 {@link #update} 重写+重注册。
+   */
+  public Profile updateBasicInfo(
+      String name, String description, String provider, String model, List<String> skills) {
+    String raw = agentStore.read(name);
+    AgentMarkdown.Parsed parsed = AgentMarkdown.split(raw);
+    // frontmatter 来自 snakeyaml 解析，本身是 LinkedHashMap（保序）；复制进可变 Map 再改，避免改动原始不可变 Map
+    Map<String, Object> fm = new LinkedHashMap<>(parsed.frontmatter());
+    if (description != null) {
+      String d = description.strip();
+      if (d.isEmpty()) {
+        fm.remove("description");
+      } else {
+        fm.put("description", d);
+      }
+    }
+    if (provider != null && !provider.isBlank()) {
+      @SuppressWarnings("unchecked")
+      Map<String, Object> pm =
+          fm.get("provider") instanceof Map
+              ? new LinkedHashMap<>((Map<String, Object>) fm.get("provider"))
+              : new LinkedHashMap<>();
+      pm.put("name", provider.strip());
+      if (model != null && !model.isBlank()) {
+        pm.put("model", model.strip());
+      }
+      fm.put("provider", pm);
+    } else if (model != null && !model.isBlank()) {
+      // 只改 model、provider 不变：直接在原 provider 段更新 model
+      @SuppressWarnings("unchecked")
+      Map<String, Object> pm =
+          fm.get("provider") instanceof Map
+              ? new LinkedHashMap<>((Map<String, Object>) fm.get("provider"))
+              : new LinkedHashMap<>();
+      pm.put("model", model.strip());
+      fm.put("provider", pm);
+    }
+    if (skills != null) {
+      fm.put("skills", new ArrayList<>(skills));
+    }
+    String newMarkdown = assembleMarkdown(fm, parsed.body());
+    agentLoader.parse(newMarkdown, name); // 预校验：非法定义直接抛，不破坏原文件
+    return update(name, newMarkdown);
+  }
+
+  /** 把改好的 frontmatter Map + 正文重新拼成 AGENT.md（与 {@link AgentMarkdown#split} 的围栏约定一致）。 */
+  private static String assembleMarkdown(Map<String, Object> frontmatter, String body) {
+    DumperOptions opts = new DumperOptions();
+    opts.setDefaultFlowStyle(FlowStyle.BLOCK);
+    String yaml = new Yaml(opts).dump(frontmatter);
+    return "---\n" + yaml + "---\n\n" + body + "\n";
+  }
+
+  /**
    * 用大模型按一句话需求生成一份 AGENT.md 草稿（30 节「生成/编辑 Agent」）：一次 LLM 调用（走既有 {@link ProviderService}，落 llm_calls
    * 审计）产出文本 → 校验能否解析成合法定义（非法抛 {@code ProfileValidationException} → 400）→ 原样返回 {relativePath:
    * content} 给前端预览可改；**不落盘、不注册**（保存另走 {@link #saveFiles}）。生成用的 provider/model 取 oryxos.author.*
@@ -358,6 +440,20 @@ public class AgentLifecycleService {
    */
   public Map<String, String> generateFiles(
       String name, String description, String notifyChannel, List<String> requiredSkills) {
+    return generateFiles(name, description, notifyChannel, requiredSkills, null, null);
+  }
+
+  /**
+   * 同上，但允许用户在前端**显式选好 provider/model**：生成时直接把它们写进输出 AGENT.md 的 frontmatter（覆盖默认/沿用逻辑），
+   * 让「用大模型生成」也尊重用户在新建页挑的模型。provider/model 为空则沿用原有逻辑（已存在 Agent 用其 provider，否则用作者 provider）。
+   */
+  public Map<String, String> generateFiles(
+      String name,
+      String description,
+      String notifyChannel,
+      List<String> requiredSkills,
+      String provider,
+      String model) {
     String genProvider =
         authorProvider == null || authorProvider.isBlank()
             ? (defaultProvider == null || defaultProvider.isBlank() ? "deepseek" : defaultProvider)
@@ -378,8 +474,12 @@ public class AgentLifecycleService {
         throw new IllegalArgumentException("Skill 不存在: " + s);
       }
     }
+    // provider/model：用户在前端挑了就用挑的；否则沿用已有 Agent 的 provider，再否则用作者 provider
     String outputProvider =
-        profileRegistry.get(name).map(p -> p.provider().name()).orElse(genProvider);
+        (provider != null && !provider.isBlank())
+            ? provider
+            : profileRegistry.get(name).map(p -> p.provider().name()).orElse(genProvider);
+    String modelHint = (model != null && !model.isBlank()) ? model : "该 provider 下合理的模型名";
     Profile genProfile =
         new Profile(
             "agent-author",
@@ -397,6 +497,7 @@ public class AgentLifecycleService {
         AGENT_AUTHOR_PROMPT
                 .replace("{name}", name)
                 .replace("{provider}", outputProvider)
+                .replace("{model}", modelHint)
                 .replace("{tools}", describeTools())
                 .replace("{mcp_servers}", describeMcpServers())
                 .replace("{skills}", describeSkills())
@@ -444,12 +545,12 @@ public class AgentLifecycleService {
     // 定位 frontmatter 围栏（合法定义必有；找不到则不动，交由后续校验报错）
     String normalized = agentMarkdown.replace("\r\n", "\n").replace('\r', '\n');
     String[] lines = normalized.split("\n", -1);
-    if (lines.length == 0 || !"---".equals(lines[0].strip())) {
+    if (lines.length == 0 || !YAML_FENCE.equals(lines[0].strip())) {
       return agentMarkdown;
     }
     int close = -1;
     for (int i = 1; i < lines.length; i++) {
-      if ("---".equals(lines[i].strip())) {
+      if (YAML_FENCE.equals(lines[i].strip())) {
         close = i;
         break;
       }
@@ -467,7 +568,9 @@ public class AgentLifecycleService {
               && line.strip().matches("skills\\s*:.*");
       if (topLevelSkills) {
         i++;
-        while (i < close && (lines[i].startsWith(" ") || lines[i].startsWith("\t"))) { // 跳过其列表项/缩进块
+        while (i < close
+            && (lines[i].startsWith(INDENT_SPACE)
+                || lines[i].startsWith(INDENT_TAB))) { // 跳过其列表项/缩进块
           i++;
         }
         i--; // 抵消 for 的 i++
@@ -475,7 +578,7 @@ public class AgentLifecycleService {
       }
       kept.add(line);
     }
-    StringBuilder out = new StringBuilder("---\n");
+    StringBuilder out = new StringBuilder(YAML_FENCE + "\n");
     for (String line : kept) {
       out.append(line).append('\n');
     }
@@ -483,7 +586,7 @@ public class AgentLifecycleService {
     for (String s : merged) {
       out.append("  - ").append(s).append('\n');
     }
-    out.append("---\n");
+    out.append(YAML_FENCE).append("\n");
     for (int i = close + 1; i < lines.length; i++) {
       out.append(lines[i]);
       if (i < lines.length - 1) {

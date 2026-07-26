@@ -75,7 +75,7 @@ class AgentApiControllerTest {
   @Test
   @DisplayName("create 成功_返回 AgentView")
   void create_success_returnsAgentView() throws Exception {
-    when(lifecycle.create(eq("demo"), any())).thenReturn(profile("demo"));
+    when(lifecycle.create(eq("demo"), any(), any(), any())).thenReturn(profile("demo"));
 
     mvc.perform(
             post("/api/v1/agents")
@@ -88,7 +88,7 @@ class AgentApiControllerTest {
   @Test
   @DisplayName("create name 冲突_返回400")
   void create_conflict_returns400() throws Exception {
-    when(lifecycle.create(eq("dup"), any()))
+    when(lifecycle.create(eq("dup"), any(), any(), any()))
         .thenThrow(new IllegalArgumentException("Agent 已存在: dup"));
 
     mvc.perform(
@@ -169,5 +169,37 @@ class AgentApiControllerTest {
                 .content("{\"content\":\"" + huge + "\"}"))
         .andExpect(status().isBadRequest());
     verify(agentService, never()).process(any(), any());
+  }
+
+  @Test
+  @DisplayName("updateBasic 成功_返回 AgentView")
+  void updateBasic_success_returnsAgentView() throws Exception {
+    when(lifecycle.get("demo")).thenReturn(Optional.of(profile("demo")));
+    when(lifecycle.updateBasicInfo(eq("demo"), eq("新描述"), eq("openai"), eq("gpt-4o"), any()))
+        .thenReturn(profile("demo"));
+
+    mvc.perform(
+            put("/api/v1/agents/demo/basic")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"description\":\"新描述\",\"provider\":\"openai\",\"model\":\"gpt-4o\",\"skills\":[\"s1\",\"s2\"]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.name").value("demo"));
+    verify(lifecycle).updateBasicInfo(eq("demo"), eq("新描述"), eq("openai"), eq("gpt-4o"), any());
+  }
+
+  @Test
+  @DisplayName("updateBasic 不存在_返回404")
+  void updateBasic_unknown_returns404() throws Exception {
+    when(lifecycle.get("ghost")).thenReturn(Optional.empty());
+
+    mvc.perform(
+            put("/api/v1/agents/ghost/basic")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"description\":\"x\",\"provider\":\"openai\",\"model\":\"gpt-4o\",\"skills\":[]}"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value(404));
+    verify(lifecycle, never()).updateBasicInfo(any(), any(), any(), any(), any());
   }
 }

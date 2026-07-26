@@ -208,6 +208,7 @@
                         <printFailingErrors>true</printFailingErrors>
                         <skipPmdError>false</skipPmdError>
                         <linkXRef>false</linkXRef>
+                        <analysisCache>true</analysisCache>
                         <rulesets>
                             <ruleset>rulesets/java/ali-naming.xml</ruleset>
                             <ruleset>rulesets/java/ali-oop.xml</ruleset>

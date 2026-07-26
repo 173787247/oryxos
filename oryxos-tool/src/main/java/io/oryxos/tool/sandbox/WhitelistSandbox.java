@@ -35,6 +35,12 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** 域名白名单里的通配前缀；命中后转成"以 . 之后部分结尾"的点号边界匹配。 */
   private static final String WILDCARD_PREFIX = "*.";
 
+  /** SSRF 防护：已知内部主机名。 */
+  private static final String LOCALHOST = "localhost";
+
+  private static final String METADATA_GOOGLE_INTERNAL = "metadata.google.internal";
+  private static final String INTERNAL_SUFFIX = ".internal";
+
   // 具体类型 CopyOnWriteArrayList（而非 List 接口）：需要 addIfAbsent 的原子"不存在才加"语义
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
   private final Set<String> allowedCommands = ConcurrentHashMap.newKeySet();
@@ -172,9 +178,12 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /** SSRF 兜底：拒绝主机解析到回环/任意本地/链路本地(含云元数据 169.254.169.254)/站点内网/组播/CGNAT，及 localhost、*.internal。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification = "toLowerCase(Locale.ROOT) 已是稳定的大小写转换；主机名不含特殊 Unicode 字符，误报。")
   private static void assertNotInternalHost(String host) {
     String h = host.toLowerCase(Locale.ROOT);
-    if (h.equals("localhost") || h.equals("metadata.google.internal") || h.endsWith(".internal")) {
+    if (LOCALHOST.equals(h) || METADATA_GOOGLE_INTERNAL.equals(h) || h.endsWith(INTERNAL_SUFFIX)) {
       throw new SandboxViolationException("拒绝访问内网 / 元数据主机（SSRF 防护）: " + host + "。这是安全策略，请勿重试。");
     }
     // IPv6 字面量 getHost() 带方括号（如 [fd00::1]），解析前剥掉，ULA/回环等判断才生效

@@ -313,13 +313,39 @@ async function loadAgents() {
 
 // 新建 Agent：独立成页（不再是弹框），把「大模型生成」折叠进来。
 // 只填 name + description 可直接按模板脚手架；也可先「用大模型生成」各文件、编辑后再创建。
-const agentCreate = reactive({ open: false, name: '', description: '', notifyChannel: '', skills: [], files: null, busy: false, error: '' })
+const agentCreate = reactive({ open: false, name: '', description: '', provider: '', model: '', notifyChannel: '', skills: [], files: null, busy: false, error: '' })
+
+// 新建页用的 provider / model 下拉数据源：provider 来自 GET /providers；model 来自 GET /providers/{name}/models（服务端代理）
+const createProviders = ref({ loading: false, error: null, data: [] })
+const createModels = ref({ loading: false, error: null, data: [] })
+async function loadCreateProviders() {
+  createProviders.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch('/api/v1/providers')
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    createProviders.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) { createProviders.value = { loading: false, error: e.message, data: [] } }
+}
+async function loadCreateModels(name) {
+  if (!name) { createModels.value = { loading: false, error: null, data: [] }; return }
+  createModels.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch(`/api/v1/providers/${encodeURIComponent(name)}/models`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    createModels.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) { createModels.value = { loading: false, error: e.message, data: [] } }
+}
+function onProviderChange() { agentCreate.model = ''; loadCreateModels(agentCreate.provider) }
 
 // 打开新建页：重置字段 + 拉通知渠道下拉数据
 function openCreate() {
   agentCreate.open = true
   agentCreate.name = ''
   agentCreate.description = ''
+  agentCreate.provider = ''
+  agentCreate.model = ''
   agentCreate.notifyChannel = ''
   agentCreate.skills = []
   agentCreate.files = null
@@ -327,6 +353,7 @@ function openCreate() {
   agentCreate.error = ''
   loadNotifyChannels()
   loadSkills() // Skill 选择器的数据源（可手动指定必启用的 Skill；不选则由作者模型自动选）
+  loadCreateProviders() // provider 下拉数据源
 }
 
 function cancelCreate() { agentCreate.open = false }
@@ -338,7 +365,7 @@ async function generateFiles() {
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentCreate.name)}/generate-files`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: agentCreate.description, notifyChannel: agentCreate.notifyChannel, skills: agentCreate.skills }),
+      body: JSON.stringify({ description: agentCreate.description, notifyChannel: agentCreate.notifyChannel, skills: agentCreate.skills, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined }),
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '生成失败')
@@ -356,9 +383,9 @@ async function submitCreate() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ files: agentCreate.files }),
         })
-      : await fetch('/api/v1/agents', {
+        : await fetch('/api/v1/agents', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: agentCreate.name, description: agentCreate.description }),
+          body: JSON.stringify({ name: agentCreate.name, description: agentCreate.description, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined }),
         })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '创建失败')
@@ -706,8 +733,13 @@ async function deleteWhitelist(category, value) {
 }
 
 // —— Agent 详情：Tab 切换（基本信息 / 文件 / 会话 / 记忆）——
-const agentDetail = ref(null) // { name, agent, tab, loading, error, node }
+const agentDetail = ref(null) // { name, agent, tab, loading, error, node, editing }
 const fileView = ref(null) // { path, loading, error, content, saving, saved }
+// 详情页「编辑基本信息」表单态 + 编辑态的 model 下拉数据源（与新建页的 createModels 分开，避免串台）
+const editBasic = reactive({ description: '', provider: '', model: '', skills: [] })
+const editModels = ref({ loading: false, error: null, data: [] })
+const editSaving = ref(false)
+const editError = ref(null)
 // .md 文件视图切换：'preview'（渲染，默认）/ 'source'（原文，可编辑）。共享一个 ref——
 // 工作区/输出两个浏览器同时只显示一个，且都复用同一个 fileView。
 const mdView = ref('preview')
@@ -750,7 +782,7 @@ function toggleTurn(i) {
 const agentMemory = reactive({ text: '', loading: false, error: null })
 
 async function openAgent(agent) {
-  agentDetail.value = { name: agent.name, agent, tab: 'info', loading: true, error: null, node: null }
+  agentDetail.value = { name: agent.name, agent, tab: 'info', loading: true, error: null, node: null, editing: false }
   fileView.value = null
   resetChat()
   resetAgentMemory()
@@ -807,6 +839,55 @@ function detailTab(tab) {
   } else if (tab === 'executions') {
     loadExecutions()
   }
+}
+
+// —— 详情页「编辑基本信息」：结构化改 description / provider / model / skills（只动 AGENT.md frontmatter，正文与其它配置不动）——
+function startEditBasic() {
+  const a = agentDetail.value?.agent || {}
+  editBasic.description = a.description || ''
+  editBasic.provider = a.provider || ''
+  editBasic.model = a.model || ''
+  editBasic.skills = (a.skills || []).slice()
+  editError.value = null
+  agentDetail.value = { ...agentDetail.value, editing: true }
+  loadCreateProviders() // provider 下拉数据源（与新建页共用）
+  loadSkills() // Skill 选择器数据源
+  loadEditModels(editBasic.provider) // 拉当前 provider 的模型列表
+}
+function cancelEditBasic() {
+  agentDetail.value = { ...agentDetail.value, editing: false }
+  editError.value = null
+}
+async function loadEditModels(name) {
+  if (!name) { editModels.value = { loading: false, error: null, data: [] }; return }
+  editModels.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch(`/api/v1/providers/${encodeURIComponent(name)}/models`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    editModels.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) { editModels.value = { loading: false, error: e.message, data: [] } }
+}
+function onEditProviderChange() { editBasic.model = ''; loadEditModels(editBasic.provider) }
+async function saveEditBasic() {
+  if (!editBasic.provider || !editBasic.model) { editError.value = 'provider 与 model 必填'; return }
+  editSaving.value = true; editError.value = null
+  const name = agentDetail.value.name
+  try {
+    const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}/basic`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: editBasic.description,
+        provider: editBasic.provider,
+        model: editBasic.model,
+        skills: editBasic.skills,
+      }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存失败')
+    agentDetail.value = { ...agentDetail.value, editing: false }
+    await reloadAgent() // 刷新 agent 元数据（provider/model/skills 即时反映）
+  } catch (e) { editError.value = e.message } finally { editSaving.value = false }
 }
 
 // —— 执行历史 tab：该 Agent 每次触发的起止时间 / 状态 / 时长（手动 + 定时）——
@@ -1234,6 +1315,20 @@ const outputRows = computed(() =>
                 <input v-model="agentCreate.name" class="gen-input" placeholder="例如 pr-digest" />
                 <label class="empty" style="display:block;margin:6px 0 2px">描述这个 Agent 要做什么</label>
                 <textarea v-model="agentCreate.description" class="gen-draft" rows="4" placeholder="例如：每天早上抓取团队仓库的 PR，汇总成一份摘要推送到群里"></textarea>
+                <label class="empty" style="display:block;margin:6px 0 2px">Provider（模型供应商，从已配置的 Provider 里选；不选=默认 provider）</label>
+                <select v-model="agentCreate.provider" class="gen-input" @change="onProviderChange">
+                  <option value="">默认 provider</option>
+                  <option v-for="p in (createProviders.data || [])" :key="p.name" :value="p.name">{{ p.name }}</option>
+                </select>
+                <label class="empty" style="display:block;margin:6px 0 2px">Model（选好 Provider 后从它的模型列表里挑；不选=生成时再填）</label>
+                <select v-model="agentCreate.model" class="gen-input" :disabled="!agentCreate.provider">
+                  <option value="">— 请先选 Provider —</option>
+                  <option v-for="m in (createModels.data || [])" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <p v-if="createProviders.loading" class="empty">加载 Provider 列表…</p>
+                <p v-else-if="createProviders.error" class="error">Provider 列表加载失败：{{ createProviders.error }}</p>
+                <p v-else-if="agentCreate.provider && createModels.loading" class="empty">加载模型列表…</p>
+                <p v-else-if="agentCreate.provider && createModels.error" class="error">模型列表加载失败：{{ createModels.error }}</p>
                 <label class="empty" style="display:block;margin:6px 0 2px">通知渠道（投递目标，由你手动选；不选=本 Agent 不发通知）</label>
                 <select v-model="agentCreate.notifyChannel" class="gen-input">
                   <option value="">不通知</option>
@@ -1278,13 +1373,56 @@ const outputRows = computed(() =>
 
               <!-- Tab 1：基本信息 -->
               <div v-if="agentDetail.tab === 'info'" class="info-grid">
-                <div class="info-row"><span class="k">name</span><span class="mono">{{ agentDetail.agent.name }}</span></div>
-                <div class="info-row"><span class="k">description</span><span>{{ agentDetail.agent.description || '—' }}</span></div>
-                <div class="info-row"><span class="k">provider</span><span>{{ agentDetail.agent.provider || '—' }}</span></div>
-                <div class="info-row"><span class="k">model</span><span>{{ agentDetail.agent.model || '—' }}</span></div>
-                <div class="info-row"><span class="k">tools</span><span>{{ (agentDetail.agent.tools || []).join(', ') || '—' }}</span></div>
-                <div class="info-row"><span class="k">skills</span><span>{{ (agentDetail.agent.skills || []).join(', ') || '—' }}</span></div>
-                <div class="info-row"><span class="k">定时</span><span class="mono">{{ (agentDetail.agent.schedules || []).map((s) => s.cron + ' (' + s.zone + ')').join('；') || '—' }}</span></div>
+                <div class="info-actions" v-if="!agentDetail.editing">
+                  <button class="btn" @click="startEditBasic">编辑基本信息</button>
+                </div>
+                <template v-if="agentDetail.editing">
+                  <div class="info-row edit">
+                    <label class="k">description</label>
+                    <textarea v-model="editBasic.description" class="gen-input" rows="3" placeholder="这个 Agent 做什么"></textarea>
+                  </div>
+                  <div class="info-row edit">
+                    <label class="k">provider</label>
+                    <select v-model="editBasic.provider" class="gen-input" @change="onEditProviderChange">
+                      <option value="">— 请选择 Provider —</option>
+                      <option v-for="p in (createProviders.data || [])" :key="p.name" :value="p.name">{{ p.name }}</option>
+                    </select>
+                  </div>
+                  <div class="info-row edit">
+                    <label class="k">model</label>
+                    <select v-model="editBasic.model" class="gen-input" :disabled="!editBasic.provider">
+                      <option value="">— 请先选 Provider —</option>
+                      <option v-for="m in (editModels.data || [])" :key="m" :value="m">{{ m }}</option>
+                    </select>
+                    <p v-if="editModels.loading" class="empty">加载模型列表…</p>
+                    <p v-else-if="editModels.error" class="error">模型列表加载失败：{{ editModels.error }}</p>
+                  </div>
+                  <div class="info-row edit">
+                    <label class="k">skills</label>
+                    <div class="skill-picker">
+                      <label v-for="s in (skills.data || [])" :key="s.name" class="skill-opt">
+                        <input type="checkbox" :value="s.name" v-model="editBasic.skills" /> {{ s.name }}
+                      </label>
+                      <span v-if="!(skills.data || []).length" class="empty">（暂无 Skill）</span>
+                    </div>
+                  </div>
+                  <div class="info-actions">
+                    <button class="btn btn-primary" :disabled="editSaving" @click="saveEditBasic">保存</button>
+                    <button class="btn" :disabled="editSaving" @click="cancelEditBasic">取消</button>
+                    <span v-if="editSaving" class="empty">保存中…</span>
+                    <span v-if="editError" class="error">{{ editError }}</span>
+                  </div>
+                  <p class="empty">name 为 Agent 标识，不可改；正文/工具/定时等配置不受影响。</p>
+                </template>
+                <template v-else>
+                  <div class="info-row"><span class="k">name</span><span class="mono">{{ agentDetail.agent.name }}</span></div>
+                  <div class="info-row"><span class="k">description</span><span>{{ agentDetail.agent.description || '—' }}</span></div>
+                  <div class="info-row"><span class="k">provider</span><span>{{ agentDetail.agent.provider || '—' }}</span></div>
+                  <div class="info-row"><span class="k">model</span><span>{{ agentDetail.agent.model || '—' }}</span></div>
+                  <div class="info-row"><span class="k">tools</span><span>{{ (agentDetail.agent.tools || []).join(', ') || '—' }}</span></div>
+                  <div class="info-row"><span class="k">skills</span><span>{{ (agentDetail.agent.skills || []).join(', ') || '—' }}</span></div>
+                  <div class="info-row"><span class="k">定时</span><span class="mono">{{ (agentDetail.agent.schedules || []).map((s) => s.cron + ' (' + s.zone + ')').join('；') || '—' }}</span></div>
+                </template>
               </div>
 
               <!-- Tab 3：文件浏览器（可编辑） -->
@@ -1471,13 +1609,14 @@ const outputRows = computed(() =>
               <p v-if="agents.loading" class="empty">加载中…</p>
               <p v-else-if="agents.error" class="error">出错：{{ agents.error }}</p>
               <table v-else>
-                <thead><tr><th>name</th><th>description</th><th>provider</th><th>tools</th><th>定时</th><th>操作</th></tr></thead>
+                <thead><tr><th>name</th><th>description</th><th>provider</th><th>model</th><th>tools</th><th>定时</th><th>操作</th></tr></thead>
                 <tbody>
-                  <tr v-if="!agents.data.length"><td colspan="6" class="empty">（暂无 Agent · 点上面「新建 Agent」，或往 .oryxos/agents/ 丢一个目录）</td></tr>
+                  <tr v-if="!agents.data.length"><td colspan="7" class="empty">（暂无 Agent · 点上面「新建 Agent」，或往 .oryxos/agents/ 丢一个目录）</td></tr>
                   <tr v-for="a in agents.data" :key="a.name">
                     <td class="mono">{{ a.name }}</td>
                     <td>{{ a.description || '—' }}</td>
                     <td>{{ a.provider }}</td>
+                    <td>{{ a.model || '—' }}</td>
                     <td>{{ (a.tools || []).join(', ') }}</td>
                     <td class="mono">{{ (a.schedules || []).map((s) => s.cron).join('; ') || '—' }}</td>
                     <td class="ops">
