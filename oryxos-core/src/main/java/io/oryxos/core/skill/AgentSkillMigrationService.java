@@ -81,6 +81,9 @@ public final class AgentSkillMigrationService {
     Path temporary = markdown.resolveSibling(".AGENT.md.migrate-" + UUID.randomUUID());
     try {
       String migrated = AgentMarkdown.removeLegacySkills(text);
+      if (AgentMarkdown.hasLegacySkills(migrated)) {
+        throw new IllegalArgumentException("旧版顶层 skills 未能安全移除");
+      }
       Files.writeString(temporary, migrated);
       bindings.replaceBindings(agent, List.copyOf(desired));
       moveAtomic(temporary, markdown);

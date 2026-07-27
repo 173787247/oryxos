@@ -209,7 +209,7 @@ frontmatter 残留，排除 `.oryxos/archive/skills/`。空数组表示一致。
 ```
 
 - required 必须原样保留。
-- suggested 必须来自本次交给作者模型的已安装 catalog 交集；列表外名称丢弃并记录可读错误。
+- suggested 必须来自本次交给作者模型的已安装 catalog 交集；列表外名称拒绝整次生成并返回可读错误。
 - `AGENT.md` 不得含 top-level `skills:`，files 不得含 `skills/**`。
 - sidecar 不落盘，不是绑定真相源。
 

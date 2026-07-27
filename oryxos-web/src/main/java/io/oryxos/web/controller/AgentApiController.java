@@ -143,11 +143,7 @@ public class AgentApiController {
     return ApiResponse.ok(
         view(
             lifecycle.create(
-                req.name(),
-                req.description(),
-                req.provider(),
-                req.model(),
-                req.skillBindings())));
+                req.name(), req.description(), req.provider(), req.model(), req.skillBindings())));
   }
 
   @GetMapping
@@ -184,8 +180,7 @@ public class AgentApiController {
 
   /**
    * 结构化编辑基本信息（description / provider / model）：只改 AGENT.md frontmatter 的对应 key，正文与其他配置原样保留。Skill 绑定
-   * 由专用端点管理，不写回 AGENT.md。
-   * 非法定义 → 400（不破坏原文件）；不存在 → 404。
+   * 由专用端点管理，不写回 AGENT.md。 非法定义 → 400（不破坏原文件）；不存在 → 404。
    */
   @PutMapping("/{name}/basic")
   public ApiResponse<AgentView> updateBasic(
@@ -325,6 +320,7 @@ public class AgentApiController {
   public ApiResponse<AgentSkillBindingsView> bind(
       @PathVariable String name, @PathVariable String skill) {
     requireAgent(name);
+    requireSkillsExist(List.of(skill));
     validateCatalog(List.of(skill));
     requireBindings().bind(name, skill);
     return skills(name);
@@ -343,6 +339,7 @@ public class AgentApiController {
       @PathVariable String name, @RequestBody ReplaceSkillBindingsRequest request) {
     requireAgent(name);
     List<String> desired = request == null ? List.of() : request.skills();
+    requireSkillsExist(desired);
     validateCatalog(desired);
     return ApiResponse.ok(
         AgentSkillBindingsView.from(requireBindings().replaceBindings(name, desired)));
@@ -369,6 +366,18 @@ public class AgentApiController {
       throw new IllegalStateException("Agent Skill 绑定服务未装配");
     }
     return skillBindings;
+  }
+
+  private void requireSkillsExist(List<String> names) {
+    if (names == null) {
+      return;
+    }
+    AgentSkillBindingService bindings = requireBindings();
+    for (String name : names) {
+      if (!bindings.skillExists(name)) {
+        throw new ResourceNotFoundException("Skill 不存在: " + name);
+      }
+    }
   }
 
   private void validateCatalog(List<String> names) {

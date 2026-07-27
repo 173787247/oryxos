@@ -130,4 +130,37 @@ class WorkspaceApiControllerTest {
                 .content("{\"path\":\"agents/demo/skills/report/SKILL.md\",\"content\":\"bad\"}"))
         .andExpect(status().isBadRequest());
   }
+
+  @Test
+  @DisplayName("工作区写入口禁止直接或经归档 Agent 软连接修改共享 Skill")
+  void writeThroughSharedSkillPathsIsRejected() throws Exception {
+    Path shared = Files.createDirectories(oryxosRoot.resolve("skills/report"));
+    Path skillFile = Files.writeString(shared.resolve("SKILL.md"), "original");
+    Path archivedLinks = Files.createDirectories(oryxosRoot.resolve("archive/ops-old/skills"));
+    Files.createSymbolicLink(archivedLinks.resolve("report"), Path.of("../../../skills/report"));
+
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"skills/report/SKILL.md\",\"content\":\"bad\"}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"path\":\"archive/ops-old/skills/report/SKILL.md\",\"content\":\"bad\"}"))
+        .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertEquals("original", Files.readString(skillFile));
+  }
+
+  @Test
+  @DisplayName("工作区读取悬空软连接返回 400 而非 500")
+  void danglingLinkReturnsBadRequest() throws Exception {
+    Files.createSymbolicLink(
+        oryxosRoot.resolve("agents/demo/dangling"), Path.of("../../skills/missing"));
+
+    mvc.perform(get("/api/v1/workspace/file").param("path", "agents/demo/dangling/SKILL.md"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value(400));
+  }
 }

@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -34,11 +35,17 @@ public class AgentStore {
 
   private final Path agentsDir;
   private final Path archiveDir;
+  private final Clock clock;
 
   public AgentStore(Path oryxosRoot) {
+    this(oryxosRoot, Clock.systemUTC());
+  }
+
+  AgentStore(Path oryxosRoot, Clock clock) {
     Path root = oryxosRoot.toAbsolutePath().normalize();
     this.agentsDir = root.resolve("agents");
     this.archiveDir = root.resolve("archive");
+    this.clock = clock;
   }
 
   /**
@@ -174,20 +181,31 @@ public class AgentStore {
   }
 
   /** 整个 Agent 目录移入 .oryxos/archive/（不物理删）；目标已存在则加时间戳后缀避免覆盖。 */
-  public void archive(String name) {
+  public synchronized void archive(String name) {
     Path src = agentsDir.resolve(safe(name));
     requireSafe(src);
     try {
       Files.createDirectories(archiveDir);
-      Path dst = archiveDir.resolve(name);
-      if (SKILLS_NAMESPACE.equals(name) || Files.exists(dst, LinkOption.NOFOLLOW_LINKS)) {
-        dst = archiveDir.resolve(name + "-" + System.currentTimeMillis());
-      }
+      Path dst = uniqueArchivePath(name);
       RealPathBoundary.requireWithin(archiveDir, dst);
       Files.move(src, dst);
     } catch (IOException e) {
       throw new UncheckedIOException("归档 Agent 目录失败: " + name, e);
     }
+  }
+
+  private Path uniqueArchivePath(String name) {
+    Path direct = archiveDir.resolve(name);
+    if (!SKILLS_NAMESPACE.equals(name) && !Files.exists(direct, LinkOption.NOFOLLOW_LINKS)) {
+      return direct;
+    }
+    String base = name + "-" + clock.millis();
+    Path candidate = archiveDir.resolve(base);
+    int suffix = 2;
+    while (Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)) {
+      candidate = archiveDir.resolve(base + "-" + suffix++);
+    }
+    return candidate;
   }
 
   private static void deleteOne(Path path) {

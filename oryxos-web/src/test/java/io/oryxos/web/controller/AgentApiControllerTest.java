@@ -181,8 +181,7 @@ class AgentApiControllerTest {
     mvc.perform(
             put("/api/v1/agents/demo/basic")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    "{\"description\":\"新描述\",\"provider\":\"openai\",\"model\":\"gpt-4o\"}"))
+                .content("{\"description\":\"新描述\",\"provider\":\"openai\",\"model\":\"gpt-4o\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.name").value("demo"));
     verify(lifecycle).updateBasicInfo(eq("demo"), eq("新描述"), eq("openai"), eq("gpt-4o"));
@@ -196,8 +195,7 @@ class AgentApiControllerTest {
     mvc.perform(
             put("/api/v1/agents/ghost/basic")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    "{\"description\":\"x\",\"provider\":\"openai\",\"model\":\"gpt-4o\"}"))
+                .content("{\"description\":\"x\",\"provider\":\"openai\",\"model\":\"gpt-4o\"}"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value(404));
     verify(lifecycle, never()).updateBasicInfo(any(), any(), any(), any());

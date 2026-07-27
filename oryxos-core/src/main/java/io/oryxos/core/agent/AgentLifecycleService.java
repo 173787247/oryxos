@@ -332,11 +332,7 @@ public class AgentLifecycleService {
 
   /** 创建 Agent 并原子写入其初始 Skill 绑定。 */
   public Profile create(
-      String name,
-      String description,
-      String provider,
-      String model,
-      List<String> initialSkills) {
+      String name, String description, String provider, String model, List<String> initialSkills) {
     if (profileRegistry.exists(name)) {
       throw new IllegalArgumentException("Agent 已存在: " + name);
     }
@@ -416,10 +412,10 @@ public class AgentLifecycleService {
 
   /**
    * 编辑基本信息：只改 AGENT.md frontmatter 里的若干 key（description / provider.name / provider.model），正文与未提及的
-   * frontmatter 字段原样保留（不丢指令、不丢定时/工具等配置）。 Skill 绑定另由 {@link AgentSkillBindingService} 管理，绝不写回 AGENT.md。
-   * 传 null 的字段保持原值；description 清空→置空；
-   * provider.model 为空则沿用原值（model 为必填，不允许清空）。 先合成新 markdown 并用 {@link AgentLoader#parse} 预校验（非法→抛
-   * ProfileValidationException，且不落盘、不破坏原文件），通过再走 {@link #update} 重写+重注册。
+   * frontmatter 字段原样保留（不丢指令、不丢定时/工具等配置）。 Skill 绑定另由 {@link AgentSkillBindingService} 管理，绝不写回
+   * AGENT.md。 传 null 的字段保持原值；description 清空→置空； provider.model 为空则沿用原值（model 为必填，不允许清空）。 先合成新
+   * markdown 并用 {@link AgentLoader#parse} 预校验（非法→抛 ProfileValidationException，且不落盘、不破坏原文件），通过再走
+   * {@link #update} 重写+重注册。
    */
   public Profile updateBasicInfo(String name, String description, String provider, String model) {
     String raw = agentStore.read(name);
@@ -573,6 +569,11 @@ public class AgentLifecycleService {
     if (text == null || text.isBlank()) {
       throw new IllegalStateException("模型未返回内容"); // → 503
     }
+    return parseGeneratedDraft(text, name, required, candidateNames);
+  }
+
+  private GeneratedAgentDraft parseGeneratedDraft(
+      String text, String name, List<String> required, Set<String> candidateNames) {
     // 多文件解析（模型自己决定要不要脚本/子指令）：按 ===FILE: path=== 切分；无分隔符则整段当 AGENT.md
     Map<String, String> files = parseGeneratedFiles(text);
     for (String path : files.keySet()) {
@@ -592,6 +593,9 @@ public class AgentLifecycleService {
       }
     }
     agentMarkdown = AgentMarkdown.removeLegacySkills(agentMarkdown);
+    if (AgentMarkdown.hasLegacySkills(agentMarkdown)) {
+      throw new IllegalArgumentException("生成结果中的顶层 skills 未能安全移除");
+    }
     files.put("AGENT.md", agentMarkdown);
     agentLoader.parse(agentMarkdown, name); // 校验：解析不成合法定义就抛 ProfileValidationException（→400）
     Set<String> bindingSet = new java.util.TreeSet<>(required);

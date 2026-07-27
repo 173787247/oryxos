@@ -139,6 +139,9 @@ public class WorkspaceApiController {
         && SKILLS_DIR.equals(relative.getName(2).toString())) {
       throw new IllegalArgumentException("Agent skills/ 是绑定视图，禁止从工作区入口写入");
     }
+    if (RealPathBoundary.isWithin(oryxosRoot.resolve(SKILLS_DIR), target)) {
+      throw new IllegalArgumentException("共享 Skill 实体只能通过 Skill 管理入口更新");
+    }
     String content = req.content() == null ? "" : req.content();
     Path agentDir = agentDirOfAgentFile(target);
     if (agentDir != null) {
@@ -208,7 +211,11 @@ public class WorkspaceApiController {
     if (!target.startsWith(oryxosRoot)) {
       throw new IllegalArgumentException("路径越界，拒绝访问: " + path);
     }
-    RealPathBoundary.requireWithin(oryxosRoot, target);
+    try {
+      RealPathBoundary.requireWithin(oryxosRoot, target);
+    } catch (UncheckedIOException e) {
+      throw new IllegalArgumentException("路径真实目标无法安全解析，拒绝访问: " + path, e);
+    }
     return target;
   }
 }

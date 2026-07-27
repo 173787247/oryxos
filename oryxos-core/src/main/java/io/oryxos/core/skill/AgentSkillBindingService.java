@@ -164,6 +164,17 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     }
   }
 
+  /**
+   * Returns whether a concrete installed directory exists. Symlink directories are intentionally
+   * excluded, matching {@link SkillLoader#loadAll()}; malformed installed metadata remains a 400.
+   */
+  public boolean skillExists(String skillName) {
+    String skill = safe(skillName, "Skill");
+    Path directory = skillsDir.resolve(skill);
+    return Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+        && RealPathBoundary.isWithin(skillsDir, directory);
+  }
+
   public List<AgentSkillBinding> validBindings(String agentName) {
     String agent = safe(agentName, "Agent");
     return inspect(agent).bindings().stream().map(binding -> legacy(binding, agent)).toList();

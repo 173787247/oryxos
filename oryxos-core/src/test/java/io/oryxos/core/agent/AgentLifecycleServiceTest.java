@@ -1,8 +1,8 @@
 package io.oryxos.core.agent;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -182,7 +182,8 @@ class AgentLifecycleServiceTest {
     service.updateBasicInfo("demo", "新描述", "openai", "gpt-4o");
 
     @SuppressWarnings("unchecked")
-    ArgumentCaptor<java.util.Map<String, String>> filesCaptor = ArgumentCaptor.forClass(java.util.Map.class);
+    ArgumentCaptor<java.util.Map<String, String>> filesCaptor =
+        ArgumentCaptor.forClass(java.util.Map.class);
     verify(agentStore).writeAll(eq("demo"), filesCaptor.capture());
     String written = filesCaptor.getValue().get("AGENT.md");
     assertTrue(written.contains("description: 新描述"), "description 被更新");

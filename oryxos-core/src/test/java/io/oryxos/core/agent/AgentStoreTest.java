@@ -8,6 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +58,21 @@ class AgentStoreTest {
 
     assertFalse(Files.exists(oryxosRoot.resolve("agents").resolve("demo")), "原目录已移走");
     assertTrue(Files.exists(oryxosRoot.resolve("archive").resolve("demo")), "归档区保留，可追溯");
+  }
+
+  @Test
+  @DisplayName("archive 时间戳目标已存在时追加序号且不覆盖")
+  void archive_collisionUsesUniqueSuffix() throws IOException {
+    long millis = 1_700_000_000_000L;
+    AgentStore fixed =
+        new AgentStore(oryxosRoot, Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC));
+    Files.createDirectories(oryxosRoot.resolve("archive/demo"));
+    Files.createDirectories(oryxosRoot.resolve("archive/demo-" + millis));
+    fixed.write("demo", "x");
+
+    fixed.archive("demo");
+
+    assertTrue(Files.exists(oryxosRoot.resolve("archive/demo-" + millis + "-2/AGENT.md")));
   }
 
   @Test

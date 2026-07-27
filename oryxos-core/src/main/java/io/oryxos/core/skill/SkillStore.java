@@ -11,8 +11,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * 全局 Skill 库的文件读写，限定在 {@code .oryxos/skills/} 内（第 32 节）。
@@ -89,6 +91,12 @@ public class SkillStore {
     return RealPathBoundary.isWithin(skillsDir, file) && Files.isRegularFile(file);
   }
 
+  /** Returns whether any filesystem entry already occupies this Skill name, including residue. */
+  boolean entryExists(String name) {
+    Path directory = skillsDir.resolve(safe(name));
+    return Files.exists(directory, LinkOption.NOFOLLOW_LINKS);
+  }
+
   /**
    * Moves the complete installed Skill directory into archive/skills without overwriting history.
    */
@@ -114,6 +122,20 @@ public class SkillStore {
   /** 返回受安全 name 约束的公共 Skill 目录，供加载器在整目录导入后做一致性复验。 */
   Path directory(String name) {
     return skillsDir.resolve(safe(name));
+  }
+
+  /** Removes a just-created import directory after validation or registration failed. */
+  void rollbackCreate(String name) {
+    Path directory = skillsDir.resolve(safe(name));
+    requireSafe(directory);
+    if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+      return;
+    }
+    try (Stream<Path> paths = Files.walk(directory)) {
+      paths.sorted(Comparator.reverseOrder()).forEach(SkillStore::deleteRollbackPath);
+    } catch (IOException e) {
+      throw new UncheckedIOException("回滚 Skill 导入目录失败: " + name, e);
+    }
   }
 
   private void prepareSkillArchiveNamespace() throws IOException {
@@ -142,6 +164,14 @@ public class SkillStore {
 
   private void requireSafe(Path path) {
     RealPathBoundary.requireWithin(skillsDir, path);
+  }
+
+  private static void deleteRollbackPath(Path path) {
+    try {
+      Files.deleteIfExists(path);
+    } catch (IOException e) {
+      throw new UncheckedIOException("删除 Skill 导入残留失败: " + path.getFileName(), e);
+    }
   }
 
   private static String safe(String name) {

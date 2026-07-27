@@ -62,4 +62,30 @@ class AgentMarkdownTest {
     assertEquals(List.of("report", "web"), AgentMarkdown.legacySkills(input));
     assertTrue(AgentMarkdown.hasLegacySkills(input));
   }
+
+  @Test
+  @DisplayName("legacy 迁移识别并移除带引号的顶层 skills 键")
+  void removeLegacySkillsAcceptsQuotedKey() {
+    String input = "---\nname: ops\n\"skills\":\n- report\n---\nbody";
+
+    String output = AgentMarkdown.removeLegacySkills(input);
+
+    assertEquals("---\nname: ops\n---\nbody", output);
+    assertTrue(AgentMarkdown.hasLegacySkills(input));
+    assertEquals(
+        "---\nname: renamed\n---\nbody",
+        AgentMarkdown.replaceTopLevelScalar("---\n\"name\": old\n---\nbody", "name", "renamed"));
+  }
+
+  @Test
+  @DisplayName("标量替换会更新重复键并在缺失时插入")
+  void replaceTopLevelScalarUpdatesDuplicatesAndInsertsMissingKey() {
+    assertEquals(
+        "---\nname: next\nname: next\n---\nbody",
+        AgentMarkdown.replaceTopLevelScalar(
+            "---\nname: first\n\"name\": second\n---\nbody", "name", "next"));
+    assertEquals(
+        "---\nname: next\ndescription: d\n---\nbody",
+        AgentMarkdown.replaceTopLevelScalar("---\ndescription: d\n---\nbody", "name", "next"));
+  }
 }

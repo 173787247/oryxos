@@ -111,6 +111,20 @@ class AgentSkillBindingApiTest {
             eq("ops"), eq(Map.of("AGENT.md", "---\nname: ops\n---\nbody")), eq(List.of("web")));
   }
 
+  @Test
+  void missingSkillReturns404BeforeCatalogValidation() throws Exception {
+    mvc.perform(put("/api/v1/agents/ops/skills/missing"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value(404));
+
+    mvc.perform(
+            put("/api/v1/agents/ops/skills")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"skills\":[\"missing\"]}"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value(404));
+  }
+
   private void skill(String name, String description) throws Exception {
     Path dir = Files.createDirectories(root.resolve("skills").resolve(name));
     Files.writeString(

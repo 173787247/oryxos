@@ -16,6 +16,9 @@ import org.yaml.snakeyaml.Yaml;
 public final class AgentMarkdown {
 
   private static final String FENCE = "---";
+  private static final int QUOTED_KEY_MIN_LENGTH = 2;
+  private static final char SINGLE_QUOTE = '\'';
+  private static final char DOUBLE_QUOTE = '"';
 
   private AgentMarkdown() {}
 
@@ -99,7 +102,7 @@ public final class AgentMarkdown {
       String line = lines[i];
       if (isTopLevelKey(line, "skills")) {
         removed = true;
-        while (i + 1 < close && isIndented(lines[i + 1])) {
+        while (i + 1 < close && isLegacyValueLine(lines[i + 1])) {
           i++;
         }
         continue;
@@ -119,15 +122,78 @@ public final class AgentMarkdown {
     return split(content).frontmatter().containsKey("skills");
   }
 
+  /** Replaces all matching top-level scalars, or inserts one when absent. */
+  public static String replaceTopLevelScalar(String content, String key, String value) {
+    if (content == null || content.isEmpty()) {
+      throw new IllegalArgumentException("Markdown 内容为空");
+    }
+    String newline = content.contains("\r\n") ? "\r\n" : "\n";
+    String normalized = content.replace("\r\n", "\n").replace('\r', '\n');
+    String[] lines = normalized.split("\n", -1);
+    if (lines.length == 0 || !FENCE.equals(lines[0].strip())) {
+      throw new IllegalArgumentException("Markdown 缺少 frontmatter");
+    }
+    int close = -1;
+    boolean replaced = false;
+    for (int i = 1; i < lines.length; i++) {
+      if (FENCE.equals(lines[i].strip())) {
+        close = i;
+        break;
+      }
+      if (isTopLevelKey(lines[i], key)) {
+        lines[i] = key + ": " + value;
+        replaced = true;
+      }
+    }
+    if (close < 0) {
+      throw new IllegalArgumentException("Markdown frontmatter 未闭合");
+    }
+    if (replaced) {
+      return String.join(newline, lines);
+    }
+    List<String> inserted = new ArrayList<>(Arrays.asList(lines));
+    inserted.add(1, key + ": " + value);
+    return String.join(newline, inserted);
+  }
+
   private static boolean isTopLevelKey(String line, String key) {
-    return line != null
-        && !line.isEmpty()
-        && !Character.isWhitespace(line.charAt(0))
-        && line.matches(java.util.regex.Pattern.quote(key) + "\\s*:.*");
+    if (line == null || line.isEmpty() || Character.isWhitespace(line.charAt(0))) {
+      return false;
+    }
+    int colon = line.indexOf(':');
+    if (colon < 0) {
+      return false;
+    }
+    String candidate = line.substring(0, colon).strip();
+    if (candidate.length() >= QUOTED_KEY_MIN_LENGTH) {
+      char first = candidate.charAt(0);
+      char last = candidate.charAt(candidate.length() - 1);
+      if (hasMatchingQuotes(first, last)) {
+        candidate = candidate.substring(1, candidate.length() - 1);
+      }
+    }
+    return key.equals(candidate);
+  }
+
+  private static boolean hasMatchingQuotes(char first, char last) {
+    if (first == SINGLE_QUOTE) {
+      return last == SINGLE_QUOTE;
+    }
+    if (first == DOUBLE_QUOTE) {
+      return last == DOUBLE_QUOTE;
+    }
+    return false;
   }
 
   private static boolean isIndented(String line) {
     return !line.isEmpty() && Character.isWhitespace(line.charAt(0));
+  }
+
+  private static boolean isLegacyValueLine(String line) {
+    return isIndented(line)
+        || (!line.isEmpty()
+            && line.charAt(0) == '-'
+            && (line.length() == 1 || Character.isWhitespace(line.charAt(1))));
   }
 
   private static Map<String, Object> parseYaml(String text) {

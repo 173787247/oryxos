@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.agent.AgentMarkdown;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -30,6 +31,21 @@ class AgentSkillMigrationServiceTest {
     assertFalse(migrated.contains("skills:"));
     assertTrue(Files.isSymbolicLink(agent.resolve("skills/report")));
     assertTrue(migration.migrate(agent).status() == AgentSkillMigrationService.Status.NOT_NEEDED);
+  }
+
+  @Test
+  void quotedLegacyFieldMigratesWithoutResidue() throws Exception {
+    SkillWorkspaceFixture fixture = new SkillWorkspaceFixture(root);
+    Path agent = fixture.agent("quoted", "\"skills\":\n- report\n");
+    fixture.skill("report", "报告");
+    AgentSkillMigrationService migration =
+        new AgentSkillMigrationService(
+            root, new AgentSkillBindingService(root, new SkillMetadataReader()));
+
+    assertEquals(AgentSkillMigrationService.Status.MIGRATED, migration.migrate(agent).status());
+    String migrated = Files.readString(agent.resolve("AGENT.md"));
+    assertFalse(AgentMarkdown.hasLegacySkills(migrated));
+    assertTrue(Files.isSymbolicLink(agent.resolve("skills/report")));
   }
 
   @Test

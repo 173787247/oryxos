@@ -93,6 +93,21 @@ class SkillServiceTest {
   }
 
   @Test
+  @DisplayName("seedBuiltins：同名残留目录不合并也不覆盖")
+  void seedBuiltins_rejectsResidueDirectory() throws Exception {
+    Path residue =
+        Files.createDirectories(
+            oryxosRoot.resolve("skills").resolve(SkillService.BUILTIN_REPORT_FORMAT));
+    Path existing = Files.writeString(residue.resolve("keep.txt"), "keep");
+
+    service.seedBuiltins();
+
+    assertEquals("keep", Files.readString(existing));
+    assertFalse(Files.exists(residue.resolve("SKILL.md")));
+    assertTrue(registry.get(SkillService.BUILTIN_REPORT_FORMAT).isEmpty());
+  }
+
+  @Test
   @DisplayName("importMarkdown：完整 frontmatter 建库；nameOverride 优先；元数据缺失和同名均拒绝")
   void importMarkdown_parsesAndCreates() {
     Skill s =

@@ -93,7 +93,17 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   private static Path normalizeRoot(String rawPath) {
-    return RealPathBoundary.project(Path.of(rawPath)).projectedReal();
+    Path lexical = lexicalRoot(rawPath);
+    try {
+      return RealPathBoundary.project(lexical).projectedReal();
+    } catch (RuntimeException e) {
+      LOG.warn("白名单路径暂时无法解析真实目标，保留词法路径并在访问时失败关闭: {}", sanitize(lexical.toString()));
+      return lexical;
+    }
+  }
+
+  private static Path lexicalRoot(String rawPath) {
+    return Path.of(rawPath).toAbsolutePath().normalize();
   }
 
   @Override
@@ -291,10 +301,18 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     String entry = requireNonBlank(value);
     boolean changed;
     String canonical; // 入内存的规范形，也是落库/展示/删除对齐的值（FILE 为归一后的绝对路径）
+    String staleCanonical = null;
     if (category == Category.FILE) {
+      Path lexical = lexicalRoot(entry);
       Path root = normalizeRoot(entry);
       canonical = root.toString();
-      changed = allowedRoots.addIfAbsent(root);
+      if (!root.equals(lexical) && allowedRoots.remove(lexical)) {
+        allowedRoots.addIfAbsent(root);
+        staleCanonical = lexical.toString();
+        changed = true;
+      } else {
+        changed = allowedRoots.addIfAbsent(root);
+      }
     } else if (category == Category.SHELL) {
       canonical = entry;
       changed = allowedCommands.add(entry);
@@ -304,6 +322,9 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
     // 写穿：只有内存确有变更才落库（幂等，避免重复写；启动播种重复调用不会重复插入）
     if (changed && store != null) {
+      if (staleCanonical != null) {
+        store.remove(category, staleCanonical);
+      }
       store.add(category, canonical);
     }
     LOG.info("Sandbox 白名单增加 {} -> {}（changed={}）", category, sanitize(entry), changed);
@@ -320,8 +341,9 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     String canonical;
     if (category == Category.FILE) {
       Path root = normalizeRoot(entry);
-      canonical = root.toString();
-      changed = allowedRoots.remove(root);
+      Path removed = removeFileRoot(root, lexicalRoot(entry));
+      canonical = removed == null ? root.toString() : removed.toString();
+      changed = removed != null;
     } else if (category == Category.SHELL) {
       canonical = entry;
       changed = allowedCommands.remove(entry);
@@ -334,6 +356,16 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
     LOG.info("Sandbox 白名单删除 {} -> {}（changed={}）", category, sanitize(entry), changed);
     return changed;
+  }
+
+  private Path removeFileRoot(Path normalized, Path lexical) {
+    if (allowedRoots.remove(normalized)) {
+      return normalized;
+    }
+    if (!normalized.equals(lexical) && allowedRoots.remove(lexical)) {
+      return lexical;
+    }
+    return null;
   }
 
   private static String requireNonBlank(String value) {

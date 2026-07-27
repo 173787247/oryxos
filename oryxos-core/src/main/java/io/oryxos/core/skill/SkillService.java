@@ -1,5 +1,6 @@
 package io.oryxos.core.skill;
 
+import io.oryxos.core.agent.AgentMarkdown;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -128,7 +129,7 @@ public class SkillService {
     if (name == null || name.isBlank()) {
       throw new IllegalArgumentException("Skill name 为空");
     }
-    if (registry.exists(name) || store.exists(name)) {
+    if (registry.exists(name) || store.entryExists(name)) {
       throw new IllegalArgumentException("Skill 已存在: " + name);
     }
     return writeAndRegister(name, description, body);
@@ -169,7 +170,7 @@ public class SkillService {
   /** 播种内置的一批 Skill：逐个"库里没有才写"（幂等，用户改过/删过的名不重复播种）。启动时调一次。 */
   public void seedBuiltins() {
     for (Builtin b : BUILTINS) {
-      if (!store.exists(b.name()) && !registry.exists(b.name())) {
+      if (!store.entryExists(b.name()) && !registry.exists(b.name())) {
         writeAndRegister(b.name(), b.description(), b.body());
       }
     }
@@ -189,7 +190,7 @@ public class SkillService {
     if (name == null || name.isBlank()) {
       throw new IllegalArgumentException("无法确定 Skill 名（SKILL.md 无 name 字段，也未指定 name）");
     }
-    if (registry.exists(name) || store.exists(name)) {
+    if (registry.exists(name) || store.entryExists(name)) {
       throw new IllegalArgumentException("Skill 已存在: " + name);
     }
     return writeAndRegister(name, parsed.description(), parsed.body());
@@ -218,20 +219,34 @@ public class SkillService {
     if (name == null || name.isBlank()) {
       throw new IllegalArgumentException("无法确定 Skill 名（SKILL.md 无 name 字段，也未指定 name）");
     }
-    if (registry.exists(name) || store.exists(name)) {
+    if (registry.exists(name) || store.entryExists(name)) {
       throw new IllegalArgumentException("Skill 已存在: " + name);
     }
     Map<String, String> normalizedFiles = new LinkedHashMap<>(files);
     if (!name.equals(parsed.name())) {
       normalizedFiles.put(SKILL_FILE, replaceFrontmatterName(skillMd, name));
     }
-    store.writeAll(name, normalizedFiles); // name 非法在此抛（SkillStore.safe）
-    Skill skill = loader.deriveSkill(store.directory(name));
-    registry.register(skill);
-    if (bindings != null) {
-      bindings.logCurrentIssues();
+    boolean registered = false;
+    try {
+      store.writeAll(name, normalizedFiles); // name 非法在此抛（SkillStore.safe）
+      Skill skill = loader.deriveSkill(store.directory(name));
+      registry.register(skill);
+      registered = true;
+      if (bindings != null) {
+        bindings.logCurrentIssues();
+      }
+      return skill;
+    } catch (RuntimeException e) {
+      if (registered) {
+        registry.remove(name);
+      }
+      try {
+        store.rollbackCreate(name);
+      } catch (RuntimeException rollbackFailure) {
+        e.addSuppressed(rollbackFailure);
+      }
+      throw e;
     }
-    return skill;
   }
 
   private Skill writeAndRegister(String name, String description, String body) {
@@ -252,8 +267,7 @@ public class SkillService {
   }
 
   private static String replaceFrontmatterName(String markdown, String name) {
-    String normalized = markdown.replace("\r\n", "\n").replace('\r', '\n');
-    return normalized.replaceFirst("(?m)^name\\s*:.*$", "name: " + name);
+    return AgentMarkdown.replaceTopLevelScalar(markdown, "name", name);
   }
 
   /**
