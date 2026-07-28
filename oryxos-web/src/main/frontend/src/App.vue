@@ -752,6 +752,50 @@ const renderedMd = computed(() =>
 )
 // 会话：每个 Agent 一个固定 session，直接作为对话展示（不再是会话列表）
 const chat = reactive({ sessionId: null, messages: [], loading: false, error: null, input: '', sending: false })
+
+const CHAT_SEND_MODE_KEY = 'oryxos.admin.chatSendMode'
+const CHAT_SEND_MODES = ['enter', 'modifier']
+
+function loadChatSendMode() {
+  try {
+    const v = localStorage.getItem(CHAT_SEND_MODE_KEY)
+    return CHAT_SEND_MODES.includes(v) ? v : 'modifier'
+  } catch {
+    return 'modifier'
+  }
+}
+
+const chatSendMode = ref(loadChatSendMode())
+
+const chatSendHint = computed(() => {
+  if (chatSendMode.value === 'enter') return 'Enter 发送，Shift+Enter 换行'
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+  return isMac ? '⌘+Enter 发送，Enter 换行' : 'Ctrl+Enter 发送，Enter 换行'
+})
+
+function setChatSendMode(mode) {
+  if (!CHAT_SEND_MODES.includes(mode)) return
+  chatSendMode.value = mode
+  try {
+    localStorage.setItem(CHAT_SEND_MODE_KEY, mode)
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+function onChatInputKeydown(e) {
+  if (e.key !== 'Enter') return
+  const canSend = !chat.sending && chat.input.trim()
+  if (chatSendMode.value === 'enter') {
+    if (e.shiftKey || !canSend) return
+    e.preventDefault()
+    sendChat()
+    return
+  }
+  if (!(e.ctrlKey || e.metaKey) || !canSend) return
+  e.preventDefault()
+  sendChat()
+}
 // 把扁平消息按「一轮对话」分组：user 起一轮，中间的助手思考 + 工具调用收进 steps（默认折叠），最后一条助手作为最终答案
 const chatTurns = computed(() => {
   const turns = []
@@ -940,7 +984,7 @@ async function loadChat() {
 }
 
 async function sendChat() {
-  if (!chat.input.trim()) return
+  if (chat.sending || !chat.input.trim()) return
   chat.sending = true; chat.error = null
   try {
     const name = agentDetail.value.name
@@ -1540,7 +1584,32 @@ const outputRows = computed(() =>
                   </div>
                 </template>
                 <div class="chat-input">
-                  <textarea v-model="chat.input" class="gen-draft" rows="3" placeholder="给这个 Agent 发条消息…"></textarea>
+                  <textarea
+                    v-model="chat.input"
+                    class="gen-draft"
+                    rows="3"
+                    placeholder="给这个 Agent 发条消息…"
+                    @keydown="onChatInputKeydown"
+                  ></textarea>
+                  <div class="chat-send-bar">
+                    <div class="md-toggle send-mode-toggle">
+                      <button
+                        type="button"
+                        :class="['md-seg', chatSendMode === 'modifier' && 'on']"
+                        @click="setChatSendMode('modifier')"
+                      >
+                        Ctrl+Enter 发送
+                      </button>
+                      <button
+                        type="button"
+                        :class="['md-seg', chatSendMode === 'enter' && 'on']"
+                        @click="setChatSendMode('enter')"
+                      >
+                        Enter 发送
+                      </button>
+                    </div>
+                    <span class="empty chat-send-hint">{{ chatSendHint }}</span>
+                  </div>
                   <div class="ops">
                     <button class="btn" :disabled="chat.sending || !chat.input.trim()" @click="sendChat">发送</button>
                     <span v-if="chat.sending" class="empty">Agent 思考中…（ReAct 可能需要几秒）</span>
@@ -2076,6 +2145,9 @@ th { color: var(--text-2); font-weight: 500; }
 .md-preview :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
 .md-preview :deep(img) { max-width: 100%; }
 .chat-input { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.chat-send-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 8px; }
+.send-mode-toggle { margin-bottom: 0; }
+.chat-send-hint { font-size: 12px; }
 
 @media (max-width: 640px) { .layout { flex-direction: column; } .nav { width: auto; flex-direction: row; flex-wrap: wrap; } .readonly { display: none; } .ws { flex-direction: column; } .ws-tree { width: auto; } }
 </style>
