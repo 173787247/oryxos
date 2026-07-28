@@ -51,7 +51,7 @@ class ProviderModelsServiceTest {
   }
 
   @Test
-  @DisplayName("真实 provider_解析 /models 并按字母排序返回 id")
+  @DisplayName("真实 provider_解析 /v1/models 并按字母排序返回 id（baseUrl 不含 /v1，符合新约定 fix-issue-47）")
   void real_parsesModelsSorted() {
     server.createContext(
         "/v1/models",
@@ -65,9 +65,45 @@ class ProviderModelsServiceTest {
           exchange.close();
         });
     when(registry.find("openai"))
-        .thenReturn(Optional.of(new ProviderDef("openai", "sk-x", baseUrl + "/v1", null)));
+        .thenReturn(Optional.of(new ProviderDef("openai", "sk-x", baseUrl, null)));
 
     assertEquals(List.of("gpt-3.5-turbo", "gpt-4o"), service.listModels("openai"));
+  }
+
+  @Test
+  @DisplayName("baseUrl 带末尾 /v1 → 剥离后仍拼 /v1/models（兼容用户误填，fix-issue-47）")
+  void baseUrlWithV1_strippedThenAppendsV1Models() {
+    server.createContext(
+        "/v1/models",
+        exchange -> {
+          byte[] body = "{\"data\":[{\"id\":\"m1\"}]}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    when(registry.find("opencode"))
+        .thenReturn(Optional.of(new ProviderDef("opencode", "sk-x", baseUrl + "/v1", null)));
+
+    assertEquals(List.of("m1"), service.listModels("opencode"));
+  }
+
+  @Test
+  @DisplayName("baseUrl 带末尾 / → 剥离后拼 /v1/models（fix-issue-47）")
+  void baseUrlWithTrailingSlash_strippedThenAppendsV1Models() {
+    server.createContext(
+        "/v1/models",
+        exchange -> {
+          byte[] body = "{\"data\":[{\"id\":\"m2\"}]}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    when(registry.find("slash"))
+        .thenReturn(Optional.of(new ProviderDef("slash", "sk-x", baseUrl + "/", null)));
+
+    assertEquals(List.of("m2"), service.listModels("slash"));
   }
 
   @Test

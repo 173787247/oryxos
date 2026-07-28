@@ -68,16 +68,21 @@ public class ProviderModelsService {
     }
   }
 
-  /** 拼 {@code /models} 地址：base-url 已带 /v1 则复用，否则直接追加。 */
+  /**
+   * 拼 OpenAI 兼容标准的 {@code /v1/models} 地址：先剥离 baseUrl 末尾的 {@code /} 与 {@code /v1}（用户填带或不带 /v1 都正确），
+   * 再统一追加 {@code /v1/models}。与 {@code OpenAiApi} 内部追加 {@code /v1/chat/completions} 的预期对齐： Provider
+   * baseUrl 约定不含 {@code /v1}，两个消费者各自补完整 API 路径。
+   */
   private static String modelsUrl(String baseUrl) {
     String u = baseUrl.strip();
-    if (u.endsWith(SLASH)) {
-      u = u.substring(0, u.length() - 1);
+    while (u.endsWith(SLASH) || u.endsWith(PATH_V1)) {
+      if (u.endsWith(SLASH)) {
+        u = u.substring(0, u.length() - 1);
+      } else {
+        u = u.substring(0, u.length() - PATH_V1.length());
+      }
     }
-    if (u.endsWith(PATH_V1)) {
-      return u + PATH_MODELS;
-    }
-    return u + PATH_MODELS;
+    return u + PATH_V1 + PATH_MODELS;
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)

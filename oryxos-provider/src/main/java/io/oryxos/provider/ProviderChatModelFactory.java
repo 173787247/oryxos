@@ -17,6 +17,9 @@ public class ProviderChatModelFactory {
   /** 内置 mock provider 的保留名：配置里 {@code - name: mock} 即挂一个假模型，用于无 key 全链路自测。 */
   static final String MOCK = "mock";
 
+  private static final String SLASH = "/";
+  private static final String PATH_V1 = "/v1";
+
   public Map<String, ChatModel> build(ProvidersProperties properties) {
     properties.validate();
     Map<String, ChatModel> providerMap = new LinkedHashMap<>();
@@ -31,6 +34,23 @@ public class ProviderChatModelFactory {
     if (MOCK.equals(name)) {
       return new MockChatModel(); // 不连真实端点，无需 key/url
     }
-    return new OpenAiChatModel(new OpenAiApi(baseUrl, apiKey));
+    // baseUrl 约定不含 /v1：OpenAiApi 内部会追加 /v1/chat/completions；用户填带 /v1 则先剥离，避免双 /v1（fix-issue-47）
+    return new OpenAiChatModel(new OpenAiApi(stripTrailingV1(baseUrl), apiKey));
+  }
+
+  /**
+   * 剥离 baseUrl 末尾的 {@code /} 与 {@code /v1}，与 {@link
+   * io.oryxos.web.provider.ProviderModelsService#modelsUrl} 对齐。
+   */
+  private static String stripTrailingV1(String baseUrl) {
+    String u = baseUrl == null ? "" : baseUrl.strip();
+    while (u.endsWith(SLASH) || u.endsWith(PATH_V1)) {
+      if (u.endsWith(SLASH)) {
+        u = u.substring(0, u.length() - SLASH.length());
+      } else {
+        u = u.substring(0, u.length() - PATH_V1.length());
+      }
+    }
+    return u;
   }
 }
