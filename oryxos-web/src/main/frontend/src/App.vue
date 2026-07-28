@@ -123,31 +123,24 @@ function refresh() {
   if (NAV.find((n) => n.key === key)?.path) load(key)
 }
 
-// —— Skill 实体、外部 catalog 与绑定一致性。绑定真相源是 Agent 目录中的固定相对软连接。——
+// —— Skill CRUD：.oryxos/skills/<name>/ 存在即已安装，Agent 通过本地相对软连接绑定。——
 const skills = ref({ loading: false, error: null, data: [] })
-const skillCatalog = ref({ loading: false, error: null, data: [] })
+// 绑定一致性不在页面常驻展示：只在 Skill 变更（新建/编辑/归档/导入）后回检，
+// 发现残留或损坏绑定才展开告警面板，无问题保持静默；检查本身失败也会展开。
 const skillIssues = ref({ loading: false, error: null, data: [] })
-const skillCatalogFilter = reactive({ q: '', visibility: 'all' })
-async function loadSkillCatalog() {
-  skillCatalog.value = { loading: true, error: null, data: [] }
-  const params = new URLSearchParams()
-  if (skillCatalogFilter.q.trim()) params.set('q', skillCatalogFilter.q.trim())
-  params.set('visibility', skillCatalogFilter.visibility)
-  try {
-    const res = await fetch(`/api/v1/skills/catalog?${params}`)
-    const body = await res.json()
-    if (body.code !== 0) throw new Error(body.message || 'catalog 加载失败')
-    skillCatalog.value = { loading: false, error: null, data: body.data || [] }
-  } catch (e) { skillCatalog.value = { loading: false, error: e.message, data: [] } }
-}
-async function loadSkillIssues() {
+const skillIssuesOpen = ref(false)
+async function checkSkillIssues() {
   skillIssues.value = { loading: true, error: null, data: [] }
   try {
     const res = await fetch('/api/v1/skills/binding-issues')
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '绑定检查失败')
     skillIssues.value = { loading: false, error: null, data: body.data || [] }
-  } catch (e) { skillIssues.value = { loading: false, error: e.message, data: [] } }
+    skillIssuesOpen.value = skillIssues.value.data.length > 0
+  } catch (e) {
+    skillIssues.value = { loading: false, error: e.message, data: [] }
+    skillIssuesOpen.value = true
+  }
 }
 async function loadSkills() {
   skills.value = { loading: true, error: null, data: [] }
@@ -157,7 +150,6 @@ async function loadSkills() {
     if (body.code !== 0) throw new Error(body.message || '加载失败')
     skills.value = { loading: false, error: null, data: body.data || [] }
   } catch (e) { skills.value = { loading: false, error: e.message, data: [] } }
-  await Promise.all([loadSkillCatalog(), loadSkillIssues()])
 }
 const skillForm = reactive({ open: false, editing: null, name: '', description: '', body: '', busy: false, error: null })
 function newSkill() {
@@ -187,7 +179,7 @@ async function saveSkill() {
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '保存失败')
-    cancelSkill(); await loadSkills()
+    cancelSkill(); await loadSkills(); await checkSkillIssues()
   } catch (e) { skillForm.error = e.message } finally { skillForm.busy = false }
 }
 async function deleteSkill(name) {
@@ -199,7 +191,7 @@ async function deleteSkill(name) {
       const refs = (body.data?.references || []).map((r) => `${r.agentName}(${r.state})`).join('、')
       throw new Error(`${body.message || '归档失败'}${refs ? `：${refs}` : ''}`)
     }
-    await loadSkills()
+    await loadSkills(); await checkSkillIssues()
   } catch (e) { skills.value = { ...skills.value, error: e.message } }
 }
 // 从 URL 导入 Skill：后端 GET 拉取该地址的 SKILL.md 文本并建库
@@ -215,7 +207,7 @@ async function importSkill() {
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '导入失败')
-    cancelImport(); await loadSkills()
+    cancelImport(); await loadSkills(); await checkSkillIssues()
   } catch (e) { skillImport.error = e.message } finally { skillImport.busy = false }
 }
 // —— Skill 详情：点「详情」→ 拉工作区树里的 skills/<name> 子树，复用同一套文件浏览器（openFile/fileView + md 预览）——
@@ -864,7 +856,6 @@ const agentMemory = reactive({ text: '', loading: false, error: null })
 
 async function openAgent(agent) {
   agentDetail.value = { name: agent.name, agent, tab: 'info', loading: true, error: null, node: null, editing: false }
-  agentDetail.value = { name: agent.name, agent, tab: 'info', loading: true, error: null, node: null, editing: false }
   agentBinding.selected = [...(agent.skills || [])]
   agentBinding.error = null
   agentBinding.issues = []
@@ -875,7 +866,7 @@ async function openAgent(agent) {
     const [treeRes, bindingRes] = await Promise.all([
       fetch('/api/v1/workspace/tree'),
       fetch(`/api/v1/agents/${encodeURIComponent(agent.name)}/skills`),
-      loadSkillCatalog(),
+      loadSkills(), // Skill 绑定选择器的数据源：存在即已安装
     ])
     const body = await treeRes.json()
     const bindingBody = await bindingRes.json()
@@ -1252,34 +1243,13 @@ const outputRows = computed(() =>
             <button class="btn" @click="refresh()">刷新</button>
           </div>
 
-          <!-- Skill：已安装实体、公共/私有 catalog 与软连接绑定一致性 -->
+          <!-- Skill：纯 CRUD 列表（存在即已安装）；绑定一致性仅在变更后回检发现问题时展示 -->
           <div v-if="active === 'skills'">
             <template v-if="!skillDetail">
             <div class="toolbar">
-              <button class="btn btn-primary" @click="newImport()">从 GitHub 拉取</button>
+              <button class="btn" @click="newImport()">从 GitHub 拉取</button>
               <button class="btn btn-primary" @click="newSkill()">+ 新建 Skill</button>
             </div>
-            <h3 class="sec">候选 catalog</h3>
-            <div class="toolbar">
-              <input v-model="skillCatalogFilter.q" class="gen-input" placeholder="按名称或描述查询" @keyup.enter="loadSkillCatalog" />
-              <select v-model="skillCatalogFilter.visibility" class="gen-input" @change="loadSkillCatalog">
-                <option value="all">全部</option><option value="public">公共</option><option value="private">私有</option>
-              </select>
-              <button class="btn" @click="loadSkillCatalog">查询</button>
-            </div>
-            <p v-if="skillCatalog.loading" class="empty">catalog 加载中…</p>
-            <p v-else-if="skillCatalog.error" class="error">catalog 不可用：{{ skillCatalog.error }}</p>
-            <table v-else>
-              <thead><tr><th>名称</th><th>可见性</th><th>来源</th><th>本机状态</th><th>描述</th></tr></thead>
-              <tbody>
-                <tr v-if="!skillCatalog.data.length"><td colspan="5" class="empty">（没有匹配候选）</td></tr>
-                <tr v-for="s in skillCatalog.data" :key="`${s.source}:${s.name}`">
-                  <td class="mono">{{ s.name }}</td><td>{{ s.visibility }}</td><td>{{ s.source }}</td>
-                  <td>{{ s.installed ? '已安装' : '未安装' }}</td><td>{{ s.description || '—' }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <h3 class="sec">已安装实体</h3>
             <!-- 从 GitHub 拉取 Skill 弹出框：导入整个目录（SKILL.md + 附带文件），不是抓网页正文 -->
             <div v-if="skillImport.open" class="modal-overlay" @click.self="cancelImport()">
               <div class="modal-card">
@@ -1339,19 +1309,23 @@ const outputRows = computed(() =>
                 </tr>
               </tbody>
             </table>
-            <h3 class="sec">绑定一致性</h3>
-            <p v-if="skillIssues.loading" class="empty">检查中…</p>
-            <p v-else-if="skillIssues.error" class="error">检查失败：{{ skillIssues.error }}</p>
-            <table v-else>
-              <thead><tr><th>Agent</th><th>状态</th><th>条目</th><th>分类</th><th>说明</th></tr></thead>
-              <tbody>
-                <tr v-if="!skillIssues.data.length"><td colspan="5" class="empty">（未发现残留或损坏绑定）</td></tr>
-                <tr v-for="(issue, i) in skillIssues.data" :key="`${issue.path}:${i}`">
-                  <td class="mono">{{ issue.agentName }}</td><td>{{ issue.agentState }}</td>
-                  <td class="mono">{{ issue.entryName || '—' }}</td><td>{{ issue.type }}</td><td>{{ issue.message }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <!-- 绑定一致性不常驻：Skill 变更后回检，发现残留/损坏绑定（或检查本身失败）才展开 -->
+            <div v-if="skillIssuesOpen" class="issue-banner">
+              <div class="issue-head">
+                <span class="issue-title">绑定一致性问题<template v-if="skillIssues.data.length">（{{ skillIssues.data.length }}）</template></span>
+                <button class="modal-x" @click="skillIssuesOpen = false">✕</button>
+              </div>
+              <p v-if="skillIssues.loading" class="empty">检查中…</p>
+              <p v-else-if="skillIssues.error" class="error">检查失败：{{ skillIssues.error }}</p>
+              <ul v-else class="issue-list">
+                <li v-for="(issue, i) in skillIssues.data" :key="`${issue.path}:${i}`">
+                  <span class="mono">{{ issue.agentName }}（{{ issue.agentState }}）</span>
+                  <span class="issue-type">{{ issue.type }}</span>
+                  <span class="mono">{{ issue.entryName || '—' }}</span>
+                  <span class="empty">{{ issue.message }}</span>
+                </li>
+              </ul>
+            </div>
             </template>
 
             <!-- Skill 详情：文件列表 + 复用同一套文件浏览器（openFile/fileView + md 预览/源码） -->
@@ -1479,12 +1453,12 @@ const outputRows = computed(() =>
                   <option value="">不通知</option>
                   <option v-for="c in (notifyChannels.data || [])" :key="c.name" :value="c.name">{{ c.name }}（{{ c.type }}）</option>
                 </select>
-                <label class="empty" style="display:block;margin:6px 0 2px">Skill 绑定（勾选=required；作者可从已安装 catalog 再建议）</label>
+                <label class="empty" style="display:block;margin:6px 0 2px">Skill 绑定（勾选=required；作者可从已安装 Skill 再建议）</label>
                 <div class="skill-picker">
-                  <span v-if="!(skillCatalog.data || []).filter((s) => s.installed).length" class="empty">（catalog 中暂无可绑定的已安装 Skill）</span>
-                  <label v-for="s in (skillCatalog.data || []).filter((s) => s.installed)" :key="`${s.source}:${s.name}`" class="skill-opt" :title="s.description">
+                  <span v-if="!skills.data.length" class="empty">（暂无已安装 Skill，可先到 Skill 页新建或从 GitHub 拉取）</span>
+                  <label v-for="s in skills.data" :key="s.name" class="skill-opt" :title="s.description">
                     <input type="checkbox" :value="s.name" v-model="agentCreate.skills" />
-                    <span class="mono">{{ s.name }}</span><span class="empty">{{ s.visibility }}</span>
+                    <span class="mono">{{ s.name }}</span>
                   </label>
                 </div>
                 <p v-if="agentCreate.suggestedSkills.length" class="empty">作者建议：{{ agentCreate.suggestedSkills.join('、') }}；已合并到最终绑定，可在创建前取消。</p>
@@ -1560,9 +1534,9 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">skills</span>
                     <div>
                       <div class="skill-picker">
-                        <label v-for="s in (skillCatalog.data || []).filter((s) => s.installed)" :key="`${s.source}:${s.name}`" class="skill-opt" :title="s.description">
+                        <label v-for="s in skills.data" :key="s.name" class="skill-opt" :title="s.description">
                           <input type="checkbox" :value="s.name" v-model="agentBinding.selected" />
-                          <span class="mono">{{ s.name }}</span><span class="empty">{{ s.visibility }}</span>
+                          <span class="mono">{{ s.name }}</span>
                         </label>
                       </div>
                       <div class="ops"><button class="btn" :disabled="agentBinding.saving" @click="saveAgentBindings">{{ agentBinding.saving ? '保存中…' : '保存绑定' }}</button></div>
@@ -2188,6 +2162,18 @@ th { color: var(--text-2); font-weight: 500; }
 .gen-draft { width: 100%; background: var(--bg-mute); color: var(--text-1); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 12px; margin-bottom: 10px; resize: vertical; }
 /* 列表页新建按钮工具栏：新建类按钮靠右 */
 .toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+/* 键盘焦点可见性：全站交互控件统一的 focus-visible 描边（hover 已有，focus 不能缺） */
+.btn:focus-visible, .md-seg:focus-visible, .gen-input:focus-visible, .gen-draft:focus-visible, .skill-opt:focus-within {
+  outline: 1px solid var(--brand); outline-offset: 1px;
+}
+/* 绑定一致性告警：不常驻，仅变更后回检发现问题时展开，可关闭 */
+.issue-banner { border: 1px solid var(--warn); background: var(--bg-soft); border-radius: var(--radius); padding: 10px 12px; margin: 0 0 14px; }
+.issue-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.issue-title { color: var(--warn); font-size: 13px; font-weight: 600; }
+.issue-list { list-style: none; margin: 0; padding: 0; }
+.issue-list li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.issue-list li:first-child { border-top: none; }
+.issue-type { color: var(--warn); }
 .skill-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
 .skill-opt { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; cursor: pointer; }
 .skill-opt:hover { border-color: var(--brand); }
