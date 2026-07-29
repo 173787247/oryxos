@@ -256,7 +256,7 @@ Tool 是 Agent 可以调用的外部能力。OryxOS 的 Tool 分两类：**内�
 
 > **模块调整说明：** 核心阶段 Tool 相关合并为一个 `oryxos-tool` 模块（内置 Tool、MCP Client、`ToolRegistry`、Sandbox 都在里面），不拆成 builtin/skill/mcp 三个模块。原因是它们共享同一个 `OryxTool` 抽象和 `ToolRegistry`，耦合度高，核心阶段没必要拆细。
 >
-> 另外，一个 Agent 目录（`AGENT.md` 及其 `skills/` 子指令）严格说不是一种 Tool，而是上下文来源（正文注入 system prompt、子指令经 `read_file` 按需读，见 11.1），因此 `AgentLoader`/`ContextLoader` 不放在 Tool 体系里，归到上下文加载那一层（见 8.3）。这样概念更齐整。
+> 另外，一个 Agent 目录（`AGENT.md` 及其 `skills/` 绑定视图）不是 Tool，而是上下文来源：正文和已绑定 Skill 元数据进入 system prompt，Skill 正文经 `read_file` 按需读取。因此 `AgentLoader`/`ContextLoader` 归上下文层，不放进 Tool 体系。
 
 ### 6.1 OryxTool 抽象
 
@@ -291,9 +291,9 @@ OryxOS 内部统一的 Tool 抽象接口。内置 Tool、`@Tool` 注解的 Plugi
 
 OryxOS **主推**的接入方式。业务方不写代码，只写一个 Agent 目录描述要做的事，LLM 自己理解任务、自己组合调用 MCP 工具。
 
-定义一个 Agent = 写一个目录 `.oryxos/agents/<name>/`（借 Anthropic Agent Skills 的目录形态，详见第 11 章）：`AGENT.md` = frontmatter（这个 Agent 自己的 profile）加任务说明正文，外加可选的 `skills/*.md`（子指令）、`scripts/*.py`、`REFERENCE.md` 等资源。一个目录就是一个自足的 Agent，只调用底座的系统基础能力。
+定义一个 Agent = 写一个目录 `.oryxos/agents/<name>/`：`AGENT.md` = frontmatter（运行配置）加任务说明正文，外加可选的 `skills/` 公共 Skill 软连接、`scripts/*.py`、`REFERENCE.md`。一个目录就是一个自足的 Agent。
 
-加载走**一个 Agent 内部的渐进式披露**：`AGENT.md` 正文进 system prompt，正文里指向的子指令 / 脚本 / 参考经底座 `read_file`/`shell` 按需读跑。LLM 读到后自己理解任务、自己决定调哪个 MCP 工具、自己组合完成——OryxOS 不解析任务步骤、不做工作流引擎，所有逻辑交给 LLM。
+加载走三层渐进式披露：`AGENT.md` 正文常驻；当前 Agent 绑定 Skill 的 name/description/本地路径每轮注入；Skill 正文、参考与脚本经底座 `read_file`/`shell` 按需读取或运行。OryxOS 不解析任务步骤、不做工作流引擎。
 
 > 注意 `AGENT.md` 的解析由 `AgentLoader` / `ContextLoader`（8.3）负责，不在 Tool 模块里——它是 prompt 的输入源、不是可执行 Tool（见宪法原则四与 11.1）。
 
@@ -471,7 +471,8 @@ Web Service 是 OryxOS 的对外完整门面，业务系统通过 REST API 接�
 
 ```
 .oryxos/
-├── agents/            # 每个子目录 = 一个 Agent（AGENT.md + 可选 skills/ scripts/ REFERENCE.md）
+├── agents/            # 每个子目录 = 一个 Agent（AGENT.md + skills/软连接 + scripts/ REFERENCE.md）
+├── skills/            # 公共 Skill 实体库（SKILL.md + 可选附属资源）
 ├── memory/
 │   └── MEMORY.md      # 长期记忆
 ├── mcp_servers.yaml   # MCP 配置
@@ -493,9 +494,9 @@ Web Service 是 OryxOS 的对外完整门面，业务系统通过 REST API 接�
 
 ### 8.3 上下文加载（Bootstrap + AGENT.md 正文）
 
-> **调整说明：** Bootstrap 文件与 `AGENT.md` 正文都由 `ContextLoader` 全量注入 system prompt；Agent 目录里的子指令 / 脚本 / 参考不预载，由正文指引经底座 `read_file`/`shell` 按需取（一个 Agent 内部的渐进式披露，详见 11.1）。
+> **调整说明：** Bootstrap 与 `AGENT.md` 正文全量注入；Agent `skills/` 绑定的公共 Skill 每轮只注入 name/description/本地路径，正文与附属资源不预载，经 `read_file`/`shell` 按需取。
 
-**`ContextLoader` 模块。** 按 Profile 的 `bootstrap` 字段从 `.oryxos/` 读取 `AGENTS.md`、`SOUL.md`、`USER.md`（Bootstrap，全量注入）；同时把这个 Agent 自己 `AGENT.md` 的**正文**（任务指令）一并交给 `PromptBuilder`。每次组装 prompt 时重新加载不缓存，用户修改后立即生效。目录里的子指令 / 脚本 / 参考不在这里注入，由模型经 `read_file`/`shell` 在需要时现取——把 `AGENT.md` 归到上下文这一层而不是 Tool 模块，是因为它是 prompt 的输入、不是可执行的 Tool。
+**`ContextLoader` 模块。** 按 Profile 的 `bootstrap` 字段读取 Bootstrap，同时现读 Agent 自己 `AGENT.md` 正文；每次组装 prompt 时重新扫描 Agent `skills/` 的相对软连接，验证真实目标位于公共 Skill 根，只注入 Skill frontmatter 的 name/description 与 Agent 本地绝对读取路径。Skill 正文、脚本和参考不在这里预载，由模型经 `read_file`/`shell` 现取。全部无缓存，修改或重新绑定后下一轮立即生效。
 
 ### 8.4 Channel 接入
 
@@ -680,15 +681,15 @@ mvn clean package
 **底座 / Agent 两层，分清楚。** 这是这一章最关键的一条：
 
 - **底座 = 系统基础能力**：Provider、ReAct、内置 Tool（`read_file`/`shell`/`http_get`/`notify`/`save_memory`…）、Memory、Sandbox、定时、Web（第 1~10 章）。所有 Agent 共享。
-- **Agent = 一个目录** `.oryxos/agents/<name>/`：`AGENT.md`（frontmatter = 这个 Agent 自己的 profile：`name`/`description`/`provider`/`model`/`tools`/`notify_channels`/`schedules`；正文 = 任务指令）+ 可选 `skills/*.md`（子指令）、`scripts/`（脚本）、`REFERENCE.md`（参考）。一个自足的业务 Agent，**自带一切、不再另写 Profile YAML**（`.oryxos/profiles/` 取消）。
+- **Agent = 一个目录** `.oryxos/agents/<name>/`：`AGENT.md`（frontmatter = profile；正文 = 任务指令）+ 可选 `skills/` 公共 Skill 软连接、`scripts/`、`REFERENCE.md`。Agent 目录决定全部运行配置和可见资源。
 
 **借 Anthropic Agent Skills 的形态、但定义的是 Agent。** Anthropic 把这种目录叫一个 Skill（Claude 这个大 Agent 的一项可加载能力）；我们借的是目录的**形态**，不是命名——在 OryxOS，**一个目录 = 一个 Agent**。每个 Agent 独立自足，只调用底座的系统基础能力。
 
-> **修订（v1.2.0，第 32 节）：Skill 升级为全局共享能力库。** 上一段"skill 只是 Agent 目录里的子指令、不做跨 Agent 的共享能力库、没有 `use_skill`、没有全局索引"**已废止**。现在 Skill 是全局的：存 `.oryxos/skills/<name>/SKILL.md`，由 `SkillService`/`SkillStore`/`SkillRegistry`（`oryxos-core`，与 Agent 那套同构）做 CRUD，`/api/v1/skills` 暴露。Agent 在 `AGENT.md` frontmatter 用 `skills: [名]` 按名引用，`ContextLoader` 组装 system prompt 时把引用到的 Skill 正文**注入**来强约束产出。边界不变：Skill 不是可执行 Tool、不进 `ToolRegistry`，加载/注入归 `oryxos-core` 的 `ContextLoader`。详见 `CLAUDE.md` 原则四修订。
+> **宪章 v2.0.0 修订：公共实体与 Agent 绑定分离。** Skill 内容存 `.oryxos/skills/<name>/`；Agent 通过自身 `skills/<name>` 下的受控相对软连接选择可见集合。软连接集合是唯一绑定真相源，不再使用 frontmatter `skills:`。公共 CRUD 保留，但删除被引用 Skill 默认拒绝并返回引用 Agent。
 
 **派生 Profile**：底座（第 1~10 章的一切）都吃 `Profile`，所以 `AgentLoader.deriveProfile(agentDir)` 把 `AGENT.md` 的 frontmatter 映射成一个 `Profile`，让 Agent 目录**零改动复用整台底座**。
 
-**渐进式披露（收进一个 Agent 内部）**：Agent 的**正文**在被触发时进 system prompt（它就是这个 Agent 的"人格 + 干什么"）；目录里的**子指令 / 参考 / 脚本不预载**，按正文指引**用底座既有能力按需取**——读子指令 / 参考用 `read_file`，跑脚本用 `shell`/`python`（脚本产出进上下文、代码不进）。没有新工具、没有能力库、没有全局索引。
+**渐进式披露**：L1 每轮注入当前 Agent 已绑定 Skill 的 name、description 和本地绝对路径；L2 模型命中后 `read_file` 读取 `SKILL.md` 正文；L3 再按正文引用读取 references/模板或运行脚本。未绑定 Skill 不进入 Agent prompt；不新增 `use_skill`，Skill 不进 `ToolRegistry`。
 
 > **底线不变（宪法原则四）**：`AGENT.md` 正文由 `ContextLoader` 注入 system prompt（与 Bootstrap 文件同层）；**一个 Agent 目录不是一个可执行 Tool**——它的子资源经底座既有的 `read_file`/`shell` 取用，不新造机制。
 
@@ -696,9 +697,9 @@ mvn clean package
 
 核心阶段走文件系统，一步到位：
 
-1. 在 `.oryxos/agents/<name>/` 放一个目录：至少一份 `AGENT.md`，需要子指令 / 脚本就加 `skills/*.md`、`scripts/`。
+1. 在 `.oryxos/agents/<name>/` 放一个目录：至少一份 `AGENT.md`；需要 Skill 就在 `skills/` 创建指向公共实体的相对软连接，需要脚本则放 `scripts/`。
 2. 启动时 `AgentLoader` 扫 `.oryxos/agents/`，对每个目录 `deriveProfile` → `ProfileRegistry.register`；有 `schedules` 的交 `AgentScheduler`。
-3. 运行时：Agent 到点被触发，正文进 system prompt，子指令 / 参考 / 脚本按需经 `read_file`/`shell` 取用；`ContextLoader` / `read_file` 每次现取、不缓存，改正文即时生效。
+3. 运行时：正文与已绑定 Skill 元数据进 system prompt，Skill 正文/参考/脚本按需经 `read_file`/`shell` 取用；`ContextLoader` 每次现扫、不缓存。
 
 配合运行时注册（11.3 的改造点在核心阶段就立好），新增 Agent 无需重启。
 
@@ -725,7 +726,7 @@ mvn clean package
 
 ### 11.5 三个例子
 
-下一章（12.1~12.3）的三个 Demo——每日天气、每日科技日报、每日 GitHub 日报——各演一种 **Agent 目录丰富度**：**天气 Agent 是光杆 `AGENT.md`**（正文写指令，用内置 HTTP Tool + `schedules`）；**科技日报 Agent 是 `AGENT.md` + `skills/` 子指令**（组稿规范单独一份，Agent 用 `read_file` 按需读，配 MCP / Memory）；**GitHub 日报 Agent 是 `AGENT.md` + `scripts/` 脚本**（含 `scripts/github_trending.py`，Agent 用 `shell` 跑脚本拿确定性数据）。核心阶段先靠 11.2 的手动路径跑通，扩展阶段升级到 11.3 的统一 API 后，不用重启进程就能上新 Agent。
+下一章（12.1~12.3）的三个 Demo 各演一种 Agent 目录丰富度：天气 Agent 是光杆 `AGENT.md`；科技日报 Agent 绑定公共组稿 Skill，prompt 只注入元数据、正文按需读取；GitHub 日报 Agent 带 `scripts/` 脚本。
 
 ---
 
@@ -733,7 +734,7 @@ mvn clean package
 
 ## 12. 关键流程
 
-早期按"一个 Demo 验证一个能力"拆过五个流程，但真实场景里能力从来不是分开跑的。改成三个**每日自动运行**的端到端流程，横向串起全部五大核心能力加定时任务这个第三触发源——而且它们正好是第 11 章"一个目录 = 一个 Agent"的具体产出，把一个 Agent 目录的三种丰富度各演到一个：天气 = 光杆 `AGENT.md`、科技日报 = `AGENT.md` + `skills/` 子指令、GitHub 日报 = `AGENT.md` + `scripts/` 脚本。底座和"定义 Agent"两部分在这里合到一起跑通。
+早期按"一个 Demo 验证一个能力"拆过五个流程，现改成三个每日自动运行的端到端流程：天气 = 光杆 `AGENT.md`、科技日报 = `AGENT.md` + 公共 Skill 软连接、GitHub 日报 = `AGENT.md` + `scripts/`。
 
 ### 12.1 Demo 一：每日天气（光杆 AGENT.md）
 
@@ -751,18 +752,18 @@ mvn clean package
 
 涉及能力一（Provider）+ 能力二（ReAct）+ 能力四（内置 HTTP Tool + `NotifyTools` + Sandbox）+ 定时任务（`AgentScheduler`）+ 能力五（Session 查询兜底）。
 
-### 12.2 Demo 二：每日科技日报（AGENT.md + skills/ 子指令）
+### 12.2 Demo 二：每日科技日报（AGENT.md + 公共 Skill 绑定）
 
 **场景：** 每天早上 9 点，Agent 自动汇总当日科技新闻并推送，日报内容会体现用户之前提过的关注方向。业务方全程不写 Java 代码。
 
-1. 业务方**写一个 Agent 目录** `.oryxos/agents/daily-tech-digest/`：`AGENT.md`（frontmatter：`identity` + `tools`（含 `http_get`、`read_file`、`notify`）+ 每天 09:00 的 `schedules` + `notify_channels`；正文写"编日报、组稿规范去读 `skills/digest-format.md`"）+ `skills/digest-format.md`（较长的组稿排版规范）；需要新闻聚合 MCP 就在 `mcp_servers.yaml` 配一条
+1. 业务方创建 `.oryxos/agents/daily-tech-digest/AGENT.md`，并把 `skills/digest-format` 绑定为指向 `.oryxos/skills/digest-format/` 的相对软连接；需要新闻聚合 MCP 就在 `mcp_servers.yaml` 配一条
 2. 用户此前说过"更关注 AI 和芯片方向"，DeepSeek 调 `save_memory` 写入 `MEMORY.md` 归档区
-3. 到点，`AgentScheduler` 触发 `AgentService.process`，`PromptBuilder` 往 system prompt 注入 `AGENT.md` 正文 + `MEMORY.md`——组稿规范那段较长的子指令**不预载**
-4. LLM 按正文指引，调 **`read_file("skills/digest-format.md")`** 取回组稿规范作为工具结果进上下文——子指令只在此刻才占上下文（一个 Agent 内部的渐进式披露，用底座既有 `read_file`）
+3. 到点后 system prompt 注入 `AGENT.md` 正文、记忆，以及 digest-format 的 name/description/本地绝对路径；组稿规范正文不预载
+4. LLM 根据描述命中该 Skill，调用 `read_file("<agent绝对路径>/skills/digest-format/SKILL.md")`，正文此时才作为工具结果进入上下文
 5. LLM 按规范调新闻工具（`http_get` 或新闻 MCP，`McpToolAdapter` 转发）拉当日科技新闻；因为看到记忆里的偏好，组稿时自然侧重 AI 和芯片方向——OryxOS 不解析任务步骤
 6. LLM 调内置 `notify(content="...")` 推送，`ToolExecutor` 写 `tool_invocations`
 
-**验收要点：** 业务方只写一个 Agent 目录（两份 markdown），零 Java；`tool_invocations` 里有 `read_file("skills/digest-format.md")`（子指令按需加载生效）；`GET /api/v1/agents` 查得到 `daily-tech-digest`；日报体现记忆偏好；同一个 Agent 可被人工触发验证。
+**验收要点：** prompt 只有 Skill 元数据、没有正文；`tool_invocations` 有对 Agent 本地软连接路径的 `read_file`；未绑定 Skill 不可见；日报体现记忆偏好。
 
 涉及 Agent 目录子指令（`read_file` 按需读）+ 能力四方式二（MCP）+ 内置 `NotifyTools` + 能力三（Memory）+ 定时任务。
 

@@ -57,7 +57,7 @@ OryxOS is the third column — and it ships the second one for every agent it ru
 ## Features
 
 **🤖 One Directory = One Agent**
-An Agent is a directory: `.oryxos/agents/<name>/AGENT.md` — YAML frontmatter (the Agent's profile: model, tools, channels, schedules) plus a body of task instructions. Optional `skills/`, `scripts/`, and `REFERENCE.md` are loaded on demand. Multiple agents co-exist on one instance.
+An Agent is a directory: `.oryxos/agents/<name>/AGENT.md` — YAML frontmatter plus task instructions. Its optional `skills/` directory contains relative symlinks to shared Skill entities. Every prompt receives only each bound Skill's name, description, and local path; bodies and resources load on demand. Multiple agents co-exist on one instance.
 
 **⚡ Dynamic Agent Management**
 Create an agent via REST, generate a draft `AGENT.md` from one sentence with an LLM, or just drop a directory into the workspace — a `WorkspaceWatcher` picks it up and the agent goes live with no restart.
@@ -203,7 +203,7 @@ The dev server runs on port **5173** with base `/admin/` and proxies `/api` → 
 
 ## Agent Definition
 
-**One directory = one Agent.** Each agent lives in `.oryxos/agents/<name>/` with an `AGENT.md` — YAML frontmatter (its profile) plus a body of task instructions injected into the system prompt. Optional `skills/*.md`, `scripts/`, and `REFERENCE.md` in the same directory are loaded on demand via `read_file` / `shell`. There is no `.oryxos/profiles/` directory.
+**One directory = one Agent.** Each agent lives in `.oryxos/agents/<name>/` with an `AGENT.md`, optional scripts/references, and a `skills/` binding view. Shared Skill entities live under `.oryxos/skills/<name>/`; an Agent binds one through a relative symlink at `agents/<agent>/skills/<name>`. Each prompt receives only bound Skill names, descriptions, and local paths. Bodies and resources load on demand through `read_file` / `shell`; there is no `use_skill` tool or `.oryxos/profiles/` directory.
 
 ```markdown
 ---
@@ -261,7 +261,7 @@ All endpoints are prefixed with `/api/v1` and every response is wrapped in a uni
 
 - **Platform before Agent** — the most important deliverable is not a powerful Agent, but the environment that lets any Agent run reliably
 - **Self-implement the core** — reasoning loop is self-implemented; protocol adapters reuse mature libraries; no reinventing the wheel
-- **One directory = one Agent** — an Agent is a directory (`AGENT.md` + optional skills/scripts), not code
+- **One directory = one Agent** — `AGENT.md` + Agent-local Skill symlinks + optional scripts, not code
 - **Open standards** — MCP for tools, A2A for collaboration, open formats for skills
 - **Stateless instances** — state externalized from the start; the prerequisite for scaling to distributed
 - **Security as foundation** — controlled tool sources, least privilege, mandatory sandbox, credentials never persisted, full audit trail from day one
