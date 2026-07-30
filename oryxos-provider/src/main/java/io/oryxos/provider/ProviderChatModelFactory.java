@@ -20,6 +20,10 @@ public class ProviderChatModelFactory {
   private static final String SLASH = "/";
   private static final String PATH_V1 = "/v1";
 
+  /** 末尾版本段（如 GLM 的 /api/paas/v4）：此类端点版本在 baseUrl 里，不能再补 /v1。 */
+  private static final java.util.regex.Pattern TRAILING_VERSION =
+      java.util.regex.Pattern.compile(".*/v\\d+$");
+
   public Map<String, ChatModel> build(ProvidersProperties properties) {
     properties.validate();
     Map<String, ChatModel> providerMap = new LinkedHashMap<>();
@@ -35,7 +39,13 @@ public class ProviderChatModelFactory {
       return new MockChatModel(); // 不连真实端点，无需 key/url
     }
     // baseUrl 约定不含 /v1：OpenAiApi 内部会追加 /v1/chat/completions；用户填带 /v1 则先剥离，避免双 /v1（fix-issue-47）
-    return new OpenAiChatModel(new OpenAiApi(stripTrailingV1(baseUrl), apiKey));
+    String base = stripTrailingV1(baseUrl);
+    OpenAiApi.Builder api = OpenAiApi.builder().baseUrl(base).apiKey(apiKey);
+    if (TRAILING_VERSION.matcher(base).matches()) {
+      // 端点版本在 baseUrl 里（如 GLM 的 /api/paas/v4），改补无版本的 /chat/completions
+      api.completionsPath("/chat/completions");
+    }
+    return new OpenAiChatModel(api.build());
   }
 
   /**

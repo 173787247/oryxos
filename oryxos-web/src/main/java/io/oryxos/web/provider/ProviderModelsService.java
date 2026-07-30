@@ -71,7 +71,8 @@ public class ProviderModelsService {
   /**
    * 拼 OpenAI 兼容标准的 {@code /v1/models} 地址：先剥离 baseUrl 末尾的 {@code /} 与 {@code /v1}（用户填带或不带 /v1 都正确），
    * 再统一追加 {@code /v1/models}。与 {@code OpenAiApi} 内部追加 {@code /v1/chat/completions} 的预期对齐： Provider
-   * baseUrl 约定不含 {@code /v1}，两个消费者各自补完整 API 路径。
+   * baseUrl 约定不含 {@code /v1}，两个消费者各自补完整 API 路径。 例外：剥离后仍以版本段结尾（如 GLM 的 {@code /api/paas/v4}）
+   * 说明版本在 baseUrl 里，只补 {@code /models}——与 {@code ProviderChatModelFactory} 的判断规则保持一致。
    */
   private static String modelsUrl(String baseUrl) {
     String u = baseUrl.strip();
@@ -81,6 +82,9 @@ public class ProviderModelsService {
       } else {
         u = u.substring(0, u.length() - PATH_V1.length());
       }
+    }
+    if (u.matches(".*/v\\d+$")) {
+      return u + PATH_MODELS;
     }
     return u + PATH_V1 + PATH_MODELS;
   }
