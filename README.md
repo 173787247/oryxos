@@ -280,6 +280,10 @@ All endpoints are prefixed with `/api/v1` and every response is wrapped in a uni
 | Logging | Logback + SLF4J (structured JSON) |
 | Build | Maven multi-module |
 
+## Contributing
+
+First PRs are welcome — see the [Contributing Guide](https://oryx-labs.github.io/oryxos/docs/contributing) and the [GitHub workflow primer](https://oryx-labs.github.io/oryxos/docs/github-workflow).
+
 ## License
 
 [Apache License 2.0](LICENSE) · [oryx-labs](https://github.com/oryx-labs) · Goal: Apache Software Foundation top-level project
