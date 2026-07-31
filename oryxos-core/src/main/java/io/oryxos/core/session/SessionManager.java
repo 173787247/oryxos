@@ -31,4 +31,7 @@ public interface SessionManager {
    * 与管理台"会话"列表。返回摘要投影而非领域 {@link Session}：领域对象不带 channel/status/时间戳等展示字段。
    */
   List<SessionSummary> listRecent(int limit);
+
+  /** 返回按状态分组的会话计数（active / archived / total），供管理台概览页统计卡使用。 */
+  SessionStats stats();
 }
