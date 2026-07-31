@@ -3,6 +3,8 @@ package io.oryxos.tool.sandbox;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -60,6 +62,85 @@ class WhitelistSandboxTest {
       assertThrows(
           SandboxViolationException.class,
           () -> sb.enforce(new SandboxAction(ActionType.FILE_READ, traversal)));
+    }
+
+    @Test
+    @DisplayName("白名单内软连接指向外部时，读与不存在目标写均拒绝")
+    void symlinkEscapeIsBlocked(@TempDir Path allowed) throws IOException {
+      Path outside = Files.createTempDirectory("oryxos-sandbox-outside-");
+      Files.writeString(outside.resolve("secret.txt"), "secret");
+      Files.createSymbolicLink(allowed.resolve("escape"), outside);
+      WhitelistSandbox sb = sandbox(List.of(allowed.toString()), List.of(), List.of());
+
+      assertThrows(
+          SandboxViolationException.class,
+          () ->
+              sb.enforce(
+                  new SandboxAction(
+                      ActionType.FILE_READ, allowed.resolve("escape/secret.txt").toString())));
+      assertThrows(
+          SandboxViolationException.class,
+          () ->
+              sb.enforce(
+                  new SandboxAction(
+                      ActionType.FILE_WRITE, allowed.resolve("escape/new.txt").toString())));
+    }
+
+    @Test
+    @DisplayName("合法 Agent Skill 软连接指向同一白名单根时可读")
+    void controlledSkillSymlinkIsAllowed(@TempDir Path allowed) throws IOException {
+      Path shared = allowed.resolve("skills/report");
+      Path local = allowed.resolve("agents/ops/skills");
+      Files.createDirectories(shared);
+      Files.createDirectories(local);
+      Files.writeString(shared.resolve("SKILL.md"), "body");
+      Files.createSymbolicLink(local.resolve("report"), Path.of("../../../skills/report"));
+      WhitelistSandbox sb = sandbox(List.of(allowed.toString()), List.of(), List.of());
+
+      assertDoesNotThrow(
+          () ->
+              sb.enforce(
+                  new SandboxAction(
+                      ActionType.FILE_READ, local.resolve("report/SKILL.md").toString())));
+    }
+
+    @Test
+    @DisplayName("dangling、多跳逃逸和链接环全部失败关闭")
+    void unresolvableLinkShapesAreBlocked(@TempDir Path temp) throws IOException {
+      SandboxPathFixture paths = new SandboxPathFixture(temp);
+      Path dangling = paths.dangling();
+      Path multiHop = paths.multiHopEscape();
+      Path cycle = paths.cycle()[0];
+      WhitelistSandbox sb = sandbox(List.of(paths.allowed().toString()), List.of(), List.of());
+
+      assertThrows(
+          SandboxViolationException.class,
+          () -> sb.enforce(new SandboxAction(ActionType.FILE_READ, dangling.toString())));
+      assertThrows(
+          SandboxViolationException.class,
+          () ->
+              sb.enforce(
+                  new SandboxAction(ActionType.FILE_WRITE, multiHop.resolve("x").toString())));
+      assertThrows(
+          SandboxViolationException.class,
+          () -> sb.enforce(new SandboxAction(ActionType.FILE_READ, cycle.toString())));
+    }
+
+    @Test
+    @DisplayName("白名单按真实最小根判断，链接的 lexical 位置不能扩大授权")
+    void symlinkUsesRealTargetRoot(@TempDir Path workspace) throws IOException {
+      Path shared = Files.createDirectories(workspace.resolve("skills/report"));
+      Path local = Files.createDirectories(workspace.resolve("agents/ops/skills"));
+      Files.writeString(shared.resolve("SKILL.md"), "body");
+      Files.createSymbolicLink(local.resolve("report"), Path.of("../../../skills/report"));
+      WhitelistSandbox agentOnly = sandbox(List.of(local.toString()), List.of(), List.of());
+
+      assertThrows(
+          SandboxViolationException.class,
+          () ->
+              agentOnly.enforce(
+                  new SandboxAction(
+                      ActionType.FILE_READ, local.resolve("report/SKILL.md").toString())));
     }
   }
 
@@ -127,6 +208,47 @@ class WhitelistSandboxTest {
       assertThrows(
           SandboxViolationException.class,
           () -> sb.enforce(new SandboxAction(ActionType.HTTP_REQUEST, "not-a-url")));
+    }
+  }
+
+  @Nested
+  @DisplayName("HTTP 读默认放行 + 内网黑名单（第 32 节）")
+  class HttpReadDefaultAllow {
+
+    // http 白名单为空也不挡读——读默认放行，只挡 SSRF（内网/回环/云元数据）
+    private final WhitelistSandbox sb = sandbox(List.of(), List.of(), List.of());
+
+    @Test
+    @DisplayName("读公网地址放行（即使不在白名单）")
+    void publicReadAllowed() {
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "https://8.8.8.8/x")));
+    }
+
+    @Test
+    @DisplayName("无主机的伪目标（web_search）放行")
+    void hostlessReadAllowed() {
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "web_search:foo")));
+    }
+
+    @Test
+    @DisplayName("读内网/回环/链路本地/localhost 一律拒绝（SSRF）")
+    void internalReadBlocked() {
+      for (String url :
+          new String[] {
+            "http://127.0.0.1/x",
+            "http://10.1.2.3/x",
+            "http://192.168.1.1/x",
+            "http://169.254.1.1/x",
+            "http://[::1]/x", // IPv6 回环
+            "http://[fd00::1]/x", // IPv6 ULA fc00::/7
+            "http://localhost/x"
+          }) {
+        assertThrows(
+            SandboxViolationException.class,
+            () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, url)));
+      }
     }
   }
 

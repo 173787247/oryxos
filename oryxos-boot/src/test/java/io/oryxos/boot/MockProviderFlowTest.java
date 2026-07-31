@@ -82,12 +82,25 @@ class MockProviderFlowTest {
     LlmCallAuditor llmAuditor = mock(LlmCallAuditor.class);
     ToolInvocationAuditor toolAuditor = mock(ToolInvocationAuditor.class);
 
+    io.oryxos.core.provider.ProviderRegistry providerRegistry =
+        mock(io.oryxos.core.provider.ProviderRegistry.class);
+    when(providerRegistry.find("mock"))
+        .thenReturn(
+            java.util.Optional.of(
+                new io.oryxos.core.provider.ProviderDef("mock", null, null, null)));
     ProviderService provider =
         new SpringAiProviderServiceImpl(
-            Map.of("mock", new MockChatModel()), new ToolSchemaAdapter(), llmAuditor);
+            providerRegistry, def -> new MockChatModel(), new ToolSchemaAdapter(), llmAuditor);
 
     PromptBuilder promptBuilder =
-        new PromptBuilder(new ContextLoader(root), tools, memory, Clock.systemDefaultZone());
+        new PromptBuilder(
+            new ContextLoader(
+                root,
+                new io.oryxos.core.skill.AgentSkillBindingService(
+                    root, new io.oryxos.core.skill.SkillLoader(root.resolve("skills")))),
+            tools,
+            memory,
+            Clock.systemDefaultZone());
     ToolExecutor toolExecutor = new ToolExecutor(tools, toolAuditor);
     ReActLoop loop = new ReActLoop(promptBuilder, provider, toolExecutor);
 
@@ -106,7 +119,7 @@ class MockProviderFlowTest {
             Profile.Settings.defaults());
     ProfileRegistry profileRegistry = new ProfileRegistry(Map.of(AGENT, profile));
     SessionManager sessionManager = mock(SessionManager.class);
-    AgentService agent = new AgentService(profileRegistry, loop, sessionManager);
+    AgentService agent = new AgentService(profileRegistry, loop, sessionManager, memory);
 
     // —— 跑一次"记住…"对话 ——
     Session session = new Session(SESSION_ID, AGENT);
@@ -149,7 +162,8 @@ class MockProviderFlowTest {
                     agent,
                     sessionManager,
                     profileRegistry,
-                    memory),
+                    memory,
+                    mock(io.oryxos.core.agent.AgentExecutionService.class)),
                 new ToolApiController(tools),
                 new SessionApiController(agent, sessionManager))
             .setControllerAdvice(new GlobalExceptionHandler())

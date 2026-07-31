@@ -31,6 +31,34 @@ public record Profile(
     settings = settings == null ? Settings.defaults() : settings;
   }
 
+  /** 源码兼容旧 12 参调用点。{@code ignoredSkills} 不再进入 Profile，也不参与绑定；Agent Skill 的唯一真相源是目录软连接。 */
+  public Profile(
+      String name,
+      String description,
+      Identity identity,
+      ProviderRef provider,
+      List<String> tools,
+      List<String> mcpServers,
+      List<String> channels,
+      List<NotifyChannel> notifyChannels,
+      List<ScheduleConfig> schedules,
+      List<String> bootstrap,
+      List<String> ignoredSkills,
+      Settings settings) {
+    this(
+        name,
+        description,
+        identity,
+        provider,
+        tools,
+        mcpServers,
+        channels,
+        notifyChannels,
+        schedules,
+        bootstrap,
+        settings);
+  }
+
   /** 人格设定。 */
   public record Identity(String agentName, String prompt) {}
 

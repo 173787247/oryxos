@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS task_executions (
 );
 CREATE INDEX IF NOT EXISTS idx_task_executions_task ON task_executions (task_id);
 
+-- agent_executions：Agent 维度的每次执行历史（第 32 节；手动触发 / 定时触发都记，含起止时间与状态）
+-- ended_at 为空表示"运行中"；成功失败都记，重启不丢，管理台按 Agent 回看。
+CREATE TABLE IF NOT EXISTS agent_executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_name VARCHAR(255) NOT NULL,
+    source VARCHAR(32) NOT NULL,
+    session_id VARCHAR(512),
+    started_at TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP,
+    success BOOLEAN,
+    error_message TEXT,
+    duration_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_agent_executions_agent ON agent_executions (agent_name);
+
 -- memory_entries：长期记忆条目（SqliteMemoryStore 后端，22 节）
 -- scope=CORE 全量注入不截断；scope=ARCHIVAL 归档只带最近 N 条（查询 LIMIT，非删除）
 CREATE TABLE IF NOT EXISTS memory_entries (
@@ -81,3 +96,61 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries (scope);
+
+-- notify_channels：全局通知渠道注册表（31 节）——name → type + url + 描述；管理台可 CRUD、Agent 按名字引用
+-- （notify 工具的 channel 参数）。新表，CREATE TABLE IF NOT EXISTS，非 ALTER，无迁移风险。
+CREATE TABLE IF NOT EXISTS notify_channels (
+    name VARCHAR(128) PRIMARY KEY,
+    type VARCHAR(32) NOT NULL,
+    url TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+-- providers：LLM Provider 动态注册表（31 节）——name → api_key + base_url + 描述；管理台可 CRUD、运行时按名动态建 ChatModel。
+-- 启动时把 config/application.yml 的 oryxos.providers 播种进来（库里没有才写），之后以本表为准。
+-- 注意：api_key 明文落库（本地 gitignored 库）——这是"可动态管理"对宪法"凭证走环境变量"的核心阶段让步。
+CREATE TABLE IF NOT EXISTS providers (
+    name VARCHAR(128) PRIMARY KEY,
+    api_key TEXT,
+    base_url TEXT,
+    description TEXT,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+-- sandbox_whitelist：Sandbox 白名单持久化（宪法 VI 第一档）——三类 category（FILE/SHELL/HTTP）→ entry_value。
+-- 启动时把 config 的 file.allowed_paths / shell.allowed_commands / http.allowed_domains 播种进来（幂等，库里没有才写），
+-- 之后管理台 / API 的增删即刻落库，重启保留。entry_value 存"入内存的规范形"（FILE 为归一后的绝对路径）以便与 list/删除对齐。
+CREATE TABLE IF NOT EXISTS sandbox_whitelist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category VARCHAR(16) NOT NULL,
+    entry_value TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (category, entry_value)
+);
+
+-- web_users：管理台 Basic Auth 账号（012-web-auth）
+-- 密码哈希存储（{bcrypt} 前缀 + hash），绝不存明文（宪法 VI 凭证不落地）
+CREATE TABLE IF NOT EXISTS web_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username VARCHAR(64) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_web_users_username ON web_users (username);
+
+-- web_sessions：浏览器登录 session（012-web-auth US3）
+-- session_id = UUID（cookie 值）；expires_at = created_at + session-ttl（默认 12h）
+-- 惰性清：filter 查到过期行顺手 delete，无后台定时线程
+CREATE TABLE IF NOT EXISTS web_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id VARCHAR(64) NOT NULL UNIQUE,
+    username VARCHAR(64) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_web_sessions_session ON web_sessions (session_id);

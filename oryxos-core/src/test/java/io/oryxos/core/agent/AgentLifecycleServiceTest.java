@@ -2,6 +2,7 @@ package io.oryxos.core.agent;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -22,6 +23,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 /** 课件《第30节》验收 harness：AgentLifecycleServiceTest——编排顺序 + 失败回滚 + 删除时序。 */
@@ -51,7 +53,9 @@ class AgentLifecycleServiceTest {
             mock(io.oryxos.core.provider.ProviderService.class),
             "deepseek",
             "deepseek",
-            "deepseek-chat");
+            "deepseek-chat",
+            java.util.Map.of(),
+            mock(io.oryxos.core.notify.NotifyChannelRegistry.class));
   }
 
   private static Profile profile(String name, ScheduleConfig... schedules) {
@@ -146,7 +150,7 @@ class AgentLifecycleServiceTest {
     Profile updated = profile("w", new ScheduleConfig("m", "0 0 10 * * *", "Asia/Shanghai", "新"));
     when(profileRegistry.get("w")).thenReturn(Optional.of(old));
     Path dir = Path.of("agents", "w");
-    when(agentStore.write(eq("w"), any())).thenReturn(dir);
+    when(agentStore.writeAll(eq("w"), any())).thenReturn(dir);
     doReturn(updated).when(agentLoader).deriveProfile(dir);
 
     service.update("w", MD);
@@ -154,5 +158,39 @@ class AgentLifecycleServiceTest {
     InOrder o = inOrder(agentScheduler);
     o.verify(agentScheduler).unregisterProfile(old); // 先注销旧句柄
     o.verify(agentScheduler).registerProfile(updated); // 再注册新的
+  }
+
+  @Test
+  @DisplayName("运行期更新拒绝 legacy skills，迁移职责不会泄漏到普通 CRUD")
+  void update_rejectsLegacySkills() {
+    String legacy = MD.replace("---\n正文", "skills:\n  - report-format\n---\n正文");
+
+    assertThrows(IllegalArgumentException.class, () -> service.update("w", legacy));
+    verify(agentStore, never()).writeAll(any(), any());
+  }
+
+  @Test
+  @DisplayName("updateBasicInfo 改 description/provider/model，正文与其它字段保留")
+  void updateBasicInfo_editsFrontmatterPreservesBodyAndOtherKeys() throws Exception {
+    when(agentStore.read("demo")).thenReturn(MD);
+    Path dir = Path.of("agents", "demo");
+    when(agentStore.writeAll(eq("demo"), any())).thenReturn(dir);
+    Profile updated = profile("demo");
+    doReturn(updated).when(agentLoader).parse(any(), eq("demo"));
+    doReturn(updated).when(agentLoader).deriveProfile(dir);
+
+    service.updateBasicInfo("demo", "新描述", "openai", "gpt-4o");
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<java.util.Map<String, String>> filesCaptor =
+        ArgumentCaptor.forClass(java.util.Map.class);
+    verify(agentStore).writeAll(eq("demo"), filesCaptor.capture());
+    String written = filesCaptor.getValue().get("AGENT.md");
+    assertTrue(written.contains("description: 新描述"), "description 被更新");
+    assertTrue(written.contains("name: openai"), "provider.name 被更新");
+    assertTrue(written.contains("model: gpt-4o"), "provider.model 被更新");
+    assertTrue(!written.contains("skills:"), "Skill 绑定不写回 AGENT.md");
+    assertTrue(written.contains("name: demo"), "name 保留");
+    assertTrue(written.contains("正文"), "正文保留");
   }
 }

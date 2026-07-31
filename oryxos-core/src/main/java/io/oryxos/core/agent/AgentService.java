@@ -1,5 +1,7 @@
 package io.oryxos.core.agent;
 
+import io.oryxos.core.memory.MemoryScope;
+import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Session;
@@ -16,15 +18,22 @@ import io.oryxos.core.session.SessionManager;
     justification = "profileRegistry 是 Spring 注入的单例注册表，三种触发源共享同一引用正是意图（29 节起可运行时增删，必须同一份）。")
 public class AgentService {
 
+  private static final int MEMORY_LINE_MAX = 200;
+
   private final ProfileRegistry profileRegistry;
   private final ReActLoop reActLoop;
   private final SessionManager sessionManager;
+  private final MemoryService memoryService;
 
   public AgentService(
-      ProfileRegistry profileRegistry, ReActLoop reActLoop, SessionManager sessionManager) {
+      ProfileRegistry profileRegistry,
+      ReActLoop reActLoop,
+      SessionManager sessionManager,
+      MemoryService memoryService) {
     this.profileRegistry = profileRegistry;
     this.reActLoop = reActLoop;
     this.sessionManager = sessionManager;
+    this.memoryService = memoryService;
   }
 
   public String process(Session session, String userMessage) {
@@ -37,10 +46,38 @@ public class AgentService {
     ProfileContext.set(profile); // 工具执行时靠它知道"当前是哪个 Agent"
     try {
       String reply = reActLoop.run(session, userMessage, profile);
-      sessionManager.save(session); // 把累积完的历史持久化（仅正常路径）
+      // 达到最大迭代上限时 ReAct 返回占位文本（不抛异常），这里检测并转为异常，
+      // 让 triggerAsync 把执行记成失败状态（否则前端显示"执行成功"——错误引导用户）
+      boolean exhausted = ReActLoop.MAX_ITERATIONS_REPLY.equals(reply);
+      sessionManager.save(session); // 无论是正常结束还是迭代耗尽，保存现场供审计/排查
+      if (exhausted) {
+        throw new AgentMaxIterationsExceededException(reply);
+      }
+      recordTrigger(profile.name(), userMessage, reply); // 正常完成才记运行足迹
       return reply;
     } finally {
       ProfileContext.clear(); // 虚拟线程每请求独立，用完必须清
     }
+  }
+
+  /** 每次触发都往这个 Agent 的记忆归档区记一条运行足迹（这个 Agent 干过什么，事后可回看）。 */
+  private void recordTrigger(String agentName, String userMessage, String reply) {
+    String line = "触发「" + oneLine(userMessage) + "」⇒ " + oneLine(reply);
+    // remember 靠 ToolExecutionContext 定位 Agent（同工具写记忆的路径）：读写路径外要自己置入再清除
+    ToolExecutionContext.setAgentName(agentName);
+    try {
+      memoryService.remember(line, MemoryScope.ARCHIVAL);
+    } finally {
+      ToolExecutionContext.clear();
+    }
+  }
+
+  /** 记忆是逐行存的：把多行压成一行、超长截断，避免撑坏归档区的行结构。 */
+  private static String oneLine(String text) {
+    if (text == null || text.isBlank()) {
+      return "（空）";
+    }
+    String flat = text.replaceAll("\\s+", " ").strip();
+    return flat.length() > MEMORY_LINE_MAX ? flat.substring(0, MEMORY_LINE_MAX) + "…" : flat;
   }
 }

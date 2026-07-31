@@ -90,22 +90,26 @@ Map<String, ChatModel> providerMap = Map.of(
 );
 ```
 
-### 原则四：一个目录 = 一个 Agent；`AGENT.md` 归 `ContextLoader`，不是 Tool
+### 原则四：一个目录 = 一个 Agent；Skill 以本地软连接绑定并渐进披露
 
-**一个目录 = 一个 Agent**（借 Anthropic Agent Skills 的**目录形态**，但定义的是 Agent）：`.oryxos/agents/<name>/` 里 `AGENT.md` = frontmatter（这个 Agent 自己的 profile：name/description/provider/model/tools/notify_channels/schedules）+ 正文（任务指令）；外加可选 `skills/*.md`（子指令）、`scripts/`（脚本）、`REFERENCE.md`（参考）。`AgentLoader.deriveProfile(agentDir)` 把 frontmatter 派生成底座认识的 `Profile`——`.oryxos/profiles/` 取消，profile 就是 frontmatter。
+**一个目录 = 一个 Agent**：`.oryxos/agents/<name>/` 里 `AGENT.md` = frontmatter（运行配置）+ 正文（任务指令），外加可选 `skills/`（Skill 绑定视图）、`scripts/`、`REFERENCE.md`。`AgentLoader.deriveProfile(agentDir)` 把 frontmatter 派生成底座认识的 `Profile`；`.oryxos/profiles/` 取消。
 
-加载走**一个 Agent 内部的渐进式披露**：`AGENT.md` **正文**由 `ContextLoader`/`PromptBuilder` 注入 system prompt（跟 Bootstrap 文件 `AGENTS.md`/`SOUL.md`/`USER.md` 同一层，因为它就是这个 Agent）；目录里的**子指令 / 参考**用底座既有 `read_file` 按需读、**脚本**用 `shell` 按需跑——没有跨 Agent 的能力库、没有 `use_skill`、没有全局能力索引。**一个 Agent 目录永远不是一个可执行 Tool**，不进 `ToolRegistry`、不放在 `oryxos-tool` 模块里（详见 `docs/TechnicalSolution.md` §11）。
+公共 Skill 实体统一存放在 `.oryxos/skills/<name>/`。Agent 可见的 Skill 只由 `.oryxos/agents/<agent>/skills/<name>` 下指向公共实体的**相对软连接**表达；软连接集合是唯一绑定真相源，`AGENT.md` frontmatter 不再声明 `skills:`。
+
+加载走三层渐进式披露：每轮 prompt 只注入当前 Agent 已绑定 Skill 的 `name + description + 本地绝对读取路径`；模型命中后用 `read_file` 读取 `SKILL.md` 正文；Skill 附属参考/脚本继续按需读取或运行。不得预载正文、不得新增 `use_skill`、Skill 不进 `ToolRegistry`。CRUD 与启动恢复必须检测 dangling/escaped/invalid-target/name-mismatch/stale-reference；公共 Skill 被引用时默认拒绝删除并返回引用 Agent。
 
 ### 原则五：审计表 Day One 写入
 
 `tool_invocations` 和 `llm_calls` 两张审计表**核心阶段就必须写入**（不需要查询接口，但写入不能省）。不得以"日志够了"为由跳过落库，可审计是 OryxOS 的核心差异化能力。
 
-### 原则六：不使用 Java SecurityManager
+### 原则六：不使用 Java SecurityManager；软连接必须校验真实路径
 
 `SecurityManager` 在 JDK 17 起废弃、JDK 21 已不可用。Sandbox 通过 `SandboxChecker` 的 Path / Pattern 白名单实现：
 - 文件操作：路径白名单（`file.allowed_paths`）
 - Shell：命令首 token 白名单（`shell.allowed_commands`）
 - HTTP：域名通配符白名单（`http.allowed_domains`）
+
+文件目标存在时必须用 `toRealPath()` 校验真实路径仍位于白名单根；新建路径校验最近存在父目录的真实路径。Agent Skill 绑定只允许指向 `.oryxos/skills/` 的相对软连接，拒绝绝对链接和越界链接。
 
 ### 原则七：同步执行模型
 
@@ -123,7 +127,8 @@ OryxOS 启动后在当前目录创建 `.oryxos/` 工作区：
 
 ```
 .oryxos/
-├── agents/             # 每个子目录 = 一个 Agent（AGENT.md + 可选 skills/ scripts/ REFERENCE.md）
+├── agents/             # 每个子目录 = 一个 Agent（AGENT.md + skills/软连接 + scripts/ REFERENCE.md）
+├── skills/             # 公共 Skill 实体库：每个子目录 = 一个 Skill（SKILL.md + 可选附属资源）
 ├── memory/
 │   └── MEMORY.md       # 长期记忆（Agent 通过 save_memory 写入，不得手动修改）
 ├── sessions/           # 会话数据（已迁入 SQLite，此目录备用）
@@ -145,7 +150,7 @@ OryxOS 启动后在当前目录创建 `.oryxos/` 工作区：
 
 ### AGENT.md（`.oryxos/agents/<name>/AGENT.md`）
 
-一个 Agent 目录里 `AGENT.md` = frontmatter（这个 Agent 自己的 profile）+ 正文（任务指令）。`AgentLoader.deriveProfile(agentDir)` 把 frontmatter 派生成底座认识的 `Profile`。子指令 / 脚本放同目录的 `skills/`、`scripts/`，由正文指引用 `read_file`/`shell` 按需取用（不在 frontmatter 里声明）。
+一个 Agent 目录里 `AGENT.md` = frontmatter（这个 Agent 自己的 profile）+ 正文（任务指令）。`AgentLoader.deriveProfile(agentDir)` 把 frontmatter 派生成底座认识的 `Profile`。该 Agent 的 `skills/` 只放指向公共 Skill 实体的相对软连接；`ContextLoader` 每轮注入绑定 Skill 的名称、描述和读取路径，正文与附属资源经 `read_file`/`shell` 按需取用。
 
 ```markdown
 ---
@@ -235,7 +240,7 @@ settings:
 用户消息
   → 追加到 Session 对话历史
   → PromptBuilder 组装 Prompt：
-      [1] system prompt（AGENT.md 正文 + Bootstrap；子指令/脚本经 read_file/shell 按需取）← ContextLoader
+      [1] system prompt（AGENT.md 正文 + Skill 元数据 + Bootstrap；正文/脚本按需取）← ContextLoader
       [2] 长期记忆（MEMORY.md 全文，超 4000 字自动截断）         ← MemoryService
       [3] 对话历史（最近 max_history_turns 轮）                  ← SessionManager
       [4] 可用 Tool 列表（Function Calling 格式）                ← ToolRegistry
@@ -393,7 +398,7 @@ provider:
 
 - **底座优先于 Agent**：最重要的交付不是某个强大的 Agent，而是让任意 Agent 可靠运行的环境
 - **自实现核心，复用管道**：ReAct 循环手写；LLM 协议适配委托给 Spring AI Alibaba
-- **一个目录 = 一个 Agent**：一个业务 Agent 由一个目录定义——`AGENT.md`（frontmatter 配置：谁/何时/怎么跑 + 正文指令），可选 `skills/` 子指令、`scripts/` 脚本；子资源经底座 `read_file`/`shell` 按需取用，不需要写 Java 代码
+- **一个目录 = 一个 Agent**：一个业务 Agent 由一个目录定义——`AGENT.md`（frontmatter 配置 + 正文指令）、可选 `skills/` 公共 Skill 软连接与 `scripts/`；Skill 元数据每轮注入，正文/附属资源经 `read_file`/`shell` 按需取用
 - **对接开放标准**：工具用 MCP，Agent 间协作用 A2A，Agent 目录借 Anthropic Agent Skills 的形态（目录 + 渐进式披露）
 - **无状态实例，状态外置**：这是未来走向分布式架构而不需要大改设计的前提
 - **安全是地基，不是补丁**：工具来源管控、最小权限、强制沙箱白名单、凭证走环境变量、完整审计记录从第一天就写入 SQLite

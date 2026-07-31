@@ -9,28 +9,42 @@ const t = (zh, en) => isZh.value ? zh : en
 const capabilities = computed(() => [
   {
     num: '01',
-    title: t('多模型路由', 'Multi-Provider LLM Routing'),
+    title: t('一个目录 = 一个 Agent', 'One Directory = One Agent'),
     desc: t(
-      '通过 Profile YAML 在 DeepSeek、Qwen、Kimi、Ollama 之间切换，零代码修改。Agent 不感知具体厂商，显式 Provider 映射保证路由正确。',
-      'Switch between DeepSeek, Qwen, Kimi, and Ollama via Profile YAML — no code changes. Agents are provider-agnostic; explicit mapping ensures correct routing.'
+      '一个 Agent 就是一个目录：AGENT.md = frontmatter（profile）+ 正文（任务指令），可选 skills/、scripts/。REST 创建、一句话 LLM 生成，或直接拖入目录，WorkspaceWatcher 热加载即上线，无需重启。',
+      'An agent is a directory: AGENT.md = frontmatter (its profile) + a body of instructions, plus optional skills/ and scripts/. Create via REST, generate from one sentence with an LLM, or drop in a directory — WorkspaceWatcher makes it live with no restart.'
     ),
-    code: `# .oryxos/profiles/ops-agent.yaml
-provider:
-  name: deepseek
-  model: deepseek-chat
-  api_key: \${DEEPSEEK_API_KEY}
+    code: `.oryxos/agents/ops-agent/
+├── AGENT.md        # frontmatter + task body
+├── skills/*.md     # on-demand sub-instructions
+└── scripts/        # on-demand shell scripts
 
-# Switch to local model — data never leaves
-provider:
-  name: ollama
-  model: qwen2.5:7b`,
+# Drop the dir in → WorkspaceWatcher registers it live
+# Or: POST /api/v1/agents  (create / generate / edit)`,
   },
   {
     num: '02',
+    title: t('动态多模型路由', 'Dynamic Multi-Provider Routing'),
+    desc: t(
+      'Provider 存 SQLite，支持运行时 CRUD——随时增删改。Agent 不感知具体厂商，显式 name → ChatModel 映射保证路由正确；改 key/base-url 下次调用自动重建。',
+      'Providers live in SQLite with runtime CRUD — add, edit, remove anytime. Agents are provider-agnostic; explicit name → ChatModel routing stays correct, and the model rebuilds when its key or base URL changes.'
+    ),
+    code: `# Providers are runtime-mutable, stored in SQLite
+POST /api/v1/providers
+{ "name": "deepseek", "apiKey": "\${DEEPSEEK_API_KEY}",
+  "baseUrl": "https://api.deepseek.com" }
+
+# An agent just references one by name
+provider:
+  name: deepseek        # → explicit ChatModel map
+  model: deepseek-chat`,
+  },
+  {
+    num: '03',
     title: t('自实现 ReAct 循环', 'Self-implemented ReAct Loop'),
     desc: t(
-      '完整掌控 Reason → Act → Observe 循环，循环行为完全可控，不依赖 Spring AI Agent 抽象。Tool 调用、审计写入全由 ToolExecutor 控制。',
-      'Full control over Reason → Act → Observe — the loop is fully controllable, with no Spring AI Agent abstractions. Tool dispatch and audit writes are owned by ToolExecutor.'
+      '完整掌控 Reason → Act → Observe 循环，同步执行 + 虚拟线程，不被任何外部 Agent 框架包裹。协议差异交给适配层吸收，工具执行始终由自己掌控，全程透明可查。',
+      'Full control over Reason → Act → Observe — synchronous execution on virtual threads, wrapped by no external agent framework. Vendor protocol differences are absorbed by an adapter layer; tool execution stays fully in-house and inspectable.'
     ),
     code: `User message
   → PromptBuilder: system + memory + history + tools
@@ -43,22 +57,49 @@ provider:
   → [Final reply] → return`,
   },
   {
-    num: '03',
+    num: '04',
     title: t('分层记忆系统', 'Layered Memory System'),
     desc: t(
-      '会话记忆 + 长期记忆（MEMORY.md 关键词检索）。长期记忆自动注入每次 system prompt，Agent 跨会话保持一致，后续可无缝升级向量检索。',
-      'Session memory plus long-term memory (MEMORY.md with keyword search). Auto-injected into every system prompt so agents stay consistent across sessions — with a clear upgrade path to vector search.'
+      '会话记忆 + 按 Agent 的长期记忆（.oryxos/agents/<name>/MEMORY.md，关键词检索、带时间戳）。自动注入每次 system prompt，Agent 跨会话保持一致，后续可无缝升级向量检索。',
+      'Session memory plus per-agent long-term memory (.oryxos/agents/<name>/MEMORY.md, keyword search, timestamped). Auto-injected into every system prompt so agents stay consistent across sessions — with a clear upgrade path to vector search.'
     ),
     code: `# Agent saves a preference
 Tool: save_memory
-Input: {"content": "Prefers Spring Boot over MVC"}
+Input: {"content": "Weekly report goes out every Friday 5pm"}
 
-# Auto-injected into next session's prompt
-# Persisted in .oryxos/memory/MEMORY.md
+# Persisted per-agent, auto-injected next turn
+# .oryxos/agents/ops-agent/MEMORY.md
 
 Tool: recall_memory
-Input: {"query": "user preferences"}
-Output: "Prefers Spring Boot over MVC"`,
+Input: {"query": "user preferences"}`,
+  },
+  {
+    num: '05',
+    title: t('沙箱工具 + MCP', 'Sandboxed Tools + MCP'),
+    desc: t(
+      '内置文件 / Shell / HTTP 工具走路径、命令、域名白名单（不用 SecurityManager），可运行时管理。三档插件：零代码 SKILL.md → 自定义 MCP server → 原生 @Tool。Notify 渠道按名寻址。',
+      'Built-in file / shell / HTTP tools pass through path, command, and domain whitelists (no SecurityManager), manageable at runtime. Three-tier plugins: zero-code SKILL.md → custom MCP server → native @Tool. Notify channels addressed by name.'
+    ),
+    code: `# Whitelists, not SecurityManager
+shell.allowed_commands: [ls, cat, python3]
+http.allowed_domains:   ["*.github.com"]
+
+# Manage at runtime
+POST /api/v1/sandbox/whitelist/SHELL
+# Extend via MCP server or native @Tool`,
+  },
+  {
+    num: '06',
+    title: t('Web 管理台', 'Web Admin Console'),
+    desc: t(
+      '/admin/ 控制台（Vue 3 + Vite，与官网同源风格）：Agent 管理与一句话生成、Provider / Notify 渠道 CRUD、定时任务、工作区文件浏览、记忆查看。审计表 llm_calls、tool_invocations 第一天就写入。',
+      'A Vue 3 + Vite console at /admin/ (same theme as this site): agent management with one-sentence generation, Provider / Notify-channel CRUD, scheduled tasks, workspace file browser, and memory views. Audit tables llm_calls and tool_invocations are written from day one.'
+    ),
+    code: `❯ oryxos serve --port 8080
+
+/api/v1/**     REST API (unified envelope)
+/admin/        Web admin console
+/swagger-ui    OpenAPI docs`,
   },
 ])
 
@@ -71,7 +112,7 @@ const scenarios = computed(() => [
   {
     num: '02',
     title: t('零代码 PR 日报', 'Zero-code PR Digest'),
-    desc: t('写一个 SKILL.md 接入 GitHub MCP server，自动生成每日 PR 摘要，零 Java 代码。', 'Write a SKILL.md and connect a GitHub MCP server — daily PR summaries with no Java code.'),
+    desc: t('写一个 SKILL.md 接入 GitHub MCP server，自动生成每日 PR 摘要，零代码。', 'Write a SKILL.md and connect a GitHub MCP server — daily PR summaries with zero code.'),
   },
   {
     num: '03',
@@ -158,7 +199,7 @@ const flowColumns = computed(() => [
   {
     id: 'capabilities',
     label: t('能力层', 'Capabilities'),
-    nodes: [t('工具体系 (7+)', 'Tool System (7+)'), t('记忆系统', 'Memory System'), 'MCP Client'],
+    nodes: [t('工具体系 (24+)', 'Tool System (24+)'), t('记忆系统', 'Memory System'), 'MCP Client'],
     highlight: false,
   },
   {
@@ -181,15 +222,15 @@ const flowColumns = computed(() => [
         </p>
 
         <h1 class="hero-headline">
-          <span class="headline-tag">{{ t('分布式 AI Agent OS', 'Distributed AI Agent OS') }}</span><br>
-          <span class="headline-white">{{ t('让一群 Agent', 'Run AI Agents') }}</span><br>
-          <span class="headline-amber">{{ t('像进程跑在操作系统上', 'Like Processes on an OS') }}</span>
+          <span class="headline-tag">{{ t('企业 Agent 操作系统', 'The Enterprise Agent OS') }}</span><br>
+          <span class="headline-white">{{ t('说一句话，', 'Say it in plain language.') }}</span><br>
+          <span class="headline-amber">{{ t('一支 Agent 团队替你交付', 'A team of agents delivers.') }}</span>
         </h1>
 
         <p class="hero-sub">
           {{ t(
-            'OryxOS 是基于 Java 21 构建的分布式 AI Agent OS。私有部署在你自己的 K8s 或服务器上，让一群业务 Agent 像进程跑在操作系统上一样，可靠地运行和协同。',
-            'OryxOS is a distributed AI Agent OS built on Java 21. Deploy it on your own infra — agents run and collaborate like processes on an OS, sharing channels, LLM routing, tools, memory, and sandboxed execution.'
+            '你用一句自然语言发布任务 → OryxOS 把它拆解 → 组织一支 Agent 团队 → 分工协作 → 交付结果。今天：一句话定义一个 Agent，带记忆、24 个内置工具、MCP、Skill、定时与全链路审计，立刻上线。私有部署在你自己的 K8s 或服务器上，数据不出域——让每一家公司，都能用自然语言跑起来自己的 Agent。',
+            'Describe a task in one sentence → OryxOS decomposes it → assembles a team of agents → they collaborate → the result is delivered. Today: define an agent in one sentence — memory, 24 built-in tools, MCP, skills, scheduling, and a full audit trail included — and it goes live instantly. Self-hosted on your own K8s or servers, data stays home. So every company can run its own agents, in plain language.'
           ) }}
         </p>
 
@@ -218,7 +259,7 @@ const flowColumns = computed(() => [
               <span class="term-cmd">oryxos init</span>
             </div>
             <div class="term-output">✓ Workspace initialized at .oryxos/</div>
-            <div class="term-output dim">  profiles/ · memory/ · skills/ · oryxos.db</div>
+            <div class="term-output dim">  agents/ · memory/ · sessions/ · logs/ · oryxos.db</div>
             <div class="term-spacer"></div>
             <div class="term-line">
               <span class="term-prompt">❯</span>
@@ -254,17 +295,17 @@ const flowColumns = computed(() => [
     <div class="stats-bar">
       <div class="stats-inner">
         <div class="stat">
-          <span class="stat-num">9</span>
-          <span class="stat-label">{{ t('Maven 模块', 'Maven modules') }}</span>
+          <span class="stat-num">1</span>
+          <span class="stat-label">{{ t('句话定义一个 Agent', 'sentence defines an agent') }}</span>
         </div>
         <div class="stat-divider"></div>
         <div class="stat">
-          <span class="stat-num">10</span>
+          <span class="stat-num">30+</span>
           <span class="stat-label">{{ t('REST 端点', 'REST endpoints') }}</span>
         </div>
         <div class="stat-divider"></div>
         <div class="stat">
-          <span class="stat-num">7</span>
+          <span class="stat-num">24</span>
           <span class="stat-label">{{ t('内置工具', 'built-in tools') }}</span>
         </div>
         <div class="stat-divider"></div>
@@ -299,7 +340,7 @@ const flowColumns = computed(() => [
       <div class="section-inner">
         <div class="section-header">
           <span class="section-label">{{ t('核心能力', 'CORE CAPABILITIES') }}</span>
-          <h2 class="section-h2">{{ t('三个原语，无限 Agent。', 'Three primitives. Unlimited agents.') }}</h2>
+          <h2 class="section-h2">{{ t('一个目录，无限 Agent。', 'One directory. Unlimited agents.') }}</h2>
         </div>
 
         <div class="caps-grid">
@@ -398,7 +439,7 @@ const flowColumns = computed(() => [
       <div class="footer-inner">
         <div class="footer-brand">
           <span class="footer-logo">Oryx<strong>OS</strong></span>
-          <span class="footer-tagline">{{ t('分布式 AI Agent OS · 私有部署', 'Distributed AI Agent OS · Self-hosted') }}</span>
+          <span class="footer-tagline">{{ t('分布式 Agent Harness OS · 私有部署', 'Distributed Agent Harness OS · Self-hosted') }}</span>
         </div>
         <div class="footer-links">
           <a :href="t('/zh/docs/what', '/docs/what')" class="footer-link">{{ t('文档', 'Docs') }}</a>

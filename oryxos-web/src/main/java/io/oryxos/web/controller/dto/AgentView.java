@@ -10,14 +10,20 @@ public record AgentView(
     String provider,
     String model,
     List<String> tools,
+    List<String> skills,
     List<ScheduleView> schedules) {
 
   public AgentView {
     tools = tools == null ? List.of() : List.copyOf(tools);
+    skills = skills == null ? List.of() : List.copyOf(skills);
     schedules = schedules == null ? List.of() : List.copyOf(schedules);
   }
 
   public static AgentView from(Profile p) {
+    return from(p, List.of());
+  }
+
+  public static AgentView from(Profile p, List<String> liveSkills) {
     Profile.ProviderRef pr = p.provider();
     List<ScheduleView> scheds =
         p.schedules().stream()
@@ -29,6 +35,7 @@ public record AgentView(
         pr == null ? null : pr.name(),
         pr == null ? null : pr.model(),
         p.tools(),
+        liveSkills,
         scheds);
   }
 

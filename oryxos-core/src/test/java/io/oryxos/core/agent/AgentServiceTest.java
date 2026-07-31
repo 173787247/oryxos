@@ -50,7 +50,10 @@ class AgentServiceTest {
     sessionManager = mock(SessionManager.class);
     agentService =
         new AgentService(
-            new ProfileRegistry(Map.of("ops-agent", profile)), reActLoop, sessionManager);
+            new ProfileRegistry(Map.of("ops-agent", profile)),
+            reActLoop,
+            sessionManager,
+            mock(io.oryxos.core.memory.MemoryService.class));
     session = new Session("s-1", "ops-agent");
   }
 
@@ -116,5 +119,19 @@ class AgentServiceTest {
         assertThrows(IllegalStateException.class, () -> agentService.process(orphan, "hi"));
 
     assertTrue(ex.getMessage().contains("no-such-agent"), "报错必须点名缺失的 Profile");
+  }
+
+  @Test
+  @DisplayName("达到最大迭代上限时抛 AgentMaxIterationsExceededException，且 Session 已保存（对话保留供排查）")
+  void maxIterationsExceeded_throwsExceptionAndSavesSession() {
+    when(reActLoop.run(any(), any(), any())).thenReturn(ReActLoop.MAX_ITERATIONS_REPLY);
+
+    AgentMaxIterationsExceededException ex =
+        assertThrows(
+            AgentMaxIterationsExceededException.class, () -> agentService.process(session, "hi"));
+
+    assertEquals(ReActLoop.MAX_ITERATIONS_REPLY, ex.getMessage());
+    verify(sessionManager).save(session); // 对话现场保留，供排查为什么不收敛
+    assertNull(ProfileContext.current());
   }
 }

@@ -1,12 +1,15 @@
 package io.oryxos.core.context;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import io.oryxos.core.profile.Profile;
+import io.oryxos.core.skill.AgentSkillBindingService;
+import io.oryxos.core.skill.SkillLoader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,7 +34,7 @@ class ContextLoaderTest {
   void setUp() throws IOException {
     agentDir = oryxosRoot.resolve("agents").resolve("ops-agent");
     Files.createDirectories(agentDir);
-    loader = new ContextLoader(oryxosRoot);
+    loader = new ContextLoader(oryxosRoot, bindingService());
     logAppender = new ListAppender<>();
     logAppender.start();
     ((Logger) LoggerFactory.getLogger(ContextLoader.class)).addAppender(logAppender);
@@ -108,6 +111,92 @@ class ContextLoaderTest {
   }
 
   @Test
+  @DisplayName("绑定 Skill 只披露元数据，正文和未绑定项不注入")
+  void boundSkillMetadataIsInjectedWithoutBody() throws IOException {
+    writeAgentBody("agent-body");
+    Path skill = oryxosRoot.resolve("skills/report-format");
+    Files.createDirectories(skill);
+    Files.writeString(
+        skill.resolve("SKILL.md"),
+        "---\nname: report-format\ndescription: 研报格式\n---\nSKILL-BODY-约束正文");
+    Files.createDirectories(agentDir.resolve("skills"));
+    Files.createSymbolicLink(
+        agentDir.resolve("skills/report-format"), Path.of("../../../skills/report-format"));
+    ContextLoader withSkill = new ContextLoader(oryxosRoot, bindingService());
+    Profile p =
+        new Profile(
+            "ops-agent",
+            null,
+            new Profile.Identity("运维小欧", "你是助手"),
+            new Profile.ProviderRef("deepseek", "deepseek-chat", null),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            Profile.Settings.defaults());
+
+    String context = withSkill.load(p);
+
+    assertTrue(context.contains("report-format"));
+    assertTrue(context.contains("研报格式"));
+    assertFalse(context.contains("SKILL-BODY-约束正文"));
+  }
+
+  @Test
+  @DisplayName("Skill 描述、解绑和链接修复在下一次 load 立即生效")
+  void skillBindingChangesAreReadWithoutCache() throws IOException {
+    writeAgentBody("agent-body");
+    Path skill = Files.createDirectories(oryxosRoot.resolve("skills/report-format"));
+    Path skillFile = skill.resolve("SKILL.md");
+    Files.writeString(skillFile, "---\nname: report-format\ndescription: 版本一\n---\n正文");
+    Path links = Files.createDirectories(agentDir.resolve("skills"));
+    Path link = links.resolve("report-format");
+    Files.createSymbolicLink(link, Path.of("../../../skills/report-format"));
+    Profile profile = profileWith(List.of());
+
+    assertTrue(loader.load(profile).contains("版本一"));
+    Files.writeString(skillFile, "---\nname: report-format\ndescription: 版本二\n---\n正文");
+    assertTrue(loader.load(profile).contains("版本二"));
+
+    Files.delete(link);
+    assertFalse(loader.load(profile).contains("版本二"));
+    Files.createSymbolicLink(link, Path.of("../../outside"));
+    assertFalse(loader.load(profile).contains("版本二"));
+    Files.delete(link);
+    Files.createSymbolicLink(link, Path.of("../../../skills/report-format"));
+    assertTrue(loader.load(profile).contains("版本二"));
+  }
+
+  @Test
+  @DisplayName("第32节：会写盘的 Agent 注入绝对产出目录；不会写盘的不注入")
+  void outputDirInjectedForFileWritingAgents() throws IOException {
+    writeAgentBody("body");
+    Profile writer =
+        new Profile(
+            "ops-agent",
+            null,
+            new Profile.Identity("x", "p"),
+            new Profile.ProviderRef("deepseek", "deepseek-chat", null),
+            List.of("write_file"),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            Profile.Settings.defaults());
+    String ctx = loader.load(writer);
+    assertTrue(ctx.contains("你的文件产出目录"), "会写盘的 Agent 应被告知产出目录");
+    assertTrue(ctx.contains("ops-agent"), "路径含该 Agent 名");
+    assertTrue(ctx.contains("output"), "路径指向 output/");
+
+    // 没有任何写盘工具的 Agent（tools 空）→ 不注入，省 prompt
+    assertFalse(loader.load(profileWith(List.of())).contains("你的文件产出目录"));
+  }
+
+  @Test
   @DisplayName("Bootstrap 缺失 WARN（不静默跳过、不阻断）")
   void missingBootstrapFileLogsWarnAndContinues() {
     String context = loader.load(profileWith(List.of("USER.md")));
@@ -120,5 +209,9 @@ class ContextLoaderTest {
                     "WARN".equals(e.getLevel().toString())
                         && e.getFormattedMessage().contains("USER.md"));
     assertTrue(warned, "Bootstrap 缺失至少 WARN——静默跳过会造成人格悄悄丢失");
+  }
+
+  private AgentSkillBindingService bindingService() {
+    return new AgentSkillBindingService(oryxosRoot, new SkillLoader(oryxosRoot.resolve("skills")));
   }
 }

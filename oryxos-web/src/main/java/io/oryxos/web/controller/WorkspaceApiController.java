@@ -1,18 +1,26 @@
 package io.oryxos.web.controller;
 
 import io.oryxos.core.agent.AgentLifecycleService;
+import io.oryxos.core.fs.RealPathBoundary;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.FileNode;
 import io.oryxos.web.controller.dto.WriteFileRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,19 +31,22 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 工作区文件浏览器（第 30 节）：列 {@code .oryxos/agents/} 与 {@code .oryxos/archive/} 的目录树、读写文件文本。
  *
- * <p>唯一安全要点——**防目录穿越**：{@code file}/{@code writeFile} 把 path 解析成绝对路径 {@code normalize()} 后必须 {@code
- * startsWith(oryxosRoot)}，越界即 400。编辑到某个 Agent 的 {@code AGENT.md} 时走 {@link
- * AgentLifecycleService#update} 写入并即时重注册（macOS WatchService 不监听子目录内文件变更，必须显式重注册）；其余文件直接写盘。
+ * <p>文件入口使用词法路径与真实路径双重边界校验：存在目标解析自身真实路径，不存在目标从最近存在父节点投影，软连接逃逸、悬空链接与链接环均 fail closed。编辑到某个 Agent 的
+ * {@code AGENT.md} 时走 {@link AgentLifecycleService#update} 写入并即时重注册（macOS WatchService
+ * 不监听子目录内文件变更，必须显式重注册）；其余文件直接写盘。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "PATH_TRAVERSAL_IN", "PATH_TRAVERSAL_OUT", "EI_EXPOSE_REP2"},
     justification =
-        "core-stage web API is unauthenticated by design (internal network + gateway). path 已做 normalize()+startsWith(oryxosRoot) 白名单校验，越界 400——这正是防目录穿越的正解。lifecycle 是 Spring 注入的共享单例，构造注入共享同一引用正是意图。")
+        "core-stage web API is unauthenticated by design (internal network + gateway). path 通过 RealPathBoundary 做词法与真实路径边界校验，越界返回 400。lifecycle 是 Spring 注入的共享单例，构造注入共享同一引用正是意图。")
 @RestController
 @RequestMapping("/api/v1/workspace")
 public class WorkspaceApiController {
 
   private static final String AGENT_FILE = "AGENT.md";
+  private static final String AGENTS_DIR = "agents";
+  private static final String SKILLS_DIR = "skills";
+  private static final int AGENT_SKILL_PATH_SEGMENTS = 3;
 
   private final Path oryxosRoot;
   private final AgentLifecycleService lifecycle;
@@ -53,17 +64,22 @@ public class WorkspaceApiController {
   public ApiResponse<FileNode> tree() {
     List<FileNode> roots = new ArrayList<>();
     roots.add(treeOf(oryxosRoot.resolve("agents")));
+    roots.add(
+        treeOf(
+            oryxosRoot.resolve(
+                "skills"))); // 全局 Skill 库：每个 Skill 一个目录（SKILL.md + 可选脚本/子文档），供详情查看文件列表
+    roots.add(treeOf(oryxosRoot.resolve("output"))); // 第 32 节：Agent 产出的共享目录（研报/汇总/导出）
     roots.add(treeOf(oryxosRoot.resolve("archive")));
-    return ApiResponse.ok(FileNode.dir(".oryxos", "", roots));
+    // 根节点显示名取实际工作区目录名（自定义 oryxos.root 时不再写死 .oryxos）
+    Path rootName = oryxosRoot.getFileName();
+    return ApiResponse.ok(
+        FileNode.dir(rootName != null ? rootName.toString() : oryxosRoot.toString(), "", roots));
   }
 
   /** 读文件文本；防目录穿越：越界 → 400，不存在 → 404。 */
   @GetMapping("/file")
   public ApiResponse<String> file(@RequestParam String path) {
-    Path target = oryxosRoot.resolve(path).normalize();
-    if (!target.startsWith(oryxosRoot)) {
-      throw new IllegalArgumentException("路径越界，拒绝访问: " + path); // → 400
-    }
+    Path target = resolveWithinRoot(path);
     if (!Files.isRegularFile(target)) {
       throw new ResourceNotFoundException("文件不存在: " + path); // → 404
     }
@@ -74,6 +90,41 @@ public class WorkspaceApiController {
     }
   }
 
+  /**
+   * 下载文件（二进制附件流）：把 Agent {@code output/} 里的研报 / 汇总 / 导出等产出下载到本地。防目录穿越同 {@link #file}：越界 → 400，不存在 →
+   * 404。区别于 {@link #file}（只返回文本、用于查看/编辑），这里带 {@code Content-Disposition:
+   * attachment}、按内容类型返回原始字节，任意文件类型都能下。
+   */
+  @GetMapping("/download")
+  public ResponseEntity<Resource> download(@RequestParam String path) {
+    Path target = resolveWithinRoot(path);
+    if (!Files.isRegularFile(target)) {
+      throw new ResourceNotFoundException("文件不存在: " + path); // → 404
+    }
+    String filename = String.valueOf(target.getFileName());
+    // 文件名可能含中文/空格：用 RFC 5987 编码进 Content-Disposition，避免乱码或截断
+    String disposition =
+        ContentDisposition.attachment()
+            .filename(filename, StandardCharsets.UTF_8)
+            .build()
+            .toString();
+    MediaType contentType;
+    long length;
+    try {
+      String probed = Files.probeContentType(target);
+      contentType =
+          probed != null ? MediaType.parseMediaType(probed) : MediaType.APPLICATION_OCTET_STREAM;
+      length = Files.size(target);
+    } catch (IOException e) {
+      throw new UncheckedIOException("读取文件失败: " + path, e);
+    }
+    return ResponseEntity.ok()
+        .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+        .contentType(contentType)
+        .contentLength(length)
+        .body(new FileSystemResource(target));
+  }
+
   /** 写文件文本；防目录穿越：越界 → 400。编辑 Agent 的 AGENT.md 走 update 即时生效，其余文件直接写盘。 */
   @PostMapping("/file")
   public ApiResponse<Void> writeFile(@RequestBody WriteFileRequest req) {
@@ -81,9 +132,15 @@ public class WorkspaceApiController {
     if (path == null || path.isBlank()) {
       throw new IllegalArgumentException("path 为空"); // → 400
     }
-    Path target = oryxosRoot.resolve(path).normalize();
-    if (!target.startsWith(oryxosRoot)) {
-      throw new IllegalArgumentException("路径越界，拒绝访问: " + path); // → 400
+    Path target = resolveWithinRoot(path);
+    Path relative = oryxosRoot.relativize(target);
+    if (relative.getNameCount() >= AGENT_SKILL_PATH_SEGMENTS
+        && AGENTS_DIR.equals(relative.getName(0).toString())
+        && SKILLS_DIR.equals(relative.getName(2).toString())) {
+      throw new IllegalArgumentException("Agent skills/ 是绑定视图，禁止从工作区入口写入");
+    }
+    if (RealPathBoundary.isWithin(oryxosRoot.resolve(SKILLS_DIR), target)) {
+      throw new IllegalArgumentException("共享 Skill 实体只能通过 Skill 管理入口更新");
     }
     String content = req.content() == null ? "" : req.content();
     Path agentDir = agentDirOfAgentFile(target);
@@ -119,6 +176,21 @@ public class WorkspaceApiController {
   private FileNode treeOf(Path node) {
     String rel = oryxosRoot.relativize(node).toString();
     String name = String.valueOf(node.getFileName());
+    if (Files.isSymbolicLink(node)) {
+      String target;
+      try {
+        target = Files.readSymbolicLink(node).toString();
+      } catch (IOException e) {
+        target = "";
+      }
+      String status;
+      if (!Files.exists(node)) {
+        status = "dangling";
+      } else {
+        status = RealPathBoundary.isWithin(oryxosRoot, node) ? "valid" : "escaped";
+      }
+      return FileNode.link(name, rel, target, status);
+    }
     if (!Files.isDirectory(node)) {
       return FileNode.file(name, rel);
     }
@@ -132,5 +204,18 @@ public class WorkspaceApiController {
       return FileNode.dir(name, rel, List.of());
     }
     return FileNode.dir(name, rel, children);
+  }
+
+  private Path resolveWithinRoot(String path) {
+    Path target = oryxosRoot.resolve(path).toAbsolutePath().normalize();
+    if (!target.startsWith(oryxosRoot)) {
+      throw new IllegalArgumentException("路径越界，拒绝访问: " + path);
+    }
+    try {
+      RealPathBoundary.requireWithin(oryxosRoot, target);
+    } catch (UncheckedIOException e) {
+      throw new IllegalArgumentException("路径真实目标无法安全解析，拒绝访问: " + path, e);
+    }
+    return target;
   }
 }

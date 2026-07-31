@@ -32,7 +32,7 @@
 26. 首页的左上角的logo 要小一点，现在太大了
 27. 再一点点 现在有点小
 28. 新的提示词也放到docs/prompt/01.md 中
-29. 理解一下这个文件：/Users/oker/robustmq/scripts/package.sh的功能
+29. 理解一下这个文件：robustmq/scripts/package.sh的功能
 30. 这个项目也需要这个文件，把文件传到远程。但是需要注意target 下的文件不需要传到远程
 31. 是的，你执行一下这个脚本
 32. 理解一下website的布局，你全部重新设计一下首页风格，要有特点的。可以全部重新设计。你给我设计一个有特点的的，你自由发挥。你主要理解一下文档：docs/what.md。重写readme.md。重新画架构图。重新设计website主页。其他你自己来，不用问我。
@@ -96,7 +96,7 @@
 83. 架构图直接用这个：website/public/images/architecture.svg 就好了，不用重复画？
 84. 也可以画一个新的website/public/images/docs-agent-lifecycle.svg 这种风格的架构图。也就是白底彩色的
 85. docs/TechnicalSolution.md 用website/public/images/docs-architecture-light.svg 这个架构图
-86. 把/Users/oker/Desktop/doc/ 下16～25的md挪到docs/class。后面16 开始的md 都在这里维护，因为进入开发阶段了
+86. 把Desktop/doc/ 下16～25的md挪到docs/class。后面16 开始的md 都在这里维护，因为进入开发阶段了
 87. 你基于：docs/TechnicalSolution.md review 一下当前16～25的文档，看是否有需要完善和丰富的。先讨论下，你知道16～25 这些文档的目的吧。这些文档是用来跟人讲的，教学的文档，跟人讲清楚。意思就是课纲。也是用来给后续spec kit 执行的大纲
 88. 注意21和23 这两节有点像docs/TechnicalSolution.md。也就是作memory和sandbox这两个模块的评审。内容风格要跟docs/TechnicalSolution.md类似，就是技术评审。
 89. 可以，然后输出中文
@@ -270,3 +270,128 @@
 239. ① 增加编辑文件的能力 ② 增加"编辑 agent"tab：一句描述 → 大模型（经 provider）按 agent 格式规范返回每个文件内容 ③ tab 增加这个 agent 专属记忆——要改动 memory 能力（现在的 memory 是全局的、不跟着 agent 走）
 240. 可以用 sub agent 并行执行、加快速度
 241. ① 把这次的修改回写到第30节课件 ② 把新增的提示词写入 docs/prompt/prompt.md
+
+## 第九轮（切 class-31 + 课件搬出仓库 + Provider/飞书连通性验证 + codex 中转代理接入 + 全流程真链路联调：对话→记忆→飞书通知）
+
+242. 切换到远程的 class-31 分支
+244. 测 deepseek 模型能否连通：随机字符串当 token，核心看网络通不通、能否返回 token 错误
+245. 确认：给一个对的 deepseek token 就能用了吧
+246. 测和飞书发消息的通道是否通，看需要我提供什么信息
+247. 给这个飞书 webhook 地址发一条消息试试（提供真实自定义机器人 webhook）
+248. 照 deepseek 的方式，测 GPT(OpenAI) 接口是否连通
+249. config/application.yml 里加上 codex 配置，api-key 留空我来填
+250. 读配置里 codex 的 api-key 连 GPT 看能不能通（命中"敏感数据发往非批准目标"红线被 guardrail 拦下，改为给脚本让用户自己跑）
+251. 那我怎么测试？你写一段代码我跑
+252. 把 codex 的 base-url 配成中转代理 https://ai.soulecho.cc（Responses API），这是 codex
+253. 测试脚本参数换个模型，让 bash scripts/test-codex-key.sh 能跑通过（默认 gpt-5.5）
+254. 用第27节课的思路跑一遍全流程（真起服务、走 codex/gpt-5.5，对话→ReAct→工具→记忆→会话→审计）
+255. 核心记忆的时间戳加上时分秒
+256. 加一个功能：让 Agent 给 Lark 发条消息、打通全流程；加一步——通知后再调 save_memory 留痕
+257. 没收到通知，再跑一次、看 notify 返回（定位到 type:webhook 用错适配器、payload 格式不对；改 type:feishu 修复，未动代码）
+258. 把这些没记录到 docs/prompt/prompt.md 的提示词补进去
+
+## 第十轮（notify 渠道全局注册表 CRUD + Agent notify 改自然语言按名引用 + 三个 Demo Agent 按新定义 + Provider 探路 + 修复 ReAct 多工具循环 + 管理台迭代 + 每次触发自动记归档记忆）
+
+259. 理解第31节文档；AGENT.md 不应内联 tools/notify_channels——tools 走全局工具列表、notify 出口改成一个全局"notify 渠道"注册表（有 CRUD）；先做 notify 的 CRUD 接口 + 管理页，再改 AGENT.md 定义
+260. （clarify）notify 渠道存 SQLite 新表；AGENT.md 干脆不要 notify_channels 字段，用自然语言说"发到哪个 notify channel"
+261. 完成第一个 agent（天气）开发，放进 .oryxos/agents/，按新定义
+262. 继续开发剩下两个 agent（科技日报 / GitHub 日报），按第31节文档
+263. 运行这个 agent，看消息能否通知到 Lark
+264. codex 可以了，跑一下两个（科技日报 / GitHub 日报）agent
+265. qoder 的服务能支持吗？
+266. provider（怎么把它接成一个 provider）
+267. 检索 qoder 的文档
+268. 改用 deepseek 的配置，读 config/application.yml
+269. （批准）正式修 ReAct 多工具循环——对话历史改结构化消息透传（保留 tool_call/tool_result 配对）
+270. 启动服务、启动 manager
+271. Agent 列表加 description 列；provider/model 不用都显示、留 provider 即可（加上 agent 描述）
+272. 每个 agent 加"立即触发"按钮
+273. 立即触发后会话和记忆都空、但 Lark 收到了（定位：invoke 用错 session，改走 console 固定会话，与会话 tab 同一条）
+274. 每个列表加刷新按钮
+275. 每次触发都应记录到记忆；记忆用两个 table 展示（核心 / 归档）；会话要有自己的滚动框、不跟大页面滚
+276. 把新增的这些 prompt 记录到 docs/prompt/prompt.md
+
+## 第十一轮（Provider 动态 CRUD 落库 + 管理台/配置打磨 + 可配置工作区根）
+
+277. Provider 支持动态 CRUD、存 SQLite；（clarify）api-key 存库明文回显 + 启动把 config 的 oryxos.providers 播种进 DB（库里没有才写，之后以 DB 为准），运行时按名动态建/缓存 ChatModel
+278. 查一下用户级的记忆看都记了什么（被打断）
+279. manager 中所有的新增 / 编辑都改成弹出框（modal）形式
+280. 侧边栏加"Skill 列表 / 知识库"两个占位空列表（暂无真实数据），放在"定时任务"下方、"OS 运行时"上方
+281. 梳理 config/application.yml，把该有的默认配置都放上（端口、数据目录等）——只铺运行期默认，框架内部管道仍从 jar 继承
+282. 允许配置 Agent 存放目录——可自定义 .oryxos 的路径与名字（轻命令走 ORYXOS_ROOT / -Doryxos.root，serve 走 oryxos.root；根自动纳入文件白名单）
+283. 继续处理 application.yml 的问题；（选）理顺打包内 application.yml 与外部 config/application.yml 的分歧（对齐 python/python3 等列表、加"列表整体替换不合并"提醒）
+284. config/application.yml.example 也同步成与 application.yml 一致、只是把真实 token 置空（随仓库提交的无密钥模板）
+
+## 第十二轮（贴近实现的文档大更新 + Agent Harness OS 重定位 + Sandbox 白名单持久化 CRUD + 发行版打包 make release + GitHub Release 工作流）
+
+285. 根据最新实现更新 README、首页、doc，尽量全、贴近实现（并行 subagent 全量重写；纠偏 API 端点、统一 {code,message,data} envelope、去掉 .oryxos/profiles 等陈旧说法）
+286. Sandbox 白名单数据也写入 SQLite、管理台支持 CRUD（区分 FILE/SHELL/HTTP 三类）、启动时从配置文件初始化插入（WhitelistSandbox 改 store-backed：启动从库恢复、运行时增删写穿落库）
+287. 加入 Harness 概念（README 与 what），Agent OS 改为 Agent Harness OS，从这个定义重新设计 README / doc / 首页（Model → Harness → OS 三层）
+288. 开发 make 脚本：make release 打成 .tar.gz，含 bin / config / libs 三目录；bin/oryx-server 支持 start / stop（先整理需求再实现）
+289. 执行 make release → 解压 → bin/oryx-server start，验证 server 与 manager 正常、日志正常打印（本沙箱禁 nohup，用等价后台方式跑通验证）
+290. 加 GitHub release workflow：PR 标题以 release: 开头且合入 main 触发，自动创建 Release 并上传 tar.gz、版本号从 pom 读；（clarify）合入 main 时触发、版本改为 0.1.0-RELEASE
+291. 把新增的提示词放入 docs/prompt/prompt.md
+
+## 第十三轮（每 Agent 产出目录 + 工作区/输出双 tab + 全局 Skill 库 CRUD/URL 导入 + 沙箱 HTTP 读放开·SSRF 加固 + 生成时引入 Skill + 异步触发·Agent 执行历史 + 会话按轮分组）
+
+292. 安装 spec kit（"记得装过却找不到命令"——实为 `~/.local/bin` 未在当前 shell PATH；uv 不可用，改用 pipx 重装 specify-cli；顺带讲用法）
+293. 理解需求：每个 Agent 有自己的工作输出目录（跑调研任务→产出落文件）；管理台加"工作区"文件树、产出可下载（先理解再动手）
+294. 输出目录挂在每个 Agent 详情里（不做顶部独立页）
+295. 「文件」tab 更名——先议「工作区」/「输出」，最终定为并列两个 tab：「工作区」（全目录）+「输出」（只列 output/、可下载）
+296. 完成 Skill 模块 CRUD + 内置最常用 Skill + 生成 Agent 时自动 / 提示词引入 Skill 来约束产出（先理解）
+297. （决策）宪法可改；Skill 定位为**全局共享库**（非每-agent 子指令）
+298. 按最合理方案给版本：全局 Skill 库 `.oryxos/skills/<name>/SKILL.md` + `/api/v1/skills` CRUD + AGENT.md frontmatter `skills:[名]` 按名引用 + ContextLoader 把 Skill 正文注入 system prompt（强约束）；生成流程喂 Skill 目录 + 前端勾选器；改写宪法原则四 + TechnicalSolution §11
+299. 内置一批常用 Skill（report-format / web-research / summarize / json-output / code-review / notify-message）+ 支持"给一个 URL 导入 Skill"（限 http/https + 超时 + 大小上限；安全复核后加 SSRF 兜底：禁自动重定向、逐跳校验内网/回环/云元数据/IPv6 ULA）
+300. 把常用的默认加进白名单；进而讨论"白名单 vs 黑名单哪个合理"——（决策：整体不改黑名单；file/shell 保持白名单，HTTP 分级为"GET 默认放行 + 内网/SSRF 黑名单、POST/写走域名白名单"；撞白名单一次性明确报错、标记不可重试、提示去「SandBox 列表」加白名单）；"体验好就行，你自己定"
+301. 讲解：创建 Agent 时怎么和 Skill / MCP 关联、运行时怎么用上（Skill = 注入提示词约束产出、不可调用；MCP = 可调用工具、需 `mcp_servers` + `tools` 同写；都落在 AGENT.md frontmatter）
+302. 一键生成 Agent 时怎么可靠用上勾选的 Skill——（确定性兜底：生成后由后端把勾选的 Skill 合并进 AGENT.md 的 `skills` 列表，模型漏写也补齐）
+303. `cunchu-gupiao-diaoyan` 触发报 "Failed to fetch"，定位修复——同步触发跑完整轮 ReAct 实测 76s 超浏览器上限；并新增 Agent 维度执行历史（开始 / 结束时间、时长、状态、来源）
+304. 「输出」tab 看不到文件——模型把研报写到扁平 `.oryxos/output/`；改为共享产出目录、workspace tree 纳入、输出 tab 直接读，并给会写盘的 Agent 注入绝对产出目录；读客户端加连接/读取超时
+305. 继续实现：异步触发（立即返回、虚拟线程后台跑，彻底消除 Failed to fetch）+ 执行历史落库（`agent_executions` 表，手动 + 定时都记）+ 详情「执行历史」tab
+306. 会话按"一轮对话"分组：中间的思考 + 工具调用收进可折叠块（默认折叠），最终答案突出显示
+307. 把今天新增的提示词记录到 docs/prompt/prompt.md
+
+## 第十三轮（管理台侧边栏重分组 + Agent Connector/MCP 管理 + Skill 从 GitHub 目录导入 + 按钮样式统一）
+
+292. manager 页面。侧边栏改为：1. 概览 2. agent 列表 3. 定时任务 4. OS 运行时；provider、Tool、sandbox、长期记忆、会话都挪到 OS 运行时下；运行状态的内容放到 overview 展示，运行状态页删掉
+293. .oryxos/agents/ 中增加了 daily-reconcile，没有自动扫描出现在 agent 列表
+294. OS 运行时的侧边栏改为：Provider 列表 / Tool 列表 / SandBox 列表 / 长期记忆 / 会话；顺序调整为：会话列表 / Provider 列表 / Tool 列表 / SandBox 列表 / 长期记忆
+295. 确认理解 Connector 本质上是 MCP（协议 / 官方 connector / 自定义 connector 三层关系）；提出给 Agent 支持 connector 功能：manager 侧边栏加"MCP 管理"（在 OS 运行时下）、CRUD MCP；一句话生成 Agent 时把可用 MCP 目录告诉大模型、由它自己决定怎么用；讨论是否要内置一批业界公开 MCP；要求先理解需求、暂不写代码
+296. 理解当前的代码，理解一下这个需求
+297. 你来。你自己决定，我没有（对 MCP 传输层范围/内置目录/权限收紧三个问题全部授权按推荐方案：同时支持远程 HTTP/SSE、内置目录、把 mcp_servers 权限收紧补上）；远程 MCP 鉴权第一版范围定为仅 Bearer token / API key
+298. manager 已经支持了 connector 管理了吗？
+299. 重启服务？我看下效果？（因另一并发会话正在改 ContextLoader/SkillRegistry、仓库编译不过，先选择等待）
+300. manager 页面中新建的按钮都放靠右；所有按钮用彩色的？比如新增类的按钮；比如橙色
+301. 从 URL 导入 skill 功能是导入整个文件夹（如 <https://github.com/obra/superpowers/tree/main/skills/brainstorming> 这种），不是导入网页内容——确认理解
+302. 可以的，按钮可以改为"从 GitHub 拉取"，只支持 GitHub 的目录
+303. 你重启了吗？得重启下？你重启一下？不然你的改动没法生效？（确认后重新打包、杀掉旧进程并重启 8080 服务验证效果）
+304. 今天新增的提示词加到 docs/prompt/prompt.md
+
+## 第十四轮（与第十三轮同期的另一条并行会话：生成流重做 + 默认工具库丰富 + md 渲染 + Skill 详情 + 升版本）
+
+> 说明：这一天有两条 Claude 会话并行改同一个仓库/working tree。第十三轮记的是 MCP/Connector/Skill 导入/按钮那条；本轮记另一条（生成流 / 工具库 / md 渲染 / skill 详情 / 发行版）。两条会话的服务在 8080 上互相抢占、共用一个 oryxos.db，出现过 jar 被并发重建覆盖（NoClassDefFoundError）、SQLITE_BUSY 等现象——已定位并规避（从 scratchpad 稳定 jar 副本启动）。
+
+305. 运行首页（起 VitePress dev 预览）
+306. 为什么服务启动后 application.yml 的 sandbox 白名单在 manager 查不到（根因：浏览器缓存旧 bundle；后端 API/DB/播种都正常）
+307. bin/oryx-server start 报 `port: unbound variable`（根因：`$port`/`$PIDFILE` 紧贴中文全角逗号，老 bash / 非 UTF-8 locale 把后续字节吞进变量名；修：加 `${}` 花括号界定）＋启动时把 application.yaml 白名单插进 sqlite、重启（确认播种本就实现；清表重启实证回灌 12 行）
+308. 给我访问地址看 sandbox 生效没，注意杀掉老进程别相互影响（清干净、起单实例）
+309. http://localhost:8080/admin 访问不通（根因：并发 mvn 把运行中服务的 jar 覆盖 → NoClassDefFoundError；改从 scratchpad 稳定 jar 副本启动，免受 target 重建影响）
+310. 运行服务我在 manager 试＋拉取远程代码（发现本地落后 origin 10、几十个未提交且与远程 web-auth 冲突、working tree 另一会话在改 → 暂缓 git，未动）
+311. 触发 github-rust 卡在"达到最大轮数"，分析（根因：`created:>=昨天` 在 2026 环境搜到 0 条 + 兜底全被沙箱挡 [github.com 未白名单/curl 未白名单] + web_search 没授权 → 空转到上限）；并说明有其他进程在改 working tree、等它做完再测
+312. 你自己修吧别问我、我只要能用（修 github-rust：查询改 `q=rust` + 客户端按 language 过滤、砍掉 fetch_webpage/shell、只留 http_get/notify/current_time；stateless /invoke 干净跑通 8 条、notify 到 team-lark）
+313. 一句话生成 Agent 接口 ready 了吗、是不是调模型返回各文件内容、怎么规划的、现在能用吗（讲设计 + 实测；发现模型编造了不存在的工具 fetch_weather/feishu_send_message）
+314. 我理解就是告诉模型我们有什么工具？（是）
+315. 你来解决这个问题、我不管你用什么方案（把实时全量工具清单 + notify 渠道注入作者提示词，模型只从真实能力挑；实测生成改用真实 http_get/notify + 正确 schedule 字段）
+316. 再规划丰富主流工具、默认工具库能满足 90-95%（规划 Tier0/Tier1 + MCP 精选目录；AskUserQuestion → 全都要）
+317. 用户输入随意的自然语言需求、把所有 tool 告诉大模型让它选；notify 需手动选（明确告诉模型投递到哪个渠道）；写不写脚本 / 生成 md 由大模型自己决定
+318. 没问题，全改（生成流重做：generateFiles 加 notifyChannel 手选入参 + 多文件 `===FILE:` 输出模型自决；工具库 Tier0 current_time/http_request/fetch_webpage/download_file/json_extract + Tier1 文件管理 make_dir/append/delete/move/copy + MCP 精选目录；14→24 工具，mvn verify 全绿）
+319. 验证：查询每日 GitHub 最火 rust+AI、每天八点发给我，生成的 Agent 长啥样＋notify 就默认那个（生成 rust-ai-daily：真实工具 + cron 0 0 8 + notify→team-lark + 预览不落盘）
+320. Agent 生成功能合并进"创建"、删掉详情里的"生成"tab、创建改用独立新页面（不用弹窗）
+321. 没问题全改＋md 文档用 md 格式展示 / 分屏（文件查看器 `.md` 渲染 + 预览/源码切换，加 marked）
+322. 需要重启吗？还是编辑状态（答：服务不用重启、强刷 5173、别看成 8080 旧前端）
+323. 继续＋应该可以了（md 渲染收尾；安全审查报 v-html+marked 的 XSS → 已由并发会话独立加 DOMPurify 闭环）
+324. skill 需要能查看详情、也就是查看文件列表（后端 workspace tree 加 skills 根 1 行 + 前端 Skill 详情复用文件树 / md 查看器）
+325. 升级版本到 0.1.1（mvn versions:set → 0.1.1-RELEASE，10 个 pom；make/release workflow 自动跟随）
+326. website 首页顶部加 Demo tab → http://117.72.92.117:1524/admin/（VitePress nav 中英各加一条外链）
+327. 报 SQLITE_BUSY / MCP sqlite 下载依赖超时等日志但任务照跑、为什么（解释：两服务共用一个 oryxos.db 单写锁冲突 + 调度器"内存注册"与"写状态行"解耦、写库失败被 catch 不影响触发；另"配置非法，跳过"是误导性文案）
+328. 今天新增的提示词加到 docs/prompt/prompt.md（本条）
