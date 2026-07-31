@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.session.Message;
 import io.oryxos.core.session.SessionManager;
+import io.oryxos.core.session.SessionStats;
 import io.oryxos.core.session.SessionSummary;
 import java.time.Instant;
 import java.util.List;
@@ -73,6 +74,13 @@ public class JpaSessionManager implements SessionManager {
     entity.setArchivedAt(Instant.now());
     repository.save(entity);
     return true;
+  }
+
+  @Override
+  public SessionStats stats() {
+    int active = (int) repository.countByStatus("active");
+    int archived = (int) repository.countByStatus("archived");
+    return new SessionStats(active, archived);
   }
 
   @Override

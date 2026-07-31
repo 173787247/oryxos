@@ -84,20 +84,71 @@ async function loadRuntimeInfo() {
     runtimeInfo.value = { loading: false, error: e.message, data: null }
   }
 }
-loadRuntimeInfo()
+loadRuntimeInfo().then(() => loadOverviewStats())
 
-// 概览页数据：当前为静态预览，后续逐步接入实时端点（TODO 标注了各自的动态来源）
+// 概览页数据：动态接入实时端点，每项统计卡独立 loading/error/value 状态
+const overviewLoading = ref(false)
+const overviewStats = reactive({
+  agents: { value: null, loading: true, error: null },
+  tools: { value: null, loading: true, error: null, toolNames: [] },
+  sessions: { value: null, loading: true, error: null },
+  providers: { value: null, loading: true, error: null, providerNames: [] },
+})
+async function loadOverviewStats() {
+  overviewLoading.value = true
+  // agents ← GET /profiles
+  fetch('/api/v1/profiles')
+    .then(res => res.json())
+    .then(body => {
+      if (body.code !== 0) throw new Error(body.message || '加载失败')
+      const data = body.data || []
+      overviewStats.agents.value = data.length
+      overviewStats.agents.loading = false
+    })
+    .catch(e => { overviewStats.agents.error = e.message; overviewStats.agents.loading = false })
+  // tools ← GET /tools
+  fetch('/api/v1/tools')
+    .then(res => res.json())
+    .then(body => {
+      if (body.code !== 0) throw new Error(body.message || '加载失败')
+      const data = body.data || []
+      overviewStats.tools.value = data.length
+      overviewStats.tools.toolNames = data.slice(0, 3).map(t => t.name)
+      overviewStats.tools.loading = false
+    })
+    .catch(e => { overviewStats.tools.error = e.message; overviewStats.tools.loading = false })
+  // sessions ← GET /sessions/stats
+  fetch('/api/v1/sessions/stats')
+    .then(res => res.json())
+    .then(body => {
+      if (body.code !== 0) throw new Error(body.message || '加载失败')
+      overviewStats.sessions.value = body.data?.active ?? 0
+      overviewStats.sessions.loading = false
+    })
+    .catch(e => { overviewStats.sessions.error = e.message; overviewStats.sessions.loading = false })
+  // providers ← GET /api/v1/providers（已配置的 Provider，非 Profile 引用到的）
+  fetch('/api/v1/providers')
+    .then(res => res.json())
+    .then(body => {
+      if (body.code !== 0) throw new Error(body.message || '加载失败')
+      overviewStats.providers.value = (body.data || []).length
+      overviewStats.providers.providerNames = (body.data || []).map(p => p.name)
+      overviewStats.providers.loading = false
+    })
+    .catch(e => { overviewStats.providers.error = e.message; overviewStats.providers.loading = false })
+  overviewLoading.value = false
+}
+// 衍生为模板用的 cards 数组
+const overviewCards = computed(() => [
+  { label: 'Agent', value: overviewStats.agents.value, loading: overviewStats.agents.loading, error: overviewStats.agents.error, hint: '已配置的 Profile' },
+  { label: '内置 Tool', value: overviewStats.tools.value, loading: overviewStats.tools.loading, error: overviewStats.tools.error, hint: overviewStats.tools.toolNames.length ? overviewStats.tools.toolNames.join(' / ') + ' …' : '文件 / Shell / HTTP / 记忆 …' },
+  { label: '活跃会话', value: overviewStats.sessions.value, loading: overviewStats.sessions.loading, error: overviewStats.sessions.error, hint: '当前活跃' },
+  { label: 'Provider', value: overviewStats.providers.value, loading: overviewStats.providers.loading, error: overviewStats.providers.error, hint: overviewStats.providers.value != null && overviewStats.providers.value > 0 ? '已连通' : '—' },
+])
 const overview = {
   tagline: '装在你自己基础设施上的分布式 AI Agent 操作系统 —— 统一底座运行多个业务 Agent',
   status: '运行中',
   version: 'v0.1.0 · 开发预览',
-  // TODO 动态化：agents←GET /profiles，tools←GET /tools，sessions←会话统计端点，providers←GET /info
-  stats: [
-    { label: 'Agent', value: '3', hint: '已配置的 Profile' },
-    { label: '内置 Tool', value: '14', hint: '文件 / Shell / HTTP / 记忆 …' },
-    { label: '活跃会话', value: '—', hint: '待接入实时统计' },
-    { label: 'Provider', value: '1', hint: 'deepseek 已连通' },
-  ],
   capabilities: [
     { name: '对接 LLM', desc: '显式 Provider 映射，多家协议统一' },
     { name: 'ReAct 循环', desc: '自实现推理–行动循环，完全可控' },
@@ -146,6 +197,7 @@ function select(key) {
   if (key === 'whitelist') { cancelWl(); loadWhitelist() }
   if (key === 'mcp') { cancelMcp(); loadMcp(); loadMcpCatalog() }
   if (key === 'skills') { cancelSkill(); closeSkillDetail(); loadSkills() }
+  if (key === 'overview') { loadOverviewStats() }
 }
 
 // 刷新当前页的列表：各页复用各自的加载函数（agents / notify-channels / 概览 / 其余按 path 的通用列表）
@@ -157,7 +209,7 @@ function refresh() {
   if (key === 'whitelist') { loadWhitelist(); return }
   if (key === 'mcp') { loadMcp(); return }
   if (key === 'skills') { loadSkills(); return }
-  if (key === 'overview') { loadRuntimeInfo(); return }
+  if (key === 'overview') { loadOverviewStats(); return }
   if (NAV.find((n) => n.key === key)?.path) load(key)
 }
 
@@ -1246,8 +1298,12 @@ const outputRows = computed(() =>
           </div>
 
           <div class="cards">
-            <div v-for="s in overview.stats" :key="s.label" class="card">
-              <div class="card-val">{{ s.value }}</div>
+            <div v-for="s in overviewCards" :key="s.label" class="card">
+              <div class="card-val">
+                <template v-if="s.loading">...</template>
+                <template v-else-if="s.error">—</template>
+                <template v-else>{{ s.value ?? '—' }}</template>
+              </div>
               <div class="card-label">{{ s.label }}</div>
               <div class="card-hint">{{ s.hint }}</div>
             </div>
@@ -1275,12 +1331,12 @@ const outputRows = computed(() =>
           <div v-else-if="runtimeInfo.data">
             <p>应用：<b>{{ runtimeInfo.data.application }}</b></p>
             <p>Provider：
-              <span v-for="p in runtimeInfo.data.providers" :key="p" class="tag">{{ p }}</span>
-              <span v-if="!runtimeInfo.data.providers?.length" class="empty">（无）</span>
+              <span v-for="p in overviewStats.providers.providerNames" :key="p" class="tag">{{ p }}</span>
+              <span v-if="!overviewStats.providers.providerNames.length" class="empty">（无）</span>
             </p>
           </div>
 
-          <p class="note mono">当前为静态预览数据，将逐步接入实时端点（Agent/Tool/会话/Provider）。</p>
+          <p v-if="overviewLoading" class="note mono">统计卡数据加载中…</p>
         </template>
 
         <template v-else>
