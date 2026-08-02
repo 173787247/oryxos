@@ -154,6 +154,59 @@ public class WhitelistSandbox implements Sandbox, SandboxWhitelist {
       throw new SandboxViolationException(
           "命令不在白名单内: " + firstToken + "。这是安全策略，请勿反复重试；确需该命令，请在管理台「SandBox 列表」把它加入 shell 白名单。");
     }
+    // 首 token 通过还不够：执行器是 bash -c <整串>，命令分隔/替换元字符可让白名单形同虚设
+    // （ls && cat /etc/passwd、echo $(curl ...)、`rm -rf` 等）。元字符命中即拒。
+    if (hasShellInjection(command)) {
+      throw new SandboxViolationException(
+          "命令含 shell 元字符，拒绝执行（防命令注入）: " + command + "。这是安全策略，请勿反复重试；如需组合命令，请拆分执行。");
+    }
+  }
+
+  /**
+   * 命令串是否含可被 bash 解释为"追加执行/命令替换/重定向"的元字符。逐字符状态机：单引号内全字面； 双引号内仅 {@code $}、{@code `} 仍特殊（命令替换在双引号内照常执行）；引号外所有分隔/替换/重定向符一律拒绝。
+   * 反斜杠转义跳过下一字符。未闭合引号视为不合法命令，拒绝。
+   */
+  private static boolean hasShellInjection(String command) {
+    boolean inSingle = false;
+    boolean inDouble = false;
+    boolean escaped = false;
+    for (int i = 0; i < command.length(); i++) {
+      char c = command.charAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (inSingle) {
+        if (c == '\'') {
+          inSingle = false;
+        }
+        continue;
+      }
+      if (c == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (inDouble) {
+        if (c == '"') {
+          inDouble = false;
+        } else if (c == '$' || c == '`') {
+          return true; // 双引号内 $() / `cmd` 仍会执行
+        }
+        continue;
+      }
+      if (c == '\'') {
+        inSingle = true;
+        continue;
+      }
+      if (c == '"') {
+        inDouble = true;
+        continue;
+      }
+      if (";&|<>`$(){}!\n\r\t".indexOf(c) >= 0) {
+        return true;
+      }
+    }
+    return inSingle || inDouble;
   }
 
   /** HTTP 读（GET 类）：默认放行，只挡内网/回环/云元数据等 SSRF 目标。无主机的伪目标（如 web_search）放行。 */

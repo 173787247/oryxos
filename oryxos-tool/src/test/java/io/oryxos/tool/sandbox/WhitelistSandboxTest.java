@@ -148,12 +148,16 @@ class WhitelistSandboxTest {
   @DisplayName("Shell 命令白名单")
   class ShellCommandWhitelist {
 
-    private final WhitelistSandbox sb = sandbox(List.of(), List.of("ls", "cat"), List.of());
+    private final WhitelistSandbox sb = sandbox(List.of(), List.of("ls", "cat", "echo"), List.of());
 
     @Test
     @DisplayName("白名单内命令_首token放行")
     void firstTokenInWhitelistAllowed() {
       assertDoesNotThrow(() -> sb.enforce(new SandboxAction(ActionType.SHELL_COMMAND, "ls -la")));
+      // 引号/转义不追加执行：允许
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.SHELL_COMMAND, "echo \"a;b\"")));
+      assertDoesNotThrow(() -> sb.enforce(new SandboxAction(ActionType.SHELL_COMMAND, "echo 'a;b'")));
     }
 
     @Test
@@ -162,6 +166,36 @@ class WhitelistSandboxTest {
       assertThrows(
           SandboxViolationException.class,
           () -> sb.enforce(new SandboxAction(ActionType.SHELL_COMMAND, "rm -rf /")));
+    }
+
+    @Test
+    @DisplayName("命令注入绕过_分隔符/替换符/重定向一律拒绝")
+    void shellInjectionBlocked() {
+      // 首 token 全在白名单内，但元字符可追加/替换执行——必须拒绝
+      String[] injections = {
+        "ls && cat /etc/passwd",
+        "ls ; cat /etc/passwd",
+        "ls | cat /etc/passwd",
+        "cat /etc/passwd > /tmp/x",
+        "echo $(cat /etc/passwd)",
+        "echo `cat /etc/passwd`",
+        "ls && { rm -rf / ; }",
+        "ls\ncat /etc/passwd"
+      };
+      for (String injection : injections) {
+        assertThrows(
+            SandboxViolationException.class,
+            () -> sb.enforce(new SandboxAction(ActionType.SHELL_COMMAND, injection)),
+            "应拒绝注入命令: " + injection);
+      }
+    }
+
+    @Test
+    @DisplayName("未闭合引号_视为不合法命令拒绝")
+    void unterminatedQuoteRejected() {
+      assertThrows(
+          SandboxViolationException.class,
+          () -> sb.enforce(new SandboxAction(ActionType.SHELL_COMMAND, "echo \"unterminated")));
     }
   }
 

@@ -41,8 +41,8 @@ shell:
     - cat
     - echo
     - grep
-    - python                    # 与 jar 默认对齐（部分环境 python 即 python3）
-    - python3                   # GitHub 日报 Agent 跑 scripts/github_trending.py（31 节 Demo 三）
+    # 解释器（python/python3 等）不入默认白名单：bash -c 执行下是任意代码执行入口。
+    # 确需跑脚本的 Agent 请在此显式加入并自担风险（如 GitHub 日报脚本）。
 http:
   allowed_domains:
     - api.deepseek.com          # Provider 端点（精确匹配）

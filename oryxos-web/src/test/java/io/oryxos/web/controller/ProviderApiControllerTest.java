@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -16,6 +17,8 @@ import io.oryxos.core.provider.ProviderRegistry;
 import io.oryxos.web.GlobalExceptionHandler;
 import io.oryxos.web.provider.ProviderModelsService;
 import java.util.Optional;
+import org.mockito.ArgumentCaptor;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,7 +45,7 @@ class ProviderApiControllerTest {
   }
 
   @Test
-  @DisplayName("create 成功_返回 provider 视图（api-key 明文回显）")
+  @DisplayName("create 成功_返回 provider 视图（api-key 掩码回显，非明文）")
   void create_success_returnsView() throws Exception {
     when(registry.exists("kimi")).thenReturn(false);
     when(registry.save(any()))
@@ -55,7 +58,7 @@ class ProviderApiControllerTest {
                     "{\"name\":\"kimi\",\"apiKey\":\"sk-x\",\"baseUrl\":\"https://api.moonshot.cn\",\"description\":\"月之暗面\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.name").value("kimi"))
-        .andExpect(jsonPath("$.data.apiKey").value("sk-x"));
+        .andExpect(jsonPath("$.data.apiKey").value("****")); // 掩码回显，明文不落 HTTP 响应
   }
 
   @Test
@@ -98,6 +101,29 @@ class ProviderApiControllerTest {
                 .content("{\"name\":\"mock\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.name").value("mock"));
+  }
+
+  @Test
+  @DisplayName("update 回传掩码 apiKey_视为未修改_保留原 key")
+  void update_maskedKey_keepsOriginal() throws Exception {
+    when(registry.find("kimi"))
+        .thenReturn(
+            Optional.of(
+                new ProviderDef("kimi", "sk-secretvalue", "https://api.moonshot.cn", "月之暗面")));
+    when(registry.save(any()))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    mvc.perform(
+            put("/api/v1/providers/kimi")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"apiKey\":\"****value\",\"baseUrl\":\"https://api.moonshot.cn\",\"description\":\"月之暗面\"}"))
+        .andExpect(status().isOk());
+
+    // 掩码（****value）被识别为未修改，落库的仍是原 key sk-secretvalue
+    ArgumentCaptor<ProviderDef> captor = ArgumentCaptor.forClass(ProviderDef.class);
+    verify(registry).save(captor.capture());
+    Assertions.assertEquals("sk-secretvalue", captor.getValue().apiKey());
   }
 
   @Test

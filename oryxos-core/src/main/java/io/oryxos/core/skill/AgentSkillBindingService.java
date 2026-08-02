@@ -53,7 +53,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     String skill = safe(skillName, "Skill");
     Path agentDir = requireAgent(agent);
     requireSkill(skill);
-    Path linksDir = agentDir.resolve("skills");
+    Path linksDir = requireRealSkillsDir(agentDir);
     Path link = linksDir.resolve(skill);
     if (Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
       BoundSkillDescriptor existing =
@@ -81,7 +81,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
   public synchronized void unbind(String agentName, String skillName) {
     String agent = safe(agentName, "Agent");
     String skill = safe(skillName, "Skill");
-    Path link = requireAgent(agent).resolve("skills").resolve(skill);
+    Path link = requireRealSkillsDir(requireAgent(agent)).resolve(skill);
     if (!Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
       return;
     }
@@ -113,7 +113,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     if (current.equals(new LinkedHashSet<>(desired))) {
       return before;
     }
-    Path linksDir = agentDir.resolve("skills");
+    Path linksDir = requireRealSkillsDir(agentDir);
     List<Path> created = new ArrayList<>();
     List<Move> removed = new ArrayList<>();
     try {
@@ -173,6 +173,21 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     Path directory = skillsDir.resolve(skill);
     return Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
         && RealPathBoundary.isWithin(skillsDir, directory);
+  }
+
+  /**
+   * 返回 Agent 的 skills/ 绑定目录，但先校验它不是一个越界符号链接（review 高危 5）。 skills/ 被替换成指向任意目录的软链接时，
+   * bind/unbind/replaceBindings 会直接在那里面建/删链接——写操作前必须确认其真实路径仍落在 Agent 目录内。 目录不存在时投影到
+   * Agent 目录下的正常位置（真实路径仍在 agentDir 内），放行。
+   */
+  private Path requireRealSkillsDir(Path agentDir) {
+    Path linksDir = agentDir.resolve("skills");
+    if (Files.exists(linksDir, LinkOption.NOFOLLOW_LINKS)
+        && !RealPathBoundary.isWithin(agentDir, linksDir)) {
+      throw new IllegalArgumentException(
+          "Agent skills/ 目录真实路径越界（疑似被替换为符号链接），拒绝操作: " + sanitize(linksDir.toString()));
+    }
+    return linksDir;
   }
 
   public List<AgentSkillBinding> validBindings(String agentName) {
