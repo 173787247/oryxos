@@ -141,7 +141,16 @@ file:
     - /tmp/oryxos
 ```
 
-**Shell 命令白名单** — 作用于 `shell`。可执行文件（第一个 token）必须在白名单中，同时拒绝 `;`、`&&`、`|`、`$()`、反引号、换行、`>` 等控制、替换和重定向元字符；引号内的字面标点仍可使用。参数不会被单独限制。
+**Shell 可执行文件白名单** — 作用于 `shell`。输入为结构化的 `executable` 和 `arguments` 数组；`ShellTools` 将 argv 直接交给 `ProcessBuilder`，不会启动 Shell，也不会解释管道、重定向、命令替换或命令分隔符。
+
+```json
+{
+  "executable": "grep",
+  "arguments": ["-R", "TODO", "src"]
+}
+```
+
+将 Shell 解释器或语言运行时加入白名单，是管理员对代码执行权限的显式授予：模型可按 OryxOS 进程所属的操作系统身份运行代码。argv 直传能防止 Shell 语法注入，但不隔离解释器的文件或网络影响。对不可信或多租户代码，应使用基于容器/MicroVM 的 `execute_code` Runner；该 Runner 仍处于规划阶段，尚未实现。
 
 ```yaml
 shell:
@@ -150,6 +159,8 @@ shell:
     - cat
     - echo
     - grep
+    - python3 # 可信单机代码执行；不是隔离边界
+  timeout_seconds: 30
 ```
 
 Shell 白名单是一条独立的能力边界。加入 `python`、`python3`、`sh`、`bash` 等解释器或 Shell，等于授予 Agent 该可执行文件的完整能力，并可能绕过文件与 HTTP 工具策略。因此默认配置刻意不包含它们；只有在脚本可信且确实需要扩大权限时才应显式加入。

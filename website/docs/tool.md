@@ -141,7 +141,16 @@ file:
     - /tmp/oryxos
 ```
 
-**Shell command whitelist** — applies to `shell`. The executable (first token) must be listed, and shell control, substitution, and redirection metacharacters such as `;`, `&&`, `|`, `$()`, backticks, newlines, and `>` are rejected. Quoted literal punctuation remains valid. Arguments are not independently restricted.
+**Shell executable whitelist** — applies to `shell`. Its input is structured: an allowlisted `executable` and an `arguments` array. `ShellTools` passes the argv directly to `ProcessBuilder`; it does not invoke a shell or interpret pipes, redirects, substitutions, or command separators.
+
+```json
+{
+  "executable": "grep",
+  "arguments": ["-R", "TODO", "src"]
+}
+```
+
+Adding a shell interpreter or language runtime is an explicit administrator grant of code-execution authority: the model can run code with the OS identity of the OryxOS process. Direct argv execution prevents shell-syntax injection, but it does not isolate the interpreter's file or network effects. Use a container/MicroVM-backed `execute_code` runner for untrusted or multi-tenant code; that runner is planned, not implemented yet.
 
 ```yaml
 shell:
@@ -150,6 +159,8 @@ shell:
     - cat
     - echo
     - grep
+    - python3 # trusted-local code execution; not an isolation boundary
+  timeout_seconds: 30
 ```
 
 The shell whitelist is an independent capability boundary. Adding an interpreter or shell such as `python`, `python3`, `sh`, or `bash` grants the agent the capabilities of that executable and can bypass the file and HTTP tool policies. They are deliberately excluded from the default configuration. Add such entries only for trusted scripts and only when that broader authority is intentional.
