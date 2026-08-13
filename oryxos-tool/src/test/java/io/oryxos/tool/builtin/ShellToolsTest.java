@@ -12,17 +12,19 @@ import io.oryxos.tool.sandbox.SandboxViolationException;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** ShellTools 的回归测试：覆盖结构化 argv、Sandbox 拦截、退出码与超时行为。 */
+/** ShellTools 的回归测试：覆盖结构化 argv、Sandbox 拦截、退出码、超时与管道排空顺序。 */
 class ShellToolsTest {
 
   @Test
@@ -66,6 +68,19 @@ class ShellToolsTest {
 
     assertTrue(ex.getMessage().contains("超时"));
     assertTrue(process.wasForciblyDestroyed());
+  }
+
+  @Test
+  @DisplayName("waitFor 前并发排空 stdout/stderr_否则大输出会假超时")
+  void drainsStdoutAndStderrBeforeWaitFor() {
+    // 模拟管道背压：进程在 stdout/stderr 被开始读取之前不能「结束」；
+    // 若实现先 waitFor 再读流，waitFor 会拖到超时。
+    DrainOrderProcess process = new DrainOrderProcess("big-output");
+    ShellTools tools =
+        new ShellTools(new PermissiveSandbox(), Duration.ofSeconds(2), command -> process);
+
+    assertEquals("big-output", tools.shell("echo", List.of("big-output")));
+    assertTrue(process.drainsStartedBeforeWaitForReturned());
   }
 
   @Test
@@ -169,6 +184,99 @@ class ShellToolsTest {
 
     private boolean wasForciblyDestroyed() {
       return forciblyDestroyed;
+    }
+  }
+
+  /**
+   * waitFor 仅在 stdout/stderr 都被开始读取后才返回 true——用来锁死「先排空再 waitFor」的顺序。
+   */
+  private static final class DrainOrderProcess extends Process {
+    private final byte[] stdout;
+    private final CountDownLatch drainsStarted = new CountDownLatch(2);
+    private volatile boolean waitForReturnedAfterDrains;
+
+    private DrainOrderProcess(String stdout) {
+      this.stdout = stdout.getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public OutputStream getOutputStream() {
+      return OutputStream.nullOutputStream();
+    }
+
+    @Override
+    public InputStream getInputStream() {
+      return new SignalingInputStream(stdout, drainsStarted);
+    }
+
+    @Override
+    public InputStream getErrorStream() {
+      return new SignalingInputStream(new byte[0], drainsStarted);
+    }
+
+    @Override
+    public int waitFor() {
+      return 0;
+    }
+
+    @Override
+    public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+      boolean ok = drainsStarted.await(timeout, unit);
+      waitForReturnedAfterDrains = ok;
+      return ok;
+    }
+
+    @Override
+    public int exitValue() {
+      return 0;
+    }
+
+    @Override
+    public void destroy() {}
+
+    @Override
+    public Process destroyForcibly() {
+      return this;
+    }
+
+    private boolean drainsStartedBeforeWaitForReturned() {
+      return waitForReturnedAfterDrains;
+    }
+  }
+
+  private static final class SignalingInputStream extends InputStream {
+    private final ByteArrayInputStream delegate;
+    private final CountDownLatch started;
+    private boolean signaled;
+
+    private SignalingInputStream(byte[] data, CountDownLatch started) {
+      this.delegate = new ByteArrayInputStream(data);
+      this.started = started;
+    }
+
+    private void signalOnce() {
+      if (!signaled) {
+        signaled = true;
+        started.countDown();
+      }
+    }
+
+    @Override
+    public int read() throws IOException {
+      signalOnce();
+      return delegate.read();
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+      signalOnce();
+      return delegate.read(b, off, len);
+    }
+
+    @Override
+    public byte[] readAllBytes() throws IOException {
+      signalOnce();
+      return delegate.readAllBytes();
     }
   }
 }
