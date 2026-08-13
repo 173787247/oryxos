@@ -21,8 +21,8 @@ import org.springframework.ai.tool.annotation.ToolParam;
 /**
  * 内置命令工具：直接执行获准的可执行文件，带超时兜底——命令挂死不能拖死整个 ReAct 循环。
  *
- * <p>白名单校验可执行文件名（SHELL_COMMAND 检查位已过 enforce）；参数作为 argv 直接传给进程，不经 Shell 解释。超时默认 30
- * 秒。两个运维细节： (1) stdout/stderr 在 {@code waitFor} 前就并发排空——否则输出超过管道缓冲（~64KB）的命令会写阻塞、被误判超时；(2)
+ * <p>白名单校验可执行文件名（SHELL_COMMAND 检查位已过 enforce）；参数作为 argv 直接传给进程，不经 Shell 解释。超时默认 30 秒。两个运维细节： (1)
+ * stdout/stderr 在 {@code waitFor} 前就并发排空——否则输出超过管道缓冲（~64KB）的命令会写阻塞、被误判超时；(2)
  * 超时后递归杀进程树——子进程不在父进程组内时，只杀父进程会留孤儿继续跑。
  */
 public class ShellTools {
@@ -42,6 +42,10 @@ public class ShellTools {
     this(sandbox, DEFAULT_TIMEOUT);
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "COMMAND_INJECTION",
+      justification =
+          "ProcessBuilder 以 argv 列表启动，不经 shell；可执行文件在 shell() 内经 Sandbox 精确白名单校验后再 start")
   ShellTools(Sandbox sandbox, Duration timeout) {
     this(sandbox, timeout, command -> new ProcessBuilder(command).start());
   }

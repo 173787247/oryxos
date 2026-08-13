@@ -187,9 +187,7 @@ class ShellToolsTest {
     }
   }
 
-  /**
-   * waitFor 仅在 stdout/stderr 都被开始读取后才返回 true——用来锁死「先排空再 waitFor」的顺序。
-   */
+  /** waitFor 仅在 stdout/stderr 都被开始读取后才返回 true——用来锁死「先排空再 waitFor」的顺序。 */
   private static final class DrainOrderProcess extends Process {
     private final byte[] stdout;
     private final CountDownLatch drainsStarted = new CountDownLatch(2);
