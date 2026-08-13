@@ -42,12 +42,8 @@ public class ShellTools {
     this(sandbox, DEFAULT_TIMEOUT);
   }
 
-  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-      value = "COMMAND_INJECTION",
-      justification =
-          "ProcessBuilder 以 argv 列表启动，不经 shell；可执行文件在 shell() 内经 Sandbox 精确白名单校验后再 start")
   ShellTools(Sandbox sandbox, Duration timeout) {
-    this(sandbox, timeout, command -> new ProcessBuilder(command).start());
+    this(sandbox, timeout, ShellTools::startProcess);
   }
 
   ShellTools(Sandbox sandbox, Duration timeout, ProcessStarter processStarter) {
@@ -56,10 +52,15 @@ public class ShellTools {
     this.processStarter = Objects.requireNonNull(processStarter, "processStarter 不能为空");
   }
 
-  @Tool(name = "shell", description = "执行一个已获许可的可执行文件，返回标准输出")
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "COMMAND_INJECTION",
-      justification = "参数以 ProcessBuilder 的 argv 直接执行，不经 shell 解释；可执行文件在启动前经 Sandbox 精确白名单校验")
+      justification =
+          "ProcessBuilder 以 argv 列表启动，不经 shell；可执行文件在 shell() 内经 Sandbox 精确白名单校验后再 start")
+  private static Process startProcess(List<String> command) throws IOException {
+    return new ProcessBuilder(command).start();
+  }
+
+  @Tool(name = "shell", description = "执行一个已获许可的可执行文件，返回标准输出")
   public String shell(
       @ToolParam(description = "要执行的、已在白名单中的可执行文件") String executable,
       @ToolParam(description = "传给可执行文件的独立参数数组，不支持 shell 语法") List<String> arguments) {
