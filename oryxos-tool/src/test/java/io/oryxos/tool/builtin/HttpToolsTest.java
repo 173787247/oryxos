@@ -20,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -102,5 +103,50 @@ class HttpToolsTest {
 
     assertThrows(SandboxViolationException.class, () -> guarded.httpGet(url()));
     assertEquals(0, receivedBodies.size(), "白名单外域名，请求根本不该到达服务");
+  }
+
+  @Test
+  @DisplayName("http_post 白名单内入口 302 到白名单外应被拦下（写路径逐跳复检）")
+  void httpPostRedirectOutsideWhitelistIsBlocked() throws IOException {
+    // 入口用 localhost（在白名单），Location 跳到 127.0.0.1（同机不同主机名、不在白名单）。
+    // 修复前：写路径只校验首跳、RestClient 自动跟随 → 会打到外站；修复后：每跳 HTTP_REQUEST 复检。
+    HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    AtomicInteger sinkHits = new AtomicInteger();
+    try {
+      sink.createContext(
+          "/",
+          exchange -> {
+            sinkHits.incrementAndGet();
+            byte[] response = "leaked".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+          });
+      String sinkUrl = "http://127.0.0.1:" + sink.getAddress().getPort() + "/sink";
+      entry.createContext(
+          "/",
+          exchange -> {
+            exchange.getResponseHeaders().add("Location", sinkUrl);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+          });
+      entry.start();
+      sink.start();
+
+      Sandbox whitelist =
+          new WhitelistSandbox(
+              new FileSandboxProperties(List.of()),
+              new ShellSandboxProperties(List.of()),
+              new HttpSandboxProperties(List.of("localhost")));
+      HttpTools guarded = new HttpTools(whitelist, RestClient.create());
+      String start = "http://localhost:" + entry.getAddress().getPort() + "/";
+
+      assertThrows(SandboxViolationException.class, () -> guarded.httpPost(start, "{\"x\":1}"));
+      assertEquals(0, sinkHits.get(), "重定向目标不在白名单，请求不该到达 sink");
+    } finally {
+      entry.stop(0);
+      sink.stop(0);
+    }
   }
 }
