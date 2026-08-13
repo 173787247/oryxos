@@ -118,14 +118,13 @@ class SkillApiControllerTest {
   }
 
   @Test
-  @DisplayName("import 指向回环/内网/云元数据地址 → 400（SSRF 防护）")
-  void import_ssrf_blocked() throws Exception {
+  @DisplayName("import 非 GitHub tree URL → 400（含回环地址，先被 GitHub URL 规则拒绝）")
+  void import_nonGithubUrl_returns400() throws Exception {
     for (String url :
         new String[] {
           "http://127.0.0.1:8080/x/SKILL.md",
           "http://localhost/x/SKILL.md",
-          "http://169.254.169.254/latest/meta-data/",
-          "http://10.0.0.5/SKILL.md"
+          "http://example.com/SKILL.md"
         }) {
       mvc.perform(
               post("/api/v1/skills/import")

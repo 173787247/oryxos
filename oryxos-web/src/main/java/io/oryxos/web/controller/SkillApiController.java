@@ -49,7 +49,7 @@ import org.springframework.web.bind.annotation.RestController;
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2", "URLCONNECTION_SSRF_FD", "IMPROPER_UNICODE"},
     justification =
-        "core-stage web API is unauthenticated by design (internal network + gateway); auth is extension-phase. 协作者是 Spring 注入的共享单例，构造注入共享同一引用正是意图。/import 拉取运营者给定的 URL（等同安装插件），已做 SSRF 防护：限 http/https + 超时 + 大小上限 + 禁自动重定向、每跳校验目标主机非回环/内网/链路本地(含云元数据 169.254.169.254)/CGNAT。")
+        "core-stage web API is unauthenticated by design (internal network + gateway); auth is extension-phase. 协作者是 Spring 注入的共享单例，构造注入共享同一引用正是意图。/import 拉取运营者给定的 URL（等同安装插件），已做 SSRF 防护：限 http/https + 超时 + 大小上限 + 禁自动重定向、每跳校验目标主机非回环/内网/链路本地(含云元数据 169.254.169.254)/CGNAT/IPv6 ULA。")
 @RestController
 @RequestMapping("/api/v1/skills")
 public class SkillApiController {
@@ -180,13 +180,14 @@ public class SkillApiController {
   }
 
   /**
-   * SSRF 防护：拒绝主机解析到回环/任意本地/链路本地(含 169.254.169.254)/站点内网/组播/CGNAT，以及 localhost、*.internal、云元数据主机名。
+   * SSRF 防护：拒绝主机解析到回环/任意本地/链路本地(含 169.254.169.254)/站点内网/组播/CGNAT/IPv6 ULA
+   * （fc00::/7），以及 localhost、*.internal、云元数据主机名。与工具层 {@code WhitelistSandbox} 内网口径对齐。
    */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
       justification =
           "IDN.toASCII canonicalizes the complete DNS host before security checks; no substring is transformed independently.")
-  private static void guardPublicHost(URI uri) {
+  static void guardPublicHost(URI uri) {
     String host = uri.getHost();
     if (host == null || host.isBlank()) {
       throw new IllegalArgumentException("URL 缺少主机名: " + uri);
@@ -200,9 +201,14 @@ public class SkillApiController {
     if (isInternalName(asciiHost)) {
       throw new IllegalArgumentException("拒绝访问内网 / 元数据主机: " + host);
     }
+    // IPv6 字面量偶发带方括号；剥掉后再解析，ULA/回环判断才生效（与 WhitelistSandbox 一致）
+    String lookup =
+        asciiHost.startsWith("[") && asciiHost.endsWith("]")
+            ? asciiHost.substring(1, asciiHost.length() - 1)
+            : asciiHost;
     InetAddress[] addresses;
     try {
-      addresses = InetAddress.getAllByName(asciiHost);
+      addresses = InetAddress.getAllByName(lookup);
     } catch (UnknownHostException e) {
       throw new IllegalArgumentException("无法解析主机: " + host);
     }
@@ -212,7 +218,8 @@ public class SkillApiController {
           || addr.isLinkLocalAddress()
           || addr.isSiteLocalAddress()
           || addr.isMulticastAddress()
-          || isCarrierGradeNat(addr)) {
+          || isCarrierGradeNat(addr)
+          || isIpv6UniqueLocal(addr)) {
         throw new IllegalArgumentException(
             "拒绝访问内网 / 保留地址: " + host + " → " + addr.getHostAddress());
       }
@@ -237,6 +244,12 @@ public class SkillApiController {
   private static boolean isCarrierGradeNat(InetAddress addr) {
     byte[] b = addr.getAddress();
     return b.length == 4 && (b[0] & 0xFF) == 100 && (b[1] & 0xC0) == 0x40;
+  }
+
+  /** IPv6 ULA fc00::/7（唯一本地地址，isSiteLocalAddress 对 IPv6 不覆盖——否则 [fd00::1] 可绕过）。 */
+  private static boolean isIpv6UniqueLocal(InetAddress addr) {
+    byte[] b = addr.getAddress();
+    return b.length == 16 && (b[0] & 0xFE) == 0xFC;
   }
 
   @PutMapping("/{name}")
