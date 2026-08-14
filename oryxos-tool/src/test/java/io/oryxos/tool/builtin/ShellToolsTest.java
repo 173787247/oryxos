@@ -15,6 +15,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -122,6 +123,39 @@ class ShellToolsTest {
         () -> tools.shell("rm", List.of("-rf", "/tmp/oryxos-should-never-run")));
   }
 
+  @Test
+  @DisplayName("按配置的 Charset 解码 stdout（GBK round-trip）")
+  void decodesStdoutWithConfiguredCharset() {
+    Charset gbk = Charset.forName("GBK");
+    String text = "你好世界";
+    ShellTools tools =
+        new ShellTools(
+            new PermissiveSandbox(),
+            Duration.ofSeconds(1),
+            command -> new StubProcess(true, text.getBytes(gbk), new byte[0], 0),
+            gbk);
+
+    assertEquals(text, tools.shell("echo", List.of(text)));
+  }
+
+  @Test
+  @DisplayName("非零退出码_stderr 同样按配置 Charset 解码")
+  void decodesStderrWithConfiguredCharset() {
+    Charset gbk = Charset.forName("GBK");
+    String errText = "失败原因";
+    ShellTools tools =
+        new ShellTools(
+            new PermissiveSandbox(),
+            Duration.ofSeconds(1),
+            command -> new StubProcess(true, new byte[0], errText.getBytes(gbk), 1),
+            gbk);
+
+    IllegalStateException ex =
+        assertThrows(IllegalStateException.class, () -> tools.shell("echo", List.of("x")));
+
+    assertTrue(ex.getMessage().contains(errText));
+  }
+
   private static ShellTools shellTools(Process process) {
     return new ShellTools(new PermissiveSandbox(), Duration.ofSeconds(1), command -> process);
   }
@@ -135,9 +169,17 @@ class ShellToolsTest {
     private boolean forciblyDestroyed;
 
     private StubProcess(boolean finished, String stdout, String stderr, int exitCode) {
+      this(
+          finished,
+          stdout.getBytes(StandardCharsets.UTF_8),
+          stderr.getBytes(StandardCharsets.UTF_8),
+          exitCode);
+    }
+
+    private StubProcess(boolean finished, byte[] stdout, byte[] stderr, int exitCode) {
       this.finished = finished;
-      this.stdout = stdout.getBytes(StandardCharsets.UTF_8);
-      this.stderr = stderr.getBytes(StandardCharsets.UTF_8);
+      this.stdout = stdout;
+      this.stderr = stderr;
       this.exitCode = exitCode;
     }
 
