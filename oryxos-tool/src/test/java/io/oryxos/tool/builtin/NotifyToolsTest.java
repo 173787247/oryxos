@@ -99,6 +99,53 @@ class NotifyToolsTest {
             eq("今日北京天气 + 穿搭建议"));
   }
 
+  @Test
+  @DisplayName("channel 缺省且注册表非空_取注册表第一个（不依赖 Profile 内联）")
+  void omittedChannelUsesFirstRegistryEntry() {
+    NotifyChannelRegistry registry = mock(NotifyChannelRegistry.class);
+    when(registry.list())
+        .thenReturn(
+            List.of(
+                new NotifyChannelDef("team-lark", "feishu", "https://open.feishu.cn/hook/x", "团队群"),
+                new NotifyChannelDef("ops-hook", "webhook", "https://hooks.example.com/a", null)));
+    when(registry.find(any())).thenReturn(java.util.Optional.empty());
+    NotifyTools tools =
+        new NotifyTools(
+            Map.of("feishu", adapter, "webhook", adapter), new PermissiveSandbox(), registry);
+    var input = MAPPER.createObjectNode();
+    input.put("content", "hello");
+
+    ToolResult result = tools.execute(input);
+
+    assertTrue(result.success(), "缺省应落到注册表第一个渠道");
+    verify(adapter)
+        .send(
+            argThat(
+                t ->
+                    "feishu".equals(t.channelType())
+                        && "https://open.feishu.cn/hook/x".equals(t.config().get("url"))),
+            eq("hello"));
+  }
+
+  @Test
+  @DisplayName("channel 传 default 且注册表非空_等同缺省取注册表第一个")
+  void defaultLiteralUsesFirstRegistryEntry() {
+    NotifyChannelRegistry registry = mock(NotifyChannelRegistry.class);
+    when(registry.list())
+        .thenReturn(
+            List.of(
+                new NotifyChannelDef(
+                    "team-lark", "feishu", "https://open.feishu.cn/hook/x", null)));
+    NotifyTools tools =
+        new NotifyTools(Map.of("feishu", adapter), new PermissiveSandbox(), registry);
+    var input = MAPPER.createObjectNode();
+    input.put("content", "hello");
+    input.put("channel", "default");
+
+    assertTrue(tools.execute(input).success());
+    verify(adapter).send(argThat(t -> "feishu".equals(t.channelType())), eq("hello"));
+  }
+
   private static Profile profileWith(List<Profile.NotifyChannel> channels) {
     return new Profile(
         "ops-agent",
