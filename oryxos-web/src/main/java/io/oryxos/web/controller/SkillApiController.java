@@ -213,17 +213,62 @@ public class SkillApiController {
       throw new IllegalArgumentException("无法解析主机: " + host);
     }
     for (InetAddress addr : addresses) {
-      if (addr.isLoopbackAddress()
-          || addr.isAnyLocalAddress()
-          || addr.isLinkLocalAddress()
-          || addr.isSiteLocalAddress()
-          || addr.isMulticastAddress()
-          || isCarrierGradeNat(addr)
-          || isIpv6UniqueLocal(addr)) {
+      if (isBlockedSsrfAddress(addr)) {
         throw new IllegalArgumentException(
             "拒绝访问内网 / 保留地址: " + host + " → " + addr.getHostAddress());
       }
     }
+  }
+
+  /**
+   * IPv4-mapped（{@code ::ffff:0:0/96}）与 NAT64 知名前缀（{@code 64:ff9b::/96}）先展开末 32 位 IPv4，再套用内网/元数据判定；
+   * 与 {@code WhitelistSandbox} 读路径 SSRF 兜底对齐。
+   */
+  private static boolean isBlockedSsrfAddress(InetAddress addr) {
+    InetAddress effective = unwrapEmbeddedIpv4(addr);
+    return effective.isLoopbackAddress()
+        || effective.isAnyLocalAddress()
+        || effective.isLinkLocalAddress()
+        || effective.isSiteLocalAddress()
+        || effective.isMulticastAddress()
+        || isCarrierGradeNat(effective)
+        || isIpv6UniqueLocal(addr);
+  }
+
+  private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
+    byte[] b = addr.getAddress();
+    if (b.length != 16 || (!isIpv4MappedPrefix(b) && !isNat64WellKnownPrefix(b))) {
+      return addr;
+    }
+    try {
+      return InetAddress.getByAddress(new byte[] {b[12], b[13], b[14], b[15]});
+    } catch (UnknownHostException e) {
+      return addr;
+    }
+  }
+
+  private static boolean isIpv4MappedPrefix(byte[] b) {
+    for (int i = 0; i < 10; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
+    }
+    return (b[10] & 0xFF) == 0xFF && (b[11] & 0xFF) == 0xFF;
+  }
+
+  private static boolean isNat64WellKnownPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x00
+        && (b[1] & 0xFF) == 0x64
+        && (b[2] & 0xFF) == 0xFF
+        && (b[3] & 0xFF) == 0x9B
+        && b[4] == 0
+        && b[5] == 0
+        && b[6] == 0
+        && b[7] == 0
+        && b[8] == 0
+        && b[9] == 0
+        && b[10] == 0
+        && b[11] == 0;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(

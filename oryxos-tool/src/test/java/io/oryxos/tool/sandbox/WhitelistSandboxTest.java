@@ -264,12 +264,22 @@ class WhitelistSandboxTest {
             "http://169.254.1.1/x",
             "http://[::1]/x", // IPv6 回环
             "http://[fd00::1]/x", // IPv6 ULA fc00::/7
+            "http://[::ffff:169.254.169.254]/x", // IPv4-mapped 云元数据
+            "http://[64:ff9b::a9fe:a9fe]/x", // NAT64 well-known → 169.254.169.254
+            "http://[64:ff9b::100.64.1.1]/x", // NAT64 → CGNAT
             "http://localhost/x"
           }) {
         assertThrows(
             SandboxViolationException.class,
             () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, url)));
       }
+    }
+
+    @Test
+    @DisplayName("NAT64 嵌入公网 IPv4 仍放行")
+    void nat64PublicIpv4Allowed() {
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[64:ff9b::8.8.8.8]/x")));
     }
   }
 
