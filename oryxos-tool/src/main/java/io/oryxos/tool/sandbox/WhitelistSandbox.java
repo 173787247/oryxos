@@ -42,6 +42,12 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   private static final String GOOGLE_METADATA_HOST = "metadata.google.internal";
   private static final String INTERNAL_DOMAIN_SUFFIX = ".internal";
 
+  /** {@link io.oryxos.tool.builtin.WebSearchTools} 用的伪目标前缀；无真实主机，读路径放行。 */
+  private static final String WEB_SEARCH_TARGET_PREFIX = "web_search:";
+
+  private static final String HTTP_SCHEME = "http";
+  private static final String HTTPS_SCHEME = "https";
+
   // 具体类型 CopyOnWriteArrayList（而非 List 接口）：需要 addIfAbsent 的原子"不存在才加"语义
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
   private final Set<String> allowedCommands = ConcurrentHashMap.newKeySet();
@@ -157,11 +163,28 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
   }
 
-  /** HTTP 读（GET 类）：默认放行，只挡内网/回环/云元数据等 SSRF 目标。无主机的伪目标（如 web_search）放行。 */
+  /**
+   * HTTP 读（GET 类）：默认放行，只挡内网/回环/云元数据等 SSRF 目标。仅 {@code web_search:} 伪目标可无主机；其余必须是 http/https
+   * 且带主机名——否则 {@code file://}/{@code data:} 等会因 host==null 被误放行。
+   */
   private void checkHttpRead(String url) {
-    String host = hostOf(url);
-    if (host == null) {
+    if (url != null && url.startsWith(WEB_SEARCH_TARGET_PREFIX)) {
       return;
+    }
+    URI uri;
+    try {
+      uri = URI.create(url);
+    } catch (RuntimeException e) {
+      throw new SandboxViolationException("非法 URL: " + url);
+    }
+    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+    if (!HTTP_SCHEME.equals(scheme) && !HTTPS_SCHEME.equals(scheme)) {
+      throw new SandboxViolationException(
+          "读请求仅支持 http/https（伪目标 web_search: 除外）: " + url + "。这是安全策略，请勿重试。");
+    }
+    String host = uri.getHost();
+    if (host == null || host.isBlank()) {
+      throw new SandboxViolationException("读请求缺少主机名，拒绝: " + url);
     }
     assertNotInternalHost(host);
   }
