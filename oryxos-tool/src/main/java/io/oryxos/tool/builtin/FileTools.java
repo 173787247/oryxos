@@ -30,6 +30,9 @@ public class FileTools {
   /** grep / glob 单次返回上限，防超大目录撑爆上下文。 */
   private static final int MAX_MATCHES = 200;
 
+  /** glob 递归前缀；Java PathMatcher 对根下单段路径需去掉后再匹配。 */
+  private static final String GLOB_RECURSIVE_PREFIX = "**/";
+
   private final Sandbox sandbox;
 
   public FileTools(Sandbox sandbox) {
@@ -190,8 +193,10 @@ public class FileTools {
     if (matcher.matches(relative)) {
       return true;
     }
-    if (pattern.startsWith("**/") && relative.getNameCount() == 1) {
-      PathMatcher rest = FileSystems.getDefault().getPathMatcher("glob:" + pattern.substring(3));
+    if (pattern.startsWith(GLOB_RECURSIVE_PREFIX) && relative.getNameCount() == 1) {
+      PathMatcher rest =
+          FileSystems.getDefault()
+              .getPathMatcher("glob:" + pattern.substring(GLOB_RECURSIVE_PREFIX.length()));
       return rest.matches(relative);
     }
     return false;
