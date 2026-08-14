@@ -173,6 +173,10 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
    * HTTP 读（GET 类）：默认放行，只挡内网/回环/云元数据等 SSRF 目标。仅 {@code web_search:} 伪目标可无主机；其余必须是 http/https
    * 且带主机名——否则 {@code file://}/{@code data:} 等会因 host==null 被误放行。
    */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "URI scheme tokens are ASCII; Locale.ROOT lowercasing is the correct case-fold for http/https comparison.")
   private void checkHttpRead(String url) {
     if (url != null && url.startsWith(WEB_SEARCH_TARGET_PREFIX)) {
       return;
