@@ -206,6 +206,10 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
    * ftp://api.deepseek.com/…} / {@code file://api.deepseek.com/…} 会因 host 命中白名单被误放行。白名单本身即"运营者批准的
    * HTTP(S) 目标"，故不再叠加 SSRF 解析（内网 POST 需运营者显式白名单，属其决定）；SSRF 兜底集中在默认放行的 READ 路径。
    */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "URI scheme tokens are ASCII; Locale.ROOT lowercasing is the correct case-fold for http/https comparison.")
   private void checkHttpWrite(String url) {
     URI uri;
     try {
