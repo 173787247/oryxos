@@ -74,7 +74,7 @@ public class NotifyTools implements OryxTool {
           "type": "object",
           "properties": {
             "content": {"type": "string", "description": "要推送的内容"},
-            "channel": {"type": "string", "description": "渠道类型；缺省用第一个配置的渠道"}
+            "channel": {"type": "string", "description": "渠道名（全局 Notify 注册表中的 name）；缺省或 default 用第一个配置的渠道"}
           },
           "required": ["content"]
         }""";

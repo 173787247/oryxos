@@ -99,6 +99,25 @@ class NotifyToolsTest {
             eq("今日北京天气 + 穿搭建议"));
   }
 
+  @Test
+  @DisplayName("inputSchema 的 channel 描述应为渠道名（与 getDescription / 注册表按名解析一致）")
+  void inputSchemaDescribesChannelAsNameNotType() {
+    NotifyChannelRegistry registry = mock(NotifyChannelRegistry.class);
+    when(registry.list())
+        .thenReturn(
+            List.of(new NotifyChannelDef("team-lark", "feishu", "https://open.feishu.cn/x", null)));
+    NotifyTools tools =
+        new NotifyTools(Map.of("feishu", adapter), new PermissiveSandbox(), registry);
+
+    String schema = tools.getInputSchema();
+    String description = tools.getDescription();
+
+    assertTrue(schema.contains("渠道名"), "schema 应写渠道名，避免模型传 feishu/webhook 类型串: " + schema);
+    assertFalse(schema.contains("渠道类型"), "schema 不应再写渠道类型（与 31 节按名引用矛盾）: " + schema);
+    assertTrue(description.contains("渠道名"), description);
+    assertTrue(description.contains("team-lark"), description);
+  }
+
   private static Profile profileWith(List<Profile.NotifyChannel> channels) {
     return new Profile(
         "ops-agent",
