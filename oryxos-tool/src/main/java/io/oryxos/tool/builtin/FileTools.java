@@ -123,16 +123,19 @@ public class FileTools {
     }
     Pattern regex = Pattern.compile(pattern);
     List<String> matches = new ArrayList<>();
-    try (Stream<Path> files = Files.walk(root)) {
-      // NOFOLLOW_LINKS：白名单根内被植入指向外部的软链接时，链接项不算普通文件，内容不外泄
-      for (Path file : (Iterable<Path>) files.filter(FileTools::isRealRegularFile)::iterator) {
-        if (matches.size() >= MAX_MATCHES) {
-          matches.add("...（已达 " + MAX_MATCHES + " 条上限，结果截断）");
-          break;
+    try {
+      // Skill 绑定等「目录软链」：walk 默认不跟随，需先解析到真实目录；嵌套文件软链仍靠 NOFOLLOW 跳过
+      Path walkRoot = resolveDirectorySymlink(root);
+      try (Stream<Path> files = Files.walk(walkRoot)) {
+        for (Path file : (Iterable<Path>) files.filter(FileTools::isRealRegularFile)::iterator) {
+          if (matches.size() >= MAX_MATCHES) {
+            matches.add("...（已达 " + MAX_MATCHES + " 条上限，结果截断）");
+            break;
+          }
+          // 纵深防御：每个实际读取的文件再过一次文件白名单（防根校验到读取间符号链接被替换）
+          sandbox.enforce(new SandboxAction(ActionType.FILE_READ, file.toString()));
+          appendMatches(file, regex, matches);
         }
-        // 纵深防御：每个实际读取的文件再过一次文件白名单（防根校验到读取间符号链接被替换）
-        sandbox.enforce(new SandboxAction(ActionType.FILE_READ, file.toString()));
-        appendMatches(file, regex, matches);
       }
     } catch (IOException e) {
       throw new UncheckedIOException("搜索失败: " + path, e);
@@ -151,21 +154,32 @@ public class FileTools {
     }
     PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
     List<String> hits = new ArrayList<>();
-    try (Stream<Path> files = Files.walk(root)) {
-      files
-          .filter(FileTools::isRealRegularFile)
-          .filter(p -> matcher.matches(root.relativize(p)))
-          .limit(MAX_MATCHES)
-          // 每个命中路径再过一次文件白名单（与 grep 同款纵深防御）
-          .forEach(
-              p -> {
-                sandbox.enforce(new SandboxAction(ActionType.FILE_READ, p.toString()));
-                hits.add(p.toString());
-              });
+    try {
+      Path walkRoot = resolveDirectorySymlink(root);
+      try (Stream<Path> files = Files.walk(walkRoot)) {
+        files
+            .filter(FileTools::isRealRegularFile)
+            .filter(p -> matcher.matches(walkRoot.relativize(p)))
+            .limit(MAX_MATCHES)
+            // 每个命中路径再过一次文件白名单（与 grep 同款纵深防御）
+            .forEach(
+                p -> {
+                  sandbox.enforce(new SandboxAction(ActionType.FILE_READ, p.toString()));
+                  hits.add(p.toString());
+                });
+      }
     } catch (IOException e) {
       throw new UncheckedIOException("查找失败: " + path, e);
     }
     return hits.isEmpty() ? "（无匹配）" : String.join("\n", hits);
+  }
+
+  /** 若根是指向目录的软链（Skill 绑定），解析到真实目录再 walk；否则原样返回。 */
+  private static Path resolveDirectorySymlink(Path root) throws IOException {
+    if (Files.isSymbolicLink(root) && Files.isDirectory(root)) {
+      return root.toRealPath();
+    }
+    return root;
   }
 
   /** 普通文件判定不跟随符号链接：链接项（无论指向内部还是外部）都不作为可读文件参与搜索。 */
