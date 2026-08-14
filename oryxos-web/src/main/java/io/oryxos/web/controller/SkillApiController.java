@@ -65,6 +65,12 @@ public class SkillApiController {
   private static final String VISIBILITY_PUBLIC = "public";
   private static final String VISIBILITY_PRIVATE = "private";
 
+  /** IPv6 地址字节长度；IPv4-mapped / NAT64 展开前需先确认。 */
+  private static final int IPV6_ADDRESS_LENGTH = 16;
+
+  /** {@code ::ffff:0:0/96} 前缀中必须为 0 的前缀字节数（随后两字节为 0xff）。 */
+  private static final int IPV4_MAPPED_ZERO_PREFIX_LENGTH = 10;
+
   private final SkillService skills;
   private final SkillCatalog catalog;
   private final AgentSkillBindingService bindings;
@@ -237,7 +243,7 @@ public class SkillApiController {
 
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
-    if (b.length != 16 || (!isIpv4MappedPrefix(b) && !isNat64WellKnownPrefix(b))) {
+    if (!isEmbeddedIpv4Candidate(b)) {
       return addr;
     }
     try {
@@ -247,8 +253,13 @@ public class SkillApiController {
     }
   }
 
+  /** 16 字节且带 IPv4-mapped 或 NAT64 知名前缀时，才做末 32 位展开。 */
+  private static boolean isEmbeddedIpv4Candidate(byte[] b) {
+    return b.length == IPV6_ADDRESS_LENGTH && (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b));
+  }
+
   private static boolean isIpv4MappedPrefix(byte[] b) {
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < IPV4_MAPPED_ZERO_PREFIX_LENGTH; i++) {
       if (b[i] != 0) {
         return false;
       }
@@ -294,7 +305,7 @@ public class SkillApiController {
   /** IPv6 ULA fc00::/7（唯一本地地址，isSiteLocalAddress 对 IPv6 不覆盖——否则 [fd00::1] 可绕过）。 */
   private static boolean isIpv6UniqueLocal(InetAddress addr) {
     byte[] b = addr.getAddress();
-    return b.length == 16 && (b[0] & 0xFE) == 0xFC;
+    return b.length == IPV6_ADDRESS_LENGTH && (b[0] & 0xFE) == 0xFC;
   }
 
   @PutMapping("/{name}")
