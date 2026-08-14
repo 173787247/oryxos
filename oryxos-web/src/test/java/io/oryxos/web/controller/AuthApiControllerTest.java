@@ -16,6 +16,7 @@ import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.GlobalExceptionHandler;
 import io.oryxos.web.config.WebAuthProperties;
+import io.oryxos.web.security.LoginAttemptService;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +45,8 @@ class AuthApiControllerTest {
     properties.setEnabled(true);
     mvc =
         MockMvcBuilders.standaloneSetup(
-                new AuthApiController(userService, sessionService, properties))
+                new AuthApiController(
+                    userService, sessionService, properties, new LoginAttemptService()))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
   }
@@ -138,7 +140,8 @@ class AuthApiControllerTest {
     // 镜像 server.forward-headers-strategy=framework 的装配：该策略就是注册 ForwardedHeaderFilter
     MockMvc proxiedMvc =
         MockMvcBuilders.standaloneSetup(
-                new AuthApiController(userService, sessionService, properties))
+                new AuthApiController(
+                    userService, sessionService, properties, new LoginAttemptService()))
             .addFilters(new org.springframework.web.filter.ForwardedHeaderFilter())
             .build();
 
