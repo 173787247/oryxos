@@ -83,6 +83,7 @@ import io.oryxos.tool.mcp.McpConfigLoader;
 import io.oryxos.tool.notify.DingTalkNotifyAdapter;
 import io.oryxos.tool.notify.FeishuNotifyAdapter;
 import io.oryxos.tool.notify.NotifyChannelAdapter;
+import io.oryxos.tool.notify.NotifyPoster;
 import io.oryxos.tool.notify.WeComNotifyAdapter;
 import io.oryxos.tool.notify.WebhookNotifyAdapter;
 import io.oryxos.tool.sandbox.FileSandboxProperties;
@@ -425,13 +426,14 @@ public class OryxOsRuntime {
         new WebSearchTools(sandbox, new DuckDuckGoSearchProvider(restClient)));
     // chat 是交互终端，ask_user 读控制台；serve/gateway 无人值守时应换 UnsupportedUserInteraction
     registry.registerAnnotated(new InteractionTools(new ConsoleUserInteraction()));
-    // notify（19 节 OryxTool 形态）直接注册——渠道实现按 channelType 路由
+    // notify（19 节 OryxTool 形态）直接注册——渠道实现按 channelType 路由；出网经 NotifyPoster 逐跳复检白名单
+    NotifyPoster notifyPoster = new NotifyPoster(sandbox);
     Map<String, NotifyChannelAdapter> notifyAdapters =
         Map.of(
-            "webhook", new WebhookNotifyAdapter(restClient),
-            "wecom", new WeComNotifyAdapter(restClient),
-            "feishu", new FeishuNotifyAdapter(restClient),
-            "dingtalk", new DingTalkNotifyAdapter(restClient));
+            "webhook", new WebhookNotifyAdapter(notifyPoster),
+            "wecom", new WeComNotifyAdapter(notifyPoster),
+            "feishu", new FeishuNotifyAdapter(notifyPoster),
+            "dingtalk", new DingTalkNotifyAdapter(notifyPoster));
     registry.register(new NotifyTools(notifyAdapters, sandbox, notifyChannelRegistry));
     // 记忆工具：save_memory / recall_memory（补齐 20 节预留的两工具面），只认门面对后端无感
     registry.registerAnnotated(new MemoryTools(memoryService));
