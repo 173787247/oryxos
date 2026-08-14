@@ -10,8 +10,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -19,7 +21,9 @@ import org.springframework.ai.tool.annotation.ToolParam;
 /**
  * 内置命令工具：直接执行获准的可执行文件，带超时兜底——命令挂死不能拖死整个 ReAct 循环。
  *
- * <p>白名单校验可执行文件名（SHELL_COMMAND 检查位已过 enforce）；参数作为 argv 直接传给进程，不经 Shell 解释。超时默认 30 秒。
+ * <p>白名单校验可执行文件名（SHELL_COMMAND 检查位已过 enforce）；参数作为 argv 直接传给进程，不经 Shell 解释。超时默认 30 秒。两个运维细节： (1)
+ * stdout/stderr 在 {@code waitFor} 前就并发排空——否则输出超过管道缓冲（~64KB）的命令会写阻塞、被误判超时；(2)
+ * 超时后递归杀进程树——子进程不在父进程组内时，只杀父进程会留孤儿继续跑。
  */
 public class ShellTools {
 
@@ -48,10 +52,15 @@ public class ShellTools {
     this.processStarter = Objects.requireNonNull(processStarter, "processStarter 不能为空");
   }
 
-  @Tool(name = "shell", description = "执行一个已获许可的可执行文件，返回标准输出")
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "COMMAND_INJECTION",
-      justification = "参数以 ProcessBuilder 的 argv 直接执行，不经 shell 解释；可执行文件在启动前经 Sandbox 精确白名单校验")
+      justification =
+          "ProcessBuilder 以 argv 列表启动，不经 shell；可执行文件在 shell() 内经 Sandbox 精确白名单校验后再 start")
+  private static Process startProcess(List<String> command) throws IOException {
+    return new ProcessBuilder(command).start();
+  }
+
+  @Tool(name = "shell", description = "执行一个已获许可的可执行文件，返回标准输出")
   public String shell(
       @ToolParam(description = "要执行的、已在白名单中的可执行文件") String executable,
       @ToolParam(description = "传给可执行文件的独立参数数组，不支持 shell 语法") List<String> arguments) {
@@ -60,23 +69,36 @@ public class ShellTools {
     sandbox.enforce(new SandboxAction(ActionType.SHELL_COMMAND, commandExecutable));
     try {
       Process process = processStarter.start(command);
-      boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+      // 先起并发排空再 waitFor：管道不被写满阻塞，waitFor 只在「命令真没跑完」时超时
+      Future<byte[]> stdout = DRAINER.submit(() -> process.getInputStream().readAllBytes());
+      Future<byte[]> stderr = DRAINER.submit(() -> process.getErrorStream().readAllBytes());
+      boolean finished;
+      try {
+        finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        killTree(process);
+        throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
+      }
       if (!finished) {
         killTree(process);
         throw new IllegalStateException(
             "命令超时（" + timeout.toSeconds() + "s）被终止: " + commandExecutable);
       }
-      String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-      if (process.exitValue() != 0) {
-        String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        throw new IllegalStateException("命令退出码 " + process.exitValue() + ": " + stderr.trim());
+      try {
+        if (process.exitValue() != 0) {
+          String err = new String(stderr.get(), StandardCharsets.UTF_8);
+          throw new IllegalStateException("命令退出码 " + process.exitValue() + ": " + err.trim());
+        }
+        return new String(stdout.get(), StandardCharsets.UTF_8);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
+      } catch (ExecutionException e) {
+        throw new IllegalStateException("命令输出读取失败: " + commandExecutable, e.getCause());
       }
-      return stdout;
     } catch (IOException e) {
       throw new UncheckedIOException("命令启动失败: " + commandExecutable, e);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
     }
   }
 

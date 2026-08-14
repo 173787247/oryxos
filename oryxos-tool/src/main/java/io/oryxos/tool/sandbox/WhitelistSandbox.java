@@ -69,8 +69,10 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
    * 写穿到库、重启保留。启动播种（把配置文件的白名单插进来）由装配层调用 {@code add} 完成——{@code add} 会算好规范形并幂等落库。
    */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-      value = "EI_EXPOSE_REP2",
-      justification = "store 是 Spring 注入的共享单例仓库，构造注入共享同一引用正是意图")
+      value = {"EI_EXPOSE_REP2", "CT_CONSTRUCTOR_THROW"},
+      justification =
+          "store 是 Spring 注入的共享单例仓库，构造注入共享同一引用正是意图；"
+              + "构造期 applyToMemory 校验失败应失败关闭，不保留半初始化实例供 finalize 攻击")
   public WhitelistSandbox(SandboxWhitelistStore store) {
     this.store = store;
     for (SandboxWhitelistStore.Entry entry : store.loadAll()) {
