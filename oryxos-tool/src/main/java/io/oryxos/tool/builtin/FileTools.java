@@ -221,7 +221,8 @@ public class FileTools {
   public String deleteFile(@ToolParam(description = "要删除的文件路径") String path) {
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     Path file = Path.of(path);
-    if (Files.isDirectory(file)) {
+    // NOFOLLOW_LINKS：只拦真实目录；指向目录的 symlink（如 Agent Skill 绑定）应删链接本身，不跟随目标
+    if (Files.isDirectory(file, LinkOption.NOFOLLOW_LINKS)) {
       throw new IllegalArgumentException("拒绝删除目录（本工具只删文件）: " + path);
     }
     try {
