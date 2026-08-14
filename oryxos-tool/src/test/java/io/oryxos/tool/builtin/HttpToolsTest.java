@@ -8,6 +8,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
 import com.sun.net.httpserver.HttpServer;
+import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.FileSandboxProperties;
 import io.oryxos.tool.sandbox.HttpSandboxProperties;
 import io.oryxos.tool.sandbox.PermissiveSandbox;
@@ -18,6 +19,8 @@ import io.oryxos.tool.sandbox.WhitelistSandbox;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,6 +28,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.web.client.RestClient;
 
 /** 课件《第20节》验收 harness：HttpToolsTest——课件正文两用例即模板。 */
@@ -148,5 +152,39 @@ class HttpToolsTest {
       entry.stop(0);
       sink.stop(0);
     }
+  }
+
+  @Test
+  @DisplayName("download_file 落盘前复检 FILE_WRITE（防拉网窗口内路径逃逸）")
+  void downloadFileRechecksPathBeforeWrite(@TempDir Path dir) throws IOException {
+    AtomicInteger fileWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE) {
+            if (fileWrites.incrementAndGet() >= 2) {
+              throw new SandboxViolationException("复检拒绝: " + action.target());
+            }
+          }
+        };
+    Path target = dir.resolve("payload.bin");
+    HttpTools guarded = new HttpTools(sandbox, RestClient.create());
+
+    assertThrows(
+        SandboxViolationException.class, () -> guarded.downloadFile(url(), target.toString()));
+    assertEquals(2, fileWrites.get(), "应在下载前后各 enforce 一次 FILE_WRITE");
+    assertTrue(Files.notExists(target), "复检拒绝后不得落盘");
+  }
+
+  @Test
+  @DisplayName("download_file 两次路径校验都通过时正常落盘")
+  void downloadFileWritesWhenPathStillAllowed(@TempDir Path dir) throws IOException {
+    Path target = dir.resolve("ok.bin");
+    HttpTools permissive = new HttpTools(new PermissiveSandbox(), RestClient.create());
+
+    String result = permissive.downloadFile(url(), target.toString());
+
+    assertTrue(result.contains("已下载到"));
+    assertTrue(Files.exists(target));
+    assertTrue(Files.readString(target).contains("晴"));
   }
 }
