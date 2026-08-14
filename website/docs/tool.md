@@ -45,7 +45,7 @@ About two dozen tools ship with OryxOS core — a set of **universal primitives*
 | `move_file` | `FileTools` | Move / rename a file | Path whitelist (source + target) |
 | `copy_file` | `FileTools` | Copy a file | Path whitelist (source + target) |
 | `delete_file` | `FileTools` | Delete a file (never a directory) | Path whitelist |
-| `shell` | `ShellTools` | Execute a shell command | Command whitelist + metacharacter scan + timeout |
+| `shell` | `ShellTools` | Execute a shell command | Command whitelist + direct argv (no shell interpretation) + timeout |
 | `http_get` / `http_post` | `HttpTools` | HTTP GET / POST | GET: default allow + SSRF blocklist; POST: domain wildcard whitelist |
 | `http_request` | `HttpTools` | HTTP with any method (GET/POST/PUT/PATCH/DELETE) + headers | GET: default allow + SSRF; write methods: domain wildcard whitelist |
 | `fetch_webpage` | `HttpTools` | Fetch a URL and extract readable text (strip HTML) | Default allow + SSRF blocklist |

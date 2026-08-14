@@ -45,7 +45,7 @@ OryxOS 核心内置约两打工具——一组精心挑选的**通用原语**，
 | `move_file` | `FileTools` | 移动 / 重命名文件 | 路径白名单（源 + 目标） |
 | `copy_file` | `FileTools` | 复制文件 | 路径白名单（源 + 目标） |
 | `delete_file` | `FileTools` | 删除文件（拒绝删目录） | 路径白名单 |
-| `shell` | `ShellTools` | 执行 Shell 命令 | 命令白名单 + 元字符扫描 + 超时 |
+| `shell` | `ShellTools` | 执行 Shell 命令 | 命令白名单 + argv 直传（无 Shell 解释）+ 超时 |
 | `http_get` / `http_post` | `HttpTools` | HTTP GET / POST | GET：默认放行 + SSRF 黑名单；POST：域名通配符白名单 |
 | `http_request` | `HttpTools` | 任意方法 HTTP（GET/POST/PUT/PATCH/DELETE）+ 请求头 | GET：默认放行 + SSRF；写方法：域名通配符白名单 |
 | `fetch_webpage` | `HttpTools` | 抓取网页并抽取可读正文（去 HTML） | 默认放行 + SSRF 黑名单 |

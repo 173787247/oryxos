@@ -645,7 +645,7 @@ null
 // data —— ToolView[]
 [
   { "name": "read_file", "description": "读取文件内容，路径受白名单限制" },
-  { "name": "shell",     "description": "执行 shell 命令，受命令白名单与元字符校验限制" },
+  { "name": "shell",     "description": "执行 shell 命令，受命令白名单限制（argv 直传，无 Shell 解释）" },
   { "name": "notify",    "description": "按名字把消息推送到已注册的通知渠道" }
 ]
 ```
