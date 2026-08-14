@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -22,7 +23,8 @@ import org.springframework.web.client.RestClient;
 
 /**
  * 内置 HTTP 工具：http_get / http_post / http_request（任意方法）/ fetch_webpage（抓网页抽正文）/
- * download_file（下载到文件）。域名白名单检查位第一行——不过校验请求根本不发出。
+ * download_file（下载到文件）。读请求走 {@code HTTP_READ}（默认放行 + SSRF）；写请求走 {@code HTTP_REQUEST}（域名白名单）。
+ * 读写都禁自动重定向，由本类手动逐跳跟随并每跳重过沙箱校验。
  */
 public class HttpTools {
 
@@ -31,10 +33,10 @@ public class HttpTools {
 
   private static final String DEFAULT_METHOD = "GET";
 
-  /** 读请求手动跟随重定向的最大跳数（每跳都重新过 SSRF 校验，防公网 302→内网）。 */
+  /** 手动跟随重定向的最大跳数（每跳都重新过沙箱校验，防公网 302→白名单外 / 内网）。 */
   private static final int MAX_REDIRECTS = 5;
 
-  /** 读请求连接 / 读取超时——外网慢站点不能拖死同步的 ReAct 触发（否则浏览器 Failed to fetch）。 */
+  /** 连接 / 读取超时——外网慢站点不能拖死同步的 ReAct 触发。 */
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
   private static final Duration READ_TIMEOUT = Duration.ofSeconds(20);
@@ -47,21 +49,21 @@ public class HttpTools {
   private static final Pattern HEADER_LINE_SEP = Pattern.compile("\\R");
 
   private final Sandbox sandbox;
-  private final RestClient restClient;
-  // 读专用客户端：**禁自动重定向**，由本类手动逐跳跟随并每跳重过 SSRF 校验（防公网 302 → 内网绕过）。
-  private final RestClient readClient;
+
+  /** 读写共用：**禁自动重定向**，由本类手动逐跳跟随并每跳重过沙箱校验。不使用注入的 RestClient 默认跟随行为（否则写请求会在首跳过白名单后跟到任意 Location）。 */
+  private final RestClient hopClient;
 
   public HttpTools(Sandbox sandbox, RestClient restClient) {
     this.sandbox = sandbox;
-    this.restClient = restClient.mutate().build();
-    JdkClientHttpRequestFactory readFactory =
+    Objects.requireNonNull(restClient, "restClient 不能为空"); // 保留构造签名，供 Spring 装配
+    JdkClientHttpRequestFactory hopFactory =
         new JdkClientHttpRequestFactory(
             HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build());
-    readFactory.setReadTimeout(READ_TIMEOUT);
-    this.readClient = RestClient.builder().requestFactory(readFactory).build();
+    hopFactory.setReadTimeout(READ_TIMEOUT);
+    this.hopClient = RestClient.builder().requestFactory(hopFactory).build();
   }
 
   /**
@@ -72,11 +74,46 @@ public class HttpTools {
     String current = url;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_READ, current)); // 每跳校验
-      ResponseEntity<T> resp = readClient.get().uri(current).retrieve().toEntity(type);
+      ResponseEntity<T> resp = hopClient.get().uri(current).retrieve().toEntity(type);
       if (resp.getStatusCode().is3xxRedirection()) {
         String location = resp.getHeaders().getFirst("Location");
         if (location == null || location.isBlank()) {
           return resp.getBody(); // 3xx 但无 Location：返回现有响应体
+        }
+        current = URI.create(current).resolve(location).toString();
+        continue;
+      }
+      return resp.getBody();
+    }
+    throw new IllegalStateException("重定向次数过多，拒绝: " + url);
+  }
+
+  /** 写请求（POST/PUT/…）：手动跟随重定向，**每跳都重过 {@code HTTP_REQUEST} 域名白名单**——杜绝"白名单内入口 302 跳白名单外"。 */
+  private String write(
+      HttpMethod method, String url, String headers, String body, boolean jsonBody) {
+    String current = url;
+    for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, current)); // 每跳校验
+      RestClient.RequestBodySpec spec = hopClient.method(method).uri(current);
+      if (headers != null && !headers.isBlank()) {
+        for (String line : HEADER_LINE_SEP.split(headers)) {
+          int colon = line.indexOf(':');
+          if (colon > 0) {
+            spec.header(line.substring(0, colon).strip(), line.substring(colon + 1).strip());
+          }
+        }
+      }
+      if (body != null && !body.isBlank()) {
+        if (jsonBody) {
+          spec.contentType(MediaType.APPLICATION_JSON);
+        }
+        spec.body(body);
+      }
+      ResponseEntity<String> resp = spec.retrieve().toEntity(String.class);
+      if (resp.getStatusCode().is3xxRedirection()) {
+        String location = resp.getHeaders().getFirst("Location");
+        if (location == null || location.isBlank()) {
+          return resp.getBody();
         }
         current = URI.create(current).resolve(location).toString();
         continue;
@@ -95,14 +132,7 @@ public class HttpTools {
   public String httpPost(
       @ToolParam(description = "要请求的完整 URL") String url,
       @ToolParam(description = "JSON 请求体") String body) {
-    sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, url));
-    return restClient
-        .post()
-        .uri(url)
-        .contentType(MediaType.APPLICATION_JSON)
-        .body(body)
-        .retrieve()
-        .body(String.class);
+    return write(HttpMethod.POST, url, null, body, true);
   }
 
   @Tool(
@@ -118,24 +148,11 @@ public class HttpTools {
       @ToolParam(required = false, description = "可选请求体（如 JSON 文本）") String body) {
     String verb = (method == null || method.isBlank()) ? DEFAULT_METHOD : method.strip();
     HttpMethod httpMethod = HttpMethod.valueOf(verb.toUpperCase(Locale.ROOT));
-    // 按方法分级：GET 走读路径（放行 + 内网黑名单 + 逐跳重定向重校验），其余写方法走域名白名单
+    // 按方法分级：GET 走读路径（放行 + 内网黑名单 + 逐跳重定向重校验），其余写方法走域名白名单 + 逐跳重定向重校验
     if (HttpMethod.GET.equals(httpMethod)) {
       return read(url, String.class);
     }
-    sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, url));
-    RestClient.RequestBodySpec spec = restClient.method(httpMethod).uri(url);
-    if (headers != null && !headers.isBlank()) {
-      for (String line : HEADER_LINE_SEP.split(headers)) {
-        int colon = line.indexOf(':');
-        if (colon > 0) {
-          spec.header(line.substring(0, colon).strip(), line.substring(colon + 1).strip());
-        }
-      }
-    }
-    if (body != null && !body.isBlank()) {
-      spec.body(body);
-    }
-    return spec.retrieve().body(String.class);
+    return write(httpMethod, url, headers, body, false);
   }
 
   @Tool(name = "fetch_webpage", description = "抓取一个网页并抽取可读正文（去掉 HTML 标签/脚本/样式），适合让模型阅读网页内容")
@@ -144,7 +161,7 @@ public class HttpTools {
     return htmlToText(html);
   }
 
-  @Tool(name = "download_file", description = "下载一个 URL 的内容到指定本地文件路径（域名 + 路径都过白名单）")
+  @Tool(name = "download_file", description = "下载一个 URL 的内容到指定本地文件路径（URL：默认放行 + SSRF；本地路径：文件白名单）")
   public String downloadFile(
       @ToolParam(description = "要下载的 URL") String url,
       @ToolParam(description = "保存到的本地文件路径") String path) {
