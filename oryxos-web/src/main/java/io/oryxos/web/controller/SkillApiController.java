@@ -180,8 +180,8 @@ public class SkillApiController {
   }
 
   /**
-   * SSRF 防护：拒绝主机解析到回环/任意本地/链路本地(含 169.254.169.254)/站点内网/组播/CGNAT/IPv6 ULA
-   * （fc00::/7），以及 localhost、*.internal、云元数据主机名。与工具层 {@code WhitelistSandbox} 内网口径对齐。
+   * SSRF 防护：拒绝主机解析到回环/任意本地/链路本地(含 169.254.169.254)/站点内网/组播/CGNAT/IPv6 ULA （fc00::/7），以及
+   * localhost、*.internal、云元数据主机名。与工具层 {@code WhitelistSandbox} 内网口径对齐。
    */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",

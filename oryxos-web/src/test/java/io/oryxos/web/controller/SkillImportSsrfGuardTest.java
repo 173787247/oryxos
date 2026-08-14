@@ -9,8 +9,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * 直接覆盖 {@link SkillApiController#guardPublicHost(URI)}：/import 虽只接受 GitHub tree URL，但
- * fetch 跟随重定向时仍依赖本方法挡内网（含 IPv6 ULA）。
+ * 直接覆盖 {@link SkillApiController#guardPublicHost(URI)}：/import 虽只接受 GitHub tree URL，但 fetch
+ * 跟随重定向时仍依赖本方法挡内网（含 IPv6 ULA）。
  */
 class SkillImportSsrfGuardTest {
 
