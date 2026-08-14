@@ -12,6 +12,6 @@ public enum ActionType {
   SHELL_COMMAND,
   /** HTTP 读（GET 类）：默认放行 + 内网/SSRF 黑名单兜底。 */
   HTTP_READ,
-  /** HTTP 写（POST/PUT/PATCH/DELETE）：域名白名单 + 内网/SSRF 黑名单。 */
+  /** HTTP 写（POST/PUT/PATCH/DELETE）：域名白名单（写路径不再叠加 SSRF；内网目标需运营者显式加白）。 */
   HTTP_REQUEST
 }

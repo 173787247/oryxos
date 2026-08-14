@@ -77,8 +77,8 @@ Input: {"query": "user preferences"}`,
     num: '05',
     title: t('沙箱工具 + MCP', 'Sandboxed Tools + MCP'),
     desc: t(
-      '内置文件 / Shell / HTTP 工具走路径、命令、域名白名单（不用 SecurityManager），可运行时管理。三档插件：零代码 SKILL.md → 自定义 MCP server → 原生 @Tool。Notify 渠道按名寻址。',
-      'Built-in file / shell / HTTP tools pass through path, command, and domain whitelists (no SecurityManager), manageable at runtime. Three-tier plugins: zero-code SKILL.md → custom MCP server → native @Tool. Notify channels addressed by name.'
+      '内置文件 / Shell 走路径与命令白名单；HTTP 读写分治（读：默认放行 + SSRF；写：域名白名单）。不用 SecurityManager，可运行时管理。三档插件：零代码 SKILL.md → 自定义 MCP server → 原生 @Tool。Notify 渠道按名寻址。',
+      'Built-in file / shell use path and command whitelists; HTTP is split (reads: default allow + SSRF; writes: domain whitelist). No SecurityManager; manageable at runtime. Three-tier plugins: zero-code SKILL.md → custom MCP server → native @Tool. Notify channels addressed by name.'
     ),
     code: `# Whitelists, not SecurityManager
 shell.allowed_commands: [ls, cat, python3]

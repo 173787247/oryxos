@@ -278,9 +278,9 @@ interface OryxTool {
 | `read_file` | `FileTools` | 读文件，路径白名单 |
 | `write_file` | `FileTools` | 写文件，路径白名单 |
 | `list_dir` | `FileTools` | 列目录，路径白名单 |
-| `shell` | `ShellTools` | 执行 bash，命令白名单 + 超时 |
-| `http_get` | `HttpTools` | GET 请求，域名白名单 |
-| `http_post` | `HttpTools` | POST 请求，域名白名单 |
+| `shell` | `ShellTools` | 执行命令，命令白名单 + argv 直传 + 超时 |
+| `http_get` | `HttpTools` | GET 请求，默认放行 + SSRF 黑名单 |
+| `http_post` | `HttpTools` | POST 请求，域名通配符白名单 |
 | `save_memory` | `MemoryTools` | 追加到 MEMORY.md |
 | `recall_memory` | `MemoryTools` | 关键词检索 MEMORY.md |
 | `notify` | `NotifyTools` | 推送到 Profile 的 `notify_channels`，核心阶段走 `WebhookNotifyAdapter` |

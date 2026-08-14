@@ -55,7 +55,7 @@ Two layers today. Session memory holds the conversation history, persisted and r
 
 ### Tool System
 
-**24 built-in tools** cover the baseline: file operations (read / write / list / append / move / copy / delete / mkdir), shell, HTTP (get / post / arbitrary request / fetch-webpage / download), time and JSON utilities, memory, and `notify`. All execute under sandbox enforcement — path whitelist for files, command whitelist for shell, domain whitelist for HTTP — with every invocation audited. The `notify` tool pushes to named channels (Feishu / WeCom / DingTalk / generic webhook), themselves a dynamic registry with full CRUD.
+**24 built-in tools** cover the baseline: file operations (read / write / list / append / move / copy / delete / mkdir), shell, HTTP (get / post / arbitrary request / fetch-webpage / download), time and JSON utilities, memory, and `notify`. All execute under sandbox enforcement — path whitelist for files, command whitelist for shell, and **split HTTP policy** (reads: default allow + SSRF blocklist; writes: domain wildcard whitelist) — with every invocation audited. The `notify` tool pushes to named channels (Feishu / WeCom / DingTalk / generic webhook), themselves a dynamic registry with full CRUD.
 
 Extension follows three tiers, ordered by effort:
 
