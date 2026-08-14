@@ -48,4 +48,26 @@ class SkillImportSsrfGuardTest {
     // 8.8.8.8 为公网 DNS；不发起真实 HTTP，只校验主机守卫
     assertDoesNotThrow(() -> SkillApiController.guardPublicHost(URI.create("https://8.8.8.8/x")));
   }
+
+  @Test
+  @DisplayName("IPv4-mapped / NAT64 嵌入内网或元数据地址被拒绝")
+  void nat64AndMappedPrivateBlocked() {
+    for (String url :
+        new String[] {
+          "http://[::ffff:169.254.169.254]/latest/meta-data/",
+          "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/",
+          "http://[64:ff9b::100.64.1.1]/x"
+        }) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> SkillApiController.guardPublicHost(URI.create(url)));
+    }
+  }
+
+  @Test
+  @DisplayName("NAT64 嵌入公网 IPv4 仍放行")
+  void nat64PublicIpv4Allowed() {
+    assertDoesNotThrow(
+        () -> SkillApiController.guardPublicHost(URI.create("http://[64:ff9b::8.8.8.8]/x")));
+  }
 }
