@@ -10,6 +10,7 @@ import io.oryxos.tool.interaction.UnsupportedUserInteraction;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,7 +25,8 @@ class InteractionToolsTest {
     var out = new ByteArrayOutputStream();
     InteractionTools tools =
         new InteractionTools(
-            new ConsoleUserInteraction(in, new PrintStream(out, true, StandardCharsets.UTF_8)));
+            new ConsoleUserInteraction(
+                in, new PrintStream(out, true, StandardCharsets.UTF_8), StandardCharsets.UTF_8));
 
     String answer = tools.askUser("你希望什么时候开会？");
 
@@ -47,8 +49,21 @@ class InteractionToolsTest {
     var out = new ByteArrayOutputStream();
     InteractionTools tools =
         new InteractionTools(
-            new ConsoleUserInteraction(in, new PrintStream(out, true, StandardCharsets.UTF_8)));
+            new ConsoleUserInteraction(
+                in, new PrintStream(out, true, StandardCharsets.UTF_8), StandardCharsets.UTF_8));
 
     assertThrows(InteractionUnavailableException.class, () -> tools.askUser("在吗？"));
+  }
+
+  @Test
+  @DisplayName("按本地 charset（如 GBK）解码 stdin，中文不因硬编码 UTF-8 乱码")
+  void askUserDecodesWithExplicitLocalCharset() {
+    Charset gbk = Charset.forName("GBK");
+    var in = new ByteArrayInputStream("周三下午\n".getBytes(gbk));
+    var out = new ByteArrayOutputStream();
+    InteractionTools tools =
+        new InteractionTools(new ConsoleUserInteraction(in, new PrintStream(out, true, gbk), gbk));
+
+    assertEquals("周三下午", tools.askUser("时间？"));
   }
 }
