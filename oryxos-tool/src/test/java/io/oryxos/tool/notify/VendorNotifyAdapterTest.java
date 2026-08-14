@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.oryxos.tool.sandbox.PermissiveSandbox;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -18,7 +19,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
@@ -35,6 +35,7 @@ class VendorNotifyAdapterTest {
   private HttpServer server;
   private final List<ReceivedRequest> received = new ArrayList<>();
   private volatile int responseStatus = 200;
+  private NotifyPoster poster;
 
   @BeforeEach
   void startFakeWebhook() throws IOException {
@@ -45,6 +46,7 @@ class VendorNotifyAdapterTest {
           record(exchange);
         });
     server.start();
+    poster = new NotifyPoster(new PermissiveSandbox());
   }
 
   @AfterEach
@@ -70,8 +72,7 @@ class VendorNotifyAdapterTest {
   @Test
   @DisplayName("企业微信：msgtype/text.content 格式")
   void wecomBodyMatchesVendorContract() throws IOException {
-    new WeComNotifyAdapter(RestClient.create())
-        .send(new NotifyTarget("wecom", Map.of("url", url())), "日报来了");
+    new WeComNotifyAdapter(poster).send(new NotifyTarget("wecom", Map.of("url", url())), "日报来了");
 
     JsonNode body = lastBody();
     assertEquals("text", body.get("msgtype").asText());
@@ -81,8 +82,7 @@ class VendorNotifyAdapterTest {
   @Test
   @DisplayName("飞书/Lark：msg_type/content.text 格式")
   void feishuBodyMatchesVendorContract() throws IOException {
-    new FeishuNotifyAdapter(RestClient.create())
-        .send(new NotifyTarget("feishu", Map.of("url", url())), "日报来了");
+    new FeishuNotifyAdapter(poster).send(new NotifyTarget("feishu", Map.of("url", url())), "日报来了");
 
     JsonNode body = lastBody();
     assertEquals("text", body.get("msg_type").asText());
@@ -92,7 +92,7 @@ class VendorNotifyAdapterTest {
   @Test
   @DisplayName("钉钉：msgtype/text.content 格式（关键词模式，无签名参数）")
   void dingTalkBodyMatchesVendorContract() throws IOException {
-    new DingTalkNotifyAdapter(RestClient.create())
+    new DingTalkNotifyAdapter(poster)
         .send(new NotifyTarget("dingtalk", Map.of("url", url())), "OryxOS日报来了");
 
     JsonNode body = lastBody();
@@ -104,7 +104,7 @@ class VendorNotifyAdapterTest {
   @Test
   @DisplayName("钉钉加签：config 含 secret 时 URL 拼 timestamp+sign")
   void dingTalkSignedUrlCarriesTimestampAndSign() {
-    new DingTalkNotifyAdapter(RestClient.create())
+    new DingTalkNotifyAdapter(poster)
         .send(new NotifyTarget("dingtalk", Map.of("url", url(), "secret", "test-secret")), "hi");
 
     String query = received.get(0).query();
@@ -119,8 +119,7 @@ class VendorNotifyAdapterTest {
     NotifyTarget target = new NotifyTarget("wecom", Map.of("url", url()));
 
     assertThrows(
-        RestClientResponseException.class,
-        () -> new WeComNotifyAdapter(RestClient.create()).send(target, "hi"));
+        RestClientResponseException.class, () -> new WeComNotifyAdapter(poster).send(target, "hi"));
   }
 
   @Test
@@ -128,9 +127,7 @@ class VendorNotifyAdapterTest {
   void vendorAdaptersFailFastOnMissingUrl() {
     assertThrows(
         IllegalArgumentException.class,
-        () ->
-            new FeishuNotifyAdapter(RestClient.create())
-                .send(new NotifyTarget("feishu", Map.of()), "hi"));
+        () -> new FeishuNotifyAdapter(poster).send(new NotifyTarget("feishu", Map.of()), "hi"));
     assertEquals(0, received.size());
   }
 }

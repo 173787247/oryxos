@@ -7,8 +7,6 @@ import java.util.Base64;
 import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import org.springframework.http.MediaType;
-import org.springframework.web.client.RestClient;
 
 /**
  * 钉钉自定义机器人（type: dingtalk）。
@@ -16,13 +14,15 @@ import org.springframework.web.client.RestClient;
  * <p>body 格式：{@code {"msgtype":"text","text":{"content":"..."}}}。钉钉机器人必须启用一种安全设置：
  * "自定义关键词"最省事（把关键词写进 Skill 输出要求即可，本实现零处理）；若群里开的是"加签"， 在 config 里配 {@code secret}（走 ${ENV}
  * 占位），发送时按官方算法拼 timestamp+sign 到 URL。
+ *
+ * <p>出网经 {@link NotifyPoster}：禁自动重定向并每跳复检域名白名单。
  */
 public class DingTalkNotifyAdapter implements NotifyChannelAdapter {
 
-  private final RestClient restClient;
+  private final NotifyPoster poster;
 
-  public DingTalkNotifyAdapter(RestClient restClient) {
-    this.restClient = restClient.mutate().build();
+  public DingTalkNotifyAdapter(NotifyPoster poster) {
+    this.poster = poster;
   }
 
   @Override
@@ -35,13 +35,7 @@ public class DingTalkNotifyAdapter implements NotifyChannelAdapter {
     if (secret != null && !secret.isBlank()) {
       url = appendSignature(url, secret);
     }
-    restClient
-        .post()
-        .uri(url)
-        .contentType(MediaType.APPLICATION_JSON)
-        .body(Map.of("msgtype", "text", "text", Map.of("content", content)))
-        .retrieve()
-        .toBodilessEntity();
+    poster.postJson(url, Map.of("msgtype", "text", "text", Map.of("content", content)));
   }
 
   /** 钉钉"加签"安全设置：sign = urlEncode(base64(HmacSHA256(timestamp + "\n" + secret, secret)))。 */
