@@ -5,7 +5,7 @@ import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +24,9 @@ import org.springframework.ai.tool.annotation.ToolParam;
  * <p>白名单校验可执行文件名（SHELL_COMMAND 检查位已过 enforce）；参数作为 argv 直接传给进程，不经 Shell 解释。超时默认 30 秒。两个运维细节： (1)
  * stdout/stderr 在 {@code waitFor} 前就并发排空——否则输出超过管道缓冲（~64KB）的命令会写阻塞、被误判超时；(2)
  * 超时后递归杀进程树——子进程不在父进程组内时，只杀父进程会留孤儿继续跑。
+ *
+ * <p>子进程输出按 {@link Charset#defaultCharset()} 解码（与本地控制台/CLI 代码页一致）。中文 Windows 上 {@code dir}/{@code
+ * type} 等常按 GBK/CP936 吐字节；硬编码 UTF-8 会把合法输出解成乱码。单测可注入 Charset。
  */
 public class ShellTools {
 
@@ -37,19 +40,26 @@ public class ShellTools {
   private final Sandbox sandbox;
   private final Duration timeout;
   private final ProcessStarter processStarter;
+  private final Charset outputCharset;
 
   public ShellTools(Sandbox sandbox) {
     this(sandbox, DEFAULT_TIMEOUT);
   }
 
   ShellTools(Sandbox sandbox, Duration timeout) {
-    this(sandbox, timeout, ShellTools::startProcess);
+    this(sandbox, timeout, ShellTools::startProcess, Charset.defaultCharset());
   }
 
   ShellTools(Sandbox sandbox, Duration timeout, ProcessStarter processStarter) {
+    this(sandbox, timeout, processStarter, Charset.defaultCharset());
+  }
+
+  ShellTools(
+      Sandbox sandbox, Duration timeout, ProcessStarter processStarter, Charset outputCharset) {
     this.sandbox = Objects.requireNonNull(sandbox, "sandbox 不能为空");
     this.timeout = Objects.requireNonNull(timeout, "timeout 不能为空");
     this.processStarter = Objects.requireNonNull(processStarter, "processStarter 不能为空");
+    this.outputCharset = Objects.requireNonNull(outputCharset, "outputCharset 不能为空");
   }
 
   @Tool(name = "shell", description = "执行一个已获许可的可执行文件，返回标准输出")
@@ -79,10 +89,10 @@ public class ShellTools {
       }
       try {
         if (process.exitValue() != 0) {
-          String err = new String(stderr.get(), StandardCharsets.UTF_8);
+          String err = new String(stderr.get(), outputCharset);
           throw new IllegalStateException("命令退出码 " + process.exitValue() + ": " + err.trim());
         }
-        return new String(stdout.get(), StandardCharsets.UTF_8);
+        return new String(stdout.get(), outputCharset);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
