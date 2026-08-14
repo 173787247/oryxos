@@ -56,6 +56,48 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("copy_file / move_file 拒绝真实目录（避免假成功空目录）")
+  void copyAndMoveRejectRealDirectories() throws IOException {
+    Path srcDir = dir.resolve("srcdir");
+    Files.createDirectories(srcDir);
+    Files.writeString(srcDir.resolve("keep.txt"), "data");
+    Path copyDest = dir.resolve("copied-dir");
+    Path moveDest = dir.resolve("moved-dir");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.copyFile(srcDir.toString(), copyDest.toString()));
+    assertFalse(Files.exists(copyDest), "拒绝对目录复制后不得留下空目录");
+    assertTrue(Files.exists(srcDir.resolve("keep.txt")));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.moveFile(srcDir.toString(), moveDest.toString()));
+    assertTrue(Files.isDirectory(srcDir), "真实目录不得被挪走");
+    assertFalse(Files.exists(moveDest));
+  }
+
+  @Test
+  @DisplayName("copy_file 拒绝指向目录的 symlink（不建空目录）")
+  void copyRejectsSymlinkToDirectory() throws IOException {
+    Path targetDir = dir.resolve("skill-body");
+    Files.createDirectories(targetDir);
+    Files.writeString(targetDir.resolve("SKILL.md"), "keep");
+    Path link = dir.resolve("skill-link");
+    try {
+      Files.createSymbolicLink(link, targetDir);
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "本机无法创建符号链接，跳过: " + e.getMessage());
+    }
+    Path dest = dir.resolve("out-copy");
+
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.copyFile(link.toString(), dest.toString()));
+    assertFalse(Files.exists(dest), "不得留下假成功的空目录");
+    assertTrue(Files.exists(targetDir.resolve("SKILL.md")));
+  }
+
+  @Test
   @DisplayName("delete_file 拒绝删除目录")
   void deleteRejectsDirectory() {
     assertThrows(IllegalArgumentException.class, () -> tools.deleteFile(dir.toString()));
