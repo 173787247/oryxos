@@ -49,10 +49,8 @@ public class HttpTools {
   private static final Pattern HEADER_LINE_SEP = Pattern.compile("\\R");
 
   private final Sandbox sandbox;
-  /**
-   * 读写共用：**禁自动重定向**，由本类手动逐跳跟随并每跳重过沙箱校验。不使用注入的 RestClient
-   * 默认跟随行为（否则写请求会在首跳过白名单后跟到任意 Location）。
-   */
+
+  /** 读写共用：**禁自动重定向**，由本类手动逐跳跟随并每跳重过沙箱校验。不使用注入的 RestClient 默认跟随行为（否则写请求会在首跳过白名单后跟到任意 Location）。 */
   private final RestClient hopClient;
 
   public HttpTools(Sandbox sandbox, RestClient restClient) {
@@ -90,10 +88,9 @@ public class HttpTools {
     throw new IllegalStateException("重定向次数过多，拒绝: " + url);
   }
 
-  /**
-   * 写请求（POST/PUT/…）：手动跟随重定向，**每跳都重过 {@code HTTP_REQUEST} 域名白名单**——杜绝"白名单内入口 302 跳白名单外"。
-   */
-  private String write(HttpMethod method, String url, String headers, String body, boolean jsonBody) {
+  /** 写请求（POST/PUT/…）：手动跟随重定向，**每跳都重过 {@code HTTP_REQUEST} 域名白名单**——杜绝"白名单内入口 302 跳白名单外"。 */
+  private String write(
+      HttpMethod method, String url, String headers, String body, boolean jsonBody) {
     String current = url;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, current)); // 每跳校验
@@ -164,9 +161,7 @@ public class HttpTools {
     return htmlToText(html);
   }
 
-  @Tool(
-      name = "download_file",
-      description = "下载一个 URL 的内容到指定本地文件路径（URL：默认放行 + SSRF；本地路径：文件白名单）")
+  @Tool(name = "download_file", description = "下载一个 URL 的内容到指定本地文件路径（URL：默认放行 + SSRF；本地路径：文件白名单）")
   public String downloadFile(
       @ToolParam(description = "要下载的 URL") String url,
       @ToolParam(description = "保存到的本地文件路径") String path) {
