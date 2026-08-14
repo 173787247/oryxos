@@ -78,6 +78,8 @@ import io.oryxos.tool.builtin.ShellTools;
 import io.oryxos.tool.builtin.UtilTools;
 import io.oryxos.tool.builtin.WebSearchTools;
 import io.oryxos.tool.interaction.ConsoleUserInteraction;
+import io.oryxos.tool.interaction.UnsupportedUserInteraction;
+import io.oryxos.tool.interaction.UserInteraction;
 import io.oryxos.tool.mcp.McpClientService;
 import io.oryxos.tool.mcp.McpConfigLoader;
 import io.oryxos.tool.notify.DingTalkNotifyAdapter;
@@ -102,12 +104,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.context.WebApplicationContext;
 
 /**
  * 重命令（chat/serve/gateway）的 Spring 装配。轻命令不进这里（课件坑二：为列个目录不值得等 4 秒）。
@@ -408,13 +412,31 @@ public class OryxOsRuntime {
     return new McpClientService(mcpConfigLoader);
   }
 
+  /**
+   * chat（{@code WebApplicationType.NONE}）读控制台；serve/gateway（Servlet web）无人值守，ask_user 必须立刻报不支持，
+   * 绝不能堵在服务端 {@code System.in} 上。
+   */
+  @Bean
+  UserInteraction userInteraction(ApplicationContext applicationContext) {
+    return resolveUserInteraction(applicationContext instanceof WebApplicationContext);
+  }
+
+  /** 可见给单测：Servlet web → 不支持交互；否则 → 控制台。 */
+  static UserInteraction resolveUserInteraction(boolean servletWeb) {
+    if (servletWeb) {
+      return new UnsupportedUserInteraction();
+    }
+    return new ConsoleUserInteraction();
+  }
+
   @Bean
   ToolRegistry toolRegistry(
       Sandbox sandbox,
       RestClient restClient,
       MemoryService memoryService,
       NotifyChannelRegistry notifyChannelRegistry,
-      McpClientService mcpClientService) {
+      McpClientService mcpClientService,
+      UserInteraction userInteraction) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
     registry.registerAnnotated(new FileTools(sandbox)); // read/write/list/edit/grep/glob
@@ -424,8 +446,9 @@ public class OryxOsRuntime {
     registry.registerAnnotated(new UtilTools()); // current_time / json_extract（纯计算，无沙箱）
     registry.registerAnnotated(
         new WebSearchTools(sandbox, new DuckDuckGoSearchProvider(restClient)));
-    // chat 是交互终端，ask_user 读控制台；serve/gateway 无人值守时应换 UnsupportedUserInteraction
-    registry.registerAnnotated(new InteractionTools(new ConsoleUserInteraction()));
+    // chat → ConsoleUserInteraction；serve/gateway → UnsupportedUserInteraction（见 userInteraction
+    // bean）
+    registry.registerAnnotated(new InteractionTools(userInteraction));
     // notify（19 节 OryxTool 形态）直接注册——渠道实现按 channelType 路由；出网经 NotifyPoster 逐跳复检白名单
     NotifyPoster notifyPoster = new NotifyPoster(sandbox);
     Map<String, NotifyChannelAdapter> notifyAdapters =
