@@ -159,7 +159,7 @@ public class FileTools {
       try (Stream<Path> files = Files.walk(walkRoot)) {
         files
             .filter(FileTools::isRealRegularFile)
-            .filter(p -> matcher.matches(walkRoot.relativize(p)))
+            .filter(p -> globMatches(matcher, pattern, walkRoot.relativize(p)))
             .limit(MAX_MATCHES)
             // 每个命中路径再过一次文件白名单（与 grep 同款纵深防御）
             .forEach(
@@ -180,6 +180,21 @@ public class FileTools {
       return root.toRealPath();
     }
     return root;
+  }
+
+  /**
+   * Java {@code PathMatcher} 对 {@code **}{@code /} 前缀不匹配 walk 根下的单段相对路径（如 {@code SKILL.md}），对 Skill
+   * 根目录文件补一次去掉该前缀后的匹配。
+   */
+  private static boolean globMatches(PathMatcher matcher, String pattern, Path relative) {
+    if (matcher.matches(relative)) {
+      return true;
+    }
+    if (pattern.startsWith("**/") && relative.getNameCount() == 1) {
+      PathMatcher rest = FileSystems.getDefault().getPathMatcher("glob:" + pattern.substring(3));
+      return rest.matches(relative);
+    }
+    return false;
   }
 
   /** 普通文件判定不跟随符号链接：链接项（无论指向内部还是外部）都不作为可读文件参与搜索。 */
