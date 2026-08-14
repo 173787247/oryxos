@@ -102,6 +102,17 @@ public class ShellTools {
     }
   }
 
+  /**
+   * 默认 ProcessStarter：命名方法而非 lambda，让 SuppressFBWarnings 能落在告警位置上（lambda 编译成 synthetic
+   * 方法，构造器上的注解盖不住）。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "COMMAND_INJECTION",
+      justification = "以 argv 直接执行、不经 shell 解释；可执行文件在 shell() 启动前经 Sandbox 精确白名单校验")
+  private static Process startProcess(List<String> command) throws IOException {
+    return new ProcessBuilder(command).start();
+  }
+
   private static String requireExecutable(String executable) {
     if (executable == null || executable.isBlank()) {
       throw new IllegalArgumentException("可执行文件不能为空");
@@ -128,13 +139,9 @@ public class ShellTools {
     Process start(List<String> command) throws IOException;
   }
 
-  /** 先递归杀子孙进程，再杀父进程（只 destroyForcibly(父) 会留孤儿继续执行）。 */
+  /** 先递归杀命令派生的子孙进程，再杀命令本身（只 destroyForcibly 主进程会留孤儿继续执行）。 */
   private static void killTree(Process process) {
-    try {
-      process.toHandle().descendants().forEach(ProcessHandle::destroyForcibly);
-    } catch (UnsupportedOperationException | IllegalStateException ignored) {
-      // 测试替身或已退出的进程可能没有 ProcessHandle
-    }
+    process.descendants().forEach(ProcessHandle::destroyForcibly);
     process.destroyForcibly();
   }
 }
