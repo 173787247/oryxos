@@ -51,6 +51,9 @@ public class BasicAuthFilter extends OncePerRequestFilter {
   /** Basic Auth scheme 名（用于 WWW-Authenticate 挑战头）。 */
   private static final String BASIC_SCHEME = "Basic";
 
+  /** user:pass 拆分后的段数。 */
+  private static final int BASIC_CREDENTIAL_PARTS = 2;
+
   /** 401 响应业务码（统一信封 ApiResponse.code）。 */
   private static final int UNAUTHORIZED_CODE = HttpStatus.UNAUTHORIZED.value();
 
@@ -156,7 +159,7 @@ public class BasicAuthFilter extends OncePerRequestFilter {
       return BasicOutcome.NONE;
     }
     String[] credentials = decode(header.substring(BASIC_PREFIX.length()));
-    if (credentials == null || credentials.length != 2) {
+    if (credentials == null || credentials.length != BASIC_CREDENTIAL_PARTS) {
       return BasicOutcome.NONE;
     }
     String attemptKey = credentials[0] + "|" + request.getRemoteAddr();
