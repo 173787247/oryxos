@@ -16,8 +16,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 /**
- * 工具 HTTP 超时回归：远端挂死时，{@code OryxOsRuntime.restClient()} 装配的客户端必须在读取超时内失败，
- * 不能无限阻塞 Agent 调用。
+ * 工具 HTTP 超时回归：远端挂死时，{@code OryxOsRuntime.restClient()} 装配的客户端必须在读取超时内失败， 不能无限阻塞 Agent 调用。
  *
  * <p>模式与 {@code ProviderChatModelFactoryTimeoutTest} 完全一致——挂死 HttpServer + CountDownLatch
  * 模拟「收到请求后永不响应」，通过系统属性把超时压到 1s 保证单测快速反馈。
@@ -59,9 +58,7 @@ class OryxOsRuntimeTimeoutTest {
     System.setProperty(OryxOsRuntime.TOOL_HTTP_READ_TIMEOUT_PROP, "1");
 
     RestClient client =
-        RestClient.builder()
-            .requestFactory(OryxOsRuntime.toolHttpRequestFactory())
-            .build();
+        RestClient.builder().requestFactory(OryxOsRuntime.toolHttpRequestFactory()).build();
 
     String url = "http://127.0.0.1:" + hangingServer.getAddress().getPort() + "/api";
 

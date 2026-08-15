@@ -102,8 +102,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
@@ -111,6 +109,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -387,8 +386,8 @@ public class OryxOsRuntime {
   /**
    * 工具 HTTP 请求工厂：连接/读取超时可经系统属性覆盖，防止远端挂死时永久阻塞 Agent 调用。
    *
-   * <p>提取为 static 方法便于单测直接验证超时行为（无需启 Spring 容器），模式同
-   * {@code ProviderChatModelFactory.timeoutFactory()}。
+   * <p>提取为 static 方法便于单测直接验证超时行为（无需启 Spring 容器），模式同 {@code
+   * ProviderChatModelFactory.timeoutFactory()}。
    */
   static JdkClientHttpRequestFactory toolHttpRequestFactory() {
     Duration connectTimeout =

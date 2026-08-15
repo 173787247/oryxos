@@ -232,14 +232,6 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
   }
 
-  private static String hostOf(String url) {
-    try {
-      return URI.create(url).getHost();
-    } catch (RuntimeException e) {
-      return null;
-    }
-  }
-
   /** SSRF 兜底：拒绝主机解析到回环/任意本地/链路本地(含云元数据 169.254.169.254)/站点内网/组播/CGNAT，及 localhost、*.internal。 */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
