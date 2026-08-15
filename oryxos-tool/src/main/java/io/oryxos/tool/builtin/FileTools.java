@@ -237,13 +237,21 @@ public class FileTools {
       @ToolParam(description = "源路径") String from, @ToolParam(description = "目标路径") String to) {
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
+    Path src = Path.of(from);
+    // NOFOLLOW：只拒真实目录；指向目录的 symlink（如 Skill 绑定）可移动链接本身
+    if (Files.isDirectory(src, LinkOption.NOFOLLOW_LINKS)) {
+      throw new IllegalArgumentException("拒绝移动目录（本工具只移动文件）: " + from);
+    }
+    if (!Files.exists(src, LinkOption.NOFOLLOW_LINKS)) {
+      throw new IllegalArgumentException("源不存在: " + from);
+    }
     try {
       Path dst = Path.of(to);
       Path parent = dst.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
       }
-      Files.move(Path.of(from), dst, StandardCopyOption.REPLACE_EXISTING);
+      Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
       return "已移动: " + from + " -> " + to;
     } catch (IOException e) {
       throw new UncheckedIOException("移动文件失败: " + from, e);
@@ -255,13 +263,22 @@ public class FileTools {
       @ToolParam(description = "源路径") String from, @ToolParam(description = "目标路径") String to) {
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
+    Path src = Path.of(from);
+    // 真实目录：拒绝（Files.copy 对目录会“成功”但只建空目录，造成假成功）
+    if (Files.isDirectory(src, LinkOption.NOFOLLOW_LINKS)) {
+      throw new IllegalArgumentException("拒绝复制目录（本工具只复制文件）: " + from);
+    }
+    // 跟随后须为普通文件：symlink→file 可复制内容；symlink→dir / 缺失 → 拒绝
+    if (!Files.isRegularFile(src)) {
+      throw new IllegalArgumentException("源不存在或不是普通文件: " + from);
+    }
     try {
       Path dst = Path.of(to);
       Path parent = dst.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
       }
-      Files.copy(Path.of(from), dst, StandardCopyOption.REPLACE_EXISTING);
+      Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
       return "已复制: " + from + " -> " + to;
     } catch (IOException e) {
       throw new UncheckedIOException("复制文件失败: " + from, e);
