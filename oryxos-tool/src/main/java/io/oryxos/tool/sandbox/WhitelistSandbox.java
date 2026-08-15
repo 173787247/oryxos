@@ -42,6 +42,18 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   private static final String GOOGLE_METADATA_HOST = "metadata.google.internal";
   private static final String INTERNAL_DOMAIN_SUFFIX = ".internal";
 
+  /** {@link io.oryxos.tool.builtin.WebSearchTools} 用的伪目标前缀；无真实主机，读路径放行。 */
+  private static final String WEB_SEARCH_TARGET_PREFIX = "web_search:";
+
+  private static final String HTTP_SCHEME = "http";
+  private static final String HTTPS_SCHEME = "https";
+
+  /** IPv6 地址字节长度；IPv4-mapped / NAT64 展开前需先确认。 */
+  private static final int IPV6_ADDRESS_LENGTH = 16;
+
+  /** {@code ::ffff:0:0/96} 前缀中必须为 0 的前缀字节数（随后两字节为 0xff）。 */
+  private static final int IPV4_MAPPED_ZERO_PREFIX_LENGTH = 10;
+
   // 具体类型 CopyOnWriteArrayList（而非 List 接口）：需要 addIfAbsent 的原子"不存在才加"语义
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
   private final Set<String> allowedCommands = ConcurrentHashMap.newKeySet();
@@ -157,11 +169,32 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
   }
 
-  /** HTTP 读（GET 类）：默认放行，只挡内网/回环/云元数据等 SSRF 目标。无主机的伪目标（如 web_search）放行。 */
+  /**
+   * HTTP 读（GET 类）：默认放行，只挡内网/回环/云元数据等 SSRF 目标。仅 {@code web_search:} 伪目标可无主机；其余必须是 http/https
+   * 且带主机名——否则 {@code file://}/{@code data:} 等会因 host==null 被误放行。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "URI scheme tokens are ASCII; Locale.ROOT lowercasing is the correct case-fold for http/https comparison.")
   private void checkHttpRead(String url) {
-    String host = hostOf(url);
-    if (host == null) {
+    if (url != null && url.startsWith(WEB_SEARCH_TARGET_PREFIX)) {
       return;
+    }
+    URI uri;
+    try {
+      uri = URI.create(url);
+    } catch (RuntimeException e) {
+      throw new SandboxViolationException("非法 URL: " + url);
+    }
+    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+    if (!HTTP_SCHEME.equals(scheme) && !HTTPS_SCHEME.equals(scheme)) {
+      throw new SandboxViolationException(
+          "读请求仅支持 http/https（伪目标 web_search: 除外）: " + url + "。这是安全策略，请勿重试。");
+    }
+    String host = uri.getHost();
+    if (host == null || host.isBlank()) {
+      throw new SandboxViolationException("读请求缺少主机名，拒绝: " + url);
     }
     assertNotInternalHost(host);
   }
@@ -243,12 +276,12 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /**
-   * 若为 IPv4-mapped 或 NAT64 well-known prefix，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped 字面量直接解成
-   * {@link java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与 NAT64。
+   * 若为 IPv4-mapped 或 NAT64 well-known prefix，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped 字面量直接解成 {@link
+   * java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与 NAT64。
    */
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
-    if (b.length != 16 || (!isIpv4MappedPrefix(b) && !isNat64WellKnownPrefix(b))) {
+    if (!isEmbeddedIpv4Candidate(b)) {
       return addr;
     }
     try {
@@ -258,9 +291,14 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
   }
 
+  /** 16 字节且带 IPv4-mapped 或 NAT64 知名前缀时，才做末 32 位展开。 */
+  private static boolean isEmbeddedIpv4Candidate(byte[] b) {
+    return b.length == IPV6_ADDRESS_LENGTH && (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b));
+  }
+
   /** {@code ::ffff:0:0/96}——前 10 字节为 0，第 11–12 字节为 {@code 0xff}。 */
   private static boolean isIpv4MappedPrefix(byte[] b) {
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < IPV4_MAPPED_ZERO_PREFIX_LENGTH; i++) {
       if (b[i] != 0) {
         return false;
       }
@@ -307,7 +345,7 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** IPv6 ULA fc00::/7（唯一本地地址，isSiteLocalAddress 对 IPv6 不覆盖，单独判——否则 [fd00::1] 可绕过）。 */
   private static boolean isIpv6UniqueLocal(InetAddress addr) {
     byte[] b = addr.getAddress();
-    return b.length == 16 && (b[0] & 0xFE) == 0xFC;
+    return b.length == IPV6_ADDRESS_LENGTH && (b[0] & 0xFE) == 0xFC;
   }
 
   private String firstAllowedRoot() {

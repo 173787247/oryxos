@@ -247,10 +247,29 @@ class WhitelistSandboxTest {
     }
 
     @Test
-    @DisplayName("无主机的伪目标（web_search）放行")
-    void hostlessReadAllowed() {
+    @DisplayName("web_search 伪目标放行")
+    void webSearchPseudoTargetAllowed() {
       assertDoesNotThrow(
           () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "web_search:foo")));
+    }
+
+    @Test
+    @DisplayName("非 http(s) 或无主机名拒绝（不再把 host==null 一律放行）")
+    void nonHttpOrHostlessReadBlocked() {
+      for (String url :
+          new String[] {
+            "file:///etc/passwd",
+            "file:///C:/Windows/win.ini",
+            "data:text/plain,hi",
+            "ftp://example.com/x",
+            "http:///no-host",
+            "https:"
+          }) {
+        assertThrows(
+            SandboxViolationException.class,
+            () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, url)),
+            () -> url);
+      }
     }
 
     @Test

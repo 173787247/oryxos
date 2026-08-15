@@ -29,7 +29,7 @@ public class WebSearchTools {
 
   @Tool(name = "web_search", description = "用搜索引擎检索网页，返回标题、链接和摘要列表")
   public String webSearch(@ToolParam(description = "搜索关键词") String query) {
-    // 搜索是一次只读涉外请求，与 http_get 同走 HTTP_READ（默认放行 + 内网黑名单；伪目标无主机=放行）
+    // 搜索是一次只读涉外请求，与 http_get 同走 HTTP_READ；用 web_search: 伪目标（唯一允许的无主机读目标）
     sandbox.enforce(new SandboxAction(ActionType.HTTP_READ, "web_search:" + query));
     List<SearchProvider.SearchResult> results = provider.search(query);
     if (results.isEmpty()) {
