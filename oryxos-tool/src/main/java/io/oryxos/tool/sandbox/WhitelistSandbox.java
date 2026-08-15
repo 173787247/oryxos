@@ -47,9 +47,6 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** {@link io.oryxos.tool.builtin.WebSearchTools} 用的伪目标前缀；无真实主机，读路径放行。 */
   private static final String WEB_SEARCH_TARGET_PREFIX = "web_search:";
 
-  private static final String HTTP_SCHEME = "http";
-  private static final String HTTPS_SCHEME = "https";
-
   /** IPv6 地址字节长度；IPv4-mapped / NAT64 展开前需先确认。 */
   private static final int IPV6_ADDRESS_LENGTH = 16;
 
