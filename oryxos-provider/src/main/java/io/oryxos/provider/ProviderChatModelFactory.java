@@ -72,10 +72,20 @@ public class ProviderChatModelFactory {
     Duration readTimeout =
         Duration.ofSeconds(Long.getLong(READ_TIMEOUT_PROP, DEFAULT_READ_TIMEOUT_SECONDS));
     JdkClientHttpRequestFactory factory =
-        new JdkClientHttpRequestFactory(
-            HttpClient.newBuilder().connectTimeout(connectTimeout).build());
+        new JdkClientHttpRequestFactory(httpClient(connectTimeout));
     factory.setReadTimeout(readTimeout);
     return factory;
+  }
+
+  /**
+   * 构造带连接超时的 {@link HttpClient}，强制 HTTP/1.1：JDK 21 HttpClient 默认尝试 HTTP/2 升级（Upgrade: h2c +
+   * Transfer-Encoding: chunked），vLLM/Ollama（uvicorn）不认 h2c 升级，导致请求体丢失（'input': None）、服务端返回 400。
+   */
+  static HttpClient httpClient(Duration connectTimeout) {
+    return HttpClient.newBuilder()
+        .connectTimeout(connectTimeout)
+        .version(HttpClient.Version.HTTP_1_1)
+        .build();
   }
 
   /**
