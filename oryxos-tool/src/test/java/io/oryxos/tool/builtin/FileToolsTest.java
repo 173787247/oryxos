@@ -263,6 +263,31 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("grep/glob 能搜到目录软链目标（Skill 绑定形态）")
+  void grepAndGlobFollowDirectorySymlinkRoot() throws IOException {
+    Path realSkill = dir.resolve("skills/report");
+    Files.createDirectories(realSkill);
+    Files.writeString(realSkill.resolve("SKILL.md"), "title: needle-report\n");
+    Path link = dir.resolve("agents/ops/skills/report");
+    Files.createDirectories(link.getParent());
+    try {
+      Files.createSymbolicLink(link, realSkill);
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "本机无法创建符号链接，跳过: " + e.getMessage());
+    }
+
+    String listing = tools.listDir(link.toString());
+    assertTrue(listing.contains("SKILL.md"), "list_dir 应能列出软链目录");
+
+    String grepped = tools.grep("needle-report", link.toString());
+    assertTrue(grepped.contains("SKILL.md"), grepped);
+    assertTrue(grepped.contains("needle-report"), grepped);
+
+    String globbed = tools.glob("**/*.md", link.toString());
+    assertTrue(globbed.contains("SKILL.md"), globbed);
+  }
+
+  @Test
   @DisplayName("越界会被拦：edit/grep/glob 校验不过零动作")
   void sandboxRejectionBlocksSearchAndEdit() throws IOException {
     Sandbox denying = mock(Sandbox.class);
