@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
+import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.FileSandboxProperties;
 import io.oryxos.tool.sandbox.HttpSandboxProperties;
 import io.oryxos.tool.sandbox.PermissiveSandbox;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -176,6 +178,64 @@ class FileToolsTest {
     tools.writeFile(dir.resolve("out/b.txt").toString(), "written");
 
     assertEquals("written", Files.readString(dir.resolve("out/b.txt")));
+  }
+
+  @Test
+  @DisplayName("write_file 落盘前复检 FILE_WRITE（防校验窗口内路径逃逸）")
+  void writeFileRechecksPathBeforeWrite() {
+    AtomicInteger fileWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE && fileWrites.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    Path target = dir.resolve("escape.txt");
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(
+        SandboxViolationException.class, () -> guarded.writeFile(target.toString(), "secret"));
+    assertEquals(2, fileWrites.get(), "应在写前后各 enforce 一次 FILE_WRITE");
+    assertTrue(Files.notExists(target), "复检拒绝后不得落盘");
+  }
+
+  @Test
+  @DisplayName("append_file 落盘前复检 FILE_WRITE")
+  void appendFileRechecksPathBeforeWrite() {
+    AtomicInteger fileWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE && fileWrites.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    Path target = dir.resolve("append-escape.txt");
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(SandboxViolationException.class, () -> guarded.appendFile(target.toString(), "x"));
+    assertEquals(2, fileWrites.get());
+    assertTrue(Files.notExists(target));
+  }
+
+  @Test
+  @DisplayName("edit_file 写回前复检 FILE_WRITE")
+  void editFileRechecksPathBeforeWrite() throws IOException {
+    Path target = dir.resolve("edit.txt");
+    Files.writeString(target, "hello");
+    AtomicInteger fileWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE && fileWrites.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(
+        SandboxViolationException.class,
+        () -> guarded.editFile(target.toString(), "hello", "world"));
+    assertEquals(2, fileWrites.get());
+    assertEquals("hello", Files.readString(target), "复检拒绝后不得改写");
   }
 
   @Test
