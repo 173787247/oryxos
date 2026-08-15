@@ -51,7 +51,7 @@ public class UtilTools {
       String index = m.group(1);
       current = index != null ? current.path(Integer.parseInt(index)) : current.path(m.group());
     }
-    if (current == null || current.isMissingNode() || current.isNull()) {
+    if (current == null || current.isMissingNode()) {
       return "(未找到路径: " + path + ")";
     }
     return current.isValueNode() ? current.asText() : current.toString();

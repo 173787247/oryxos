@@ -42,6 +42,13 @@ class UtilToolsTest {
   }
 
   @Test
+  @DisplayName("json_extract 显式 null 返回 null 文本，不与路径缺失混淆")
+  void jsonExtractExplicitNullVsMissing() {
+    assertEquals("null", tools.jsonExtract("{\"a\":null}", "a"));
+    assertTrue(tools.jsonExtract("{\"a\":1}", "b").contains("未找到"));
+  }
+
+  @Test
   @DisplayName("json_extract 非法 JSON 抛 IllegalArgumentException")
   void jsonExtractBadJson() {
     assertThrows(IllegalArgumentException.class, () -> tools.jsonExtract("not json", "a"));
