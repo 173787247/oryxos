@@ -98,6 +98,44 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("copy_file / move_file 拒绝覆盖目录目标（含 symlink→dir Skill 绑定）")
+  void copyAndMoveRejectDirectoryDestination() throws IOException {
+    Files.writeString(dir.resolve("payload.txt"), "x");
+    Path destDir = dir.resolve("dest-dir");
+    Files.createDirectories(destDir);
+    Files.writeString(destDir.resolve("keep.txt"), "stay");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.copyFile(dir.resolve("payload.txt").toString(), destDir.toString()));
+    assertTrue(Files.isDirectory(destDir));
+    assertEquals("stay", Files.readString(destDir.resolve("keep.txt")));
+
+    Path skillBody = dir.resolve("skill-body-dst");
+    Files.createDirectories(skillBody);
+    Files.writeString(skillBody.resolve("SKILL.md"), "bound");
+    Path skillLink = dir.resolve("agents/ops/skills/report");
+    Files.createDirectories(skillLink.getParent());
+    try {
+      Files.createSymbolicLink(skillLink, skillBody);
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "本机无法创建符号链接，跳过: " + e.getMessage());
+    }
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.copyFile(dir.resolve("payload.txt").toString(), skillLink.toString()));
+    assertTrue(Files.isSymbolicLink(skillLink), "Skill 绑定链接不得被 REPLACE 毁掉");
+    assertEquals("bound", Files.readString(skillBody.resolve("SKILL.md")));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.moveFile(dir.resolve("payload.txt").toString(), skillLink.toString()));
+    assertTrue(Files.isSymbolicLink(skillLink));
+    assertTrue(Files.exists(dir.resolve("payload.txt")), "拒绝后源文件应仍在");
+  }
+
+  @Test
   @DisplayName("delete_file 拒绝删除目录")
   void deleteRejectsDirectory() {
     assertThrows(IllegalArgumentException.class, () -> tools.deleteFile(dir.toString()));

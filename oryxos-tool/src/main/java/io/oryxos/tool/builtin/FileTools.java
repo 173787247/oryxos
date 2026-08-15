@@ -281,6 +281,8 @@ public class FileTools {
     }
     try {
       Path dst = Path.of(to);
+      // 跟随链接：真实目录与 symlink→dir（Skill 绑定）都拒——REPLACE_EXISTING 会删链接假成功
+      rejectDirectoryDestination(dst, to);
       Path parent = dst.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
@@ -308,6 +310,8 @@ public class FileTools {
     }
     try {
       Path dst = Path.of(to);
+      // 跟随链接：真实目录与 symlink→dir（Skill 绑定）都拒——REPLACE_EXISTING 会删链接假成功
+      rejectDirectoryDestination(dst, to);
       Path parent = dst.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
@@ -316,6 +320,13 @@ public class FileTools {
       return "已复制: " + from + " -> " + to;
     } catch (IOException e) {
       throw new UncheckedIOException("复制文件失败: " + from, e);
+    }
+  }
+
+  /** 目标若为目录（含跟随后的目录软链），拒绝覆盖——否则 REPLACE_EXISTING 会毁掉 Skill 绑定链接并假成功。 */
+  private static void rejectDirectoryDestination(Path dst, String to) {
+    if (Files.isDirectory(dst)) {
+      throw new IllegalArgumentException("拒绝覆盖目录目标（本工具只写文件）: " + to);
     }
   }
 }
