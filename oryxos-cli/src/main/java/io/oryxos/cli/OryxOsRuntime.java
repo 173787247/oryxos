@@ -478,7 +478,7 @@ public class OryxOsRuntime {
         new HttpTools(sandbox, restClient)); // + http_request/fetch_webpage/download_file
     registry.registerAnnotated(new UtilTools()); // current_time / json_extract（纯计算，无沙箱）
     registry.registerAnnotated(
-        new WebSearchTools(sandbox, new DuckDuckGoSearchProvider(restClient)));
+        new WebSearchTools(sandbox, new DuckDuckGoSearchProvider(restClient, sandbox)));
     // chat → ConsoleUserInteraction；serve/gateway → UnsupportedUserInteraction（见 userInteraction
     // bean）
     registry.registerAnnotated(new InteractionTools(userInteraction));

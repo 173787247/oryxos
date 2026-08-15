@@ -35,7 +35,8 @@ class OryxToolContractTest {
     registry.registerAnnotated(new HttpTools(sandbox, RestClient.create()));
     registry.registerAnnotated(
         new io.oryxos.tool.builtin.WebSearchTools(
-            sandbox, new io.oryxos.tool.web.DuckDuckGoSearchProvider(RestClient.create())));
+            sandbox,
+            new io.oryxos.tool.web.DuckDuckGoSearchProvider(RestClient.create(), sandbox)));
     registry.registerAnnotated(
         new io.oryxos.tool.builtin.InteractionTools(
             new io.oryxos.tool.interaction.UnsupportedUserInteraction()));
