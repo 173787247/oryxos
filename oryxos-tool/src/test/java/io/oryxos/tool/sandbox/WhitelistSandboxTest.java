@@ -230,6 +230,23 @@ class WhitelistSandboxTest {
           SandboxViolationException.class,
           () -> sb.enforce(new SandboxAction(ActionType.HTTP_REQUEST, "not-a-url")));
     }
+
+    @Test
+    @DisplayName("非 http(s) 即使 host 在白名单也拒绝")
+    void nonHttpSchemeRejectedEvenIfHostAllowlisted() {
+      for (String url :
+          new String[] {
+            "ftp://api.deepseek.com/x",
+            "file://api.deepseek.com/etc/passwd",
+            "ws://api.deepseek.com/socket",
+            "data:text/plain,hi"
+          }) {
+        assertThrows(
+            SandboxViolationException.class,
+            () -> sb.enforce(new SandboxAction(ActionType.HTTP_REQUEST, url)),
+            () -> url);
+      }
+    }
   }
 
   @Nested

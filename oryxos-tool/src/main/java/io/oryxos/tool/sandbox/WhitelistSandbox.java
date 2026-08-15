@@ -41,6 +41,8 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   private static final String LOCALHOST = "localhost";
   private static final String GOOGLE_METADATA_HOST = "metadata.google.internal";
   private static final String INTERNAL_DOMAIN_SUFFIX = ".internal";
+  private static final String HTTP_SCHEME = "http";
+  private static final String HTTPS_SCHEME = "https";
 
   /** {@link io.oryxos.tool.builtin.WebSearchTools} 用的伪目标前缀；无真实主机，读路径放行。 */
   private static final String WEB_SEARCH_TARGET_PREFIX = "web_search:";
@@ -200,12 +202,27 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /**
-   * HTTP 写（POST/PUT/…）：过域名白名单——防止把数据外发到任意端点。白名单本身即"运营者批准的目标"，故不再叠加 SSRF 解析（内网 POST
-   * 需运营者显式白名单，属其决定）；SSRF 兜底集中在默认放行的 READ 路径。
+   * HTTP 写（POST/PUT/…）：过域名白名单——防止把数据外发到任意端点。必须先是 http/https（带主机名），再匹配白名单——否则 {@code
+   * ftp://api.deepseek.com/…} / {@code file://api.deepseek.com/…} 会因 host 命中白名单被误放行。白名单本身即"运营者批准的
+   * HTTP(S) 目标"，故不再叠加 SSRF 解析（内网 POST 需运营者显式白名单，属其决定）；SSRF 兜底集中在默认放行的 READ 路径。
    */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "URI scheme tokens are ASCII; Locale.ROOT lowercasing is the correct case-fold for http/https comparison.")
   private void checkHttpWrite(String url) {
-    String host = hostOf(url);
-    if (host == null) {
+    URI uri;
+    try {
+      uri = URI.create(url);
+    } catch (RuntimeException e) {
+      throw new SandboxViolationException("非法 URL: " + url);
+    }
+    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+    if (!HTTP_SCHEME.equals(scheme) && !HTTPS_SCHEME.equals(scheme)) {
+      throw new SandboxViolationException("写请求仅支持 http/https: " + url + "。这是安全策略（防数据外发），请勿重试。");
+    }
+    String host = uri.getHost();
+    if (host == null || host.isBlank()) {
       throw new SandboxViolationException("写请求缺少主机名，拒绝: " + url);
     }
     boolean allowed =
