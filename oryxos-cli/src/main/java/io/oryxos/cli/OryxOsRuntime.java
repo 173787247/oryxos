@@ -94,12 +94,16 @@ import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
 import io.oryxos.tool.web.DuckDuckGoSearchProvider;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
@@ -371,9 +375,39 @@ public class OryxOsRuntime {
     return list == null ? List.of() : list;
   }
 
+  /** 工具 HTTP 连接超时（秒）的系统属性名：默认 10，{@code -Doryxos.tool.http.connect-timeout-seconds=N} 覆盖。 */
+  static final String TOOL_HTTP_CONNECT_TIMEOUT_PROP = "oryxos.tool.http.connect-timeout-seconds";
+
+  /** 工具 HTTP 读取超时（秒）的系统属性名：默认 30，{@code -Doryxos.tool.http.read-timeout-seconds=N} 覆盖。 */
+  static final String TOOL_HTTP_READ_TIMEOUT_PROP = "oryxos.tool.http.read-timeout-seconds";
+
+  private static final long DEFAULT_TOOL_HTTP_CONNECT_TIMEOUT_SECONDS = 10;
+  private static final long DEFAULT_TOOL_HTTP_READ_TIMEOUT_SECONDS = 30;
+
+  /**
+   * 工具 HTTP 请求工厂：连接/读取超时可经系统属性覆盖，防止远端挂死时永久阻塞 Agent 调用。
+   *
+   * <p>提取为 static 方法便于单测直接验证超时行为（无需启 Spring 容器），模式同
+   * {@code ProviderChatModelFactory.timeoutFactory()}。
+   */
+  static JdkClientHttpRequestFactory toolHttpRequestFactory() {
+    Duration connectTimeout =
+        Duration.ofSeconds(
+            Long.getLong(
+                TOOL_HTTP_CONNECT_TIMEOUT_PROP, DEFAULT_TOOL_HTTP_CONNECT_TIMEOUT_SECONDS));
+    Duration readTimeout =
+        Duration.ofSeconds(
+            Long.getLong(TOOL_HTTP_READ_TIMEOUT_PROP, DEFAULT_TOOL_HTTP_READ_TIMEOUT_SECONDS));
+    JdkClientHttpRequestFactory factory =
+        new JdkClientHttpRequestFactory(
+            HttpClient.newBuilder().connectTimeout(connectTimeout).build());
+    factory.setReadTimeout(readTimeout);
+    return factory;
+  }
+
   @Bean
   RestClient restClient() {
-    return RestClient.create();
+    return RestClient.builder().requestFactory(toolHttpRequestFactory()).build();
   }
 
   /** 长期记忆后端：按 memory.backend 选一档（默认 markdown）——这是第 21/22 节"接口墙"的装配落点。 */

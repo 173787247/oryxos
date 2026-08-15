@@ -54,3 +54,6 @@ logs/
 
 # Codex isolated worktrees
 .worktrees/
+
+# IDEA
+.idea/
