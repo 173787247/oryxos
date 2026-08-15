@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -58,6 +59,27 @@ class FileToolsTest {
   @DisplayName("delete_file 拒绝删除目录")
   void deleteRejectsDirectory() {
     assertThrows(IllegalArgumentException.class, () -> tools.deleteFile(dir.toString()));
+  }
+
+  @Test
+  @DisplayName("delete_file 可删指向目录的 symlink（不跟随目标）")
+  void deleteRemovesSymlinkToDirectoryWithoutRemovingTarget() throws IOException {
+    Path targetDir = dir.resolve("skill-body");
+    Files.createDirectories(targetDir);
+    Files.writeString(targetDir.resolve("SKILL.md"), "keep");
+    Path link = dir.resolve("skill-link");
+    try {
+      Files.createSymbolicLink(link, targetDir);
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "本机无法创建符号链接，跳过: " + e.getMessage());
+    }
+
+    String result = tools.deleteFile(link.toString());
+
+    assertTrue(result.contains("已删除"));
+    assertFalse(Files.exists(link), "应删除链接本身");
+    assertTrue(Files.isDirectory(targetDir), "目标目录不得被删");
+    assertTrue(Files.exists(targetDir.resolve("SKILL.md")));
   }
 
   @Test
