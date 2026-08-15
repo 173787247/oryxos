@@ -3,36 +3,76 @@ name: CI
 on:
   push:
     branches: [main, 'week-*', 'dev-*']
+    paths-ignore:
+      - 'website/**'
+      - '**.md'
+      - 'docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'website/**'
+      - '**.md'
+      - 'docs/**'
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+# One run per PR / branch; cancel superseded pushes to save runners.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     name: Build & quality gate
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # Runs the full lifecycle: spotless:check (validate) → checkstyle → compile →
-      # test → pmd/p3c → spotbugs+findsecbugs (verify). Any violation fails the job.
+      # Full quality gate: spotless → checkstyle → compile → test → pmd/p3c →
+      # spotbugs+findsecbugs. Any violation fails the job.
       - name: mvn verify
         run: mvn -B clean verify
 
   dependency-check:
     name: OWASP Dependency-Check (CVE scan)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write # upload-artifact
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # Enabled via -Dowasp.skip=false. The Maven configuration uses
-      # Dependency-Check's nightly NVD cache, which is available to fork PRs.
-      - name: mvn verify with dependency-check
-        run: mvn -B clean verify -DskipTests -Dowasp.skip=false
+      # Package only (skip quality plugins already covered by `build`), then run
+      # Dependency-Check aggregate. Avoids a second spotless/pmd/spotbugs pass
+      # that duplicated ~half the CI time and made CVE failures hard to spot.
+      # NVD feed uses Dependency-Check's nightly cache (no NVD API key for forks).
+      - name: package (skip quality plugins)
+        run: >-
+          mvn -B clean package -DskipTests
+          -Dspotless.check.skip=true
+          -Dcheckstyle.skip=true
+          -Dpmd.skip=true
+          -Dspotbugs.skip=true
+      - name: OWASP dependency-check aggregate
+        run: mvn -B -Dowasp.skip=false org.owasp:dependency-check-maven:aggregate
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: |
+            target/dependency-check-report.html
+            target/dependency-check-report.json
+          if-no-files-found: ignore
