@@ -1,11 +1,13 @@
 package io.oryxos.web.skill;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -97,6 +99,26 @@ class GithubFolderFetcherTest {
         GithubFolderFetcher.parseTreeUrl("https://github.com/a/b/tree/main/x");
 
     assertThrows(IllegalArgumentException.class, () -> fetcher.fetchFolder(target));
+  }
+
+  @Test
+  @DisplayName("fetchFolder：路径空格编成 %20 而非 form 的 +（否则 GitHub Contents 404）")
+  void fetchFolder_encodesPathSpacesAsPercent20() {
+    AtomicReference<String> seen = new AtomicReference<>();
+    GithubFolderFetcher fetcher =
+        new GithubFolderFetcher(
+            uri -> {
+              seen.set(uri.toString());
+              return "[]";
+            });
+    GithubFolderFetcher.Target target =
+        new GithubFolderFetcher.Target("o", "r", "main", "skills/my skill");
+
+    assertThrows(IllegalArgumentException.class, () -> fetcher.fetchFolder(target));
+
+    String api = seen.get();
+    assertTrue(api.contains("skills/my%20skill"), api);
+    assertFalse(api.contains("my+skill"), api);
   }
 
   @Test
