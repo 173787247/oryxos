@@ -1,8 +1,10 @@
 package io.oryxos.web.security;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -37,6 +39,7 @@ class BasicAuthFilterTest {
   private WebUserService userService;
   private WebSessionService sessionService;
   private WebAuthProperties properties;
+  private LoginAttemptService loginAttemptService;
   private MockMvc mvc;
 
   @Controller
@@ -53,8 +56,10 @@ class BasicAuthFilterTest {
     userService = mock(WebUserService.class);
     sessionService = mock(WebSessionService.class);
     properties = new WebAuthProperties();
+    loginAttemptService = new LoginAttemptService();
     BasicAuthFilter filter =
-        new BasicAuthFilter(userService, sessionService, properties, new ObjectMapper());
+        new BasicAuthFilter(
+            userService, sessionService, properties, new ObjectMapper(), loginAttemptService);
     mvc = MockMvcBuilders.standaloneSetup(new StubController()).addFilter(filter).build();
   }
 
@@ -107,6 +112,85 @@ class BasicAuthFilterTest {
                 .header("Authorization", basic("admin", "wrong")))
         .andExpect(status().isUnauthorized())
         .andExpect(header().string("WWW-Authenticate", "Basic realm=\"OryxOS\""));
+  }
+
+  @Test
+  @DisplayName("enabled=true_Basic连续失败达上限后_429且不再验密")
+  void enabledBasic_lockoutBlocksFurtherVerify() throws Exception {
+    properties.setEnabled(true);
+    when(userService.verify("admin", "wrong")).thenReturn(false);
+
+    for (int i = 0; i < LoginAttemptService.MAX_FAILURES; i++) {
+      mvc.perform(
+              get("/admin/")
+                  .accept(MediaType.APPLICATION_JSON)
+                  .with(
+                      request -> {
+                        request.setRemoteAddr("127.0.0.1");
+                        return request;
+                      })
+                  .header("Authorization", basic("admin", "wrong")))
+          .andExpect(status().isUnauthorized());
+    }
+
+    mvc.perform(
+            get("/admin/")
+                .accept(MediaType.APPLICATION_JSON)
+                .with(
+                    request -> {
+                      request.setRemoteAddr("127.0.0.1");
+                      return request;
+                    })
+                .header("Authorization", basic("admin", "wrong")))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(jsonPath("$.code").value(429));
+
+    // MAX_FAILURES 次验密后锁定；第 MAX_FAILURES+1 次不得再碰 verify
+    verify(userService, times(LoginAttemptService.MAX_FAILURES)).verify("admin", "wrong");
+  }
+
+  @Test
+  @DisplayName("enabled=true_表单路径累计失败后_Basic同样429")
+  void formLockout_alsoBlocksBasic() throws Exception {
+    properties.setEnabled(true);
+    String key = "admin|10.0.0.2";
+    for (int i = 0; i < LoginAttemptService.MAX_FAILURES; i++) {
+      loginAttemptService.onFailure(key);
+    }
+
+    mvc.perform(
+            get("/admin/")
+                .accept(MediaType.APPLICATION_JSON)
+                .with(
+                    request -> {
+                      request.setRemoteAddr("10.0.0.2");
+                      return request;
+                    })
+                .header("Authorization", basic("admin", "anything")))
+        .andExpect(status().isTooManyRequests());
+
+    verify(userService, never()).verify(anyString(), anyString());
+  }
+
+  @Test
+  @DisplayName("enabled=true_正确Basic凭据_清零失败计数")
+  void enabledCorrectBasic_clearsFailures() throws Exception {
+    properties.setEnabled(true);
+    when(userService.verify("admin", "s3cret-pw")).thenReturn(true);
+    loginAttemptService.onFailure("admin|127.0.0.1");
+    loginAttemptService.onFailure("admin|127.0.0.1");
+
+    mvc.perform(
+            get("/admin/")
+                .with(
+                    request -> {
+                      request.setRemoteAddr("127.0.0.1");
+                      return request;
+                    })
+                .header("Authorization", basic("admin", "s3cret-pw")))
+        .andExpect(status().isOk());
+
+    assertThat(loginAttemptService.isBlocked("admin|127.0.0.1")).isFalse();
   }
 
   @Test
