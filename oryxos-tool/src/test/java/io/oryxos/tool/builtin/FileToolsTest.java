@@ -239,6 +239,54 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("copy_file 落盘前复检 FILE_WRITE（防校验窗口内路径逃逸）")
+  void copyFileRechecksPathBeforeCopy() throws IOException {
+    Path src = dir.resolve("src.txt");
+    Files.writeString(src, "payload");
+    Path dst = dir.resolve("nested/out.txt");
+    AtomicInteger destWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE
+              && action.target().equals(dst.toString())
+              && destWrites.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(
+        SandboxViolationException.class, () -> guarded.copyFile(src.toString(), dst.toString()));
+    assertEquals(2, destWrites.get(), "目标应在 copy 前后各 enforce 一次 FILE_WRITE");
+    assertTrue(Files.notExists(dst), "复检拒绝后不得复制落盘");
+    assertTrue(Files.exists(src), "源应保留");
+  }
+
+  @Test
+  @DisplayName("move_file 落盘前复检 FILE_WRITE")
+  void moveFileRechecksPathBeforeMove() throws IOException {
+    Path src = dir.resolve("move-src.txt");
+    Files.writeString(src, "payload");
+    Path dst = dir.resolve("nested/moved.txt");
+    AtomicInteger destWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE
+              && action.target().equals(dst.toString())
+              && destWrites.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(
+        SandboxViolationException.class, () -> guarded.moveFile(src.toString(), dst.toString()));
+    assertEquals(2, destWrites.get());
+    assertTrue(Files.notExists(dst), "复检拒绝后不得移动落盘");
+    assertTrue(Files.exists(src), "源应保留");
+  }
+
+  @Test
   @DisplayName("list_dir 列出目录条目")
   void listDirShowsEntries() throws IOException {
     Files.writeString(dir.resolve("x.txt"), "");

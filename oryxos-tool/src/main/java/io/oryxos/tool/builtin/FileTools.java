@@ -292,6 +292,9 @@ public class FileTools {
       if (parent != null) {
         Files.createDirectories(parent);
       }
+      // 变更前复检：与 write_file 同款——防 createDirectories 窗口内目标父路径被换成外向软链
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, from));
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
       Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
       return "已移动: " + from + " -> " + to;
     } catch (IOException e) {
@@ -321,6 +324,9 @@ public class FileTools {
       if (parent != null) {
         Files.createDirectories(parent);
       }
+      // 变更前复检：与 write_file 同款——防校验到 copy 间路径被换成外向软链
+      sandbox.enforce(new SandboxAction(ActionType.FILE_READ, from));
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
       Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
       return "已复制: " + from + " -> " + to;
     } catch (IOException e) {
