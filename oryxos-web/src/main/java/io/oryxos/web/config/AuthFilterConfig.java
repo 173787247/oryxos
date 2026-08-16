@@ -26,16 +26,18 @@ public class AuthFilterConfig {
       WebUserService userService,
       WebSessionService sessionService,
       WebAuthProperties properties,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      LoginAttemptService loginAttemptService) {
     FilterRegistrationBean<BasicAuthFilter> registration = new FilterRegistrationBean<>();
     registration.setFilter(
-        new BasicAuthFilter(userService, sessionService, properties, objectMapper));
+        new BasicAuthFilter(
+            userService, sessionService, properties, objectMapper, loginAttemptService));
     registration.addUrlPatterns("/admin/*");
     registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
     return registration;
   }
 
-  /** 登录暴力破解防护计数器（进程级单例，供 {@code AuthApiController} 构造注入）。 */
+  /** 登录暴力破解防护计数器（进程级单例，供 AuthApiController 与 BasicAuthFilter 共用）。 */
   @Bean
   LoginAttemptService loginAttemptService() {
     return new LoginAttemptService();

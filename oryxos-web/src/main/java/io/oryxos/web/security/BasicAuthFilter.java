@@ -31,11 +31,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <li>Session——取 {@code oryxos_session} cookie → {@link WebSessionService#findValid} → 有效放行 （不查
  *       user enabled，Clarifications Q1 B：改密/禁用后旧 session 仍有效到过期）。
  *   <li>Basic Auth——取 {@code Authorization: Basic} 头 → Base64 解码拆 user/pass → {@link
- *       WebUserService#verify} → 放行。
+ *       WebUserService#verify} → 放行。与表单登录共用 {@link LoginAttemptService}：同「用户名|IP」连续失败超限返回 429，成功清零。
  * </ol>
  *
  * <p>都无/都失败：浏览器（{@code Accept} 头含 {@code text/html}）→ 302 跳 {@code /admin/login}； curl/自动化 → 401
- * JSON（统一信封）+ {@code WWW-Authenticate: Basic realm="<配置值>"}。
+ * JSON（统一信封）+ {@code WWW-Authenticate: Basic realm="<配置值>"}。锁定期内 Basic 失败/已锁 → 429（与 {@code
+ * /api/v1/auth/login} 对齐），避免只锁表单、Basic 无限试密。
  *
  * <p>{@code /admin/login} 路径（含其静态资源）放行——未登录也要能访问登录页（FR-017）。
  *
@@ -50,11 +51,18 @@ public class BasicAuthFilter extends OncePerRequestFilter {
   /** Basic Auth scheme 名（用于 WWW-Authenticate 挑战头）。 */
   private static final String BASIC_SCHEME = "Basic";
 
+  /** user:pass 拆分后的段数。 */
+  private static final int BASIC_CREDENTIAL_PARTS = 2;
+
   /** 401 响应业务码（统一信封 ApiResponse.code）。 */
   private static final int UNAUTHORIZED_CODE = HttpStatus.UNAUTHORIZED.value();
 
   /** 401 响应文案。 */
   private static final String UNAUTHORIZED_MESSAGE = "Unauthorized";
+
+  /** 锁定期内的 429 文案：与 AuthApiController 对齐，不透露阀值。 */
+  private static final String TOO_MANY_ATTEMPTS_MESSAGE =
+      "Too many failed login attempts, try again later";
 
   /** session cookie 名。 */
   static final String SESSION_COOKIE = "oryxos_session";
@@ -62,26 +70,37 @@ public class BasicAuthFilter extends OncePerRequestFilter {
   /** 登录页路径前缀（放行）。 */
   private static final String LOGIN_PATH = "/admin/login";
 
+  /** Basic Auth 校验结果（无头/解码失败不计失败次数）。 */
+  private enum BasicOutcome {
+    NONE,
+    LOCKED,
+    OK,
+    BAD
+  }
+
   private final WebUserService userService;
   private final WebSessionService sessionService;
   private final WebAuthProperties properties;
   private final ObjectMapper objectMapper;
+  private final LoginAttemptService loginAttemptService;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = {"EI_EXPOSE_REP2", "PZLA_PREFER_ZERO_LENGTH_ARRAYS"},
       justification =
-          "userService/sessionService/properties/objectMapper 均为 Spring 注入的共享单例，构造注入存同一引用正是意图"
+          "userService/sessionService/properties/objectMapper/loginAttemptService 均为 Spring 注入的共享单例，构造注入存同一引用正是意图"
               + "（镜像既有 Controller 的 SuppressFBWarnings 模式）；decode 返 null 表"
               + " \"Base64 解码或 user:pass 拆分失败\"，与零长数组语义不同。")
   public BasicAuthFilter(
       WebUserService userService,
       WebSessionService sessionService,
       WebAuthProperties properties,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      LoginAttemptService loginAttemptService) {
     this.userService = userService;
     this.sessionService = sessionService;
     this.properties = properties;
     this.objectMapper = objectMapper;
+    this.loginAttemptService = loginAttemptService;
   }
 
   @Override
@@ -102,12 +121,17 @@ public class BasicAuthFilter extends OncePerRequestFilter {
       filterChain.doFilter(request, response);
       return;
     }
-    // (2) Basic Auth 路径
-    if (authenticatedByBasic(request)) {
+    // (2) Basic Auth 路径（含暴力破解锁定）
+    BasicOutcome basic = authenticateByBasic(request);
+    if (basic == BasicOutcome.OK) {
       filterChain.doFilter(request, response);
       return;
     }
-    // 都无/都失败：浏览器跳登录页，curl 401
+    if (basic == BasicOutcome.LOCKED) {
+      rejectTooMany(response);
+      return;
+    }
+    // NONE / BAD：浏览器跳登录页，curl 401
     reject(request, response);
   }
 
@@ -129,15 +153,25 @@ public class BasicAuthFilter extends OncePerRequestFilter {
         .isPresent();
   }
 
-  private boolean authenticatedByBasic(HttpServletRequest request) {
+  private BasicOutcome authenticateByBasic(HttpServletRequest request) {
     String header = request.getHeader(HttpHeaders.AUTHORIZATION);
     if (header == null || !header.startsWith(BASIC_PREFIX)) {
-      return false;
+      return BasicOutcome.NONE;
     }
     String[] credentials = decode(header.substring(BASIC_PREFIX.length()));
-    return credentials != null
-        && credentials.length == 2
-        && userService.verify(credentials[0], credentials[1]);
+    if (credentials == null || credentials.length != BASIC_CREDENTIAL_PARTS) {
+      return BasicOutcome.NONE;
+    }
+    String attemptKey = credentials[0] + "|" + request.getRemoteAddr();
+    if (loginAttemptService.isBlocked(attemptKey)) {
+      return BasicOutcome.LOCKED;
+    }
+    if (userService.verify(credentials[0], credentials[1])) {
+      loginAttemptService.onSuccess(attemptKey);
+      return BasicOutcome.OK;
+    }
+    loginAttemptService.onFailure(attemptKey);
+    return BasicOutcome.BAD;
   }
 
   private void reject(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -156,6 +190,16 @@ public class BasicAuthFilter extends OncePerRequestFilter {
         .write(
             objectMapper.writeValueAsString(
                 ApiResponse.error(UNAUTHORIZED_CODE, UNAUTHORIZED_MESSAGE)));
+  }
+
+  private void rejectTooMany(HttpServletResponse response) throws IOException {
+    int code = HttpStatus.TOO_MANY_REQUESTS.value();
+    response.setStatus(code);
+    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+    response
+        .getWriter()
+        .write(objectMapper.writeValueAsString(ApiResponse.error(code, TOO_MANY_ATTEMPTS_MESSAGE)));
   }
 
   /** 浏览器判定：Accept 头含 text/html（Clarifications Q2 A 分流）。 */
