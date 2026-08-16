@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -29,6 +30,13 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
 
   private static final String CORE_HEADER = "## 核心记忆";
   private static final String ARCHIVE_HEADER = "## 归档记忆";
+
+  /** 仅匹配独立成行的区块头，避免条目内容里的同名子串被当成结构。 */
+  private static final Pattern CORE_HEADER_LINE =
+      Pattern.compile("(?m)^" + Pattern.quote(CORE_HEADER) + "\\s*$");
+
+  private static final Pattern ARCHIVE_HEADER_LINE =
+      Pattern.compile("(?m)^" + Pattern.quote(ARCHIVE_HEADER) + "\\s*$");
   private static final int MAX_ARCHIVE_CHARS = 4000;
   private static final Pattern SAFE_AGENT = Pattern.compile("[A-Za-z0-9_-]+");
   private static final DateTimeFormatter TIMESTAMP =
@@ -54,7 +62,8 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
 
   @Override
   public void append(String content, MemoryScope scope) {
-    String entry = "- [" + LocalDateTime.now().format(TIMESTAMP) + "] " + content;
+    String entry =
+        "- [" + LocalDateTime.now().format(TIMESTAMP) + "] " + sanitizeEntryContent(content);
     Path file = memoryFile();
     // 读-改-写必须整段互斥：并发会话/定时任务同时 append 时，不加锁会互相覆盖对方刚写的条目。
     synchronized (lockFor(file)) {
@@ -68,6 +77,18 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
       }
       write(file, CORE_HEADER + "\n" + core + "\n" + ARCHIVE_HEADER + "\n" + archive);
     }
+  }
+
+  /**
+   * 条目压成单行，并中和区块头字面量——否则 {@code indexOf}/{@link #extractSection} 会把内容当成分区边界，
+   * 导致核心记忆被截断或串区（save_memory / 触发足迹均可写入用户可控文本）。
+   */
+  static String sanitizeEntryContent(String content) {
+    if (content == null || content.isBlank()) {
+      return "";
+    }
+    String oneLine = content.replace('\r', ' ').replace('\n', ' ').replaceAll(" {2,}", " ").strip();
+    return oneLine.replace(CORE_HEADER, "「核心记忆」").replace(ARCHIVE_HEADER, "「归档记忆」");
   }
 
   private static Object lockFor(Path file) {
@@ -99,19 +120,20 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
   }
 
   private static String extractSection(String raw, String header) {
-    int start = raw.indexOf(header);
-    if (start < 0) {
+    Pattern headerLine = CORE_HEADER.equals(header) ? CORE_HEADER_LINE : ARCHIVE_HEADER_LINE;
+    Matcher start = headerLine.matcher(raw);
+    if (!start.find()) {
       return "";
     }
-    int contentStart = start + header.length();
-    int nextCore = raw.indexOf(CORE_HEADER, contentStart);
-    int nextArchive = raw.indexOf(ARCHIVE_HEADER, contentStart);
+    int contentStart = start.end();
     int end = raw.length();
-    if (nextCore >= 0) {
-      end = Math.min(end, nextCore);
+    Matcher nextCore = CORE_HEADER_LINE.matcher(raw);
+    if (nextCore.find(contentStart)) {
+      end = Math.min(end, nextCore.start());
     }
-    if (nextArchive >= 0) {
-      end = Math.min(end, nextArchive);
+    Matcher nextArchive = ARCHIVE_HEADER_LINE.matcher(raw);
+    if (nextArchive.find(contentStart)) {
+      end = Math.min(end, nextArchive.start());
     }
     return raw.substring(contentStart, end).strip();
   }

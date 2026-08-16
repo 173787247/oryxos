@@ -60,6 +60,38 @@ class MarkdownMemoryStoreTest {
   }
 
   @Test
+  @DisplayName("条目含区块头字面量_不截断核心也不串区")
+  void contentWithSectionHeaders_doesNotCorruptPartitions() {
+    MarkdownMemoryStore memory = new MarkdownMemoryStore(root);
+    memory.append("用户偏好 Java", MemoryScope.CORE);
+    memory.append("笔记里提到 ## 归档记忆 作为标题", MemoryScope.CORE);
+    memory.append("另一条含 ## 核心记忆 的核心笔记", MemoryScope.CORE);
+    memory.append("归档也写 ## 核心记忆 字样", MemoryScope.ARCHIVAL);
+
+    String loaded = memory.load();
+    int archiveHeaderAt = loaded.indexOf("## 归档记忆");
+    assertTrue(archiveHeaderAt > 0);
+    String corePart = loaded.substring(0, archiveHeaderAt);
+    String archivePart = loaded.substring(archiveHeaderAt);
+
+    assertTrue(corePart.contains("用户偏好 Java"), "先写入的核心不得被截断");
+    assertTrue(corePart.contains("「归档记忆」"), "核心条目中的区块头应被中和");
+    assertTrue(corePart.contains("「核心记忆」"), "核心条目中的区块头应被中和");
+    assertFalse(corePart.contains("## 归档记忆"), "内容不得再引入结构头");
+    assertTrue(archivePart.contains("「核心记忆」"));
+    assertEquals(1, memory.recallByKeyword("字样").size());
+    assertTrue(memory.recallByKeyword("用户偏好").isEmpty(), "核心不进 recall");
+  }
+
+  @Test
+  @DisplayName("sanitize_压换行并替换区块头")
+  void sanitizeNeutralizesHeadersAndNewlines() {
+    assertEquals(
+        "行1 行2 「核心记忆」 与 「归档记忆」",
+        MarkdownMemoryStore.sanitizeEntryContent("行1\n行2 ## 核心记忆 与 ## 归档记忆"));
+  }
+
+  @Test
   @DisplayName("并发追加_条目一条不丢")
   void concurrentAppendsLoseNoEntry() throws Exception {
     MarkdownMemoryStore memory = new MarkdownMemoryStore(root);
