@@ -64,6 +64,8 @@ public class FileTools {
       if (parent != null) {
         Files.createDirectories(parent);
       }
+      // 写前复检：与 download_file / grep 同款——防首次校验到 writeString 间路径被换成外向软链
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       Files.writeString(file, content);
       return "已写入: " + path;
     } catch (IOException e) {
@@ -108,6 +110,7 @@ public class FileTools {
         // 多处匹配会改错地方——要求唯一，逼调用方给足上下文（Claude Code/Cursor 同款约束）
         throw new IllegalArgumentException("原文本在文件中出现多次，无法定位唯一编辑点: " + path);
       }
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       Files.writeString(file, content.replace(oldString, newString));
       return "已编辑: " + path;
     } catch (IOException e) {
@@ -226,6 +229,7 @@ public class FileTools {
   public String makeDir(@ToolParam(description = "要创建的目录路径") String path) {
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       Files.createDirectories(Path.of(path));
       return "已创建目录: " + path;
     } catch (IOException e) {
@@ -244,6 +248,7 @@ public class FileTools {
       if (parent != null) {
         Files.createDirectories(parent);
       }
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       Files.writeString(file, content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
       return "已追加到: " + path;
     } catch (IOException e) {
