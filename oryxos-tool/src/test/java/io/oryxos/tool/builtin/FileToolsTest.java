@@ -200,6 +200,45 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("read_file 读取前复检 FILE_READ")
+  void readFileRechecksPathBeforeRead() throws IOException {
+    Path target = dir.resolve("secret.txt");
+    Files.writeString(target, "classified");
+    AtomicInteger fileReads = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_READ && fileReads.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(SandboxViolationException.class, () -> guarded.readFile(target.toString()));
+    assertEquals(2, fileReads.get(), "应在读前后各 enforce 一次 FILE_READ");
+    assertEquals("classified", Files.readString(target), "复检拒绝后文件仍在");
+  }
+
+  @Test
+  @DisplayName("delete_file 删除前复检 FILE_WRITE")
+  void deleteFileRechecksPathBeforeDelete() throws IOException {
+    Path target = dir.resolve("keep.txt");
+    Files.writeString(target, "keep-me");
+    AtomicInteger fileWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE && fileWrites.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(SandboxViolationException.class, () -> guarded.deleteFile(target.toString()));
+    assertEquals(2, fileWrites.get());
+    assertTrue(Files.exists(target), "复检拒绝后不得删除");
+    assertEquals("keep-me", Files.readString(target));
+  }
+
+  @Test
   @DisplayName("append_file 落盘前复检 FILE_WRITE")
   void appendFileRechecksPathBeforeWrite() {
     AtomicInteger fileWrites = new AtomicInteger();

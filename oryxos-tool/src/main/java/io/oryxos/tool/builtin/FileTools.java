@@ -47,6 +47,8 @@ public class FileTools {
       throw new IllegalArgumentException("文件不存在或不是普通文件: " + path);
     }
     try {
+      // 读前复检：与 write_file 同款——防首次校验到 readString 间路径被换成外向软链
+      sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
       return Files.readString(file);
     } catch (IOException e) {
       throw new UncheckedIOException("读取文件失败: " + path, e);
@@ -265,6 +267,8 @@ public class FileTools {
       throw new IllegalArgumentException("拒绝删除目录（本工具只删文件）: " + path);
     }
     try {
+      // 删前复检：防首次校验到 delete 间路径/父目录被换成外向软链
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       return Files.deleteIfExists(file) ? "已删除: " + path : "文件不存在: " + path;
     } catch (IOException e) {
       throw new UncheckedIOException("删除文件失败: " + path, e);
