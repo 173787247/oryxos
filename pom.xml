@@ -183,6 +183,9 @@
                     </configuration>
                     <executions>
                         <execution>
+                            <!-- Fast-fail: run the format check before compile/test
+                                 (spotless:check defaults to the verify phase). -->
+                            <phase>validate</phase>
                             <goals>
                                 <goal>check</goal>
                             </goals>
