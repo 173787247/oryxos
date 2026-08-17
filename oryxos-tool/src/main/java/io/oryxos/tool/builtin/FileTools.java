@@ -80,11 +80,15 @@ public class FileTools {
     if (!Files.isDirectory(dir)) {
       throw new IllegalArgumentException("目录不存在: " + path);
     }
-    try (Stream<Path> entries = Files.list(dir)) {
-      return entries
-          .map(p -> String.valueOf(p.getFileName()))
-          .sorted()
-          .collect(Collectors.joining("\n"));
+    try {
+      // 列举前复检：与 write_file / read_file 同款——防首次校验到 Files.list 间路径被换成外向软链
+      sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
+      try (Stream<Path> entries = Files.list(dir)) {
+        return entries
+            .map(p -> String.valueOf(p.getFileName()))
+            .sorted()
+            .collect(Collectors.joining("\n"));
+      }
     } catch (IOException e) {
       throw new UncheckedIOException("列目录失败: " + path, e);
     }
