@@ -338,6 +338,23 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("list_dir 列举前复检 FILE_READ")
+  void listDirRechecksPathBeforeList() throws IOException {
+    Files.writeString(dir.resolve("x.txt"), "");
+    AtomicInteger fileReads = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_READ && fileReads.incrementAndGet() >= 2) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(SandboxViolationException.class, () -> guarded.listDir(dir.toString()));
+    assertEquals(2, fileReads.get(), "应在 list 前后各 enforce 一次 FILE_READ");
+  }
+
+  @Test
   @DisplayName("读不存在的文件_报错点名路径")
   void readMissingFileFailsWithPath() {
     IllegalArgumentException ex =
