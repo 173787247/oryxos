@@ -168,14 +168,15 @@ public class HttpTools {
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path)); // 先校验落盘路径
     byte[] data = read(url, byte[].class); // 读远端：放行 + 内网黑名单 + 逐跳重定向重校验
     byte[] bytes = data == null ? new byte[0] : data;
-    // 落盘前再 enforce：拉网窗口内路径可能被换成指向白名单外的软链（对齐 FileTools.grep/glob 纵深）
-    sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
       Path file = Path.of(path);
       Path parent = file.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
       }
+      // 写前复检：与 write_file 同款——createDirectories 之后、Files.write 之前。
+      // 复检若放在建目录前，通过后父路径仍可被换成外向软链，写出白名单。
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       Files.write(file, bytes);
       return "已下载到: " + path + "（" + bytes.length + " 字节）";
     } catch (IOException e) {
