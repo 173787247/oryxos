@@ -6,8 +6,11 @@ import io.oryxos.core.provider.ProviderDef;
 import io.oryxos.core.provider.ProviderRegistry;
 import io.oryxos.web.error.ProviderUnavailableException;
 import io.oryxos.web.error.ResourceNotFoundException;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -29,12 +32,23 @@ public class ProviderModelsService {
   private static final String PATH_MODELS = "/models";
   private static final String VERSIONED_PATH_PATTERN = ".*/v\\d+$";
 
+  /** 连接超时（秒）的系统属性名：默认 10，{@code -Doryxos.provider.models.connect-timeout-seconds=N} 覆盖。 */
+  static final String CONNECT_TIMEOUT_PROP = "oryxos.provider.models.connect-timeout-seconds";
+
+  /** 读取超时（秒）的系统属性名：默认 30，{@code -Doryxos.provider.models.read-timeout-seconds=N} 覆盖。 */
+  static final String READ_TIMEOUT_PROP = "oryxos.provider.models.read-timeout-seconds";
+
+  private static final long DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
+  private static final long DEFAULT_READ_TIMEOUT_SECONDS = 30;
+
   private final ProviderRegistry registry;
   private final RestClient restClient;
 
   public ProviderModelsService(ProviderRegistry registry, RestClient.Builder restClientBuilder) {
     this.registry = registry;
-    this.restClient = restClientBuilder.build();
+    // 不用默认 RestClient（无超时）：provider 挂死会永久占住管理台 /models 与 /test 的工作线程。
+    // clone 后再挂 requestFactory，避免污染共享 Builder bean。
+    this.restClient = restClientBuilder.clone().requestFactory(timeoutFactory()).build();
   }
 
   /** 列出某 provider 下的模型 id（按字母排序）。provider 不存在→404；端点不可达/缺 base-url→503。 */
@@ -67,6 +81,27 @@ public class ProviderModelsService {
       throw new ProviderUnavailableException(
           "无法从 provider " + providerName + " 获取模型列表: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * 带连接/读取超时的请求工厂：默认 RestClient 无超时，端点挂死会拖垮 Tomcat 工作线程。构建时读属性，不在类加载期固化。
+   *
+   * <p>模式同 {@code ProviderChatModelFactory.timeoutFactory()} / {@code
+   * OryxOsRuntime.toolHttpRequestFactory()}；models 列表用较短 read timeout（默认 30s）。
+   */
+  static JdkClientHttpRequestFactory timeoutFactory() {
+    Duration connectTimeout =
+        Duration.ofSeconds(Long.getLong(CONNECT_TIMEOUT_PROP, DEFAULT_CONNECT_TIMEOUT_SECONDS));
+    Duration readTimeout =
+        Duration.ofSeconds(Long.getLong(READ_TIMEOUT_PROP, DEFAULT_READ_TIMEOUT_SECONDS));
+    JdkClientHttpRequestFactory factory =
+        new JdkClientHttpRequestFactory(
+            HttpClient.newBuilder()
+                .connectTimeout(connectTimeout)
+                .version(HttpClient.Version.HTTP_1_1)
+                .build());
+    factory.setReadTimeout(readTimeout);
+    return factory;
   }
 
   /**
