@@ -158,20 +158,24 @@ class HttpToolsTest {
   @DisplayName("download_file 落盘前复检 FILE_WRITE（防拉网窗口内路径逃逸）")
   void downloadFileRechecksPathBeforeWrite(@TempDir Path dir) throws IOException {
     AtomicInteger fileWrites = new AtomicInteger();
+    Path nested = dir.resolve("nested");
+    Path target = nested.resolve("payload.bin");
     Sandbox sandbox =
         action -> {
           if (action.type() == ActionType.FILE_WRITE) {
-            if (fileWrites.incrementAndGet() >= 2) {
+            int n = fileWrites.incrementAndGet();
+            if (n >= 2) {
+              // 复检必须在 createDirectories 之后：此时父目录应已存在
+              assertTrue(Files.isDirectory(nested), "写前复检应发生在 createDirectories 之后");
               throw new SandboxViolationException("复检拒绝: " + action.target());
             }
           }
         };
-    Path target = dir.resolve("payload.bin");
     HttpTools guarded = new HttpTools(sandbox, RestClient.create());
 
     assertThrows(
         SandboxViolationException.class, () -> guarded.downloadFile(url(), target.toString()));
-    assertEquals(2, fileWrites.get(), "应在下载前后各 enforce 一次 FILE_WRITE");
+    assertEquals(2, fileWrites.get(), "应在下载前与 Files.write 前各 enforce 一次 FILE_WRITE");
     assertTrue(Files.notExists(target), "复检拒绝后不得落盘");
   }
 
