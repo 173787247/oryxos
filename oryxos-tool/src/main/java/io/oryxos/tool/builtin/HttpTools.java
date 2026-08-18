@@ -153,15 +153,20 @@ public class HttpTools {
     return host == null ? "" : host.toLowerCase(Locale.ROOT);
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "URI scheme tokens are ASCII; Locale.ROOT lowercasing is the correct case-fold for http/https comparison.")
   private static int effectivePort(URI uri) {
     int port = uri.getPort();
     if (port >= 0) {
       return port;
     }
-    if (HTTPS_SCHEME.equalsIgnoreCase(uri.getScheme())) {
+    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+    if (HTTPS_SCHEME.equals(scheme)) {
       return DEFAULT_HTTPS_PORT;
     }
-    if (HTTP_SCHEME.equalsIgnoreCase(uri.getScheme())) {
+    if (HTTP_SCHEME.equals(scheme)) {
       return DEFAULT_HTTP_PORT;
     }
     return -1;
@@ -190,6 +195,10 @@ public class HttpTools {
     return kept.toString();
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "HTTP header names are ASCII tokens; Locale.ROOT lowercasing is the correct case-fold for Authorization/Cookie matching.")
   private static boolean isSensitiveHeaderName(String name) {
     String n = name.toLowerCase(Locale.ROOT);
     return "authorization".equals(n)
