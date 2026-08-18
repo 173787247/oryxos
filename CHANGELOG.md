@@ -3,23 +3,6 @@
 本文件记录 OryxOS 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.1.3-RELEASE] - 2026-08-18
-
-### Added
-- Windows PowerShell 安装脚本（`feat(scripts)`，#176）。
-- Provider `/models` 拉取支持 connect/read 超时配置，避免挂起阻塞管理台线程（#178）。
-
-### Fixed
-- HTTP 跨重定向（跨域）时剥离敏感凭证头（`Authorization`/`Cookie` 等），降低凭证泄漏风险（#182）。
-- 文件操作沙箱校验复检时序对齐：`download_file`/`edit_file`/`list_dir` 等关键路径降低 TOCTOU 风险（#180/#184/#175）。
-- 前后复检与 sandbox enforcement 整体加固（与多项 file recheck 修复一起落地）。
-
-### Security
-- 强化跨域重定向下的敏感头处理，防止跨域跳转带走用户凭证。
-
-### Docs
-- 更新 README 版本徽标、前端概览版本展示到 `0.1.3`。
-
 ## [0.1.2-RELEASE] - 2026-08-10
 
 ### Added
@@ -81,7 +64,6 @@
 - Web REST API（`/api/v1`）与 CLI 子命令（`init`/`chat`/`serve`/`gateway` 等）。
 - SQLite 持久化与 `tool_invocations` / `llm_calls` 审计表 Day-One 写入。
 
-[0.1.3-RELEASE]: https://github.com/oryx-labs/oryxos/compare/v0.1.2-RELEASE...v0.1.3-RELEASE
 [0.1.2-RELEASE]: https://github.com/oryx-labs/oryxos/compare/v0.1.1-RELEASE...v0.1.2-RELEASE
 [0.1.1-RELEASE]: https://github.com/oryx-labs/oryxos/compare/v0.1.0-RELEASE...v0.1.1-RELEASE
 [0.1.0-RELEASE]: https://github.com/oryx-labs/oryxos/releases/tag/v0.1.0-RELEASE
