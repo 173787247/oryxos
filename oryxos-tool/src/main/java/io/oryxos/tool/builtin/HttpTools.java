@@ -92,17 +92,11 @@ public class HttpTools {
   private String write(
       HttpMethod method, String url, String headers, String body, boolean jsonBody) {
     String current = url;
+    String hopHeaders = headers;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, current)); // 每跳校验
       RestClient.RequestBodySpec spec = hopClient.method(method).uri(current);
-      if (headers != null && !headers.isBlank()) {
-        for (String line : HEADER_LINE_SEP.split(headers)) {
-          int colon = line.indexOf(':');
-          if (colon > 0) {
-            spec.header(line.substring(0, colon).strip(), line.substring(colon + 1).strip());
-          }
-        }
-      }
+      applyCustomHeaders(spec, hopHeaders);
       if (body != null && !body.isBlank()) {
         if (jsonBody) {
           spec.contentType(MediaType.APPLICATION_JSON);
@@ -115,12 +109,88 @@ public class HttpTools {
         if (location == null || location.isBlank()) {
           return resp.getBody();
         }
-        current = URI.create(current).resolve(location).toString();
+        String next = URI.create(current).resolve(location).toString();
+        // 跨源重定向剥离敏感头：对齐浏览器，防白名单内 A 302→白名单内 B 时泄露 Authorization/Cookie
+        if (!sameOrigin(current, next)) {
+          hopHeaders = stripSensitiveHeaders(hopHeaders);
+        }
+        current = next;
         continue;
       }
       return resp.getBody();
     }
     throw new IllegalStateException("重定向次数过多，拒绝: " + url);
+  }
+
+  private static void applyCustomHeaders(RestClient.RequestBodySpec spec, String headers) {
+    if (headers == null || headers.isBlank()) {
+      return;
+    }
+    for (String line : HEADER_LINE_SEP.split(headers)) {
+      int colon = line.indexOf(':');
+      if (colon > 0) {
+        spec.header(line.substring(0, colon).strip(), line.substring(colon + 1).strip());
+      }
+    }
+  }
+
+  /** scheme + host + effective port；跨源重定向时不得继续携带凭证类头。 */
+  static boolean sameOrigin(String from, String to) {
+    URI a = URI.create(from);
+    URI b = URI.create(to);
+    return Objects.equals(a.getScheme(), b.getScheme())
+        && Objects.equals(hostOf(a), hostOf(b))
+        && effectivePort(a) == effectivePort(b);
+  }
+
+  private static String hostOf(URI uri) {
+    String host = uri.getHost();
+    return host == null ? "" : host.toLowerCase(Locale.ROOT);
+  }
+
+  private static int effectivePort(URI uri) {
+    int port = uri.getPort();
+    if (port >= 0) {
+      return port;
+    }
+    if ("https".equalsIgnoreCase(uri.getScheme())) {
+      return 443;
+    }
+    if ("http".equalsIgnoreCase(uri.getScheme())) {
+      return 80;
+    }
+    return -1;
+  }
+
+  /** 去掉跨源重定向不应转发的头（Authorization / Proxy-Authorization / Cookie / Cookie2）。 同浏览器对跨站重定向的凭证剥离习惯。 */
+  static String stripSensitiveHeaders(String headers) {
+    if (headers == null || headers.isBlank()) {
+      return headers;
+    }
+    StringBuilder kept = new StringBuilder();
+    for (String line : HEADER_LINE_SEP.split(headers)) {
+      int colon = line.indexOf(':');
+      if (colon <= 0) {
+        continue;
+      }
+      String name = line.substring(0, colon).strip();
+      if (isSensitiveHeaderName(name)) {
+        continue;
+      }
+      if (kept.length() > 0) {
+        kept.append('\n');
+      }
+      kept.append(name).append(':').append(line.substring(colon + 1).strip());
+    }
+    return kept.toString();
+  }
+
+  private static boolean isSensitiveHeaderName(String name) {
+    String n = name.toLowerCase(Locale.ROOT);
+    return "authorization".equals(n)
+        || "proxy-authorization".equals(n)
+        || "cookie".equals(n)
+        || "cookie2".equals(n);
   }
 
   @Tool(name = "http_get", description = "发起一个 HTTP GET 请求，返回响应体")
