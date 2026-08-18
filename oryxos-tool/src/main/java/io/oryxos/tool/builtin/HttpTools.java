@@ -48,6 +48,11 @@ public class HttpTools {
   private static final Pattern BLANK_LINES = Pattern.compile("\\n{3,}");
   private static final Pattern HEADER_LINE_SEP = Pattern.compile("\\R");
 
+  private static final String HTTP_SCHEME = "http";
+  private static final String HTTPS_SCHEME = "https";
+  private static final int DEFAULT_HTTP_PORT = 80;
+  private static final int DEFAULT_HTTPS_PORT = 443;
+
   private final Sandbox sandbox;
 
   /** 读写共用：**禁自动重定向**，由本类手动逐跳跟随并每跳重过沙箱校验。不使用注入的 RestClient 默认跟随行为（否则写请求会在首跳过白名单后跟到任意 Location）。 */
@@ -153,11 +158,11 @@ public class HttpTools {
     if (port >= 0) {
       return port;
     }
-    if ("https".equalsIgnoreCase(uri.getScheme())) {
-      return 443;
+    if (HTTPS_SCHEME.equalsIgnoreCase(uri.getScheme())) {
+      return DEFAULT_HTTPS_PORT;
     }
-    if ("http".equalsIgnoreCase(uri.getScheme())) {
-      return 80;
+    if (HTTP_SCHEME.equalsIgnoreCase(uri.getScheme())) {
+      return DEFAULT_HTTP_PORT;
     }
     return -1;
   }
