@@ -257,9 +257,9 @@ class FileToolsTest {
   }
 
   @Test
-  @DisplayName("edit_file 写回前复检 FILE_WRITE")
-  void editFileRechecksPathBeforeWrite() throws IOException {
-    Path target = dir.resolve("edit.txt");
+  @DisplayName("edit_file 读前复检 FILE_WRITE（防 readString 窗口读出白名单）")
+  void editFileRechecksPathBeforeRead() throws IOException {
+    Path target = dir.resolve("edit-read.txt");
     Files.writeString(target, "hello");
     AtomicInteger fileWrites = new AtomicInteger();
     Sandbox sandbox =
@@ -273,7 +273,28 @@ class FileToolsTest {
     assertThrows(
         SandboxViolationException.class,
         () -> guarded.editFile(target.toString(), "hello", "world"));
-    assertEquals(2, fileWrites.get());
+    assertEquals(2, fileWrites.get(), "应在入口与 readString 前各 enforce 一次");
+    assertEquals("hello", Files.readString(target), "读前复检拒绝后不得改写");
+  }
+
+  @Test
+  @DisplayName("edit_file 写回前复检 FILE_WRITE")
+  void editFileRechecksPathBeforeWrite() throws IOException {
+    Path target = dir.resolve("edit.txt");
+    Files.writeString(target, "hello");
+    AtomicInteger fileWrites = new AtomicInteger();
+    Sandbox sandbox =
+        action -> {
+          if (action.type() == ActionType.FILE_WRITE && fileWrites.incrementAndGet() >= 3) {
+            throw new SandboxViolationException("复检拒绝: " + action.target());
+          }
+        };
+    FileTools guarded = new FileTools(sandbox);
+
+    assertThrows(
+        SandboxViolationException.class,
+        () -> guarded.editFile(target.toString(), "hello", "world"));
+    assertEquals(3, fileWrites.get(), "入口 / 读前 / 写前共三次 FILE_WRITE");
     assertEquals("hello", Files.readString(target), "复检拒绝后不得改写");
   }
 
