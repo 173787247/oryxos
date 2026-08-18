@@ -17,6 +17,8 @@
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder>
                 <pattern>${LOG_PATTERN}</pattern>
+                <!-- 显式 UTF-8：中文 Windows 控制台为 GBK，需配合调用侧 [Console]::OutputEncoding=UTF8 / chcp 65001 -->
+                <charset>UTF-8</charset>
             </encoder>
         </appender>
         <root level="INFO">
