@@ -107,6 +107,8 @@ public class FileTools {
       throw new IllegalArgumentException("文件不存在或不是普通文件: " + path);
     }
     try {
+      // 读前复检：与 read_file 同款——防首次校验到 readString 间路径被换成外向软链读出白名单
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       String content = Files.readString(file);
       int first = content.indexOf(oldString);
       if (first < 0) {
@@ -116,6 +118,7 @@ public class FileTools {
         // 多处匹配会改错地方——要求唯一，逼调用方给足上下文（Claude Code/Cursor 同款约束）
         throw new IllegalArgumentException("原文本在文件中出现多次，无法定位唯一编辑点: " + path);
       }
+      // 写前复检：与 write_file 同款
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       Files.writeString(file, content.replace(oldString, newString));
       return "已编辑: " + path;
