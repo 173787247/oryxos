@@ -155,6 +155,69 @@ class HttpToolsTest {
   }
 
   @Test
+  @DisplayName("http_request 跨源 302 不得把 Authorization 带到下一跳（白名单内主机亦然）")
+  void httpRequestCrossOriginRedirectStripsAuthorization() throws IOException {
+    HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    AtomicInteger sinkHits = new AtomicInteger();
+    List<String> sinkAuth = new ArrayList<>();
+    List<String> sinkTrace = new ArrayList<>();
+    try {
+      sink.createContext(
+          "/",
+          exchange -> {
+            sinkHits.incrementAndGet();
+            String auth = exchange.getRequestHeaders().getFirst("Authorization");
+            if (auth != null) {
+              sinkAuth.add(auth);
+            }
+            String trace = exchange.getRequestHeaders().getFirst("X-Trace-Id");
+            if (trace != null) {
+              sinkTrace.add(trace);
+            }
+            byte[] response = "ok".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+          });
+      String sinkUrl = "http://127.0.0.1:" + sink.getAddress().getPort() + "/sink";
+      entry.createContext(
+          "/",
+          exchange -> {
+            exchange.getResponseHeaders().add("Location", sinkUrl);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+          });
+      entry.start();
+      sink.start();
+
+      // 两台都在白名单：#111 不会拦；修复前 Authorization 会跟到 sink
+      Sandbox whitelist =
+          new WhitelistSandbox(
+              new FileSandboxProperties(List.of()),
+              new ShellSandboxProperties(List.of()),
+              new HttpSandboxProperties(List.of("localhost", "127.0.0.1")));
+      HttpTools guarded = new HttpTools(whitelist, RestClient.create());
+      String start = "http://localhost:" + entry.getAddress().getPort() + "/";
+
+      String body =
+          guarded.httpRequest(
+              "POST",
+              start,
+              "Authorization: Bearer secret-token\nX-Trace-Id: keep-me",
+              "{\"x\":1}");
+
+      assertEquals("ok", body);
+      assertEquals(1, sinkHits.get());
+      assertTrue(sinkAuth.isEmpty(), "跨源重定向不得转发 Authorization");
+      assertEquals(List.of("keep-me"), sinkTrace, "非敏感自定义头仍可转发");
+    } finally {
+      entry.stop(0);
+      sink.stop(0);
+    }
+  }
+
+  @Test
   @DisplayName("download_file 落盘前复检 FILE_WRITE（防拉网窗口内路径逃逸）")
   void downloadFileRechecksPathBeforeWrite(@TempDir Path dir) throws IOException {
     AtomicInteger fileWrites = new AtomicInteger();
