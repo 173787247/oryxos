@@ -54,17 +54,59 @@ public class KnowledgeApiController {
   private final KnowledgeService knowledgeService;
   private final KnowledgeBackendRegistry backendRegistry;
   private final KnowledgeBindingService bindingService;
+  private final io.oryxos.web.knowledge.KnowledgeMetricsService metricsService;
   private final Path knowledgeRoot;
 
   public KnowledgeApiController(
       KnowledgeService knowledgeService,
       KnowledgeBackendRegistry backendRegistry,
       KnowledgeBindingService bindingService,
+      String oryxosRoot) {
+    this(knowledgeService, backendRegistry, bindingService, null, oryxosRoot);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public KnowledgeApiController(
+      KnowledgeService knowledgeService,
+      KnowledgeBackendRegistry backendRegistry,
+      KnowledgeBindingService bindingService,
+      io.oryxos.web.knowledge.KnowledgeMetricsService metricsService,
       @Value("${oryxos.root:.oryxos}") String oryxosRoot) {
     this.knowledgeService = knowledgeService;
     this.backendRegistry = backendRegistry;
     this.bindingService = bindingService;
+    this.metricsService = metricsService;
     this.knowledgeRoot = Path.of(oryxosRoot).resolve("knowledge").toAbsolutePath().normalize();
+  }
+
+  /** 使用看板（FR-023）：只聚合审计数据；时间窗缺省最近 30 天。 */
+  @GetMapping("/{name}/metrics")
+  public ApiResponse<io.oryxos.web.controller.dto.KnowledgeMetricsView> metrics(
+      @PathVariable String name,
+      @RequestParam(value = "from", required = false) String from,
+      @RequestParam(value = "to", required = false) String to) {
+    requireBase(name);
+    if (metricsService == null) {
+      throw new IllegalStateException("知识库看板服务未装配");
+    }
+    java.time.Instant toInstant = parseInstant(to, java.time.Instant.now());
+    java.time.Instant fromInstant =
+        parseInstant(from, toInstant.minus(java.time.Duration.ofDays(30)));
+    if (fromInstant.isAfter(toInstant)) {
+      throw new IllegalArgumentException("时间窗非法：from 晚于 to");
+    }
+    return ApiResponse.ok(metricsService.compute(name, fromInstant, toInstant));
+  }
+
+  private static java.time.Instant parseInstant(String raw, java.time.Instant fallback) {
+    if (raw == null || raw.isBlank()) {
+      return fallback;
+    }
+    try {
+      return java.time.Instant.parse(raw);
+    } catch (java.time.format.DateTimeParseException e) {
+      throw new IllegalArgumentException("时间参数须为 ISO-8601 Instant（如 2026-08-19T00:00:00Z）: " + raw);
+    }
   }
 
   @GetMapping

@@ -238,6 +238,7 @@ async function refreshKbDetail(name) {
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
     kbDetail.value = { name, base: body.data.base, documents: body.data.documents || [], loading: false, error: null, busy: false }
+    loadKbMetrics(kbMetrics.range)
   } catch (e) { kbDetail.value = { name, base: null, documents: [], loading: false, error: e.message, busy: false } }
 }
 async function createKb() {
@@ -292,6 +293,28 @@ async function reindexKb() {
     await refreshKbDetail(name)
   } catch (e) { kbDetail.value = { ...kbDetail.value, busy: false, error: e.message } }
 }
+// —— 使用看板（FR-023）：只消费审计聚合；时间窗三档 ——
+const kbMetrics = reactive({ range: '7d', loading: false, error: null, data: null })
+function metricsFrom(range) {
+  const now = Date.now()
+  if (range === '7d') return new Date(now - 7 * 86400e3).toISOString()
+  if (range === '30d') return new Date(now - 30 * 86400e3).toISOString()
+  return new Date(0).toISOString()
+}
+async function loadKbMetrics(range) {
+  if (!kbDetail.value) return
+  kbMetrics.range = range || kbMetrics.range
+  kbMetrics.loading = true; kbMetrics.error = null
+  try {
+    const name = kbDetail.value.name
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/metrics?from=${encodeURIComponent(metricsFrom(kbMetrics.range))}&to=${encodeURIComponent(new Date().toISOString())}`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    kbMetrics.data = body.data
+  } catch (e) { kbMetrics.error = e.message } finally { kbMetrics.loading = false }
+}
+function fmtRate(rate) { return rate == null ? '—' : (rate * 100).toFixed(1) + '%' }
+
 async function deleteKbDoc(relPath) {
   if (!kbDetail.value) return
   if (!confirm(`删除文档「${relPath}」？（源文件与索引片段一并删除）`)) return
@@ -1720,6 +1743,43 @@ const outputRows = computed(() =>
                     </tr>
                   </tbody>
                 </table>
+
+                <!-- 使用看板（FR-023）：只消费审计数据聚合，指标可与审计记录核对（SC-009） -->
+                <h3 class="sec" style="margin-top:20px">使用看板</h3>
+                <div class="md-toggle" style="margin-bottom:8px">
+                  <button :class="['md-seg', { on: kbMetrics.range === '7d' }]" @click="loadKbMetrics('7d')">近 7 天</button>
+                  <button :class="['md-seg', { on: kbMetrics.range === '30d' }]" @click="loadKbMetrics('30d')">近 30 天</button>
+                  <button :class="['md-seg', { on: kbMetrics.range === 'all' }]" @click="loadKbMetrics('all')">全部</button>
+                </div>
+                <p v-if="kbMetrics.loading" class="empty">加载中…</p>
+                <p v-else-if="kbMetrics.error" class="error">看板加载失败：{{ kbMetrics.error }}</p>
+                <template v-else-if="kbMetrics.data">
+                  <p class="empty">
+                    检索 <b>{{ kbMetrics.data.retrievalCount }}</b> 次 ·
+                    零结果率 <b>{{ fmtRate(kbMetrics.data.zeroResultRate) }}</b>（{{ kbMetrics.data.zeroResultCount }} 次）·
+                    降级率 <b>{{ fmtRate(kbMetrics.data.degradedRate) }}</b> ·
+                    出处引用率 <b>{{ fmtRate(kbMetrics.data.citationRate) }}</b>（近似）
+                  </p>
+                  <template v-if="kbMetrics.data.hitDocuments.length">
+                    <p class="empty">命中文档分布：</p>
+                    <table>
+                      <thead><tr><th>文档</th><th style="width:90px">命中次数</th></tr></thead>
+                      <tbody>
+                        <tr v-for="h in kbMetrics.data.hitDocuments" :key="h.relPath">
+                          <td class="mono">{{ h.relPath }}</td><td>{{ h.hits }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </template>
+                  <template v-if="kbMetrics.data.zeroResultQueries.length || kbMetrics.data.unattributedZeroResults">
+                    <p class="empty">零结果查询（判断该补什么文档）：</p>
+                    <ul class="issue-list">
+                      <li v-for="(q, i) in kbMetrics.data.zeroResultQueries" :key="'z'+i" class="mono">{{ q }}</li>
+                      <li v-for="(q, i) in kbMetrics.data.unattributedZeroResultQueries" :key="'u'+i" class="mono">{{ q }}（跨库聚合，未限定本库）</li>
+                    </ul>
+                  </template>
+                  <p v-else-if="!kbMetrics.data.retrievalCount" class="empty">（时间窗内暂无检索记录）</p>
+                </template>
               </template>
             </div>
           </div>

@@ -408,6 +408,27 @@ public class OryxOsRuntime {
     return registry;
   }
 
+  /** 知识库热加载专用守护线程执行器（与 WorkspaceWatcher 同款形态）。 */
+  @Bean
+  ThreadPoolTaskExecutor knowledgeWatcherExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(1);
+    executor.setThreadNamePrefix("oryxos-knowledge-watcher-");
+    executor.setDaemon(true);
+    executor.initialize();
+    return executor;
+  }
+
+  /** FR-010：实时监听 .oryxos/knowledge/——启动全量对账 + 运行中增改删收敛到索引（US4）。 */
+  @Bean(initMethod = "start")
+  io.oryxos.knowledge.watch.KnowledgeWatcher knowledgeWatcher(
+      io.oryxos.knowledge.index.KnowledgeIndexService knowledgeIndexService,
+      ThreadPoolTaskExecutor knowledgeWatcherExecutor) {
+    return new io.oryxos.knowledge.watch.KnowledgeWatcher(
+        oryxosRoot(), knowledgeIndexService, knowledgeWatcherExecutor);
+  }
+
   @Bean
   io.oryxos.core.knowledge.KnowledgeService knowledgeService(
       io.oryxos.core.knowledge.KnowledgeBindingService knowledgeBindingService,
