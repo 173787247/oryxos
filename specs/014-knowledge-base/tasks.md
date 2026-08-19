@@ -19,10 +19,10 @@ US5 远程桩与 US6 无 key 自测最后收口契约与 CI。
 
 **Purpose**: 新建 `oryxos-knowledge` 模块（宪法停点 1）并搭好跨故事测试地基。
 
-- [ ] T001 新建 `oryxos-knowledge/pom.xml`（对照 `oryxos-memory`：依赖 core + storage +
+- [x] T001 新建 `oryxos-knowledge/pom.xml`（对照 `oryxos-memory`：依赖 core + storage +
       spring-ai-model 取 `@Tool`；新增 Apache PDFBox），并把模块加入根 `pom.xml`、
       `oryxos-boot/pom.xml`、`oryxos-cli/pom.xml` 依赖聚合
-- [ ] T002 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/knowledge/KnowledgeWorkspaceFixture.java`
+- [x] T002 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/knowledge/KnowledgeWorkspaceFixture.java`
       建共享测试夹具：临时工作区内创建知识库目录（KNOWLEDGE.md 清单 + md/txt/PDF 文档）、
       Agent 目录、合法/dangling/escaped/name-mismatch 绑定软连接
 
@@ -36,31 +36,31 @@ US5 远程桩与 US6 无 key 自测最后收口契约与 CI。
 
 ### Tests
 
-- [ ] T003 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/knowledge/KnowledgeManifestTest.java`
+- [x] T003 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/knowledge/KnowledgeManifestTest.java`
       添加清单解析失败测试：frontmatter name/description 校验、name 与目录名不一致、
       backend 缺省 local、远程 connection 的 `${ENV_VAR}` 占位不解析明文
-- [ ] T004 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/knowledge/KnowledgeBindingServiceTest.java`
+- [x] T004 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/knowledge/KnowledgeBindingServiceTest.java`
       添加绑定失败测试：bind/unbind/replace/inspect/references/reconcile 全操作 +
       四类非法态检测 + 真实路径越界拒绝（复用 `RealPathBoundary`）
 
 ### Implementation
 
-- [ ] T005 [P] 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/model/` 创建不可变值对象：
+- [x] T005 [P] 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/model/` 创建不可变值对象：
       `KnowledgeQuery`、`KnowledgeHit`、`Citation`、`KnowledgeBaseInfo`、`DocumentStatus`、
       `KnowledgeCapabilities`（字段按 data-model.md §4）
-- [ ] T006 [P] 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/` 创建契约接口：
+- [x] T006 [P] 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/` 创建契约接口：
       `KnowledgeRetriever`（必选）、`KnowledgeAdmin`（可选）、`KnowledgeBackend`、
       `KnowledgeBackendRegistry`（按名注册 + localDefault）、`KnowledgeService`（门面），
       形状按 contracts/knowledge-spi.md §1，全同步签名
-- [ ] T007 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/KnowledgeManifest.java`
+- [x] T007 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/KnowledgeManifest.java`
       实现 KNOWLEDGE.md frontmatter 读取与合法性校验（T003 转绿）
-- [ ] T008 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/KnowledgeBindingService.java`
+- [x] T008 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/KnowledgeBindingService.java`
       照 `AgentSkillBindingService` 范式实现绑定 CRUD 与巡检（T004 转绿）；被引用删除抛
       `KnowledgeReferencedException`
-- [ ] T009 [P] 在 `oryxos-storage/src/main/resources/schema.sql` 末尾追加
+- [x] T009 [P] 在 `oryxos-storage/src/main/resources/schema.sql` 末尾追加
       `knowledge_documents` / `knowledge_chunks` DDL（data-model.md §2：中文块注释 +
       `IF NOT EXISTS` + `idx_` 索引 + generation 双缓冲列 + dim/embedding_model 列）
-- [ ] T010 [P] 在 `oryxos-storage/src/main/java/io/oryxos/storage/` 创建
+- [x] T010 [P] 在 `oryxos-storage/src/main/java/io/oryxos/storage/` 创建
       `KnowledgeDocumentEntity.java`、`KnowledgeChunkEntity.java`、
       `KnowledgeDocumentRepository.java`、`KnowledgeChunkRepository.java`（平铺包，随现状）
 
@@ -74,38 +74,38 @@ US5 远程桩与 US6 无 key 自测最后收口契约与 CI。
 
 ### Tests
 
-- [ ] T011 [P] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/index/DocumentParserTest.java`
+- [x] T011 [P] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/index/DocumentParserTest.java`
       添加解析失败测试：md/txt 片段序号、文本型 PDF 页码出处、扫描件（无文本层）拒绝、
       空文档跳过、>10MB 拒绝、二进制忽略告警
-- [ ] T012 [P] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/index/ChunkerTest.java`
+- [x] T012 [P] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/index/ChunkerTest.java`
       添加切分失败测试：标题边界优先 + 长度上限、不跨文档、位置可回溯（行为契约 2）
-- [ ] T013 [P] 在 `oryxos-provider/src/test/java/io/oryxos/provider/MockEmbeddingModelTest.java`
+- [x] T013 [P] 在 `oryxos-provider/src/test/java/io/oryxos/provider/MockEmbeddingModelTest.java`
       添加确定性测试：同文本恒同向量、单位向量、不同文本可区分（行为契约 6 / SC-004）
-- [ ] T014 [P] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/retrieve/RetrievalPipelineTest.java`
+- [x] T014 [P] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/retrieve/RetrievalPipelineTest.java`
       添加流水线失败测试：双路召回并行、RRF 名次融合、精排槽位直通、embedding 不可用走
       关键词降级并标注（行为契约 4）、维度/模型不一致拒绝混比（行为契约 5）
 
 ### Implementation
 
-- [ ] T015 [P] 在 `oryxos-provider/src/main/java/io/oryxos/provider/ProviderEmbeddingModelFactory.java`
+- [x] T015 [P] 在 `oryxos-provider/src/main/java/io/oryxos/provider/ProviderEmbeddingModelFactory.java`
       复用 `OpenAiApi` 构建链（stripTrailingV1/HTTP1.1/超时工厂）按名构建 EmbeddingModel；
       `knowledge.embedding.provider` 未配置 ⇒ 显式不可用（可读报错，不静默回退，plan 停点 3）
-- [ ] T016 [P] 在 `oryxos-provider/src/main/java/io/oryxos/provider/MockEmbeddingModel.java`
+- [x] T016 [P] 在 `oryxos-provider/src/main/java/io/oryxos/provider/MockEmbeddingModel.java`
       实现文本哈希播种的确定性伪随机单位向量（T013 转绿）
-- [ ] T017 [P] 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/index/` 实现
+- [x] T017 [P] 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/index/` 实现
       `DocumentParser` SPI + `MarkdownParser`/`TextParser`/`PdfParser`（PDFBox）+ `Chunker`
       （T011/T012 转绿）
-- [ ] T018 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/store/SqliteVectorIndexStore.java`
+- [x] T018 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/store/SqliteVectorIndexStore.java`
       实现 chunk/向量 BLOB 存取与按库全量加载（float32 编解码；接口形状不带 knowledge
       语义，FR-016；配置键 `knowledge.store` 默认 sqlite）
-- [ ] T019 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/retrieve/RetrievalPipeline.java`
+- [x] T019 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/retrieve/RetrievalPipeline.java`
       实现双路召回（纯 Java 余弦暴力 ∥ 关键词 LIKE）→ RRF 融合 → 精排槽位（T014 转绿）
-- [ ] T020 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/index/KnowledgeIndexService.java`
+- [x] T020 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/index/KnowledgeIndexService.java`
       实现导入流水线：SHA-256 指纹变更检测、文档状态机（PENDING→INDEXING→READY/FAILED
       + 可读失败原因）、虚拟线程后台推进、失败可重试不静默丢弃
-- [ ] T021 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/LocalKnowledgeBackend.java`
+- [x] T021 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/LocalKnowledgeBackend.java`
       组装为全能力后端插件（capabilities 全 true、rerank false）并实现 `KnowledgeAdmin`
-- [ ] T022 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/contract/KnowledgeBackendContractTest.java`
+- [x] T022 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/contract/KnowledgeBackendContractTest.java`
       建参数化契约测试骨架：8 条行为契约逐条断言，先只挂 `LocalKnowledgeBackend`
       （US5 阶段挂远程桩），mock 向量下全部转绿
 

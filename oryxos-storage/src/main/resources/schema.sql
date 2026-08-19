@@ -160,3 +160,41 @@ CREATE TABLE IF NOT EXISTS web_sessions (
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_web_sessions_session ON web_sessions (session_id);
+
+-- knowledge_documents：知识文档索引状态（014 知识库）——库内源文件的派生数据，可从文件系统全量重建。
+-- 状态机 PENDING → INDEXING → READY / FAILED（Clarify-Q3 两段式上传）；generation 为双缓冲代号（FR-024）：
+-- 重建以 generation+1 写新代，旧代持续服务检索，就绪后原子切换并清理旧代。
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_name VARCHAR(128) NOT NULL,
+    rel_path VARCHAR(512) NOT NULL,
+    content_sha256 VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    failure_reason TEXT,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    generation INTEGER NOT NULL DEFAULT 0,
+    indexed_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    UNIQUE (kb_name, rel_path, generation)
+);
+CREATE INDEX IF NOT EXISTS idx_kdoc_kb ON knowledge_documents (kb_name, generation);
+
+-- knowledge_chunks：知识片段（检索最小单元）——embedding 为 float32[] BLOB（小端序），检索按库全量加载
+-- 做纯 Java 余弦暴力扫描（research D1）；dim + embedding_model 支撑维度/模型一致性校验（FR-014）：
+-- 与当前配置不一致时拒绝新旧向量混合比较并提示重建。page_no 仅 PDF 文档有值（出处用页码，FR-003）。
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    kb_name VARCHAR(128) NOT NULL,
+    seq INTEGER NOT NULL,
+    page_no INTEGER,
+    content TEXT NOT NULL,
+    embedding BLOB,
+    dim INTEGER,
+    embedding_model VARCHAR(128),
+    generation INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kchunk_kb ON knowledge_chunks (kb_name, generation);
+CREATE INDEX IF NOT EXISTS idx_kchunk_doc ON knowledge_chunks (document_id);
