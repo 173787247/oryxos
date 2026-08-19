@@ -1,6 +1,10 @@
 package io.oryxos.core.context;
 
 import io.oryxos.core.agent.AgentMarkdown;
+import io.oryxos.core.knowledge.BoundKnowledgeDescriptor;
+import io.oryxos.core.knowledge.KnowledgeBindingInspection;
+import io.oryxos.core.knowledge.KnowledgeBindingIssue;
+import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.skill.AgentSkillBindingReader;
 import io.oryxos.core.skill.BindingInspection;
@@ -38,12 +42,24 @@ public class ContextLoader {
   private static final Set<String> FILE_WRITE_TOOLS =
       Set.of("write_file", "append_file", "edit_file", "make_dir", "download_file");
 
+  /** 检索工具名：Profile 声明了它才注入知识库元数据（对照 FILE_WRITE_TOOLS 的按需注入模式）。 */
+  private static final String RETRIEVE_KNOWLEDGE_TOOL = "retrieve_knowledge";
+
   private final Path oryxosRoot;
   private final AgentSkillBindingReader skillBindings;
+  private final KnowledgeBindingService knowledgeBindings;
 
   public ContextLoader(Path oryxosRoot, AgentSkillBindingReader skillBindings) {
+    this(oryxosRoot, skillBindings, null);
+  }
+
+  public ContextLoader(
+      Path oryxosRoot,
+      AgentSkillBindingReader skillBindings,
+      KnowledgeBindingService knowledgeBindings) {
     this.oryxosRoot = oryxosRoot;
     this.skillBindings = skillBindings;
+    this.knowledgeBindings = knowledgeBindings;
   }
 
   public String load(Profile profile) {
@@ -61,6 +77,8 @@ public class ContextLoader {
     }
     // 当前 Agent 的有效 Skill：只注入目录元数据与读取路径，正文由 read_file 按需加载
     appendSkills(context, profile);
+    // 当前 Agent 绑定的知识库：只注入 name + description + 检索指引；零绑定零注入、正文永不预载（FR-005）
+    appendKnowledge(context, profile);
     // 告知会写盘的 Agent 它的绝对产出目录（已在文件白名单内），落盘文件有确定去处，避免它猜 ./output 撞沙箱
     appendOutputDir(context, profile);
     for (String bootstrap : profile.bootstrap()) {
@@ -105,6 +123,39 @@ public class ContextLoader {
           .append(binding.description())
           .append("\n  SKILL.md：")
           .append(binding.skillFile())
+          .append('\n');
+    }
+  }
+
+  /** 每轮重扫知识库绑定（渐进披露，FR-005）：问题项 WARN 跳过，合法项只注入元数据与检索指引。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "Every untrusted issue string is passed through sanitize before logging.")
+  private void appendKnowledge(StringBuilder context, Profile profile) {
+    if (knowledgeBindings == null || !profile.tools().contains(RETRIEVE_KNOWLEDGE_TOOL)) {
+      return;
+    }
+    KnowledgeBindingInspection inspection = knowledgeBindings.inspect(profile.name());
+    for (KnowledgeBindingIssue issue : inspection.issues()) {
+      LOG.warn(
+          "Agent 知识库绑定异常 [{}]，跳过 {}/{}: {}",
+          issue.type(),
+          sanitize(issue.agentName()),
+          sanitize(issue.entryName()),
+          sanitize(issue.message()));
+    }
+    if (inspection.bindings().isEmpty()) {
+      return;
+    }
+    context.append(
+        "你绑定了以下知识库。回答涉及其中内容时，先用 retrieve_knowledge 检索（结果带出处，"
+            + "回答时给出出处）；命中的片段只是入口，不足以回答时按结果里的 file 路径用 read_file 读取原文补充：\n");
+    for (BoundKnowledgeDescriptor binding : inspection.bindings()) {
+      context
+          .append("- ")
+          .append(binding.name())
+          .append("：")
+          .append(binding.description())
           .append('\n');
     }
   }

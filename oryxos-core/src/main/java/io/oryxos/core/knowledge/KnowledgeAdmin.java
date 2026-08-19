@@ -12,6 +12,9 @@ public interface KnowledgeAdmin {
   /** 创建知识库（目录 + 清单）；重名拒绝。 */
   void createBase(String name, String description);
 
+  /** 更新库描述（只改清单 frontmatter）。 */
+  void updateBase(String name, String description);
+
   /** 删除知识库及其索引数据；引用保护（FR-011）由上层先行校验。 */
   void deleteBase(String name);
 

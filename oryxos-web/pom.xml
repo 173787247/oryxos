@@ -59,6 +59,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 知识库端点测试用真实本地后端（内存存储档），只进测试路径 -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-knowledge</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

@@ -246,6 +246,7 @@ public class OryxOsRuntime {
       SkillRegistry skillRegistry,
       AgentSkillBindingService skillBindings,
       SkillCatalog skillCatalog,
+      io.oryxos.core.knowledge.KnowledgeService knowledgeService,
       @Value("${oryxos.author.provider:}") String authorProvider,
       @Value("${oryxos.author.model:}") String authorModel) {
     String defaultProvider =
@@ -260,6 +261,7 @@ public class OryxOsRuntime {
         authorProvider == null || authorProvider.isBlank() ? defaultProvider : authorProvider;
     // 30 节：把真实工具清单 + notify 渠道注入作者提示词，让"一句话生成"只用真实能力、可直接运行
     // 31 节：再把已连接 MCP server 目录也喂给它，生成的 AGENT.md 才可能正确带上 mcp_servers
+    // 014：再把已有知识库名单（name → description）也喂给它，生成的草稿才可能带出正确的绑定建议（FR-018）
     return new AgentLifecycleService(
         agentLoader,
         profileRegistry,
@@ -274,7 +276,15 @@ public class OryxOsRuntime {
         mcpServerAdmin,
         skillRegistry,
         skillBindings,
-        skillCatalog);
+        skillCatalog,
+        () ->
+            knowledgeService.listBases().stream()
+                .collect(
+                    java.util.stream.Collectors.toMap(
+                        io.oryxos.core.knowledge.model.KnowledgeBaseInfo::name,
+                        io.oryxos.core.knowledge.model.KnowledgeBaseInfo::description,
+                        (a, b) -> a,
+                        java.util.LinkedHashMap::new)));
   }
 
   /** 30 节 WorkspaceWatcher 专用守护线程执行器（跟 25 节调度线程池同类，不手工 new Thread）。 */
@@ -298,8 +308,112 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  ContextLoader contextLoader(AgentSkillBindingService skillBindings) {
-    return new ContextLoader(oryxosRoot(), skillBindings);
+  ContextLoader contextLoader(
+      AgentSkillBindingService skillBindings,
+      io.oryxos.core.knowledge.KnowledgeBindingService knowledgeBindings) {
+    return new ContextLoader(oryxosRoot(), skillBindings, knowledgeBindings);
+  }
+
+  // ---- 014 知识库：契约在 core、实现经 oryxos-knowledge、按名注册（宪法 III 同款哲学）----
+
+  @Bean
+  io.oryxos.core.knowledge.KnowledgeBindingService knowledgeBindingService() {
+    return new io.oryxos.core.knowledge.KnowledgeBindingService(oryxosRoot());
+  }
+
+  /** 向量索引存储可插拔位（research D1）：默认 sqlite；未知档位明确报错不静默降级。 */
+  @Bean
+  io.oryxos.knowledge.store.ChunkStore chunkStore(
+      @Value("${knowledge.store:sqlite}") String store,
+      io.oryxos.storage.KnowledgeDocumentRepository documentRepository,
+      io.oryxos.storage.KnowledgeChunkRepository chunkRepository) {
+    return switch (store) {
+      case "sqlite" ->
+          new io.oryxos.knowledge.store.SqliteChunkStore(documentRepository, chunkRepository);
+      case "memory" -> new io.oryxos.knowledge.store.InMemoryChunkStore(); // 测试/演示档，重启即失
+      default ->
+          throw new IllegalStateException("未知的 knowledge.store: " + store + "（支持 sqlite / memory）");
+    };
+  }
+
+  /**
+   * embedding 供给者：按名从 Provider 注册表取凭证即时构造并缓存（FR-007 复用同一套凭证）。 未配置不静默回退（plan 停点 3）——lazy
+   * 抛可读异常，由检索降级/导入报错消化（FR-013）。
+   */
+  @Bean
+  java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> knowledgeEmbedderSupplier(
+      ProviderRegistry providerRegistry,
+      @Value("${knowledge.embedding.provider:}") String embeddingProvider,
+      @Value("${knowledge.embedding.model:}") String embeddingModel) {
+    io.oryxos.provider.ProviderEmbeddingModelFactory factory =
+        new io.oryxos.provider.ProviderEmbeddingModelFactory();
+    java.util.concurrent.atomic.AtomicReference<io.oryxos.core.embedding.TextEmbedder> cache =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    return () -> {
+      io.oryxos.core.embedding.TextEmbedder cached = cache.get();
+      if (cached != null) {
+        return cached;
+      }
+      if (embeddingProvider == null || embeddingProvider.isBlank()) {
+        throw new IllegalArgumentException(
+            "未配置 embedding provider（knowledge.embedding.provider）：向量化不可用，"
+                + "请配置支持 embedding 端点的 provider（如 qwen）或 mock");
+      }
+      ProviderDef def =
+          providerRegistry
+              .find(embeddingProvider)
+              .orElseThrow(
+                  () ->
+                      new IllegalArgumentException(
+                          "embedding provider 不存在于 Provider 注册表: " + embeddingProvider));
+      io.oryxos.core.embedding.TextEmbedder built =
+          factory.buildOne(def.name(), def.apiKey(), def.baseUrl(), embeddingModel);
+      cache.set(built);
+      return built;
+    };
+  }
+
+  @Bean
+  io.oryxos.knowledge.index.KnowledgeIndexService knowledgeIndexService(
+      io.oryxos.knowledge.store.ChunkStore chunkStore,
+      java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> knowledgeEmbedderSupplier,
+      ExecutorService agentExecutionExecutor) {
+    // 两段式导入的后台段跑在虚拟线程执行器上（宪法 VII：同步代码 + 虚拟线程，无异步编程模型）
+    return new io.oryxos.knowledge.index.KnowledgeIndexService(
+        oryxosRoot().resolve("knowledge"),
+        chunkStore,
+        knowledgeEmbedderSupplier,
+        agentExecutionExecutor);
+  }
+
+  @Bean
+  io.oryxos.knowledge.LocalKnowledgeBackend localKnowledgeBackend(
+      io.oryxos.knowledge.store.ChunkStore chunkStore,
+      io.oryxos.knowledge.index.KnowledgeIndexService knowledgeIndexService,
+      java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder>
+          knowledgeEmbedderSupplier) {
+    return new io.oryxos.knowledge.LocalKnowledgeBackend(
+        oryxosRoot().resolve("knowledge"),
+        chunkStore,
+        knowledgeIndexService,
+        knowledgeEmbedderSupplier);
+  }
+
+  @Bean
+  io.oryxos.core.knowledge.KnowledgeBackendRegistry knowledgeBackendRegistry(
+      io.oryxos.knowledge.LocalKnowledgeBackend localKnowledgeBackend) {
+    io.oryxos.core.knowledge.KnowledgeBackendRegistry registry =
+        new io.oryxos.core.knowledge.KnowledgeBackendRegistry();
+    registry.register(localKnowledgeBackend);
+    return registry;
+  }
+
+  @Bean
+  io.oryxos.core.knowledge.KnowledgeService knowledgeService(
+      io.oryxos.core.knowledge.KnowledgeBindingService knowledgeBindingService,
+      io.oryxos.core.knowledge.KnowledgeBackendRegistry knowledgeBackendRegistry) {
+    return new io.oryxos.core.knowledge.KnowledgeServiceImpl(
+        oryxosRoot().resolve("knowledge"), knowledgeBindingService, knowledgeBackendRegistry);
   }
 
   @Bean
@@ -472,7 +586,8 @@ public class OryxOsRuntime {
       MemoryService memoryService,
       NotifyChannelRegistry notifyChannelRegistry,
       McpClientService mcpClientService,
-      UserInteraction userInteraction) {
+      UserInteraction userInteraction,
+      io.oryxos.core.knowledge.KnowledgeService knowledgeService) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
     registry.registerAnnotated(new FileTools(sandbox)); // read/write/list/edit/grep/glob
@@ -496,6 +611,10 @@ public class OryxOsRuntime {
     registry.register(new NotifyTools(notifyAdapters, sandbox, notifyChannelRegistry));
     // 记忆工具：save_memory / recall_memory（补齐 20 节预留的两工具面），只认门面对后端无感
     registry.registerAnnotated(new MemoryTools(memoryService));
+    // 知识检索工具（014）：retrieve_knowledge——只认门面，范围由门面按发起 Agent 的绑定圈定
+    registry.registerAnnotated(
+        new io.oryxos.knowledge.builtin.KnowledgeTools(
+            knowledgeService, oryxosRoot().resolve("knowledge")));
     // MCP：失联的 server 只 WARN 跳过，不拖垮启动；31 节起走长驻 bean，管理台 CRUD 复用同一份连接状态
     mcpClientService.connectAll(registry);
     return registry;

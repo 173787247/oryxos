@@ -198,6 +198,7 @@ function select(key) {
   if (key === 'whitelist') { cancelWl(); loadWhitelist() }
   if (key === 'mcp') { cancelMcp(); loadMcp(); loadMcpCatalog() }
   if (key === 'skills') { cancelSkill(); closeSkillDetail(); loadSkills() }
+  if (key === 'knowledge') { cancelKb(); closeKbDetail(); loadKnowledge() }
   if (key === 'overview') { loadOverviewStats() }
 }
 
@@ -210,8 +211,97 @@ function refresh() {
   if (key === 'whitelist') { loadWhitelist(); return }
   if (key === 'mcp') { loadMcp(); return }
   if (key === 'skills') { loadSkills(); return }
+  if (key === 'knowledge') { kbDetail.value ? refreshKbDetail(kbDetail.value.name) : loadKnowledge(); return }
   if (key === 'overview') { loadOverviewStats(); return }
   if (NAV.find((n) => n.key === key)?.path) load(key)
+}
+
+// —— 知识库（014）：列表/详情/创建/上传/重建/删除；管理操作按后端能力集渲染（FR-009）——
+const kb = ref({ loading: false, error: null, data: [] })
+const kbDetail = ref(null) // { name, base, documents, loading, error, busy }
+const kbForm = reactive({ open: false, name: '', description: '', busy: false, error: '' })
+async function loadKnowledge() {
+  kb.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch('/api/v1/knowledge')
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    kb.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) { kb.value = { loading: false, error: e.message, data: [] } }
+}
+function cancelKb() { kbForm.open = false; kbForm.name = ''; kbForm.description = ''; kbForm.busy = false; kbForm.error = '' }
+function closeKbDetail() { kbDetail.value = null }
+async function refreshKbDetail(name) {
+  kbDetail.value = { ...(kbDetail.value || { name }), name, loading: true, error: null, busy: false }
+  try {
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    kbDetail.value = { name, base: body.data.base, documents: body.data.documents || [], loading: false, error: null, busy: false }
+  } catch (e) { kbDetail.value = { name, base: null, documents: [], loading: false, error: e.message, busy: false } }
+}
+async function createKb() {
+  kbForm.busy = true; kbForm.error = ''
+  try {
+    const res = await fetch('/api/v1/knowledge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: kbForm.name.trim(), description: kbForm.description.trim() }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '创建失败')
+    cancelKb(); await loadKnowledge()
+  } catch (e) { kbForm.error = e.message } finally { kbForm.busy = false }
+}
+async function deleteKb(name) {
+  if (!confirm(`删除知识库「${name}」？（目录与索引一并删除）`)) return
+  try {
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    const body = await res.json()
+    if (body.code !== 0) {
+      // 409：被 Agent 引用——点名引用方（FR-011）
+      const refs = (body.data?.references || []).map((r) => r.agentName).join('、')
+      throw new Error(refs ? `${body.message}（引用方：${refs}）` : (body.message || '删除失败'))
+    }
+    if (kbDetail.value?.name === name) closeKbDetail()
+    await loadKnowledge()
+  } catch (e) { kb.value = { ...kb.value, error: e.message } }
+}
+async function uploadKbDoc(event) {
+  const file = event.target.files?.[0]
+  event.target.value = '' // 允许重复选同一文件
+  if (!file || !kbDetail.value) return
+  const name = kbDetail.value.name
+  kbDetail.value = { ...kbDetail.value, busy: true, error: null }
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/documents`, { method: 'POST', body: form })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '上传失败')
+    await refreshKbDetail(name)
+  } catch (e) { kbDetail.value = { ...kbDetail.value, busy: false, error: e.message } }
+}
+async function reindexKb() {
+  if (!kbDetail.value) return
+  const name = kbDetail.value.name
+  kbDetail.value = { ...kbDetail.value, busy: true, error: null }
+  try {
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/reindex`, { method: 'POST' })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '重建失败')
+    await refreshKbDetail(name)
+  } catch (e) { kbDetail.value = { ...kbDetail.value, busy: false, error: e.message } }
+}
+async function deleteKbDoc(relPath) {
+  if (!kbDetail.value) return
+  if (!confirm(`删除文档「${relPath}」？（源文件与索引片段一并删除）`)) return
+  const name = kbDetail.value.name
+  try {
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/documents?path=${encodeURIComponent(relPath)}`, { method: 'DELETE' })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '删除失败')
+    await refreshKbDetail(name)
+  } catch (e) { kbDetail.value = { ...kbDetail.value, error: e.message } }
 }
 
 // —— Skill CRUD：.oryxos/skills/<name>/ 存在即已安装，Agent 通过本地相对软连接绑定。——
@@ -435,7 +525,8 @@ async function loadAgents() {
 // 只填 name + description 可直接按模板脚手架；也可先「用大模型生成」各文件、编辑后再创建。
 const agentCreate = reactive({
   open: false, name: '', description: '', provider: '', model: '', notifyChannel: '', skills: [],
-  requiredSkills: [], suggestedSkills: [], files: null, busy: false, error: '',
+  requiredSkills: [], suggestedSkills: [], knowledge: [], suggestedKnowledge: [],
+  files: null, busy: false, error: '',
 })
 
 // 新建页用的 provider / model 下拉数据源：provider 来自 GET /providers；model 来自 GET /providers/{name}/models（服务端代理）
@@ -473,11 +564,14 @@ function openCreate() {
   agentCreate.skills = []
   agentCreate.requiredSkills = []
   agentCreate.suggestedSkills = []
+  agentCreate.knowledge = []
+  agentCreate.suggestedKnowledge = []
   agentCreate.files = null
   agentCreate.busy = false
   agentCreate.error = ''
   loadNotifyChannels()
   loadSkills() // Skill 选择器的数据源（可手动指定必启用的 Skill；不选则由作者模型自动选）
+  loadKnowledge() // 知识库多选的数据源（FR-018 关联入口之一）
   loadCreateProviders() // provider 下拉数据源
 }
 
@@ -498,6 +592,9 @@ async function generateFiles() {
     agentCreate.requiredSkills = body.data.requiredSkills || []
     agentCreate.suggestedSkills = body.data.suggestedSkills || []
     agentCreate.skills = body.data.bindingSkills || []
+    // 一句话生成的知识库绑定建议（FR-018）：合并进选择器，作者确认后随创建生效
+    agentCreate.suggestedKnowledge = body.data.bindingKnowledge || []
+    agentCreate.knowledge = Array.from(new Set([...agentCreate.knowledge, ...agentCreate.suggestedKnowledge]))
   } catch (e) { agentCreate.error = e.message } finally { agentCreate.busy = false }
 }
 
@@ -509,11 +606,11 @@ async function submitCreate() {
     const res = agentCreate.files
       ? await fetch(`/api/v1/agents/${encodeURIComponent(agentCreate.name)}/files`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: agentCreate.files, skillBindings: agentCreate.skills }),
+          body: JSON.stringify({ files: agentCreate.files, skillBindings: agentCreate.skills, knowledgeBindings: agentCreate.knowledge }),
         })
         : await fetch('/api/v1/agents', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: agentCreate.name, description: agentCreate.description, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined, skillBindings: agentCreate.skills }),
+          body: JSON.stringify({ name: agentCreate.name, description: agentCreate.description, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined, skillBindings: agentCreate.skills, knowledgeBindings: agentCreate.knowledge }),
         })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '创建失败')
@@ -891,6 +988,7 @@ async function deleteWhitelist(category, value) {
 // —— Agent 详情：Tab 切换（基本信息 / 文件 / 会话 / 记忆）——
 const agentDetail = ref(null) // { name, agent, tab, loading, error, node, editing }
 const agentBinding = reactive({ selected: [], saving: false, error: null, issues: [] })
+const agentKb = reactive({ selected: [], saving: false, error: null, issues: [] })
 const fileView = ref(null) // { path, loading, error, content, saving, saved }
 // 详情页「编辑基本信息」表单态 + 编辑态的 model 下拉数据源（与新建页的 createModels 分开，避免串台）
 const editBasic = reactive({ description: '', provider: '', model: '' })
@@ -988,19 +1086,28 @@ async function openAgent(agent) {
   agentBinding.selected = [...(agent.skills || [])]
   agentBinding.error = null
   agentBinding.issues = []
+  agentKb.selected = []
+  agentKb.error = null
+  agentKb.issues = []
   fileView.value = null
   resetChat()
   resetAgentMemory()
   try {
-    const [treeRes, bindingRes] = await Promise.all([
+    const [treeRes, bindingRes, kbRes] = await Promise.all([
       fetch('/api/v1/workspace/tree'),
       fetch(`/api/v1/agents/${encodeURIComponent(agent.name)}/skills`),
+      fetch(`/api/v1/agents/${encodeURIComponent(agent.name)}/knowledge`),
       loadSkills(), // Skill 绑定选择器的数据源：存在即已安装
+      loadKnowledge(), // 知识库绑定选择器的数据源
     ])
     const body = await treeRes.json()
     const bindingBody = await bindingRes.json()
+    const kbBody = await kbRes.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
     if (bindingBody.code !== 0) throw new Error(bindingBody.message || '绑定加载失败')
+    if (kbBody.code !== 0) throw new Error(kbBody.message || '知识库绑定加载失败')
+    agentKb.selected = (kbBody.data.bindings || []).map((b) => b.name)
+    agentKb.issues = kbBody.data.issues || []
     const agentsNode = (body.data.children || []).find((c) => c.name === 'agents')
     const node = (agentsNode?.children || []).find((c) => c.name === agent.name) || null
     const outputTree = (body.data.children || []).find((c) => c.name === 'output') || null
@@ -1030,6 +1137,21 @@ async function saveAgentBindings() {
     }
     await loadAgents()
   } catch (e) { agentBinding.error = e.message } finally { agentBinding.saving = false }
+}
+
+async function saveAgentKnowledge() {
+  if (!agentDetail.value) return
+  agentKb.saving = true; agentKb.error = null
+  try {
+    const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/knowledge`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ knowledge: agentKb.selected }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存知识库绑定失败')
+    agentKb.selected = (body.data.bindings || []).map((b) => b.name)
+    agentKb.issues = body.data.issues || []
+  } catch (e) { agentKb.error = e.message } finally { agentKb.saving = false }
 }
 
 // 重新拉取当前 Agent 的元数据 + 文件树（保存文件后刷新基本信息）
@@ -1526,11 +1648,81 @@ const outputRows = computed(() =>
             </div>
           </div>
 
-          <!-- 知识库：占位空列表（待接入知识库端点） -->
-          <table v-else-if="active === 'knowledge'">
-            <thead><tr><th>名称</th><th>描述</th></tr></thead>
-            <tbody><tr><td colspan="2" class="empty">（暂无知识库条目 · 待接入知识库端点）</td></tr></tbody>
-          </table>
+          <!-- 知识库（014）：列表 + 详情（文档清单/上传/重建/单文档删除）；管理操作按后端能力集渲染 -->
+          <div v-else-if="active === 'knowledge'">
+            <!-- 列表视图 -->
+            <template v-if="!kbDetail">
+              <div class="toolbar">
+                <button class="btn btn-primary" @click="kbForm.open = true">+ 新建知识库</button>
+              </div>
+              <div v-if="kbForm.open" class="modal-overlay" @click.self="cancelKb()">
+                <div class="modal-card">
+                  <div class="modal-head"><h3>新建知识库</h3><button class="modal-x" @click="cancelKb()">✕</button></div>
+                  <div class="modal-body">
+                    <input v-model="kbForm.name" class="gen-input" placeholder="库名（字母/数字/下划线/连字符，即目录名）" />
+                    <textarea v-model="kbForm.description" class="gen-input" rows="2" placeholder="描述（会注入 Agent 上下文，写清这库装什么知识）"></textarea>
+                    <p v-if="kbForm.error" class="error">{{ kbForm.error }}</p>
+                  </div>
+                  <div class="modal-foot">
+                    <button class="btn" @click="cancelKb">取消</button>
+                    <button class="btn btn-primary" :disabled="kbForm.busy || !kbForm.name.trim() || !kbForm.description.trim()" @click="createKb">创建</button>
+                  </div>
+                </div>
+              </div>
+              <p v-if="kb.loading" class="empty">加载中…</p>
+              <p v-else-if="kb.error" class="error">出错：{{ kb.error }}</p>
+              <table v-else>
+                <thead><tr><th>名称</th><th>描述</th><th>后端</th><th>文档数</th><th>片段数</th><th>索引状态</th><th style="width:160px">操作</th></tr></thead>
+                <tbody>
+                  <tr v-if="!kb.data.length"><td colspan="7" class="empty">（暂无知识库，点右上「新建知识库」或向 .oryxos/knowledge/ 放入目录）</td></tr>
+                  <tr v-for="b in kb.data" :key="b.name">
+                    <td class="mono">{{ b.name }}</td>
+                    <td>{{ b.description }}</td>
+                    <td class="mono">{{ b.backend }}</td>
+                    <td>{{ b.documentCount }}</td>
+                    <td>{{ b.chunkCount }}</td>
+                    <td>{{ b.indexStatus }}</td>
+                    <td class="ops">
+                      <button class="btn" @click="refreshKbDetail(b.name)">详情</button>
+                      <button v-if="b.capabilities?.createDelete" class="btn" @click="deleteKb(b.name)">删除</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+            <!-- 详情视图：文档清单 + 上传 + 重建（能力感知：只读后端不出上传/重建入口，FR-009） -->
+            <div v-else>
+              <button class="btn back" @click="closeKbDetail">← 返回知识库列表</button>
+              <div class="sess-meta"><span>知识库</span><span class="mono">{{ kbDetail.name }}</span></div>
+              <p v-if="kbDetail.loading" class="empty">加载中…</p>
+              <template v-else>
+                <p class="empty">{{ kbDetail.base?.description || '—' }}（后端：{{ kbDetail.base?.backend || '—' }} · 状态：{{ kbDetail.base?.indexStatus || '—' }} · 片段 {{ kbDetail.base?.chunkCount ?? '—' }}）</p>
+                <div class="ops" style="margin:8px 0">
+                  <label v-if="kbDetail.base?.capabilities?.importDocs" class="btn" style="cursor:pointer">
+                    上传文档（md / txt / 文本型 PDF）
+                    <input type="file" accept=".md,.markdown,.txt,.pdf" style="display:none" @change="uploadKbDoc" />
+                  </label>
+                  <button v-if="kbDetail.base?.capabilities?.rebuild" class="btn" :disabled="kbDetail.busy" @click="reindexKb">重建索引</button>
+                  <button class="btn" :disabled="kbDetail.busy" @click="refreshKbDetail(kbDetail.name)">刷新状态</button>
+                </div>
+                <p v-if="kbDetail.busy" class="empty">处理中…（切分向量化在后台推进，可点「刷新状态」跟进）</p>
+                <p v-if="kbDetail.error" class="error">{{ kbDetail.error }}</p>
+                <table>
+                  <thead><tr><th>文档</th><th>状态</th><th>片段数</th><th>最近索引</th><th style="width:90px">操作</th></tr></thead>
+                  <tbody>
+                    <tr v-if="!kbDetail.documents.length"><td colspan="5" class="empty">（暂无文档）</td></tr>
+                    <tr v-for="d in kbDetail.documents" :key="d.relPath">
+                      <td class="mono">{{ d.relPath }}</td>
+                      <td>{{ d.state }}<span v-if="d.failureReason" class="error">：{{ d.failureReason }}</span></td>
+                      <td>{{ d.chunkCount }}</td>
+                      <td class="mono">{{ d.indexedAt ? new Date(d.indexedAt).toLocaleString() : '—' }}</td>
+                      <td class="ops"><button v-if="kbDetail.base?.capabilities?.importDocs" class="btn" @click="deleteKbDoc(d.relPath)">删除</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </div>
+          </div>
 
           <!-- Sandbox 白名单：三类 file/shell/http 的 CRUD（新增走弹框 / 逐行删除） -->
           <div v-else-if="active === 'whitelist'">
@@ -1616,6 +1808,15 @@ const outputRows = computed(() =>
                 </div>
                 <p v-if="agentCreate.suggestedSkills.length" class="empty">作者建议：{{ agentCreate.suggestedSkills.join('、') }}；已合并到最终绑定，可在创建前取消。</p>
                 <p class="empty">绑定保存为 agents/&lt;name&gt;/skills/&lt;skill&gt; 固定相对软连接；AGENT.md 不保存 skills 字段，也不预载正文。</p>
+                <label class="empty" style="display:block;margin:6px 0 2px">知识库绑定（可多选；「用大模型生成」会按需求给出建议）</label>
+                <div class="skill-picker">
+                  <span v-if="!kb.data.length" class="empty">（暂无知识库，可先到「知识库」页新建）</span>
+                  <label v-for="b in kb.data" :key="b.name" class="skill-opt" :title="b.description">
+                    <input type="checkbox" :value="b.name" v-model="agentCreate.knowledge" />
+                    <span class="mono">{{ b.name }}</span>
+                  </label>
+                </div>
+                <p v-if="agentCreate.suggestedKnowledge.length" class="empty">作者建议知识库：{{ agentCreate.suggestedKnowledge.join('、') }}；已合并到选择，可在创建前取消。</p>
                 <div class="ops">
                   <button class="btn" :disabled="agentCreate.busy || !agentCreate.name.trim()" @click="generateFiles">用大模型生成</button>
                   <button class="btn btn-primary" :disabled="agentCreate.busy || !agentCreate.name.trim()" @click="submitCreate">创建</button>
@@ -1695,6 +1896,20 @@ const outputRows = computed(() =>
                       <div class="ops"><button class="btn" :disabled="agentBinding.saving" @click="saveAgentBindings">{{ agentBinding.saving ? '保存中…' : '保存绑定' }}</button></div>
                       <p v-if="agentBinding.error" class="error">{{ agentBinding.error }}</p>
                       <p v-for="(issue, i) in agentBinding.issues" :key="i" class="error">{{ issue.type }}：{{ issue.message }}</p>
+                    </div>
+                  </div>
+                  <div class="info-row"><span class="k">knowledge</span>
+                    <div>
+                      <div class="skill-picker">
+                        <span v-if="!kb.data.length" class="empty">（暂无知识库）</span>
+                        <label v-for="b in kb.data" :key="b.name" class="skill-opt" :title="b.description">
+                          <input type="checkbox" :value="b.name" v-model="agentKb.selected" />
+                          <span class="mono">{{ b.name }}</span>
+                        </label>
+                      </div>
+                      <div class="ops"><button class="btn" :disabled="agentKb.saving" @click="saveAgentKnowledge">{{ agentKb.saving ? '保存中…' : '保存知识库绑定' }}</button></div>
+                      <p v-if="agentKb.error" class="error">{{ agentKb.error }}</p>
+                      <p v-for="(issue, i) in agentKb.issues" :key="'kb'+i" class="error">{{ issue.type }}：{{ issue.message }}</p>
                     </div>
                   </div>
                   <div class="info-row"><span class="k">定时</span><span class="mono">{{ (agentDetail.agent.schedules || []).map((s) => s.cron + ' (' + s.zone + ')').join('；') || '—' }}</span></div>

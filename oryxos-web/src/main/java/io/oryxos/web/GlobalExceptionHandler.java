@@ -27,8 +27,15 @@ public class GlobalExceptionHandler {
 
   private static final Logger LOG = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-  /** 400 — malformed or invalid request arguments（含 AGENT.md 定义非法：ProfileValidationException）。 */
-  @ExceptionHandler({IllegalArgumentException.class, ProfileValidationException.class})
+  /**
+   * 400 — malformed or invalid request arguments（含 AGENT.md
+   * 定义非法：ProfileValidationException；文档导入同步校验失败：KnowledgeImportException）。
+   */
+  @ExceptionHandler({
+    IllegalArgumentException.class,
+    ProfileValidationException.class,
+    io.oryxos.core.knowledge.KnowledgeImportException.class
+  })
   public ResponseEntity<ApiResponse<Void>> handleBadRequest(RuntimeException ex) {
     LOG.warn("Bad request: {}", sanitize(ex.getMessage()));
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -57,6 +64,17 @@ public class GlobalExceptionHandler {
     LOG.error("Service unavailable: {}", sanitize(ex.getMessage()));
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
         .body(ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE.value(), ex.getMessage()));
+  }
+
+  /** 409 — 删除知识库被 Agent 引用保护拦下（FR-011）：携带引用 Agent 清单。 */
+  @ExceptionHandler(io.oryxos.core.knowledge.KnowledgeReferencedException.class)
+  public ResponseEntity<ApiResponse<io.oryxos.web.controller.dto.KnowledgeReferenceConflictView>>
+      handleKnowledgeReferenced(io.oryxos.core.knowledge.KnowledgeReferencedException ex) {
+    io.oryxos.web.controller.dto.KnowledgeReferenceConflictView data =
+        io.oryxos.web.controller.dto.KnowledgeReferenceConflictView.from(
+            ex.kbName(), ex.references());
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(new ApiResponse<>(HttpStatus.CONFLICT.value(), ex.getMessage(), data));
   }
 
   /** 409 — Skill archive is blocked by active or archived Agent references. */

@@ -40,6 +40,10 @@
             <artifactId>oryxos-memory</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-knowledge</artifactId>
+        </dependency>
+        <dependency>
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
         </dependency>
