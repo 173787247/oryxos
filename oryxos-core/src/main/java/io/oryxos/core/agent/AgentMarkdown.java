@@ -20,7 +20,11 @@ public final class AgentMarkdown {
   private static final char SINGLE_QUOTE = '\'';
   private static final char DOUBLE_QUOTE = '"';
 
-  private AgentMarkdown() {}
+  /** 双引号 YAML 标量：避免 {@code yes}/{@code on}/{@code null} 被 YAML 1.1 收成布尔或空。 */
+  public static String yamlDoubleQuoted(String value) {
+    String text = value == null ? "" : value;
+    return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+  }
 
   /** 拆分结果：frontmatter 不可变、缺省为空 Map；body 为去掉围栏后的正文。 */
   public record Parsed(Map<String, Object> frontmatter, String body) {
@@ -208,7 +212,7 @@ public final class AgentMarkdown {
         break;
       }
       if (isTopLevelKey(lines[i], key)) {
-        lines[i] = key + ": " + value;
+        lines[i] = key + ": " + yamlDoubleQuoted(value);
         replaced = true;
       }
     }
@@ -219,7 +223,7 @@ public final class AgentMarkdown {
       return String.join(newline, lines);
     }
     List<String> inserted = new ArrayList<>(Arrays.asList(lines));
-    inserted.add(1, key + ": " + value);
+    inserted.add(1, key + ": " + yamlDoubleQuoted(value));
     return String.join(newline, inserted);
   }
 

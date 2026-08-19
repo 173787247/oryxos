@@ -41,6 +41,20 @@ class SkillServiceTest {
   }
 
   @Test
+  @DisplayName("create_YAML1.1布尔词yes仍是字符串名_重启可加载")
+  void create_yamlBooleanWord_staysStringName() throws Exception {
+    Skill created = service.create("yes", "布尔词名", "正文必须非空");
+    assertEquals("yes", created.name());
+    assertTrue(registry.get("yes").isPresent());
+    assertTrue(registry.get("true").isEmpty());
+
+    SkillLoader reloaded = new SkillLoader(oryxosRoot.resolve("skills"));
+    SkillRegistry afterRestart = reloaded.loadAll();
+    assertTrue(afterRestart.get("yes").isPresent(), "重启后仍按目录名 yes 加载");
+    assertTrue(afterRestart.get("true").isEmpty());
+  }
+
+  @Test
   @DisplayName("create 同名 → 400（IllegalArgumentException）")
   void create_duplicate_rejected() {
     service.create("dup", "d", "b");

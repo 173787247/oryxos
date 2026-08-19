@@ -27,5 +27,8 @@ class SkillLoaderTest {
         () -> loader.parse("---\ndescription: d\n---\nbody", "fallback"));
     assertThrows(
         IllegalArgumentException.class, () -> loader.parse("---\nname: valid\n---\nbody", "valid"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> loader.parse("---\nname: yes\ndescription: d\n---\nbody", "yes"));
   }
 }

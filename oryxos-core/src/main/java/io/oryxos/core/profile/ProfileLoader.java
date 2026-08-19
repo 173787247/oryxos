@@ -106,8 +106,8 @@ public class ProfileLoader {
   }
 
   private Profile toProfile(Map<String, Object> map, String source) {
-    String name = asString(map.get("name"));
-    if (name == null || name.isBlank()) {
+    Object rawName = map.get("name");
+    if (!(rawName instanceof String name) || name.isBlank()) {
       throw new ProfileValidationException("Profile 缺少 name 字段: " + source);
     }
     Profile.ProviderRef provider = toProviderRef(asMap(map.get("provider")), name);
