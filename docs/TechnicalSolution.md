@@ -647,13 +647,14 @@ session list
 
 ## 10. 项目工程结构
 
-OryxOS 是 Maven 多模块项目，由 9 个模块组成：
+OryxOS 是 Maven 多模块项目，由 10 个模块组成：
 
 | 模块名 | 职责 |
 |--------|------|
 | `oryxos-core` | 核心抽象和接口：`OryxTool` 接口、`Session`、`Profile`、`ContextLoader`、`AgentLoader`（扫 `.oryxos/agents/`、`deriveProfile`）、`ReActLoop`、`PromptBuilder`、`ToolExecutor`、`AgentService`、`AgentScheduler`（定时触发）、`AgentLifecycleService`（扩展阶段，编排"定义一个 Agent（Agent 目录落盘 + 派生 Profile + 注册 + Scheduler）"） |
 | `oryxos-provider` | 核心能力一：`ProviderService`、Function Calling 适配、Provider 配置（provider name 到 `ChatModel` 显式映射） |
 | `oryxos-memory` | 核心能力三：`MemoryService` 统一门面、`LongTermMemory`、`MemoryTools`（`save_memory` / `recall_memory`） |
+| `oryxos-knowledge` | 知识库（014）：内置本地后端 `LocalKnowledgeBackend`（知识标准操作契约的第一个插件）、解析/切分/向量化索引流水线（两段式 + 双缓冲）、双路召回 + RRF 融合检索、`ChunkStore` 可插拔向量存储（默认 SQLite）、`KnowledgeTools`（`retrieve_knowledge`）。契约与绑定服务在 `oryxos-core/knowledge/`（依赖倒置），依赖 core + storage |
 | `oryxos-tool` | 核心能力四：内置 Tool（`FileTools`、`ShellTools`、`HttpTools`、`NotifyTools`）、`McpClientService`、`McpToolAdapter`、`ToolRegistry`、`Sandbox` 接口 + `WhitelistSandbox` 实现、`NotifyChannelAdapter` 接口 + `WebhookNotifyAdapter` 实现（三合一模块） |
 | `oryxos-channel-cli` | CLI Channel：`CliChannel`、`oryxos chat` 命令实现 |
 | `oryxos-web` | 核心能力五：`WebServer`、6 个 `ApiController`、`GlobalExceptionHandler`、OpenAPI 文档 |

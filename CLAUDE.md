@@ -24,7 +24,7 @@ OryxOS 是用 Java 实现的面向企业场景的 **Distributed AI Agent OS**。
 
 ---
 
-## 模块结构（9 个）
+## 模块结构（10 个）
 
 ```
 oryxos/
@@ -34,6 +34,10 @@ oryxos/
 │                        #   多 Provider 显式映射
 ├── oryxos-memory        # 能力三：MemoryService 门面、LongTermMemory、
 │                        #   MemoryTools（save/recall）
+├── oryxos-knowledge     # 知识库（014）：LocalKnowledgeBackend（契约第一个插件）、
+│                        #   解析/切分/向量化索引流水线、双路召回+RRF 检索、
+│                        #   ChunkStore 可插拔存储、KnowledgeTools（retrieve_knowledge）
+│                        #   （契约与绑定服务在 oryxos-core/knowledge/，依赖倒置）
 ├── oryxos-tool          # 能力四：内置 Tool（文件/Shell/HTTP）、MCP Client、
 │                        #   ToolRegistry、SandboxChecker
 ├── oryxos-channel-cli   # CLI Channel：oryxos chat 实现

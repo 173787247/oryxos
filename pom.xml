@@ -24,6 +24,7 @@
         <spring-ai.version>1.1.8</spring-ai.version>
         <picocli.version>4.7.6</picocli.version>
         <sqlite-jdbc.version>3.53.2.1</sqlite-jdbc.version>
+        <pdfbox.version>3.0.5</pdfbox.version>
 
         <!-- Infrastructure libraries -->
         <jackson-bom.version>2.21.5</jackson-bom.version>
@@ -55,6 +56,7 @@
         <module>oryxos-core</module>
         <module>oryxos-provider</module>
         <module>oryxos-memory</module>
+        <module>oryxos-knowledge</module>
         <module>oryxos-tool</module>
         <module>oryxos-channel-cli</module>
         <module>oryxos-web</module>
@@ -92,6 +94,11 @@
             </dependency>
             <dependency>
                 <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-knowledge</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-tool</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -114,6 +121,13 @@
                 <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-cli</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+
+            <!-- Apache PDFBox：文本型 PDF 解析（014 知识库，唯一新增运行时依赖） -->
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
             </dependency>
 
             <!-- Picocli -->
