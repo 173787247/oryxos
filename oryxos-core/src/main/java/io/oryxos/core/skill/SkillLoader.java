@@ -78,8 +78,11 @@ public class SkillLoader {
   public Skill parse(String markdown, String fallbackName) {
     AgentMarkdown.Parsed parsed = AgentMarkdown.split(markdown);
     Object nameVal = parsed.frontmatter().get("name");
-    String name = nameVal == null ? null : String.valueOf(nameVal).strip();
-    if (name == null || name.isBlank()) {
+    if (!(nameVal instanceof String rawName)) {
+      throw new IllegalArgumentException("SKILL.md 缺少 name: " + fallbackName);
+    }
+    String name = rawName.strip();
+    if (name.isBlank()) {
       throw new IllegalArgumentException("SKILL.md 缺少 name: " + fallbackName);
     }
     Object descVal = parsed.frontmatter().get("description");

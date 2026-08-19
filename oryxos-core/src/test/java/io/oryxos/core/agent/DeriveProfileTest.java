@@ -1,6 +1,7 @@
 package io.oryxos.core.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.oryxos.core.profile.Profile;
 import java.io.IOException;
@@ -73,5 +74,22 @@ class DeriveProfileTest {
     assertEquals("0 0 9 * * *", sc.cron());
     assertEquals("Asia/Shanghai", sc.zone());
     assertEquals("到点了", sc.message());
+  }
+
+  @Test
+  @DisplayName("未加引号的 YAML 1.1 布尔词不能冒充 Agent name")
+  void deriveProfile_unquotedYesIsNotAName() throws IOException {
+    Path dir = writeAgent("yes", "name: yes\nprovider:\n  name: deepseek\n  model: deepseek-chat");
+    assertThrows(
+        Exception.class, () -> new AgentLoader(agentsDir, Set.of("deepseek")).deriveProfile(dir));
+  }
+
+  @Test
+  @DisplayName("加引号的 yes 与目录名一致")
+  void deriveProfile_quotedYesMatchesDirectory() throws IOException {
+    Path dir =
+        writeAgent("yes", "name: \"yes\"\nprovider:\n  name: deepseek\n  model: deepseek-chat");
+    Profile p = new AgentLoader(agentsDir, Set.of("deepseek")).deriveProfile(dir);
+    assertEquals("yes", p.name());
   }
 }

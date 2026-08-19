@@ -63,7 +63,8 @@ class SkillImportFilesTest {
     assertEquals("myname", s.name());
     assertTrue(Files.isRegularFile(oryxosRoot.resolve("skills/myname/SKILL.md")));
     assertTrue(
-        Files.readString(oryxosRoot.resolve("skills/myname/SKILL.md")).contains("name: myname"));
+        Files.readString(oryxosRoot.resolve("skills/myname/SKILL.md"))
+            .contains("name: \"myname\""));
   }
 
   @Test
