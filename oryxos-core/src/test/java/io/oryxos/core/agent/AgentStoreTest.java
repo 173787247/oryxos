@@ -118,4 +118,12 @@ class AgentStoreTest {
     assertEquals("old", Files.readString(agent.resolve("AGENT.md")));
     assertTrue(Files.isDirectory(agent.resolve("collision")));
   }
+
+  @Test
+  @DisplayName("writeAll 拒绝 Skills/ 大小写变体占用绑定命名空间")
+  void writeAllRejectsSkillsNamespaceIgnoringCase() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store.writeAll("demo", Map.of("Skills/report/SKILL.md", "copy")));
+  }
 }

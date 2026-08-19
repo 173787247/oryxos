@@ -222,7 +222,8 @@ public class AgentStore {
       throw new IllegalArgumentException("非法文件路径: " + relativePath);
     }
     Path relative = dir.relativize(target);
-    if (relative.getNameCount() > 0 && SKILLS_NAMESPACE.equals(relative.getName(0).toString())) {
+    if (relative.getNameCount() > 0
+        && SKILLS_NAMESPACE.equalsIgnoreCase(relative.getName(0).toString())) {
       throw new IllegalArgumentException("skills/ 是 Agent Skill 绑定保留目录，禁止写普通文件");
     }
     requireSafe(target);
