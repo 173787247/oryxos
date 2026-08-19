@@ -44,28 +44,9 @@ public class AgentLifecycleService {
 
   private static final String PARENT_PATH_SEGMENT = "..";
 
-  private static final String AGENT_MD_TEMPLATE =
+  /** 脚手架正文：frontmatter 由 {@link #scaffoldFrontmatter} 经 SnakeYAML dump，避免用户输入拆行注入键。 */
+  private static final String AGENT_MD_BODY =
       """
-      ---
-      name: {name}
-      description: {description}
-      identity:
-        agent_name: {name}
-        prompt: 你是一个乐于助人的助手。
-      provider:
-        name: {provider}
-        model: {model}
-      tools:
-        - read_file
-        - shell
-        - notify
-      bootstrap:
-        - AGENTS.md
-      settings:
-        max_iterations: 10
-        max_history_turns: 20
-      ---
-
       在这里写这个 Agent 的任务指令（正文）。被触发时它会照做。
       - 已绑定 Skill 的 name、description 与本地 SKILL.md 入口会自动列入提示；需要时再用 read_file 按需读正文；
       - 参考资料放 REFERENCE.md，拿不准时用 read_file 读；
@@ -369,15 +350,37 @@ public class AgentLifecycleService {
     Map<String, String> files = new LinkedHashMap<>();
     files.put(
         "AGENT.md",
-        AGENT_MD_TEMPLATE
-            .replace("{name}", name)
-            .replace("{description}", desc)
-            .replace("{provider}", provider)
-            .replace("{model}", model));
+        assembleMarkdown(scaffoldFrontmatter(name, desc, provider, model), AGENT_MD_BODY));
     files.put("scripts/example.py", SCRIPT_TEMPLATE);
     files.put("REFERENCE.md", REFERENCE_TEMPLATE);
     files.put("output/README.md", OUTPUT_README_TEMPLATE); // 建出产出目录（writeAll 建不了空目录，用占位说明落地）
     return files;
+  }
+
+  /**
+   * 脚手架 frontmatter 用 Map 再 dump，不用字符串替换。description / provider / model 来自管理台输入，直接拼进 YAML
+   * 会让换行变成新键（例如注入 {@code schedules}）。
+   */
+  private static Map<String, Object> scaffoldFrontmatter(
+      String name, String description, String provider, String model) {
+    Map<String, Object> frontmatter = new LinkedHashMap<>();
+    frontmatter.put("name", name);
+    frontmatter.put("description", description);
+    Map<String, Object> identity = new LinkedHashMap<>();
+    identity.put("agent_name", name);
+    identity.put("prompt", "你是一个乐于助人的助手。");
+    frontmatter.put("identity", identity);
+    Map<String, Object> providerMap = new LinkedHashMap<>();
+    providerMap.put("name", provider);
+    providerMap.put("model", model);
+    frontmatter.put("provider", providerMap);
+    frontmatter.put("tools", List.of("read_file", "shell", "notify"));
+    frontmatter.put("bootstrap", List.of("AGENTS.md"));
+    Map<String, Object> settings = new LinkedHashMap<>();
+    settings.put("max_iterations", Profile.Settings.defaults().maxIterations());
+    settings.put("max_history_turns", Profile.Settings.defaults().maxHistoryTurns());
+    frontmatter.put("settings", settings);
+    return frontmatter;
   }
 
   /** 注册一个 Agent 目录——API create、WorkspaceWatcher 事件、启动扫描三条录入共用同一段代码（FR-009）。 */
