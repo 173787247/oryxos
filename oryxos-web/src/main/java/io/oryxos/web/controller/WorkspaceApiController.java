@@ -168,6 +168,10 @@ public class WorkspaceApiController {
    * {@code String.equals} 区分大小写，会绕过 {@link AgentLifecycleService#update} 直接写盘，schedules 变更不注销旧
    * cron。
    */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "AGENT.md is an ASCII reserved filename; equalsIgnoreCase matches case-insensitive filesystems.")
   private Path agentDirOfAgentFile(Path target) {
     if (!AGENT_FILE.equalsIgnoreCase(String.valueOf(target.getFileName()))) {
       return null;
@@ -180,6 +184,10 @@ public class WorkspaceApiController {
   }
 
   /** {@code agents/<name>/skills/**}（大小写不敏感），含尚未落盘的 {@code Skills/} 后缀。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "skills is an ASCII reserved path segment; equalsIgnoreCase matches case-insensitive filesystems.")
   private boolean isAgentSkillsPath(Path target) {
     Path relative = relativeUnderAgents(target);
     return relative != null

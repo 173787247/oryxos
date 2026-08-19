@@ -216,6 +216,10 @@ public class AgentStore {
     }
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "Reserved path segment 'skills' is ASCII; equalsIgnoreCase is the intended case-fold for Windows/macOS filenames.")
   private Path writableTarget(Path dir, String relativePath) {
     Path target = dir.resolve(relativePath).normalize();
     if (!target.startsWith(dir)) {
