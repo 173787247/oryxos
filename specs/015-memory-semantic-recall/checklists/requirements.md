@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain（**3 项待拍板**：配置键归属 / sqlite 档 Agent 维度 / 降级可观测性——见 spec 末尾）
+- [x] No [NEEDS CLARIFICATION] markers remain（2026-08-19 clarify 3 问 3 答：全局 embedding.* 段 + 旧键别名 / memory_entries 补 agent_name 列 / 降级仅埋点标注；新增 FR-011）
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic
