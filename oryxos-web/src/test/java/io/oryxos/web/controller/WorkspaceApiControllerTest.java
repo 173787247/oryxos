@@ -25,17 +25,17 @@ class WorkspaceApiControllerTest {
 
   @TempDir Path oryxosRoot;
   private MockMvc mvc;
+  private io.oryxos.core.agent.AgentLifecycleService lifecycle;
 
   @BeforeEach
   void setUp() throws IOException {
     Path agent = Files.createDirectories(oryxosRoot.resolve("agents").resolve("demo"));
     Files.writeString(agent.resolve("AGENT.md"), "---\nname: demo\n---\n正文内容");
     Files.createDirectories(oryxosRoot.resolve("archive"));
+    lifecycle = org.mockito.Mockito.mock(io.oryxos.core.agent.AgentLifecycleService.class);
     mvc =
         MockMvcBuilders.standaloneSetup(
-                new WorkspaceApiController(
-                    oryxosRoot.toString(),
-                    org.mockito.Mockito.mock(io.oryxos.core.agent.AgentLifecycleService.class)))
+                new WorkspaceApiController(oryxosRoot.toString(), lifecycle))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
   }
@@ -129,6 +129,49 @@ class WorkspaceApiControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"path\":\"agents/demo/skills/report/SKILL.md\",\"content\":\"bad\"}"))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  @DisplayName("写 AGENT.md 走 lifecycle.update，不直接落盘")
+  void writeAgentMarkdown_goesThroughUpdate() throws Exception {
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"path\":\"agents/demo/AGENT.md\",\"content\":\"---\\nname: demo\\n---\\n新正文\"}"))
+        .andExpect(status().isOk());
+    org.mockito.Mockito.verify(lifecycle).update("demo", "---\nname: demo\n---\n新正文");
+    org.junit.jupiter.api.Assertions.assertEquals(
+        "---\nname: demo\n---\n正文内容", Files.readString(oryxosRoot.resolve("agents/demo/AGENT.md")));
+  }
+
+  @Test
+  @DisplayName("agent.md 大小写不同仍走 update，不能绕过重注册")
+  void writeAgentMarkdown_wrongCaseStillGoesThroughUpdate() throws Exception {
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"path\":\"agents/demo/agent.md\",\"content\":\"---\\nname: demo\\n---\\nbypass\"}"))
+        .andExpect(status().isOk());
+    org.mockito.Mockito.verify(lifecycle).update("demo", "---\nname: demo\n---\nbypass");
+    try (java.util.stream.Stream<Path> entries = Files.list(oryxosRoot.resolve("agents/demo"))) {
+      org.junit.jupiter.api.Assertions.assertFalse(
+          entries.anyMatch(p -> "agent.md".equals(String.valueOf(p.getFileName()))),
+          "不得另写一份 agent.md 绕过 update");
+    }
+  }
+
+  @Test
+  @DisplayName("Skills/ 大小写不同仍禁止写入绑定视图")
+  void writeThroughAgentSkillsWrongCaseIsRejected() throws Exception {
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"agents/demo/Skills/report/SKILL.md\",\"content\":\"bad\"}"))
+        .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertFalse(
+        Files.exists(oryxosRoot.resolve("agents/demo/Skills/report/SKILL.md")));
   }
 
   @Test
