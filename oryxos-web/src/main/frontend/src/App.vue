@@ -1010,8 +1010,8 @@ async function deleteWhitelist(category, value) {
 
 // —— Agent 详情：Tab 切换（基本信息 / 文件 / 会话 / 记忆）——
 const agentDetail = ref(null) // { name, agent, tab, loading, error, node, editing }
-const agentBinding = reactive({ selected: [], saving: false, error: null, issues: [] })
-const agentKb = reactive({ selected: [], saving: false, error: null, issues: [] })
+const agentBinding = reactive({ selected: [], saving: false, error: null, issues: [], saved: false })
+const agentKb = reactive({ selected: [], saving: false, error: null, issues: [], saved: false })
 const fileView = ref(null) // { path, loading, error, content, saving, saved }
 // 详情页「编辑基本信息」表单态 + 编辑态的 model 下拉数据源（与新建页的 createModels 分开，避免串台）
 const editBasic = reactive({ description: '', provider: '', model: '' })
@@ -1109,9 +1109,11 @@ async function openAgent(agent) {
   agentBinding.selected = [...(agent.skills || [])]
   agentBinding.error = null
   agentBinding.issues = []
+  agentBinding.saved = false
   agentKb.selected = []
   agentKb.error = null
   agentKb.issues = []
+  agentKb.saved = false
   fileView.value = null
   resetChat()
   resetAgentMemory()
@@ -1144,7 +1146,7 @@ async function openAgent(agent) {
 
 async function saveAgentBindings() {
   if (!agentDetail.value) return
-  agentBinding.saving = true; agentBinding.error = null
+  agentBinding.saving = true; agentBinding.error = null; agentBinding.saved = false
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/skills`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1154,6 +1156,7 @@ async function saveAgentBindings() {
     if (body.code !== 0) throw new Error(body.message || '保存绑定失败')
     agentBinding.selected = (body.data.bindings || []).map((b) => b.name)
     agentBinding.issues = body.data.issues || []
+    agentBinding.saved = true
     agentDetail.value = {
       ...agentDetail.value,
       agent: { ...agentDetail.value.agent, skills: [...agentBinding.selected] },
@@ -1164,7 +1167,7 @@ async function saveAgentBindings() {
 
 async function saveAgentKnowledge() {
   if (!agentDetail.value) return
-  agentKb.saving = true; agentKb.error = null
+  agentKb.saving = true; agentKb.error = null; agentKb.saved = false
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/knowledge`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1174,6 +1177,7 @@ async function saveAgentKnowledge() {
     if (body.code !== 0) throw new Error(body.message || '保存知识库绑定失败')
     agentKb.selected = (body.data.bindings || []).map((b) => b.name)
     agentKb.issues = body.data.issues || []
+    agentKb.saved = true
   } catch (e) { agentKb.error = e.message } finally { agentKb.saving = false }
 }
 
@@ -1949,11 +1953,14 @@ const outputRows = computed(() =>
                     <div>
                       <div class="skill-picker">
                         <label v-for="s in skills.data" :key="s.name" class="skill-opt" :title="s.description">
-                          <input type="checkbox" :value="s.name" v-model="agentBinding.selected" />
+                          <input type="checkbox" :value="s.name" v-model="agentBinding.selected" @change="agentBinding.saved = false" />
                           <span class="mono">{{ s.name }}</span>
                         </label>
                       </div>
-                      <div class="ops"><button class="btn" :disabled="agentBinding.saving" @click="saveAgentBindings">{{ agentBinding.saving ? '保存中…' : '保存绑定' }}</button></div>
+                      <div class="ops">
+                        <button class="btn" :disabled="agentBinding.saving" @click="saveAgentBindings">{{ agentBinding.saving ? '保存中…' : '保存绑定' }}</button>
+                        <span v-if="agentBinding.saved" class="ok">已保存，下一轮对话生效</span>
+                      </div>
                       <p v-if="agentBinding.error" class="error">{{ agentBinding.error }}</p>
                       <p v-for="(issue, i) in agentBinding.issues" :key="i" class="error">{{ issue.type }}：{{ issue.message }}</p>
                     </div>
@@ -1963,11 +1970,14 @@ const outputRows = computed(() =>
                       <div class="skill-picker">
                         <span v-if="!kb.data.length" class="empty">（暂无知识库）</span>
                         <label v-for="b in kb.data" :key="b.name" class="skill-opt" :title="b.description">
-                          <input type="checkbox" :value="b.name" v-model="agentKb.selected" />
+                          <input type="checkbox" :value="b.name" v-model="agentKb.selected" @change="agentKb.saved = false" />
                           <span class="mono">{{ b.name }}</span>
                         </label>
                       </div>
-                      <div class="ops"><button class="btn" :disabled="agentKb.saving" @click="saveAgentKnowledge">{{ agentKb.saving ? '保存中…' : '保存知识库绑定' }}</button></div>
+                      <div class="ops">
+                        <button class="btn" :disabled="agentKb.saving" @click="saveAgentKnowledge">{{ agentKb.saving ? '保存中…' : '保存知识库绑定' }}</button>
+                        <span v-if="agentKb.saved" class="ok">已保存，下一轮对话生效</span>
+                      </div>
                       <p v-if="agentKb.error" class="error">{{ agentKb.error }}</p>
                       <p v-for="(issue, i) in agentKb.issues" :key="'kb'+i" class="error">{{ issue.type }}：{{ issue.message }}</p>
                     </div>
