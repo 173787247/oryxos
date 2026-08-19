@@ -122,6 +122,73 @@ public final class AgentMarkdown {
     return split(content).frontmatter().containsKey("skills");
   }
 
+  /** 生成建议 sidecar：读取顶层 knowledge 列表（FR-018）；frontmatter 永不持久化该字段（FR-002）。 */
+  public static List<String> knowledgeSidecar(String content) {
+    Object value = split(content).frontmatter().get("knowledge");
+    if (value == null) {
+      return List.of();
+    }
+    if (!(value instanceof List<?> list)) {
+      throw new IllegalArgumentException("顶层 knowledge 必须是字符串列表");
+    }
+    List<String> names = new ArrayList<>();
+    for (Object item : list) {
+      if (!(item instanceof String name) || name.isBlank()) {
+        throw new IllegalArgumentException("顶层 knowledge 必须是非空字符串列表");
+      }
+      names.add(name);
+    }
+    return List.copyOf(names);
+  }
+
+  /** 移除顶层 knowledge sidecar 块，保留其余行与换行风格（与 removeLegacySkills 同构）。 */
+  public static String removeKnowledgeSidecar(String content) {
+    if (content == null || content.isEmpty()) {
+      return content;
+    }
+    String newline = content.contains("\r\n") ? "\r\n" : "\n";
+    String normalized = content.replace("\r\n", "\n").replace('\r', '\n');
+    String[] lines = normalized.split("\n", -1);
+    if (lines.length == 0 || !FENCE.equals(lines[0].strip())) {
+      return content;
+    }
+    int close = -1;
+    for (int i = 1; i < lines.length; i++) {
+      if (FENCE.equals(lines[i].strip())) {
+        close = i;
+        break;
+      }
+    }
+    if (close < 0) {
+      return content;
+    }
+    List<String> kept = new ArrayList<>();
+    kept.add(lines[0]);
+    boolean removed = false;
+    for (int i = 1; i < close; i++) {
+      String line = lines[i];
+      if (isTopLevelKey(line, "knowledge")) {
+        removed = true;
+        while (i + 1 < close && isLegacyValueLine(lines[i + 1])) {
+          i++;
+        }
+        continue;
+      }
+      kept.add(line);
+    }
+    if (!removed) {
+      return content;
+    }
+    for (int i = close; i < lines.length; i++) {
+      kept.add(lines[i]);
+    }
+    return String.join(newline, kept);
+  }
+
+  public static boolean hasKnowledgeSidecar(String content) {
+    return split(content).frontmatter().containsKey("knowledge");
+  }
+
   /** Replaces all matching top-level scalars, or inserts one when absent. */
   public static String replaceTopLevelScalar(String content, String key, String value) {
     if (content == null || content.isEmpty()) {

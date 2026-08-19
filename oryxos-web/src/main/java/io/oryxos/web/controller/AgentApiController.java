@@ -3,6 +3,7 @@ package io.oryxos.web.controller;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Message;
@@ -14,6 +15,7 @@ import io.oryxos.core.skill.SkillCatalog;
 import io.oryxos.core.skill.SkillCatalogEntry;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.AgentExecutionView;
+import io.oryxos.web.controller.dto.AgentKnowledgeBindingsView;
 import io.oryxos.web.controller.dto.AgentSkillBindingsView;
 import io.oryxos.web.controller.dto.AgentView;
 import io.oryxos.web.controller.dto.CreateAgentRequest;
@@ -21,6 +23,7 @@ import io.oryxos.web.controller.dto.GenerateFilesRequest;
 import io.oryxos.web.controller.dto.GeneratedFilesView;
 import io.oryxos.web.controller.dto.MessageRequest;
 import io.oryxos.web.controller.dto.MessageResponse;
+import io.oryxos.web.controller.dto.ReplaceKnowledgeBindingsRequest;
 import io.oryxos.web.controller.dto.ReplaceSkillBindingsRequest;
 import io.oryxos.web.controller.dto.SaveFilesRequest;
 import io.oryxos.web.controller.dto.SessionView;
@@ -74,6 +77,7 @@ public class AgentApiController {
   private final AgentExecutionService executionService;
   private final AgentSkillBindingService skillBindings;
   private final SkillCatalog skillCatalog;
+  private final KnowledgeBindingService knowledgeBindings;
 
   public AgentApiController(
       AgentLifecycleService lifecycle,
@@ -89,6 +93,7 @@ public class AgentApiController {
         profileRegistry,
         memoryService,
         executionService,
+        null,
         null,
         null);
   }
@@ -109,6 +114,28 @@ public class AgentApiController {
         memoryService,
         executionService,
         skillBindings,
+        null,
+        null);
+  }
+
+  public AgentApiController(
+      AgentLifecycleService lifecycle,
+      AgentService agentService,
+      SessionManager sessionManager,
+      ProfileRegistry profileRegistry,
+      MemoryService memoryService,
+      AgentExecutionService executionService,
+      AgentSkillBindingService skillBindings,
+      SkillCatalog skillCatalog) {
+    this(
+        lifecycle,
+        agentService,
+        sessionManager,
+        profileRegistry,
+        memoryService,
+        executionService,
+        skillBindings,
+        skillCatalog,
         null);
   }
 
@@ -121,7 +148,8 @@ public class AgentApiController {
       MemoryService memoryService,
       AgentExecutionService executionService,
       AgentSkillBindingService skillBindings,
-      SkillCatalog skillCatalog) {
+      SkillCatalog skillCatalog,
+      KnowledgeBindingService knowledgeBindings) {
     this.lifecycle = lifecycle;
     this.agentService = agentService;
     this.sessionManager = sessionManager;
@@ -130,6 +158,7 @@ public class AgentApiController {
     this.executionService = executionService;
     this.skillBindings = skillBindings;
     this.skillCatalog = skillCatalog;
+    this.knowledgeBindings = knowledgeBindings;
   }
 
   /** 创建：只需 name + description，后台按模板脚手架出完整目录 + 派生注册（失败回滚）。 */
@@ -138,10 +167,14 @@ public class AgentApiController {
     if (req == null || req.name() == null || req.name().isBlank()) {
       throw new IllegalArgumentException("Agent 名为空");
     }
-    return ApiResponse.ok(
-        view(
-            lifecycle.create(
-                req.name(), req.description(), req.provider(), req.model(), req.skillBindings())));
+    io.oryxos.core.profile.Profile created =
+        lifecycle.create(
+            req.name(), req.description(), req.provider(), req.model(), req.skillBindings());
+    // 014 FR-018：新建表单的知识库多选在此落软连接（绑定仅管理面动作；失败时 Agent 已建、错误可读可重试）
+    if (!req.knowledgeBindings().isEmpty()) {
+      requireKnowledgeBindings().replaceBindings(req.name(), req.knowledgeBindings());
+    }
+    return ApiResponse.ok(view(created));
   }
 
   @GetMapping
@@ -289,10 +322,49 @@ public class AgentApiController {
   @PostMapping("/{name}/files")
   public ApiResponse<AgentView> saveFiles(
       @PathVariable String name, @RequestBody SaveFilesRequest req) {
+    io.oryxos.core.profile.Profile saved =
+        lifecycle.saveFiles(
+            name, req == null ? null : req.files(), req == null ? null : req.skillBindings());
+    // 014 FR-018：生成/编辑保存时同步知识库绑定（null = 不改动）
+    if (req != null && req.knowledgeBindings() != null) {
+      requireKnowledgeBindings().replaceBindings(name, req.knowledgeBindings());
+    }
+    return ApiResponse.ok(view(saved));
+  }
+
+  // ---- 知识库绑定三件套 + 整体替换（014 FR-002/018/019：绑定仅管理面动作，运行时无自改工具）----
+
+  @GetMapping("/{name}/knowledge")
+  public ApiResponse<AgentKnowledgeBindingsView> knowledge(@PathVariable String name) {
+    requireAgent(name);
     return ApiResponse.ok(
-        view(
-            lifecycle.saveFiles(
-                name, req == null ? null : req.files(), req == null ? null : req.skillBindings())));
+        AgentKnowledgeBindingsView.from(requireKnowledgeBindings().inspect(name)));
+  }
+
+  @PutMapping("/{name}/knowledge/{kb}")
+  public ApiResponse<AgentKnowledgeBindingsView> bindKnowledge(
+      @PathVariable String name, @PathVariable String kb) {
+    requireAgent(name);
+    requireKnowledgeBindings().bind(name, kb);
+    return knowledge(name);
+  }
+
+  @DeleteMapping("/{name}/knowledge/{kb}")
+  public ApiResponse<AgentKnowledgeBindingsView> unbindKnowledge(
+      @PathVariable String name, @PathVariable String kb) {
+    requireAgent(name);
+    requireKnowledgeBindings().unbind(name, kb);
+    return knowledge(name);
+  }
+
+  @PutMapping("/{name}/knowledge")
+  public ApiResponse<AgentKnowledgeBindingsView> replaceKnowledge(
+      @PathVariable String name, @RequestBody ReplaceKnowledgeBindingsRequest request) {
+    requireAgent(name);
+    return ApiResponse.ok(
+        AgentKnowledgeBindingsView.from(
+            requireKnowledgeBindings()
+                .replaceBindings(name, request == null ? List.of() : request.knowledge())));
   }
 
   @GetMapping("/{name}/skills")
@@ -351,6 +423,13 @@ public class AgentApiController {
       throw new IllegalStateException("Agent Skill 绑定服务未装配");
     }
     return skillBindings;
+  }
+
+  private KnowledgeBindingService requireKnowledgeBindings() {
+    if (knowledgeBindings == null) {
+      throw new IllegalStateException("Agent 知识库绑定服务未装配");
+    }
+    return knowledgeBindings;
   }
 
   private void requireSkillsExist(List<String> names) {

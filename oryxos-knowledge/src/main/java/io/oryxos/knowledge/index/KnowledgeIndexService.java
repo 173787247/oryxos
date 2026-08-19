@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
@@ -150,6 +151,45 @@ public class KnowledgeIndexService {
   public void deleteBase(String kbName) {
     store.deleteBase(kbName);
     activeGenerations.remove(kbName);
+  }
+
+  /**
+   * 对账（FR-010）：目录 ⇄ 索引差异收敛——新文件/指纹变化/失败态 → 重新导入（后台段推进）； 文件消失 → 清掉索引行。启动与热加载共用；单个坏文件 WARN
+   * 跳过、不拖垮整库（US4 场景 3）。
+   */
+  public synchronized void reconcile(String kbName) {
+    Path kbDir = kbDir(kbName);
+    long generation = activeGeneration(kbName);
+    Map<String, ChunkStore.DocumentRecord> indexed = new java.util.HashMap<>();
+    for (ChunkStore.DocumentRecord doc : store.documents(kbName, generation)) {
+      indexed.put(doc.relPath(), doc);
+    }
+    java.util.Set<String> present = new java.util.HashSet<>();
+    for (Path file : listSupportedFiles(kbDir)) {
+      String relPath = kbDir.relativize(file).toString();
+      present.add(relPath);
+      ChunkStore.DocumentRecord existing = indexed.get(relPath);
+      boolean changed =
+          existing == null
+              || existing.state() == DocumentState.FAILED
+              || !MessageDigest.isEqual(
+                  existing.sha256().getBytes(StandardCharsets.UTF_8),
+                  sha256(file).getBytes(StandardCharsets.UTF_8));
+      if (!changed) {
+        continue;
+      }
+      try {
+        importDocument(kbName, relPath);
+      } catch (RuntimeException e) {
+        LOG.warn(
+            "对账导入失败，跳过 {}/{}: {}", sanitize(kbName), sanitize(relPath), sanitize(e.getMessage()));
+      }
+    }
+    for (Map.Entry<String, ChunkStore.DocumentRecord> entry : indexed.entrySet()) {
+      if (!present.contains(entry.getKey()) && entry.getValue().id() != null) {
+        store.deleteDocument(entry.getValue().id()); // 文件已删：索引行与片段一并清（SC-006 不再命中）
+      }
+    }
   }
 
   /** 后台段：切分 + 向量化 + 落库；任何失败落 FAILED + 可读原因，可重试（FR-013 不静默丢弃）。 */

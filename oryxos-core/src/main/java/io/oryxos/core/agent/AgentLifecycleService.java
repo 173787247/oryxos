@@ -105,6 +105,10 @@ public class AgentLifecycleService {
       例如需要抓 GitHub 榜单，就写一个 scripts/xxx.py 并在 AGENT.md 正文里用 shell 调它。
       9. 输出格式：多个文件时，每个文件前**单独一行**写分隔符 `===FILE: <相对路径>===`（第一个必须是 AGENT.md）；\
       若只需要 AGENT.md 可不用分隔符直接输出它。不要用 Markdown 代码围栏（```）包整个输出，也不要任何额外解释。
+      10. 知识库：下面【已有知识库】是本底座已创建的知识库清单。若需求与某个库的描述明确相关，允许在本次生成的 AGENT.md \
+      frontmatter 暂时输出顶层 knowledge 列表作为**生成建议 sidecar**（如 knowledge: [ops-manual]），并把 retrieve_knowledge \
+      加进 tools（前提是它在【可用工具】里）；后端会立即移除该字段，最终 AGENT.md 绝不保存 knowledge。需求无关就不要输出 \
+      knowledge 字段。**绝不编造清单外名称**。
 
       【可用工具】（tools 只能从这里选，禁止编造）
       {tools}
@@ -114,6 +118,9 @@ public class AgentLifecycleService {
 
       【可用 Skill】（仅用于生成建议 sidecar，禁止编造）
       {skills}
+
+      【已有知识库】（仅用于生成建议 sidecar，禁止编造）
+      {knowledge}
 
       【正确示例（仅示范字段与工具用法，name/provider 以上面规则为准）】
       {example}
@@ -177,6 +184,8 @@ public class AgentLifecycleService {
   private final SkillRegistry skillRegistry;
   private final AgentSkillBindingService skillBindings;
   private final SkillCatalog skillCatalog;
+  // 014：生成时把已有知识库名单（name → description）喂给作者模型（FR-018）；可空——旧调用方不带这个能力。
+  private final java.util.function.Supplier<Map<String, String>> knowledgeCandidates;
 
   public AgentLifecycleService(
       AgentLoader agentLoader,
@@ -277,6 +286,41 @@ public class AgentLifecycleService {
       SkillRegistry skillRegistry,
       AgentSkillBindingService skillBindings,
       SkillCatalog skillCatalog) {
+    this(
+        agentLoader,
+        profileRegistry,
+        agentScheduler,
+        agentStore,
+        providerService,
+        defaultProvider,
+        authorProvider,
+        authorModel,
+        tools,
+        notifyChannels,
+        mcpServerAdmin,
+        skillRegistry,
+        skillBindings,
+        skillCatalog,
+        null);
+  }
+
+  /** 014：注入知识库名单供给者，生成提示词里补上真实的「已有知识库」清单（FR-018）。 */
+  public AgentLifecycleService(
+      AgentLoader agentLoader,
+      ProfileRegistry profileRegistry,
+      AgentScheduler agentScheduler,
+      AgentStore agentStore,
+      ProviderService providerService,
+      String defaultProvider,
+      String authorProvider,
+      String authorModel,
+      Map<String, OryxTool> tools,
+      NotifyChannelRegistry notifyChannels,
+      McpServerAdmin mcpServerAdmin,
+      SkillRegistry skillRegistry,
+      AgentSkillBindingService skillBindings,
+      SkillCatalog skillCatalog,
+      java.util.function.Supplier<Map<String, String>> knowledgeCandidates) {
     this.agentLoader = agentLoader;
     this.profileRegistry = profileRegistry;
     this.agentScheduler = agentScheduler;
@@ -291,6 +335,7 @@ public class AgentLifecycleService {
     this.skillRegistry = skillRegistry;
     this.skillBindings = skillBindings;
     this.skillCatalog = skillCatalog;
+    this.knowledgeCandidates = knowledgeCandidates;
   }
 
   /**
@@ -566,6 +611,8 @@ public class AgentLifecycleService {
             List.of(),
             List.of(),
             Profile.Settings.defaults());
+    Map<String, String> knowledgeBases =
+        knowledgeCandidates == null ? Map.of() : knowledgeCandidates.get();
     String prompt =
         AGENT_AUTHOR_PROMPT
                 .replace("{name}", name)
@@ -574,6 +621,7 @@ public class AgentLifecycleService {
                 .replace("{tools}", describeTools())
                 .replace("{mcp_servers}", describeMcpServers())
                 .replace("{skills}", describeSkills(candidates))
+                .replace("{knowledge}", describeKnowledge(knowledgeBases))
                 .replace("{required_skills}", requiredSkillsDirective(required))
                 .replace("{notify}", notifyDirective(channel))
                 .replace("{example}", AUTHOR_EXAMPLE)
@@ -583,11 +631,27 @@ public class AgentLifecycleService {
     if (text == null || text.isBlank()) {
       throw new IllegalStateException("模型未返回内容"); // → 503
     }
-    return parseGeneratedDraft(text, name, required, candidateNames);
+    return parseGeneratedDraft(text, name, required, candidateNames, knowledgeBases.keySet());
+  }
+
+  /** 已有知识库清单（name → description）注入生成提示词；空清单明确告知，避免模型猜测。 */
+  private static String describeKnowledge(Map<String, String> knowledgeBases) {
+    if (knowledgeBases.isEmpty()) {
+      return "（当前没有知识库，不要输出 knowledge 字段）";
+    }
+    StringBuilder text = new StringBuilder();
+    knowledgeBases.forEach(
+        (name, description) ->
+            text.append("- ").append(name).append("：").append(description).append('\n'));
+    return text.toString().strip();
   }
 
   private GeneratedAgentDraft parseGeneratedDraft(
-      String text, String name, List<String> required, Set<String> candidateNames) {
+      String text,
+      String name,
+      List<String> required,
+      Set<String> candidateNames,
+      Set<String> knowledgeNames) {
     // 多文件解析（模型自己决定要不要脚本/子指令）：按 ===FILE: path=== 切分；无分隔符则整段当 AGENT.md
     Map<String, String> files = parseGeneratedFiles(text);
     for (String path : files.keySet()) {
@@ -610,11 +674,24 @@ public class AgentLifecycleService {
     if (AgentMarkdown.hasLegacySkills(agentMarkdown)) {
       throw new IllegalArgumentException("生成结果中的顶层 skills 未能安全移除");
     }
+    // 014：knowledge 建议同为 sidecar——校验在清单内、随即从 AGENT.md 移除（frontmatter 不声明知识库，FR-002）
+    List<String> suggestedKnowledge =
+        AgentMarkdown.knowledgeSidecar(agentMarkdown).stream().distinct().toList();
+    for (String kb : suggestedKnowledge) {
+      if (!knowledgeNames.contains(kb)) {
+        throw new IllegalArgumentException("作者模型建议了不存在的知识库: " + kb);
+      }
+    }
+    agentMarkdown = AgentMarkdown.removeKnowledgeSidecar(agentMarkdown);
+    if (AgentMarkdown.hasKnowledgeSidecar(agentMarkdown)) {
+      throw new IllegalArgumentException("生成结果中的顶层 knowledge 未能安全移除");
+    }
     files.put("AGENT.md", agentMarkdown);
     agentLoader.parse(agentMarkdown, name); // 校验：解析不成合法定义就抛 ProfileValidationException（→400）
     Set<String> bindingSet = new java.util.TreeSet<>(required);
     bindingSet.addAll(suggested);
-    return new GeneratedAgentDraft(files, required, suggested, List.copyOf(bindingSet));
+    return new GeneratedAgentDraft(
+        files, required, suggested, List.copyOf(bindingSet), suggestedKnowledge);
   }
 
   private static boolean isIllegalGeneratedPath(Path relative) {

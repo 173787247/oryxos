@@ -90,6 +90,7 @@ Tools via MCP with a three-tier plugin model (zero-code SKILL.md → custom MCP 
 | **LLM Routing** | Dynamic, SQLite-backed provider registry with CRUD. Agents are provider-agnostic; explicit name → model routing keeps multi-provider dispatch correct. Switch or add providers at runtime. Local inference supported. |
 | **ReAct Loop** | Self-implemented reasoning engine — no external framework. LLM decides whether and which tool to call; OryxOS executes, feeds the result back; LLM decides the next step. Synchronous execution on virtual threads; loop fully controllable. |
 | **Memory** | Per-agent long-term memory (`.oryxos/agents/<name>/MEMORY.md`, keyword search, timestamped entries; global fallback when no agent context). Auto-injected into every system prompt, with a vector-retrieval upgrade path. |
+| **Knowledge** | Named knowledge bases (`.oryxos/knowledge/<name>/`) with chunking + embedding indexing (md / txt / text-layer PDF), hybrid retrieval (vector + keyword, RRF fusion) behind a pluggable backend contract; agents bind via symlinks and retrieve with mandatory citations (`retrieve_knowledge`), hot-reload + admin console lifecycle + usage dashboard included. |
 | **Tool System** | Built-in file, shell, and HTTP tools. Three-tier extension: zero-code SKILL.md + community MCP server → light-code custom MCP server → heavy-code native `@Tool` method. |
 | **REST API** | All capabilities exposed via REST. Any language can integrate. Business systems connect via HTTP. |
 
@@ -117,6 +118,8 @@ oryxos/
 ├── oryxos-core          # OryxTool, Session, ReActLoop, PromptBuilder, ToolExecutor, AgentScheduler
 ├── oryxos-provider      # ProviderService, Function Calling adapter, explicit multi-provider map
 ├── oryxos-memory        # MemoryService, LongTermMemory, MemoryTools (save/recall)
+├── oryxos-knowledge     # Knowledge base: local backend plugin, chunk/embed/index pipeline,
+│                        #   hybrid retrieval (vector + keyword + RRF), retrieve_knowledge
 ├── oryxos-tool          # Built-in tools (file/shell/http), MCP Client, ToolRegistry, SandboxChecker
 ├── oryxos-channel-cli   # CLI channel: oryxos chat implementation
 ├── oryxos-web           # REST API controllers, Web admin console, GlobalExceptionHandler

@@ -122,28 +122,28 @@ US5 远程桩与 US6 无 key 自测最后收口契约与 CI。
 
 ### Tests
 
-- [ ] T023 [P] [US1] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/builtin/KnowledgeToolsTest.java`
+- [x] T023 [P] [US1] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/builtin/KnowledgeToolsTest.java`
       添加失败测试：schema 两必一选（query/limit/knowledge_base）、绑定范围圈定、多库聚合
       全局 top-K、限定未绑定库可读错误、零绑定可读错误、结果 JSON 含埋点字段（FR-022）
-- [ ] T024 [P] [US1] 在 `oryxos-core/src/test/java/io/oryxos/core/context/ContextLoaderKnowledgeTest.java`
+- [x] T024 [P] [US1] 在 `oryxos-core/src/test/java/io/oryxos/core/context/ContextLoaderKnowledgeTest.java`
       添加失败测试：每轮注入绑定库 name+description+检索指引、零绑定零注入、正文永不预载
 
 ### Implementation
 
-- [ ] T025 [US1] 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/DefaultKnowledgeService.java`
+- [x] T025 [US1] 在 `oryxos-core/src/main/java/io/oryxos/core/knowledge/DefaultKnowledgeService.java`
       实现门面：经 `KnowledgeBindingService` 圈定绑定库 → 逐库路由后端 → 跨库融合取全局
       top-K（Clarify-Q2）
-- [ ] T026 [US1] 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/builtin/KnowledgeTools.java`
+- [x] T026 [US1] 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/builtin/KnowledgeTools.java`
       实现 `@Tool retrieve_knowledge`（经 `ToolExecutionContext` 取 agentName；结果为
       contracts §3 的结构化 JSON 埋点载体）（T023 转绿）
-- [ ] T027 [US1] 在 `oryxos-core/src/main/java/io/oryxos/core/context/ContextLoader.java`
+- [x] T027 [US1] 在 `oryxos-core/src/main/java/io/oryxos/core/context/ContextLoader.java`
       新增 `appendKnowledge()`（对照 `appendSkills()`；按 `profile.tools()` 含
       `retrieve_knowledge` 联动）（T024 转绿）
-- [ ] T028 [US1] 在 `oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java` 装配：
+- [x] T028 [US1] 在 `oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java` 装配：
       backend registry、`LocalKnowledgeBackend`、`KnowledgeService`、
       `registry.registerAnnotated(new KnowledgeTools(...))`，并同步
       `OryxToolContractTest` 参数化注册面
-- [ ] T029 [US1] 本地库文档目录自动纳入 `read_file` 白名单（FR-017）：沿用 `oryxos.root`
+- [x] T029 [US1] 本地库文档目录自动纳入 `read_file` 白名单（FR-017）：沿用 `oryxos.root`
       换根自动纳入机制 + `RealPathBoundary` 校验；远程命中标注不可跟读；补
       `oryxos-tool/src/test/java/io/oryxos/tool/sandbox/` 白名单联动测试
 - [ ] T030 [US1] 端到端验证 quickstart §C：命中带出处 / 原文跟读 / 无关问题不干扰 /
@@ -161,20 +161,20 @@ US5 远程桩与 US6 无 key 自测最后收口契约与 CI。
 
 ### Tests
 
-- [ ] T031 [P] [US2] 在 `oryxos-web/src/test/java/io/oryxos/web/controller/KnowledgeApiControllerTest.java`
+- [x] T031 [P] [US2] 在 `oryxos-web/src/test/java/io/oryxos/web/controller/KnowledgeApiControllerTest.java`
       添加 MockMvc 失败测试：CRUD、两段式上传（不支持类型/扫描件/超限 4xx 当场拒绝）、
       状态查询、重建、重名 409、被引用删除 409 + Agent 名单、能力门禁 400
       （contracts/rest-api.md 全表）
 
 ### Implementation
 
-- [ ] T032 [US2] 在 `oryxos-web/src/main/java/io/oryxos/web/controller/KnowledgeApiController.java`
+- [x] T032 [US2] 在 `oryxos-web/src/main/java/io/oryxos/web/controller/KnowledgeApiController.java`
       + `controller/dto/` record DTO 实现 REST 全生命周期端点（T031 转绿）；
       `GlobalExceptionHandler` 新增 `KnowledgeReferencedException` → 409
-- [ ] T033 [US2] 在 `oryxos-knowledge/.../index/KnowledgeIndexService.java` 补双缓冲重建
+- [x] T033 [US2] 在 `oryxos-knowledge/.../index/KnowledgeIndexService.java` 补双缓冲重建
       （FR-024）：generation+1 后台构建、同步临界区原子切换、失败保留旧代与原因；
       补重建期间并发检索不中断的测试
-- [ ] T034 [US2] 在 `oryxos-web/src/main/frontend/src/App.vue` 落地知识库页（TOP_NAV 占位
+- [x] T034 [US2] 在 `oryxos-web/src/main/frontend/src/App.vue` 落地知识库页（TOP_NAV 占位
       已存在）：列表（名称/描述/后端/文档数/片段数/状态）、详情（文档清单 + 单文档删除 +
       重建 + 上传）、创建/删除；操作按钮按能力集渲染（FR-009）；`npm run build` 通过
 
@@ -190,19 +190,19 @@ US5 远程桩与 US6 无 key 自测最后收口契约与 CI。
 
 ### Tests
 
-- [ ] T035 [P] [US3] 在 `oryxos-web/src/test/java/io/oryxos/web/controller/AgentApiControllerTest.java`
+- [x] T035 [P] [US3] 在 `oryxos-web/src/test/java/io/oryxos/web/controller/AgentApiControllerTest.java`
       补绑定三件套失败测试（GET/PUT/DELETE `/agents/{name}/knowledge`，非法链接 4xx）与
       Agent 创建/编辑请求 `knowledgeBindings` 字段测试
 
 ### Implementation
 
-- [ ] T036 [US3] 在 `oryxos-web/src/main/java/io/oryxos/web/controller/AgentApiController.java`
+- [x] T036 [US3] 在 `oryxos-web/src/main/java/io/oryxos/web/controller/AgentApiController.java`
       实现绑定三件套（照 skills 三件套先例）+ 创建/编辑端点接受 `knowledgeBindings`
       并经 `KnowledgeBindingService` 落软连接（T035 转绿）
-- [ ] T037 [US3] 「一句话生成 Agent」起草上下文注入现有知识库名单（name+description，与
+- [x] T037 [US3] 「一句话生成 Agent」起草上下文注入现有知识库名单（name+description，与
       工具/渠道候选同等待遇，FR-018）；草稿含 `knowledgeBindings` 建议、保存时后端重新
       校验（照 Skill 建议流程：草稿不是持久绑定索引）
-- [ ] T038 [US3] `App.vue` Agent 详情页绑定管理视图 + 新建/编辑表单知识库多选（SC-007
+- [x] T038 [US3] `App.vue` Agent 详情页绑定管理视图 + 新建/编辑表单知识库多选（SC-007
       三界面一致）
 
 **Checkpoint**: US3 三条路径验收通过，SC-008 留人工评审。
@@ -218,16 +218,16 @@ SC-006 30 秒窗口）。
 
 ### Tests
 
-- [ ] T039 [P] [US4] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/watch/KnowledgeWatcherTest.java`
+- [x] T039 [P] [US4] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/watch/KnowledgeWatcherTest.java`
       添加失败测试：新目录发现、文档改删触发重索引、非法目录不注册 + 告警不影响他库、
       启动 reconcile 对账
 
 ### Implementation
 
-- [ ] T040 [US4] 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/watch/KnowledgeWatcher.java`
+- [x] T040 [US4] 在 `oryxos-knowledge/src/main/java/io/oryxos/knowledge/watch/KnowledgeWatcher.java`
       照 `WorkspaceWatcher` 非递归补挂骨架实现热加载 + 启动对账（T039 转绿），接入
       `OryxOsRuntime` 启动顺序
-- [ ] T041 [P] [US4] 在 `oryxos-cli/src/main/java/io/oryxos/cli/command/KnowledgeCommand.java`
+- [x] T041 [P] [US4] 在 `oryxos-cli/src/main/java/io/oryxos/cli/command/KnowledgeCommand.java`
       实现 `oryxos knowledge list`（与 `provider list` 同族输出）；`InitCommand.DIRS`
       加 `"knowledge"`；注册到 `OryxOsCli` 子命令表
 
@@ -243,16 +243,16 @@ SC-006 30 秒窗口）。
 
 ### Tests
 
-- [ ] T042 [P] [US7] 在 `KnowledgeApiControllerTest.java` 补 metrics 端点失败测试：
+- [x] T042 [P] [US7] 在 `KnowledgeApiControllerTest.java` 补 metrics 端点失败测试：
       检索次数/零结果率/降级率/命中文档分布/出处引用率、时间过滤、零结果查询原文列表、
       与 `tool_invocations` 数据一致
 
 ### Implementation
 
-- [ ] T043 [US7] 在 `KnowledgeApiController` 实现 `GET /knowledge/{name}/metrics`：只聚合
+- [x] T043 [US7] 在 `KnowledgeApiController` 实现 `GET /knowledge/{name}/metrics`：只聚合
       `tool_invocations`（FR-023 不另建统计路径）；出处引用率关联会话最终回答文本近似计算
       （T042 转绿）
-- [ ] T044 [US7] `App.vue` 库详情使用看板视图（指标卡 + 时间过滤 + 零结果列表）
+- [x] T044 [US7] `App.vue` 库详情使用看板视图（指标卡 + 时间过滤 + 零结果列表）
 
 **Checkpoint**: US7 三个验收场景通过，看板逐项与审计 SQL 核对一致。
 
@@ -264,10 +264,10 @@ SC-006 30 秒窗口）。
 
 **Independent Test**: spec US5 场景 1~3 + SC-011 逐项核验。
 
-- [ ] T045 [P] [US5] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/contract/StubRemoteBackend.java`
+- [x] T045 [P] [US5] 在 `oryxos-knowledge/src/test/java/io/oryxos/knowledge/contract/StubRemoteBackend.java`
       实现测试桩（仅声明 retrieve；可配置返回无出处命中、模拟不可达），挂入 T022 参数化
       契约测试并全部转绿
-- [ ] T046 [US5] 端到端核验：`backend: stub` 清单库绑定检索三同、缺出处显式标注「出处
+- [x] T046 [US5] 端到端核验：`backend: stub` 清单库绑定检索三同、缺出处显式标注「出处
       不可用」且不可跟读、管理端点 400 门禁、管理台不渲染入口、不可达可读错误入审计
       （quickstart §E）
 
@@ -279,7 +279,7 @@ SC-006 30 秒窗口）。
 
 **Goal**: mock provider 下 REST 全流程确定可重复，CI 稳定断言。
 
-- [ ] T047 [US6] 在 `oryxos-boot`（或 `oryxos-web`）新增端到端集成测试：仅 mock provider
+- [x] T047 [US6] 在 `oryxos-boot`（或 `oryxos-web`）新增端到端集成测试：仅 mock provider
       走通 quickstart §A 全流程（建库→上传→轮询 READY→绑定→invoke 命中带出处→审计核对→
       引用保护 409→解绑删除），重复执行结果一致（SC-004）
 
@@ -289,12 +289,12 @@ SC-006 30 秒窗口）。
 
 ## Phase 11: Polish — 文档同步与全量验收
 
-- [ ] T048 [P] 同步 `CLAUDE.md` 模块表 + `docs/TechnicalSolution.md` §10 新增
+- [x] T048 [P] 同步 `CLAUDE.md` 模块表 + `docs/TechnicalSolution.md` §10 新增
       `oryxos-knowledge` 模块（宪法停点 1 的文档义务）；`website/zh/docs/architecture.md:80`
       「知识库（占位）」落地
-- [ ] T049 [P] `README.md` 能力清单与 CLI 命令表补知识库；`config/application.yml.example`
+- [x] T049 [P] `README.md` 能力清单与 CLI 命令表补知识库；`config/application.yml.example`
       （如有）补 `knowledge.*` 配置段示例
-- [ ] T050 跑满 quickstart §A~G 全量验收 + `mvn verify` 全绿（Spotless/P3C/Checkstyle/
+- [x] T050 跑满 quickstart §A~G 全量验收 + `mvn verify` 全绿（Spotless/P3C/Checkstyle/
       SpotBugs/OWASP）+ 前端 `npm run build`；SC-001~SC-011 逐条勾验
 
 ---

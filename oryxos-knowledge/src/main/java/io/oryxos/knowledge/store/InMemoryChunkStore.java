@@ -9,7 +9,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** 引擎单测用的内存实现：与 SqliteChunkStore 同语义，免 Spring/SQLite 起箱。 */
+/** 内存档（knowledge.store=memory）：与 SqliteChunkStore 同语义，重启即失——测试与演示用。 */
 public final class InMemoryChunkStore implements ChunkStore {
 
   private final AtomicLong ids = new AtomicLong();
