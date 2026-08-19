@@ -15,6 +15,7 @@ import io.oryxos.core.session.Session;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -131,6 +132,19 @@ class PromptBuilderTest {
     assertFalse(hasMsg(request, "结果1"), "轮内工具消息随轮整体截掉，不撕裂");
     assertTrue(hasMsg(request, "问题2") && hasMsg(request, "结果2"));
     assertTrue(hasMsg(request, "问题3") && hasMsg(request, "结果3"));
+  }
+
+  @Test
+  @DisplayName("构造后才注册的工具立刻进 availableTools")
+  void toolsRegisteredAfterConstructionAppearInAvailableTools() {
+    Map<String, OryxTool> live = new HashMap<>();
+    PromptBuilder liveBuilder = new PromptBuilder(contextLoader, live, FIXED_CLOCK);
+    live.put("http_get", httpGetTool);
+
+    ProviderRequest request =
+        liveBuilder.build(sessionWithTurns(1), profile(20, List.of("http_get")));
+
+    assertEquals(List.of(httpGetTool), request.availableTools());
   }
 
   /** 结构化历史里是否有一条消息的 content 含 sub（替代旧的 request.content() 文本包含判断）。 */

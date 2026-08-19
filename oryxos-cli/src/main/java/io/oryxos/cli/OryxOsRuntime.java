@@ -653,7 +653,8 @@ public class OryxOsRuntime {
 
   @Bean
   Map<String, OryxTool> tools(ToolRegistry toolRegistry) {
-    // 20 节起：全部来源统一经 ToolRegistry 供给（PromptBuilder 按 Profile.tools 过滤）
+    // 20 节起：全部来源统一经 ToolRegistry 供给（PromptBuilder 按 Profile.tools 过滤）。
+    // 活视图：管理台 MCP CRUD「立即生效」必须打到同一份 Map，不能 copyOf 冻在启动瞬间。
     return toolRegistry.asMap();
   }
 
@@ -671,7 +672,7 @@ public class OryxOsRuntime {
       ToolRegistry toolRegistry,
       ProfileRegistry profileRegistry,
       ToolInvocationAuditor auditor) {
-    // 31 节：mcp_servers 白名单在此接线——Agent 只能调它声明过的 server 提供的工具
+    // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
     return new ToolExecutor(tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor);
   }
 

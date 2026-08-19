@@ -19,6 +19,7 @@ import static org.mockito.Mockito.when;
 import io.oryxos.core.OryxTool;
 import io.oryxos.core.ToolResult;
 import io.oryxos.core.provider.ToolCallRequest;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -156,6 +157,24 @@ class ToolExecutorTest {
             eq(false),
             contains("no_such_tool"),
             anyLong());
+  }
+
+  @Test
+  @DisplayName("构造后才注册的工具立刻可执行（管理台 MCP 立即生效）")
+  void toolsRegisteredAfterConstructionAreExecutable() {
+    Map<String, OryxTool> live = new HashMap<>();
+    ToolExecutor liveExecutor = new ToolExecutor(live, auditor);
+    live.put("http_get", httpGet);
+    when(httpGet.execute(any())).thenReturn(ToolResult.ok("ok"));
+
+    ToolResult result =
+        liveExecutor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+
+    assertTrue(result.success());
+    live.remove("http_get");
+    ToolResult gone = liveExecutor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+    assertFalse(gone.success());
+    assertTrue(gone.errorMessage().contains("未注册"));
   }
 
   @Test

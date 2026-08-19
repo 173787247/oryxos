@@ -23,7 +23,7 @@ import java.util.Map;
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
-    justification = "contextLoader 是 Spring 注入的共享单例，构造注入共享同一引用正是意图。")
+    justification = "contextLoader / tools 都是运行时共享引用：工具表必须随 MCP 增删更新，copyOf 会让模型侧永远只看到启动快照。")
 public class PromptBuilder {
 
   private static final DateTimeFormatter DATE_TIME =
@@ -49,7 +49,7 @@ public class PromptBuilder {
       MemoryService memoryService,
       Clock clock) {
     this.contextLoader = contextLoader;
-    this.tools = Map.copyOf(tools);
+    this.tools = tools;
     this.memoryService = memoryService;
     this.clock = clock;
   }

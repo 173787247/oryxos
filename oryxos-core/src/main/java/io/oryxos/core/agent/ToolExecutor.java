@@ -23,7 +23,8 @@ import org.slf4j.LoggerFactory;
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
-    justification = "profileRegistry 是 Spring 注入的共享单例，构造注入共享同一引用正是意图（无法也不应防御性拷贝）。")
+    justification =
+        "tools / mcpToolOwners / profileRegistry 都是运行时共享索引：MCP 增删必须立刻可见，copyOf 会把执行面冻在装配瞬间。")
 public class ToolExecutor {
 
   private static final Logger LOG = LoggerFactory.getLogger(ToolExecutor.class);
@@ -45,8 +46,8 @@ public class ToolExecutor {
       Map<String, String> mcpToolOwners,
       ProfileRegistry profileRegistry,
       ToolInvocationAuditor auditor) {
-    this.tools = Map.copyOf(tools);
-    this.mcpToolOwners = Map.copyOf(mcpToolOwners);
+    this.tools = tools;
+    this.mcpToolOwners = mcpToolOwners;
     this.profileRegistry = profileRegistry;
     this.auditor = auditor;
   }
