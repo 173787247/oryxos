@@ -1162,6 +1162,7 @@ async function saveAgentBindings() {
       agent: { ...agentDetail.value.agent, skills: [...agentBinding.selected] },
     }
     await loadAgents()
+    await reloadAgent() // skills/ 软连接已变，刷新文件树
   } catch (e) { agentBinding.error = e.message } finally { agentBinding.saving = false }
 }
 
@@ -1178,6 +1179,7 @@ async function saveAgentKnowledge() {
     agentKb.selected = (body.data.bindings || []).map((b) => b.name)
     agentKb.issues = body.data.issues || []
     agentKb.saved = true
+    await reloadAgent() // 绑定落成软连接后立即刷新文件树，工作区 tab 不再是旧内容
   } catch (e) { agentKb.error = e.message } finally { agentKb.saving = false }
 }
 
@@ -1213,6 +1215,7 @@ function detailTab(tab) {
   agentDetail.value = { ...agentDetail.value, tab }
   if (tab === 'files' || tab === 'output') {
     fileView.value = null // 工作区/输出各自从"未选中"开始，避免跨 tab 串台预览
+    reloadAgent() // 每次进入都重拉文件树：绑定保存/GitOps 外部改动不再显示旧内容
   }
   if (tab === 'chat') {
     loadChat()
