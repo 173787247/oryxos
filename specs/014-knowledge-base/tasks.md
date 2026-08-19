@@ -294,7 +294,7 @@ SC-006 30 秒窗口）。
       「知识库（占位）」落地
 - [x] T049 [P] `README.md` 能力清单与 CLI 命令表补知识库；`config/application.yml.example`
       （如有）补 `knowledge.*` 配置段示例
-- [ ] T050 跑满 quickstart §A~G 全量验收 + `mvn verify` 全绿（Spotless/P3C/Checkstyle/
+- [x] T050 跑满 quickstart §A~G 全量验收 + `mvn verify` 全绿（Spotless/P3C/Checkstyle/
       SpotBugs/OWASP）+ 前端 `npm run build`；SC-001~SC-011 逐条勾验
 
 ---
