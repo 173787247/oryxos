@@ -157,4 +157,52 @@ class WebhookNotifyAdapterTest {
       sink.stop(0);
     }
   }
+
+  @Test
+  @DisplayName("白名单内 302 不得把通知 POST body 转到下一跳")
+  void redirect302DoesNotReplayPostBody() throws IOException {
+    HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    List<String> sinkMethods = new ArrayList<>();
+    List<String> sinkBodies = new ArrayList<>();
+    try {
+      sink.createContext(
+          "/",
+          exchange -> {
+            sinkMethods.add(exchange.getRequestMethod());
+            sinkBodies.add(
+                new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+          });
+      String sinkUrl = "http://127.0.0.1:" + sink.getAddress().getPort() + "/sink";
+      entry.createContext(
+          "/",
+          exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Location", sinkUrl);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+          });
+      entry.start();
+      sink.start();
+
+      WebhookNotifyAdapter guarded =
+          new WebhookNotifyAdapter(
+              new NotifyPoster(
+                  new WhitelistSandbox(
+                      new FileSandboxProperties(List.of()),
+                      new ShellSandboxProperties(List.of()),
+                      new HttpSandboxProperties(List.of("localhost", "127.0.0.1")))));
+      String start = "http://localhost:" + entry.getAddress().getPort() + "/";
+
+      guarded.send(webhookTarget(start), "secret-notify");
+
+      assertEquals(List.of("GET"), sinkMethods, "302 下一跳应改为 GET");
+      assertEquals(List.of(""), sinkBodies, "302 不得把通知 body 转到下一跳");
+    } finally {
+      entry.stop(0);
+      sink.stop(0);
+    }
+  }
 }
