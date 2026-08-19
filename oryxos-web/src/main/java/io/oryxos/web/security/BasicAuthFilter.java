@@ -162,7 +162,7 @@ public class BasicAuthFilter extends OncePerRequestFilter {
     if (credentials == null || credentials.length != BASIC_CREDENTIAL_PARTS) {
       return BasicOutcome.NONE;
     }
-    String attemptKey = credentials[0] + "|" + request.getRemoteAddr();
+    String attemptKey = credentials[0] + "|" + ClientIp.peerAddress(request);
     if (loginAttemptService.isBlocked(attemptKey)) {
       return BasicOutcome.LOCKED;
     }
