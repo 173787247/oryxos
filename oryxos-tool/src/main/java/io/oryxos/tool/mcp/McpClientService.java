@@ -71,23 +71,26 @@ public class McpClientService {
       lastErrors.put(config.name(), msg);
       return;
     }
+    McpSyncClient client = null;
+    List<String> toolNames = new ArrayList<>();
     try {
-      McpSyncClient client = clientFactory.apply(config);
+      client = clientFactory.apply(config);
       client.initialize();
-      List<String> toolNames = new ArrayList<>();
-      client
-          .listTools()
-          .tools()
-          .forEach(
-              tool -> {
-                registry.registerMcpTool(config.name(), new McpToolAdapter(client, tool));
-                toolNames.add(tool.name());
-              });
+      for (var tool : client.listTools().tools()) {
+        registry.registerMcpTool(config.name(), new McpToolAdapter(client, tool));
+        toolNames.add(tool.name());
+      }
       activeClients.put(config.name(), client);
       registeredTools.put(config.name(), toolNames);
       lastErrors.remove(config.name());
     } catch (RuntimeException e) {
-      // 外部依赖失联不拖垮自身启动——只 WARN，OryxOS 照常起（课件守点）
+      // 外部依赖失联不拖垮自身启动——只 WARN，OryxOS 照常起（课件守点）。
+      // listTools 中途失败（重名、协议错）时：已注册的工具必须卸掉，客户端必须关掉，否则
+      // 管理台显示未连接，Agent 仍能调到半截 MCP 工具，stdio 子进程也会泄漏。
+      for (String toolName : toolNames) {
+        registry.unregister(toolName);
+      }
+      closeQuietly(config.name(), client);
       LOG.warn("MCP server {} 连接失败，跳过它的工具: {}", s(config.name()), s(e.getMessage()));
       lastErrors.put(config.name(), e.getMessage());
     }
@@ -99,15 +102,19 @@ public class McpClientService {
       registry.unregister(toolName);
     }
     registeredTools.remove(serverName);
-    McpSyncClient client = activeClients.remove(serverName);
-    if (client != null) {
-      try {
-        client.closeGracefully();
-      } catch (RuntimeException e) {
-        LOG.warn("MCP server {} 断开连接时出错（忽略）: {}", s(serverName), s(e.getMessage()));
-      }
-    }
+    closeQuietly(serverName, activeClients.remove(serverName));
     lastErrors.remove(serverName);
+  }
+
+  private static void closeQuietly(String serverName, McpSyncClient client) {
+    if (client == null) {
+      return;
+    }
+    try {
+      client.closeGracefully();
+    } catch (RuntimeException e) {
+      LOG.warn("MCP server {} 断开连接时出错（忽略）: {}", s(serverName), s(e.getMessage()));
+    }
   }
 
   /** 单个 server 的运行时状态：是否连上、给了哪些工具、失败原因。 */
