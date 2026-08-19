@@ -53,6 +53,12 @@ public class HttpTools {
   private static final int DEFAULT_HTTP_PORT = 80;
   private static final int DEFAULT_HTTPS_PORT = 443;
 
+  /** RFC 9110：这些 3xx 不得自动重放原方法与 body，浏览器会改成 GET。 */
+  private static final int STATUS_MOVED_PERMANENTLY = 301;
+
+  private static final int STATUS_FOUND = 302;
+  private static final int STATUS_SEE_OTHER = 303;
+
   private final Sandbox sandbox;
 
   /** 读写共用：**禁自动重定向**，由本类手动逐跳跟随并每跳重过沙箱校验。不使用注入的 RestClient 默认跟随行为（否则写请求会在首跳过白名单后跟到任意 Location）。 */
@@ -98,15 +104,18 @@ public class HttpTools {
       HttpMethod method, String url, String headers, String body, boolean jsonBody) {
     String current = url;
     String hopHeaders = headers;
+    HttpMethod hopMethod = method;
+    String hopBody = body;
+    boolean hopJsonBody = jsonBody;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, current)); // 每跳校验
-      RestClient.RequestBodySpec spec = hopClient.method(method).uri(current);
+      RestClient.RequestBodySpec spec = hopClient.method(hopMethod).uri(current);
       applyCustomHeaders(spec, hopHeaders);
-      if (body != null && !body.isBlank()) {
-        if (jsonBody) {
+      if (hopBody != null && !hopBody.isBlank()) {
+        if (hopJsonBody) {
           spec.contentType(MediaType.APPLICATION_JSON);
         }
-        spec.body(body);
+        spec.body(hopBody);
       }
       ResponseEntity<String> resp = spec.retrieve().toEntity(String.class);
       if (resp.getStatusCode().is3xxRedirection()) {
@@ -119,12 +128,24 @@ public class HttpTools {
         if (!sameOrigin(current, next)) {
           hopHeaders = stripSensitiveHeaders(hopHeaders);
         }
+        // 301/302/303：不得把原 POST/PUT body 带到下一跳（RFC 9110 + 浏览器行为）。307/308 才保留方法与 body。
+        if (switchesToGet(resp.getStatusCode().value())) {
+          hopMethod = HttpMethod.GET;
+          hopBody = null;
+          hopJsonBody = false;
+        }
         current = next;
         continue;
       }
       return resp.getBody();
     }
     throw new IllegalStateException("重定向次数过多，拒绝: " + url);
+  }
+
+  static boolean switchesToGet(int status) {
+    return status == STATUS_MOVED_PERMANENTLY
+        || status == STATUS_FOUND
+        || status == STATUS_SEE_OTHER;
   }
 
   private static void applyCustomHeaders(RestClient.RequestBodySpec spec, String headers) {

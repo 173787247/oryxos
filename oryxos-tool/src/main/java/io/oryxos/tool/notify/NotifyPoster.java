@@ -7,6 +7,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Objects;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -21,6 +22,9 @@ public final class NotifyPoster {
   private static final int MAX_REDIRECTS = 5;
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
   private static final Duration READ_TIMEOUT = Duration.ofSeconds(20);
+  private static final int STATUS_MOVED_PERMANENTLY = 301;
+  private static final int STATUS_FOUND = 302;
+  private static final int STATUS_SEE_OTHER = 303;
 
   private final Sandbox sandbox;
   private final RestClient hopClient;
@@ -37,23 +41,26 @@ public final class NotifyPoster {
     this.hopClient = RestClient.builder().requestFactory(hopFactory).build();
   }
 
-  /** POST JSON body 到 url；3xx 时跟随 Location，每跳先过沙箱。 */
+  /** POST JSON body 到 url；3xx 时跟随 Location，每跳先过沙箱。301/302/303 下一跳改为 GET 且不再带 body。 */
   public void postJson(String url, Object body) {
     String current = url;
+    HttpMethod hopMethod = HttpMethod.POST;
+    Object hopBody = body;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, current));
-      ResponseEntity<Void> resp =
-          hopClient
-              .post()
-              .uri(current)
-              .contentType(MediaType.APPLICATION_JSON)
-              .body(body)
-              .retrieve()
-              .toBodilessEntity();
+      RestClient.RequestBodySpec spec = hopClient.method(hopMethod).uri(current);
+      if (hopBody != null) {
+        spec.contentType(MediaType.APPLICATION_JSON).body(hopBody);
+      }
+      ResponseEntity<Void> resp = spec.retrieve().toBodilessEntity();
       if (resp.getStatusCode().is3xxRedirection()) {
         String location = resp.getHeaders().getFirst("Location");
         if (location == null || location.isBlank()) {
           return;
+        }
+        if (switchesToGet(resp.getStatusCode().value())) {
+          hopMethod = HttpMethod.GET;
+          hopBody = null;
         }
         current = URI.create(current).resolve(location).toString();
         continue;
@@ -61,5 +68,11 @@ public final class NotifyPoster {
       return;
     }
     throw new IllegalStateException("通知推送重定向次数过多，拒绝: " + url);
+  }
+
+  private static boolean switchesToGet(int status) {
+    return status == STATUS_MOVED_PERMANENTLY
+        || status == STATUS_FOUND
+        || status == STATUS_SEE_OTHER;
   }
 }

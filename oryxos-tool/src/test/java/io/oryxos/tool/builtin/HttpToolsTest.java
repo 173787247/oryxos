@@ -218,6 +218,106 @@ class HttpToolsTest {
   }
 
   @Test
+  @DisplayName("http_request 跨源 302 不得把 POST body 带到下一跳（改 GET）")
+  void httpRequest302DoesNotReplayPostBody() throws IOException {
+    HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    List<String> sinkMethods = new ArrayList<>();
+    List<String> sinkBodies = new ArrayList<>();
+    try {
+      sink.createContext(
+          "/",
+          exchange -> {
+            sinkMethods.add(exchange.getRequestMethod());
+            sinkBodies.add(
+                new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = "ok".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+          });
+      String sinkUrl = "http://127.0.0.1:" + sink.getAddress().getPort() + "/sink";
+      entry.createContext(
+          "/",
+          exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Location", sinkUrl);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+          });
+      entry.start();
+      sink.start();
+
+      Sandbox whitelist =
+          new WhitelistSandbox(
+              new FileSandboxProperties(List.of()),
+              new ShellSandboxProperties(List.of()),
+              new HttpSandboxProperties(List.of("localhost", "127.0.0.1")));
+      HttpTools guarded = new HttpTools(whitelist, RestClient.create());
+      String start = "http://localhost:" + entry.getAddress().getPort() + "/";
+
+      String body = guarded.httpRequest("POST", start, null, "{\"secret\":\"token\"}");
+
+      assertEquals("ok", body);
+      assertEquals(List.of("GET"), sinkMethods, "302 下一跳应改为 GET");
+      assertEquals(List.of(""), sinkBodies, "302 不得把 POST body 转到下一跳");
+    } finally {
+      entry.stop(0);
+      sink.stop(0);
+    }
+  }
+
+  @Test
+  @DisplayName("http_request 跨源 307 应保留 POST 与 body")
+  void httpRequest307PreservesPostBody() throws IOException {
+    HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    List<String> sinkMethods = new ArrayList<>();
+    List<String> sinkBodies = new ArrayList<>();
+    try {
+      sink.createContext(
+          "/",
+          exchange -> {
+            sinkMethods.add(exchange.getRequestMethod());
+            sinkBodies.add(
+                new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = "ok".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+          });
+      String sinkUrl = "http://127.0.0.1:" + sink.getAddress().getPort() + "/sink";
+      entry.createContext(
+          "/",
+          exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Location", sinkUrl);
+            exchange.sendResponseHeaders(307, -1);
+            exchange.close();
+          });
+      entry.start();
+      sink.start();
+
+      Sandbox whitelist =
+          new WhitelistSandbox(
+              new FileSandboxProperties(List.of()),
+              new ShellSandboxProperties(List.of()),
+              new HttpSandboxProperties(List.of("localhost", "127.0.0.1")));
+      HttpTools guarded = new HttpTools(whitelist, RestClient.create());
+      String start = "http://localhost:" + entry.getAddress().getPort() + "/";
+
+      String body = guarded.httpRequest("POST", start, null, "{\"keep\":true}");
+
+      assertEquals("ok", body);
+      assertEquals(List.of("POST"), sinkMethods, "307 应保留 POST");
+      assertEquals(List.of("{\"keep\":true}"), sinkBodies, "307 应保留 body");
+    } finally {
+      entry.stop(0);
+      sink.stop(0);
+    }
+  }
+
+  @Test
   @DisplayName("download_file 落盘前复检 FILE_WRITE（防拉网窗口内路径逃逸）")
   void downloadFileRechecksPathBeforeWrite(@TempDir Path dir) throws IOException {
     AtomicInteger fileWrites = new AtomicInteger();
