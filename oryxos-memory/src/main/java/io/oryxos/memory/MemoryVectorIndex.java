@@ -114,12 +114,23 @@ public class MemoryVectorIndex {
     if (!orphans.isEmpty()) {
       repository.deleteByAgentNameAndEntryHashIn(agentName, orphans);
     }
+    List<MemoryEntryView> missing = new ArrayList<>();
     live.forEach(
         (hash, entry) -> {
           if (!existing.contains(hash)) {
-            enqueue(agentName, entry);
+            missing.add(entry);
           }
         });
+    if (missing.isEmpty()) {
+      return;
+    }
+    // 补缺失打包成单个批任务：只占一个队列槽、worker 内逐条建——大规模存量（万条）一次对账即可
+    // 补齐，不受逐条入队被有界队列丢弃的限制（丢的只可能是整批，下次对账重试）。
+    try {
+      executor.execute(() -> missing.forEach(entry -> indexSafely(agentName, entry)));
+    } catch (RejectedExecutionException e) {
+      log.debug("对账批任务入队被拒（队满/已停），待下次对账重试");
+    }
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
