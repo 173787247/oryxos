@@ -244,10 +244,10 @@
 </table></div>
 
 <h2><span class="tag">PART 4 / 评审关注点</span>四处最值得讨论的取舍</h2>
-<div class="risk"><h3>R1 · 范围取舍（已扩大，请确认）</h3><p>本期范围 = 检索升级 + 后端契约对齐 + <b>mem0 真实跑通</b>（维护者已拍板并入）。联调需要 docker 起 mem0 OSS + 一个 OpenAI 兼容 LLM key；契约桩测试保 CI 常绿，真实联调打 integration 标签按需跑。评审确认这个最终范围。</p></div>
+<div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R1 · 已拍板：最终范围 = 检索升级 + 契约对齐 + mem0 跑通</h3><p>维护者拍板将 mem0 真实跑通并入本期。联调需 docker 起 mem0 OSS + 一个 OpenAI 兼容 LLM key（可复用现有 zhipu key）；契约桩测试保 CI 常绿，真实联调打 integration 标签按需跑。</p></div>
 <div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R2 · 已拍板：装配期拒绝，删除降维分支</h3><p>调研结论：mem0 经「infer:false 原文模式＋metadata 过滤」可完整映射两区（core 原文常驻 / archival 交提炼），百炼有等价维度——「映射不了分区」是假想场景；而降维会静默破坏「核心区每轮在场」契约，比启动报错危险。故分区定为记忆后端必选能力，装配期校验、无法映射即可读拒绝。（依据 research D8；mem0 filter 的版本性 bug 列为 016 联调验证点）</p></div>
-<div class="risk"><h3>R3 · 三路等权</h3><p>语义/关键词/时间三路在融合中等权、无调参口。建议先等权＋埋点观察，有数据再议——认可与否？</p></div>
-<div class="risk"><h3>R4 · 兼容承诺的唯一例外</h3><p>关键词大小写统一是对「未配置则行为零变化」承诺的唯一例外（修的是两档不一致的存量 bug）——确认各方接受。</p></div>
+<div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R3 · 已拍板：缺省等权，权重留配置系数</h3><p>三路缺省 1:1:1（加权 RRF），权重为配置项——后续按埋点数据手动调整即可，无需改码。</p></div>
+<div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R4 · 已拍板：大小写统一</h3><p>统一为不区分大小写（修两档不一致的存量 bug），作为兼容承诺的唯一例外，已确认接受。</p></div>
 
 <footer>
   需求全文：<code>specs/015-memory-semantic-recall/spec.md</code> · 技术调研：<code>research.md</code>（含 mem0/Letta/Zep 业界对标） · 基线：main（014 知识库已合入）
