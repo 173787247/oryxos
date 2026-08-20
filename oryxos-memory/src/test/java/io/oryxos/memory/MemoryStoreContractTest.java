@@ -110,28 +110,40 @@ class MemoryStoreContractTest {
               data.add(e);
               return e;
             });
-    when(repo.findByScopeOrderByIdAsc(anyString()))
+    when(repo.findByAgentNameAndScopeOrderByIdAsc(anyString(), anyString()))
         .thenAnswer(
             inv -> {
-              String scope = inv.getArgument(0);
-              return data.stream().filter(e -> e.getScope().equals(scope)).toList();
+              String agent = inv.getArgument(0);
+              String scope = inv.getArgument(1);
+              return data.stream()
+                  .filter(e -> e.getAgentName().equals(agent) && e.getScope().equals(scope))
+                  .toList();
             });
-    when(repo.findByScopeOrderByIdDesc(anyString(), any(Pageable.class)))
+    when(repo.findByAgentNameAndScopeOrderByIdDesc(anyString(), anyString(), any(Pageable.class)))
         .thenAnswer(
             inv -> {
-              String scope = inv.getArgument(0);
-              Pageable pageable = inv.getArgument(1);
+              String agent = inv.getArgument(0);
+              String scope = inv.getArgument(1);
+              Pageable pageable = inv.getArgument(2);
               List<MemoryEntry> matched =
-                  new ArrayList<>(data.stream().filter(e -> e.getScope().equals(scope)).toList());
+                  new ArrayList<>(
+                      data.stream()
+                          .filter(e -> e.getAgentName().equals(agent) && e.getScope().equals(scope))
+                          .toList());
               matched.sort((a, b) -> Long.compare(b.getId(), a.getId()));
               return matched.stream().limit(pageable.getPageSize()).toList();
             });
-    when(repo.searchArchival(anyString()))
+    when(repo.searchArchival(anyString(), anyString()))
         .thenAnswer(
             inv -> {
-              String needle = ((String) inv.getArgument(0)).replace("%", "");
+              String agent = inv.getArgument(0);
+              String needle = ((String) inv.getArgument(1)).replace("%", "");
               return data.stream()
-                  .filter(e -> "ARCHIVAL".equals(e.getScope()) && e.getContent().contains(needle))
+                  .filter(
+                      e ->
+                          e.getAgentName().equals(agent)
+                              && "ARCHIVAL".equals(e.getScope())
+                              && e.getContent().contains(needle))
                   .toList();
             });
     return repo;

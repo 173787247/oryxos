@@ -24,9 +24,15 @@ public class SqliteMemoryStore implements LongTermMemoryStore {
     this.repository = repository;
   }
 
+  /** 当前作用域（015 T012 起改读 ToolExecutionContext；本阶段仍全局，保持行为不变）。 */
+  private static String agentName() {
+    return MemoryEntry.GLOBAL_AGENT;
+  }
+
   @Override
   public void append(String content, MemoryScope scope) {
     MemoryEntry entry = new MemoryEntry();
+    entry.setAgentName(agentName());
     entry.setScope(scope.name());
     entry.setContent(content);
     repository.save(entry);
@@ -34,17 +40,19 @@ public class SqliteMemoryStore implements LongTermMemoryStore {
 
   @Override
   public String load() {
-    String core = render(repository.findByScopeOrderByIdAsc("CORE"));
+    String agent = agentName();
+    String core = render(repository.findByAgentNameAndScopeOrderByIdAsc(agent, "CORE"));
     // 归档取最近 N，再翻回时间正序拼接——截断只作用归档（契约二）
     List<MemoryEntry> recent =
-        repository.findByScopeOrderByIdDesc("ARCHIVAL", PageRequest.of(0, MAX_ARCHIVE_ROWS));
+        repository.findByAgentNameAndScopeOrderByIdDesc(
+            agent, "ARCHIVAL", PageRequest.of(0, MAX_ARCHIVE_ROWS));
     List<MemoryEntry> ascending = recent.reversed();
     return CORE_HEADER + "\n" + core + "\n" + ARCHIVE_HEADER + "\n" + render(ascending);
   }
 
   @Override
   public List<String> recallByKeyword(String keyword) {
-    return repository.searchArchival("%" + keyword + "%").stream()
+    return repository.searchArchival(agentName(), "%" + keyword + "%").stream()
         .map(MemoryEntry::getContent)
         .toList();
   }

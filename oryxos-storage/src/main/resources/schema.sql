@@ -94,13 +94,35 @@ CREATE INDEX IF NOT EXISTS idx_agent_executions_agent ON agent_executions (agent
 
 -- memory_entries：长期记忆条目（SqliteMemoryStore 后端，22 节）
 -- scope=CORE 全量注入不截断；scope=ARCHIVAL 归档只带最近 N 条（查询 LIMIT，非删除）
+-- agent_name（015 FR-014）：修复 sqlite 档作用域缺口，记忆跟 Agent 走；存量行由
+-- MemorySchemaUpgrade 幂等补列并归 '__global__' 占位（与 markdown 档全局回退语义对齐）
 CREATE TABLE IF NOT EXISTS memory_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_name VARCHAR(128) NOT NULL DEFAULT '__global__',
     scope VARCHAR(16) NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries (scope);
+CREATE INDEX IF NOT EXISTS idx_memory_agent ON memory_entries (agent_name, scope);
+
+-- memory_vectors：归档记忆条目的向量索引（015）——派生数据，可从记忆本体全量重建，删了不伤本体。
+-- entry_hash = sha256(agent|scope|条目原文)，跨后端档统一寻址；embedding 为 float32[] 小端序 BLOB
+--（复用 014 编解码）。仅归档（ARCHIVAL）条目产生行——core 不参与检索故无需 scope 列（FR-005）；
+-- DELEGATED 档（mem0）不产生行。entry_time 为条目时间（时间新近路依据，解析不出为 NULL 按最旧处理）。
+CREATE TABLE IF NOT EXISTS memory_vectors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_hash VARCHAR(64) NOT NULL,
+    agent_name VARCHAR(128) NOT NULL,
+    content TEXT NOT NULL,
+    embedding BLOB NOT NULL,
+    dim INTEGER NOT NULL,
+    embedding_model VARCHAR(128) NOT NULL,
+    entry_time TIMESTAMP,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (agent_name, entry_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_memvec_agent ON memory_vectors (agent_name);
 
 -- notify_channels：全局通知渠道注册表（31 节）——name → type + url + 描述；管理台可 CRUD、Agent 按名字引用
 -- （notify 工具的 channel 参数）。新表，CREATE TABLE IF NOT EXISTS，非 ALTER，无迁移风险。
