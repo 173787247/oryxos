@@ -99,11 +99,11 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 
 ## Phase 4: 契约钉死与兼容锁（US3 契约面 + SC-002/003）
 
-- [ ] T018 [P] [US3] 在 `oryxos-memory/src/test/java/io/oryxos/memory/contract/MemoryBackendContractTest.java`
+- [x] T018 [P] [US3] 在 `oryxos-memory/src/test/java/io/oryxos/memory/contract/MemoryBackendContractTest.java`
       参数化契约测试（markdown / sqlite / DELEGATED 桩三档常驻 CI）：契约 9 条行为不变量
       （contracts §2）逐条断言；桩 = 自带语义的假后端（可配置命中与故障）；外加负例——
       无法兑现分区语义的坏桩 MUST 在装配期被可读拒绝、无降维路径（SC-009）
-- [ ] T019 [P] [US2] 在 `oryxos-memory/src/test/java/io/oryxos/memory/RecallBackwardCompatTest.java`
+- [x] T019 [P] [US2] 在 `oryxos-memory/src/test/java/io/oryxos/memory/RecallBackwardCompatTest.java`
       兼容性专项：同一数据集上，未配置 embedding 的新实现输出与「旧算法参考实现」（内嵌于测试）
       逐字节一致（除大小写统一修正），锁死 SC-002/003
 
