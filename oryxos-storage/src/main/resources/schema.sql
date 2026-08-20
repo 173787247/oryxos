@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries (scope);
-CREATE INDEX IF NOT EXISTS idx_memory_agent ON memory_entries (agent_name, scope);
+-- idx_memory_agent (agent_name, scope) 由 MemorySchemaUpgrade 创建：本脚本先于升级器执行，
+-- 存量库此刻还没有 agent_name 列，在这里建索引会让整个应用启动失败（SC-003 教训）。
 
 -- memory_vectors：归档记忆条目的向量索引（015）——派生数据，可从记忆本体全量重建，删了不伤本体。
 -- entry_hash = sha256(agent|scope|条目原文)，跨后端档统一寻址；embedding 为 float32[] 小端序 BLOB
