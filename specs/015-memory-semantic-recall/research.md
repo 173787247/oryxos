@@ -99,9 +99,12 @@ metadata scope=CORE（get_all 过滤全量注入）；archival = infer:true 交 
 （core 无感变普通记忆），比启动报错危险。拍板：分区为记忆后端**必选能力**，装配期校验、无法映射
 即可读拒绝，删除降维分支。
 
-**016 联调验证点（顺带备案）**：mem0 v2 API 部分 filter 存在版本性 bug（issue #3773），联调时
-必须实测过滤行为；现有 `Mem0MemoryStore` 两处缺陷待 016 修——search 未按 scope 过滤、add 未
-区分 infer 模式。
+**并入本期（2026-08-20 维护者拍板「mem0 也要跑通」）**：上述映射方案与验证点由 015 直接交付
+（FR-017/018、US5、SC-011）——mem0 v2 API 部分 filter 存在版本性 bug（issue #3773），联调时必须
+实测过滤行为；现有 `Mem0MemoryStore` 两处缺陷随本期修——search 未按 scope 过滤、add 未区分
+infer 模式。联调环境：docker compose 起 mem0 OSS（自托管数据不出域）+ OpenAI 兼容 LLM/embedder
+（可复用 zhipu key；注意 archival 提炼内容会经 LLM 出域，需文档明示）。百炼/ReMe 等其余外部服务
+仍为后续特性，照同一契约挂入。
 
 ## 外部参考
 
