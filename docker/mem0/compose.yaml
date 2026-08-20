@@ -12,7 +12,13 @@
 # - AUTH_DISABLED=true：本地联调免鉴权（适配器的 api-key 支持由 Mem0MemoryStoreTest 用假服务验证）。
 # - 若远程构建失败（网络受限），备选：git clone https://github.com/mem0ai/mem0 后用其
 #   server/docker-compose.yaml，叠加下面同一组 OPENAI_*/MEM0_* 环境变量。
-# - 若向量维度不匹配（智谱 embedding-3 为 2048 维），在 mem0 dashboard/配置接口里改 embedder 维度后重建。
+# - 【维度必配】pgvector 的 HNSW 索引上限 2000 维，而智谱 embedding-3 缺省 2048 维——首次启动后
+#   必须把两侧统一定到 1024（embedding-3 支持降维输出，mem0 会把 dimensions 透传给 API）：
+#     curl -X POST http://localhost:8888/configure -H 'Content-Type: application/json' \
+#       -d '{"embedder":{"config":{"embedding_dims":1024}},"vector_store":{"config":{"embedding_model_dims":1024}}}'
+#   配置持久化在 mem0_app 库，重启自动重放；若 memories 表已按错误维度建出，先
+#   `docker exec mem0-postgres-1 psql -U mem0 -d mem0 -c 'DROP TABLE IF EXISTS memories'` 再执行上面的 configure。
+#   注意字段名：embedder 侧是 embedding_dims，vector_store 侧是 embedding_model_dims，写错会 500。
 
 services:
   mem0:
@@ -54,6 +60,9 @@ services:
       retries: 10
     volumes:
       - mem0_postgres:/var/lib/postgresql/data
+      # 首次初始化时建 mem0_app 应用库（server 的 alembic 迁移目标；已有数据卷不会重跑，
+      # 手动补：docker exec mem0-postgres-1 psql -U mem0 -d mem0 -c 'CREATE DATABASE mem0_app'）
+      - ./init-db.sql:/docker-entrypoint-initdb.d/10-init-db.sql:ro
 
 volumes:
   mem0_history:
