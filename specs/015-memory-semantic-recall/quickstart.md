@@ -56,8 +56,9 @@ docker compose -f docker/mem0/compose.yaml up -d      # mem0 OSS（LLM/embedder 
 # 5) 契约参数化套件挂 mem0 档全绿：mvn -pl oryxos-memory test -Dgroups=integration -DexcludedGroups=
 ```
 
-## G. 契约与回归（SC-009/010）
+## G. 契约与回归（SC-008/009/010）
 
 ```bash
-mvn verify   # 全 reactor：四档契约测试（3 档常驻 + 桩）、兼容性专项、存量测试零回归
+mvn verify   # 全 reactor：四档契约测试（3 档常驻 + 桩含分区坏桩装配拒绝负例）、兼容性专项、存量测试零回归
+# 性能抽查（SC-008）：脚本灌万条归档记忆（mock embedding）→ 单次 recall 计时 ≤1s（验收环境实测，T029 勾验）
 ```

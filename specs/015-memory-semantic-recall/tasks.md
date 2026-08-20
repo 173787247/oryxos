@@ -76,8 +76,9 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
       `archivalEntries()`（created_at 为 time）、大小写不区分确认、capabilities=HYBRID_BUILTIN；
       补 `SqliteMemoryStoreTest` agent 隔离断言（US1 场景 6 / FR-014）
 - [ ] T013 [P] [US2] 在 `oryxos-memory/src/test/java/io/oryxos/memory/MemoryVectorIndexTest.java`
-      新建失败测试：落库后异步入队向量化（direct executor）、embedder 异常不抛出不阻塞（零丢失，
-      FR-005）、队满静默丢弃、`reconcile()` 补缺失/清孤儿/模型变更整体重建、重复执行幂等（FR-007）
+      新建失败测试：落库后异步入队向量化（direct executor）、**core 条目不入队不入表（仅归档
+      向量化，FR-005）**、embedder 异常不抛出不阻塞（零丢失，FR-005）、队满静默丢弃、
+      `reconcile()` 补缺失/清孤儿/模型变更整体重建、重复执行幂等（FR-007）
 - [ ] T014 [US2] 在 `oryxos-memory/src/main/java/io/oryxos/memory/MemoryVectorIndex.java` 实现：
       entry_hash=sha256(agent|scope|行原文)、有界执行器（1 worker + 有限队列，构造可注入 direct
       executor 供测试）、写 `memory_vectors`、`reconcile(agentName, List<MemoryEntryView>)`
@@ -89,7 +90,8 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 - [ ] T016 [US1] 在 `oryxos-memory/src/main/java/io/oryxos/memory/MemoryRecallEngine.java` 实现
       三路加权 RRF（复用 core `RetrievalPipeline`；候选按 entry_hash 对齐）（T015 转绿）
 - [ ] T017 [US1] `MemoryServiceImpl`：recall 按 `capabilities()` 路由（DELEGATED 直通 / 其余走
-      引擎）；`remember()` 落库成功后入队 `MemoryVectorIndex`；启动对账入口方法；补路由单测
+      引擎）；`remember()` 落库成功后**仅 archival 条目**入队 `MemoryVectorIndex`（core 不入索引，
+      FR-005）；启动对账入口方法；补路由单测
 
 **Checkpoint**: 本地两档三路检索、零丢失、对账全绿——MVP 达成。
 
@@ -99,7 +101,8 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 
 - [ ] T018 [P] [US3] 在 `oryxos-memory/src/test/java/io/oryxos/memory/contract/MemoryBackendContractTest.java`
       参数化契约测试（markdown / sqlite / DELEGATED 桩三档常驻 CI）：契约 9 条行为不变量
-      （contracts §2）逐条断言；桩 = 自带语义的假后端（可配置命中与故障）
+      （contracts §2）逐条断言；桩 = 自带语义的假后端（可配置命中与故障）；外加负例——
+      无法兑现分区语义的坏桩 MUST 在装配期被可读拒绝、无降维路径（SC-009）
 - [ ] T019 [P] [US2] 在 `oryxos-memory/src/test/java/io/oryxos/memory/RecallBackwardCompatTest.java`
       兼容性专项：同一数据集上，未配置 embedding 的新实现输出与「旧算法参考实现」（内嵌于测试）
       逐字节一致（除大小写统一修正），锁死 SC-002/003
@@ -138,11 +141,13 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
       （@Tag("integration")）：mock 整机走通「save（core+archival）→ 启动对账 → 三路 recall
       确定性复检 → 降级演练 → agent 隔离」（SC-005 CI 断言路径参照 KnowledgeFlowIT）
 - [ ] T027 [P] 文档同步：`docs/TechnicalSolution.md`（RetrievalPipeline 上移 core 一句 +
-      Memory 检索描述）、`CLAUDE.md` Memory 行微调、`config/application.yml.example`
+      Memory 检索描述 + **markdown 记忆档显式定位为单机档**，FR-016）、`CLAUDE.md` Memory
+      行微调、`config/application.yml.example`
       （全局 embedding.* 段 + memory.recall.* + mem0 api-key 注释）、`README.md` Memory 能力行
 - [ ] T028 全量收口：`mvn verify` 全 reactor 门禁 + 四档契约绿 + quickstart §A~E 开发侧自测；
       §F（mem0 compose）在 docker 就绪环境跑通
-- [ ] T029 维护者统一验收：quickstart A~G 与 SC-001~011 勾验（SC-001 为人工评审软指标）
+- [ ] T029 维护者统一验收：quickstart A~G 与 SC-001~011 勾验（SC-001 为人工评审软指标；
+      SC-008 万条归档 ≤1s 在验收环境实测，quickstart §G 有步骤）
 
 ---
 

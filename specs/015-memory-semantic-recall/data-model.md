@@ -50,6 +50,10 @@ CREATE INDEX IF NOT EXISTS idx_memory_agent ON memory_entries (agent_name, scope
 可读迁移说明日志。索引状态不单设列——「已索引」= memory_vectors 有对应行且 model 一致，
 「待索引」= 无行（对账即补），天然幂等。
 
+**仅归档条目产生索引行**（FR-005）：core 条目不向量化、不入表——表因此无需 scope 列
+（表内只可能是 ARCHIVAL）；写入侧按 scope 过滤入队，对账取数走 `archivalEntries()` 天然只含归档区，
+双保险杜绝 core 记忆经语义路被检回（核心区不参与检索，契约四）。
+
 ## 3. 契约形状（详见 contracts/memory-backend.md）
 
 | 类型 | 位置 | 要点 |
