@@ -121,11 +121,11 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
       IllegalStateException、capabilities=DELEGATED、archivalEntries 返回空
 - [x] T022 [US5] `Mem0MemoryStore` 按 contracts §3 映射表改造（T021 转绿）；`memory.mem0.api-key`
       配置接入
-- [ ] T023 [US5] 在 `oryxos-memory/src/test/java/io/oryxos/memory/Mem0FlowIT.java`
+- [x] T023 [US5] 在 `oryxos-memory/src/test/java/io/oryxos/memory/Mem0FlowIT.java`
       （@Tag("integration")）：真实 compose 环境跑 US5 四场景——core 原文逐字保真与注入、
       archival 提炼后语义命中、分区过滤实测（#3773 版本核验，失效则适配器回退 v1 过滤并记录）、
       停机可读降级
-- [ ] T024 [US5] `MemoryBackendContractTest` 增挂 mem0 档参数分支（@Tag("integration")），
+- [x] T024 [US5] `MemoryBackendContractTest` 增挂 mem0 档参数分支（@Tag("integration")），
       九条不变量全绿（SC-010/011）
 
 ---
@@ -144,7 +144,7 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
       Memory 检索描述 + **markdown 记忆档显式定位为单机档**，FR-016）、`CLAUDE.md` Memory
       行微调、`config/application.yml.example`
       （全局 embedding.* 段 + memory.recall.* + mem0 api-key 注释）、`README.md` Memory 能力行
-- [ ] T028 全量收口：`mvn verify` 全 reactor 门禁 + 四档契约绿 + quickstart §A~E 开发侧自测；
+- [x] T028 全量收口：`mvn verify` 全 reactor 门禁 + 四档契约绿 + quickstart §A~E 开发侧自测；
       §F（mem0 compose）在 docker 就绪环境跑通
 - [ ] T029 维护者统一验收：quickstart A~G 与 SC-001~011 勾验（SC-001 为人工评审软指标；
       SC-008 万条归档 ≤1s 在验收环境实测，quickstart §G 有步骤）
