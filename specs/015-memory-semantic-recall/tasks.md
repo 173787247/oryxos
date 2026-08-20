@@ -132,15 +132,15 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 
 ## Phase 6: 装配、mock 全链路与收口（US4 + 文档）
 
-- [ ] T025 `oryxos-cli/.../OryxOsRuntime.java` 装配：全局 `embedding.provider/model`
+- [x] T025 `oryxos-cli/.../OryxOsRuntime.java` 装配：全局 `embedding.provider/model`
       （`${embedding.provider:${knowledge.embedding.provider:}}` 嵌套缺省回读旧键，知识侧同步
       改读全局键）、`memory.recall.weight.*`/`top-k` 配置、`MemoryVectorIndex`/引擎 bean 与
       启动对账、`MemorySchemaUpgrade` @DependsOn 接线、mem0 api-key；`MemoryTools.saveMemory`
       的 scope 参数描述按 FR-008 文案更新
-- [ ] T026 [P] [US4] 在 `oryxos-boot/src/test/java/io/oryxos/boot/MemoryRecallFlowIT.java`
+- [x] T026 [P] [US4] 在 `oryxos-boot/src/test/java/io/oryxos/boot/MemoryRecallFlowIT.java`
       （@Tag("integration")）：mock 整机走通「save（core+archival）→ 启动对账 → 三路 recall
       确定性复检 → 降级演练 → agent 隔离」（SC-005 CI 断言路径参照 KnowledgeFlowIT）
-- [ ] T027 [P] 文档同步：`docs/TechnicalSolution.md`（RetrievalPipeline 上移 core 一句 +
+- [x] T027 [P] 文档同步：`docs/TechnicalSolution.md`（RetrievalPipeline 上移 core 一句 +
       Memory 检索描述 + **markdown 记忆档显式定位为单机档**，FR-016）、`CLAUDE.md` Memory
       行微调、`config/application.yml.example`
       （全局 embedding.* 段 + memory.recall.* + mem0 api-key 注释）、`README.md` Memory 能力行
