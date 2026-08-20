@@ -87,6 +87,22 @@ roadmap 原话：「记忆/调度/审计全外置共享 DB，实例彻底无状�
 markdown 档显式定位单机（文件不跨副本共享）。FR-014 的 agent_name 补列因此升格为分布式主路径
 前提。向量层扩容沿用知识的既定路线：SQLite BLOB → pgvector（roadmap「向量库两步走」）。
 
+## D8. R2 拍板依据：mem0 分区映射可行，装配期拒绝取代降维（2026-08-20 调研）
+
+**mem0 API 能力核查**：① `add(..., infer=false)` 跳过 LLM 提炼按原文存储——核心区「原文常驻」
+可保真；② add 支持 metadata（现有适配器已写入 scope），`search()`/`get_all()` 均支持 metadata
+过滤（简单键值 + 高级操作符）——两区隔离取数可行。**映射方案**：core = infer:false 原文 +
+metadata scope=CORE（get_all 过滤全量注入）；archival = infer:true 交 mem0 提炼（企业选 mem0
+的价值所在）+ search 按 scope 过滤。百炼有 userId/memoryLibraryId 等价维度。
+
+**结论**：「外部服务映射不了分区」是假想场景——为其设计降维策略属 YAGNI；且降维静默破坏契约二
+（core 无感变普通记忆），比启动报错危险。拍板：分区为记忆后端**必选能力**，装配期校验、无法映射
+即可读拒绝，删除降维分支。
+
+**016 联调验证点（顺带备案）**：mem0 v2 API 部分 filter 存在版本性 bug（issue #3773），联调时
+必须实测过滤行为；现有 `Mem0MemoryStore` 两处缺陷待 016 修——search 未按 scope 过滤、add 未
+区分 infer 模式。
+
 ## 外部参考
 
 - 014 检索基建：`oryxos-core/embedding/TextEmbedder`、`oryxos-knowledge/retrieve/RetrievalPipeline`、
