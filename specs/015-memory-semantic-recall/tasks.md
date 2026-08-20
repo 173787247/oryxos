@@ -17,14 +17,14 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 
 ## Phase 1: Setup — 检索基建上移 core（宪法停点 2）
 
-- [ ] T001 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/retrieval/RetrievalPipelineTest.java`
+- [x] T001 [P] 在 `oryxos-core/src/test/java/io/oryxos/core/retrieval/RetrievalPipelineTest.java`
       新建失败测试：加权 `fuseByRank`（等权结果 = 现有无权重版逐项一致；权重 2:1:1 时高权路
       候选名次提升；空路/零权重容忍）、余弦维度拒绝（迁移原有断言）
-- [ ] T002 把 `RetrievalPipeline` 从 `oryxos-knowledge/.../retrieve/` 移至
+- [x] T002 把 `RetrievalPipeline` 从 `oryxos-knowledge/.../retrieve/` 移至
       `oryxos-core/src/main/java/io/oryxos/core/retrieval/RetrievalPipeline.java`，新增加权重载
       `fuseByRank(int topK, double[] weights, List<Candidate>... routes)`（无权重版委托等权调用，
       行为不变）（T001 转绿）
-- [ ] T003 `oryxos-knowledge` 改 import（`LocalKnowledgeBackend` 与相关测试）、删除原类与旧测试
+- [x] T003 `oryxos-knowledge` 改 import（`LocalKnowledgeBackend` 与相关测试）、删除原类与旧测试
       文件；`mvn test -pl oryxos-core,oryxos-knowledge -am` 全量回归零变化
 
 ---
@@ -33,18 +33,18 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 
 **⚠️ CRITICAL**: 本阶段完成前不得开始 Phase 3+。
 
-- [ ] T004 [P] `oryxos-storage/src/main/resources/schema.sql`：追加 `memory_vectors` DDL
+- [x] T004 [P] `oryxos-storage/src/main/resources/schema.sql`：追加 `memory_vectors` DDL
       （data-model §2：entry_hash/agent_name/content/embedding/dim/embedding_model/entry_time +
       UNIQUE(agent_name, entry_hash) + idx）；`memory_entries` 建表语句全量补 `agent_name`
       VARCHAR(128) NOT NULL DEFAULT '__global__' + `idx_memory_agent`
-- [ ] T005 [P] 在 `oryxos-storage/src/main/java/io/oryxos/storage/` 创建
+- [x] T005 [P] 在 `oryxos-storage/src/main/java/io/oryxos/storage/` 创建
       `MemoryVectorEntity.java` 与 `MemoryVectorRepository.java`（findByAgentName、
       findByAgentNameAndEntryHash、deleteByAgentNameAndEntryHashIn、deleteByEmbeddingModelNot；
       派生 delete 一律 `@Transactional(rollbackFor = Exception.class)`）
-- [ ] T006 `MemoryEntry.java` 补 `agentName` 字段；`MemoryEntryRepository.java` 全部查询改带
+- [x] T006 `MemoryEntry.java` 补 `agentName` 字段；`MemoryEntryRepository.java` 全部查询改带
       agent 维度（findByAgentNameAndScopeOrderByIdAsc/Desc、searchArchival 带 agent 参数），
       调用方编译同步
-- [ ] T007 在 `oryxos-storage/src/main/java/io/oryxos/storage/MemorySchemaUpgrade.java` 照
+- [x] T007 在 `oryxos-storage/src/main/java/io/oryxos/storage/MemorySchemaUpgrade.java` 照
       `ScheduleSchemaUpgrade` 先例实现幂等补列（PRAGMA table_info 检测 → ALTER ADD COLUMN
       agent_name DEFAULT '__global__' + 建索引 + 一次性可读迁移日志）；配套
       `MemorySchemaUpgradeTest.java`（旧结构库升级、重复执行幂等）
