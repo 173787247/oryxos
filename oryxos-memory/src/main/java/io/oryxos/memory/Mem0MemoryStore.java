@@ -37,6 +37,9 @@ public class Mem0MemoryStore implements LongTermMemoryStore {
   private static final String ARCHIVE_HEADER = "## 归档记忆";
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
+  /** mem0 返回体的分页容器字段（部分版本包一层 items）。 */
+  private static final String ITEMS_FIELD = "items";
+
   /** 归档区注入窗口（与本地档 MAX_ARCHIVE_ROWS 对齐——契约二：截断只作用归档）。 */
   private static final int MAX_ARCHIVE_ROWS = 100;
 
@@ -65,7 +68,7 @@ public class Mem0MemoryStore implements LongTermMemoryStore {
   @Override
   public void append(String content, MemoryScope scope) {
     // core 必须原文保真（infer:false）；archival 交 mem0 提炼与冲突消解（infer:true）
-    Map<String, Object> body = new HashMap<>();
+    Map<String, Object> body = new HashMap<>(8);
     body.put("messages", List.of(Map.of("role", "user", "content", content)));
     body.put("user_id", scopedUserId());
     body.put("metadata", Map.of("scope", scope.name()));
@@ -175,8 +178,8 @@ public class Mem0MemoryStore implements LongTermMemoryStore {
     try {
       JsonNode root = MAPPER.readTree(body);
       JsonNode results = root.has("results") ? root.get("results") : root;
-      if (results.has("items")) {
-        results = results.get("items");
+      if (results.has(ITEMS_FIELD)) {
+        results = results.get(ITEMS_FIELD);
       }
       for (JsonNode item : results) {
         JsonNode memory = item.has("memory") ? item.get("memory") : item.get("text");

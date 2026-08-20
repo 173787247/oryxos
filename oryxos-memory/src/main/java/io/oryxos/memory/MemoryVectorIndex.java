@@ -122,12 +122,20 @@ public class MemoryVectorIndex {
         });
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "日志中的异常消息已经 sanitize() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
   private void indexSafely(String agentName, MemoryEntryView entry) {
     try {
       index(agentName, entry);
     } catch (RuntimeException e) {
-      log.warn("记忆向量化失败（本体已落库，随对账补齐）: {}", e.getMessage());
+      log.warn("记忆向量化失败（本体已落库，随对账补齐）: {}", sanitize(e.getMessage()));
     }
+  }
+
+  /** 日志参数消毒：去掉换行，防日志伪造（CRLF injection）。 */
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 
   private void index(String agentName, MemoryEntryView entry) {

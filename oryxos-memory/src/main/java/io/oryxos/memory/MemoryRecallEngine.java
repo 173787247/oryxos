@@ -46,6 +46,9 @@ public class MemoryRecallEngine {
   }
 
   /** 三路召回；返回条目原文行（融合序），降级时尾行为 {@link #DEGRADE_NOTICE}。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "日志中的异常消息已经 sanitize() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
   public List<String> recall(LongTermMemoryStore store, String agentName, String keyword) {
     List<String> keywordLines = store.recallByKeyword(keyword);
     if (embedder == null) {
@@ -53,8 +56,9 @@ public class MemoryRecallEngine {
     }
 
     List<MemoryEntryView> archival = store.archivalEntries();
-    Map<String, Long> idByHash = new LinkedHashMap<>();
-    Map<Long, String> contentById = new HashMap<>();
+    int capacity = Math.max(16, archival.size());
+    Map<String, Long> idByHash = new LinkedHashMap<>(capacity);
+    Map<Long, String> contentById = new HashMap<>(capacity);
     List<MemoryEntryView> uniqueEntries = new ArrayList<>();
     for (MemoryEntryView entry : archival) {
       String hash = MemoryVectorIndex.entryHash(agentName, entry.content());
@@ -77,7 +81,7 @@ public class MemoryRecallEngine {
       semanticRoute = semanticRoute(agentName, keyword, idByHash);
     } catch (RuntimeException e) {
       degraded = true;
-      log.warn("语义路本次不可用，降级为关键词 + 时间两路: {}", e.getMessage());
+      log.warn("语义路本次不可用，降级为关键词 + 时间两路: {}", sanitize(e.getMessage()));
     }
 
     List<String> lines = new ArrayList<>();
@@ -89,6 +93,11 @@ public class MemoryRecallEngine {
       lines.add(DEGRADE_NOTICE);
     }
     return lines;
+  }
+
+  /** 日志参数消毒：去掉换行，防日志伪造（CRLF injection）。 */
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 
   /** 关键词路：LIKE/contains 无相关性分，路内按新近排（store 返回写入序，反转即新近在前）。 */

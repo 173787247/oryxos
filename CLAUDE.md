@@ -32,7 +32,8 @@ oryxos/
 │                        #   ReActLoop、PromptBuilder、ToolExecutor、AgentService
 ├── oryxos-provider      # 能力一：ProviderService、Function Calling 适配、
 │                        #   多 Provider 显式映射
-├── oryxos-memory        # 能力三：MemoryService 门面、LongTermMemory、
+├── oryxos-memory        # 能力三：MemoryService 门面、LongTermMemory 三档后端、
+│                        #   MemoryRecallEngine 三路召回 + MemoryVectorIndex（015）、
 │                        #   MemoryTools（save/recall）
 ├── oryxos-knowledge     # 知识库（014）：LocalKnowledgeBackend（契约第一个插件）、
 │                        #   解析/切分/向量化索引流水线、双路召回+RRF 检索、
@@ -285,8 +286,8 @@ interface OryxTool {
 | `shell` | `ShellTools` | 执行命令，命令白名单 + argv 直传 + 超时 |
 | `http_get` | `HttpTools` | GET 请求，默认放行 + SSRF 黑名单 |
 | `http_post` | `HttpTools` | POST 请求，域名通配符白名单 |
-| `save_memory` | `MemoryTools` | 追加到 MEMORY.md |
-| `recall_memory` | `MemoryTools` | 关键词检索 MEMORY.md |
+| `save_memory` | `MemoryTools` | 追加到长期记忆（core/archival 分区显式指定） |
+| `recall_memory` | `MemoryTools` | 检索归档记忆；配置全局 `embedding.*` 后为语义+关键词+时间三路加权融合（015），未配置保持关键词行为 |
 | `notify` | `NotifyTools` | 推送到 Profile 的 `notify_channels`，核心阶段走 `WebhookNotifyAdapter` |
 
 ### Plugin Tool 三档

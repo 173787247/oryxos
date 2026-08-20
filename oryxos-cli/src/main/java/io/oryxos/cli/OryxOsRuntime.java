@@ -337,14 +337,15 @@ public class OryxOsRuntime {
   }
 
   /**
-   * embedding 供给者：按名从 Provider 注册表取凭证即时构造并缓存（FR-007 复用同一套凭证）。 未配置不静默回退（plan 停点 3）——lazy
-   * 抛可读异常，由检索降级/导入报错消化（FR-013）。
+   * embedding 供给者（015 起全局共享：知识与记忆同用一套向量化配置）：按名从 Provider 注册表取凭证即时构造并缓存。 配置键 {@code
+   * embedding.provider/model}，为空时回读旧键 {@code knowledge.embedding.*}（FR-015 兼容别名，
+   * 存量部署零改动）。未配置不静默回退——lazy 抛可读异常，由检索降级/导入报错消化（FR-013）。
    */
   @Bean
-  java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> knowledgeEmbedderSupplier(
+  java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> textEmbedderSupplier(
       ProviderRegistry providerRegistry,
-      @Value("${knowledge.embedding.provider:}") String embeddingProvider,
-      @Value("${knowledge.embedding.model:}") String embeddingModel) {
+      @Value("${embedding.provider:${knowledge.embedding.provider:}}") String embeddingProvider,
+      @Value("${embedding.model:${knowledge.embedding.model:}}") String embeddingModel) {
     io.oryxos.provider.ProviderEmbeddingModelFactory factory =
         new io.oryxos.provider.ProviderEmbeddingModelFactory();
     java.util.concurrent.atomic.AtomicReference<io.oryxos.core.embedding.TextEmbedder> cache =
@@ -356,8 +357,8 @@ public class OryxOsRuntime {
       }
       if (embeddingProvider == null || embeddingProvider.isBlank()) {
         throw new IllegalArgumentException(
-            "未配置 embedding provider（knowledge.embedding.provider）：向量化不可用，"
-                + "请配置支持 embedding 端点的 provider（如 qwen）或 mock");
+            "未配置 embedding provider（embedding.provider，兼容旧键 knowledge.embedding.provider）："
+                + "向量化不可用，请配置支持 embedding 端点的 provider（如 qwen/zhipu）或 mock");
       }
       ProviderDef def =
           providerRegistry
@@ -376,13 +377,13 @@ public class OryxOsRuntime {
   @Bean
   io.oryxos.knowledge.index.KnowledgeIndexService knowledgeIndexService(
       io.oryxos.knowledge.store.ChunkStore chunkStore,
-      java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> knowledgeEmbedderSupplier,
+      java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> textEmbedderSupplier,
       ExecutorService agentExecutionExecutor) {
     // 两段式导入的后台段跑在虚拟线程执行器上（宪法 VII：同步代码 + 虚拟线程，无异步编程模型）
     return new io.oryxos.knowledge.index.KnowledgeIndexService(
         oryxosRoot().resolve("knowledge"),
         chunkStore,
-        knowledgeEmbedderSupplier,
+        textEmbedderSupplier,
         agentExecutionExecutor);
   }
 
@@ -390,13 +391,9 @@ public class OryxOsRuntime {
   io.oryxos.knowledge.LocalKnowledgeBackend localKnowledgeBackend(
       io.oryxos.knowledge.store.ChunkStore chunkStore,
       io.oryxos.knowledge.index.KnowledgeIndexService knowledgeIndexService,
-      java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder>
-          knowledgeEmbedderSupplier) {
+      java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> textEmbedderSupplier) {
     return new io.oryxos.knowledge.LocalKnowledgeBackend(
-        oryxosRoot().resolve("knowledge"),
-        chunkStore,
-        knowledgeIndexService,
-        knowledgeEmbedderSupplier);
+        oryxosRoot().resolve("knowledge"), chunkStore, knowledgeIndexService, textEmbedderSupplier);
   }
 
   @Bean
@@ -547,28 +544,92 @@ public class OryxOsRuntime {
     return RestClient.builder().requestFactory(toolHttpRequestFactory()).build();
   }
 
+  /** 015 FR-014：memory_entries 幂等补 agent_name 列（照 ScheduleSchemaUpgrade 先例，先跑 schema.sql）。 */
+  @Bean
+  @DependsOn("dataSourceScriptDatabaseInitializer")
+  io.oryxos.storage.MemorySchemaUpgrade memorySchemaUpgrade(DataSource dataSource) {
+    return new io.oryxos.storage.MemorySchemaUpgrade(dataSource);
+  }
+
   /** 长期记忆后端：按 memory.backend 选一档（默认 markdown）——这是第 21/22 节"接口墙"的装配落点。 */
   @Bean
   LongTermMemoryStore longTermMemoryStore(
       @org.springframework.beans.factory.annotation.Value("${memory.backend:markdown}")
           String backend,
       MemoryEntryRepository memoryEntryRepository,
+      io.oryxos.storage.MemorySchemaUpgrade memorySchemaUpgrade,
       RestClient restClient,
       @org.springframework.beans.factory.annotation.Value("${memory.mem0.base-url:}")
           String mem0BaseUrl,
       @org.springframework.beans.factory.annotation.Value("${memory.mem0.user-id:oryxos}")
-          String mem0UserId) {
+          String mem0UserId,
+      @org.springframework.beans.factory.annotation.Value("${memory.mem0.api-key:}")
+          String mem0ApiKey) {
+    memorySchemaUpgrade.upgrade(); // 幂等：存量库补列，新装/已升级库 no-op
     return switch (backend) {
       case "sqlite" -> new SqliteMemoryStore(memoryEntryRepository);
       case "mem0" ->
-          new Mem0MemoryStore(restClient.mutate().baseUrl(mem0BaseUrl).build(), mem0UserId);
+          new Mem0MemoryStore(
+              restClient.mutate().baseUrl(mem0BaseUrl).build(), mem0UserId, mem0ApiKey);
       default -> new MarkdownMemoryStore(oryxosRoot());
     };
   }
 
+  /**
+   * 015 检索装配（FR-001/013）：embedding 未配置 = 纯关键词旧行为（SC-002 字节级兼容）；已配置 = 三路加权引擎 + 有界异步向量索引（延迟解析
+   * embedder——配置错误在调用点转可读降级，不阻断启动）。
+   */
   @Bean
-  MemoryService memoryService(LongTermMemoryStore store) {
-    return new MemoryServiceImpl(store);
+  MemoryServiceImpl memoryService(
+      LongTermMemoryStore store,
+      io.oryxos.storage.MemoryVectorRepository memoryVectorRepository,
+      java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> textEmbedderSupplier,
+      @Value("${embedding.provider:${knowledge.embedding.provider:}}") String embeddingProvider,
+      @Value("${memory.recall.weight.semantic:1.0}") double semanticWeight,
+      @Value("${memory.recall.weight.keyword:1.0}") double keywordWeight,
+      @Value("${memory.recall.weight.recency:1.0}") double recencyWeight,
+      @Value("${memory.recall.top-k:20}") int recallTopK) {
+    if (embeddingProvider == null || embeddingProvider.isBlank()) {
+      return new MemoryServiceImpl(store);
+    }
+    io.oryxos.core.embedding.TextEmbedder embedder =
+        new io.oryxos.memory.DeferredTextEmbedder(textEmbedderSupplier);
+    double[] weights = {semanticWeight, keywordWeight, recencyWeight};
+    return new MemoryServiceImpl(
+        store,
+        new io.oryxos.memory.MemoryRecallEngine(
+            memoryVectorRepository, embedder, weights, recallTopK),
+        io.oryxos.memory.MemoryVectorIndex.withBoundedExecutor(memoryVectorRepository, embedder));
+  }
+
+  /** 015 FR-007/SC-006：启动对账——每个已知 Agent + 全局作用域各一次；失败仅告警（索引随写入或下次启动追齐）。 */
+  @Bean
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "日志中的作用域名与异常消息已经 sanitizeLog() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
+  org.springframework.boot.ApplicationRunner memoryIndexReconciler(
+      MemoryServiceImpl memoryService, ProfileRegistry profileRegistry) {
+    return args -> {
+      java.util.LinkedHashSet<String> scopes = new java.util.LinkedHashSet<>();
+      profileRegistry.all().forEach(profile -> scopes.add(profile.name()));
+      scopes.add("__global__");
+      for (String scope : scopes) {
+        try {
+          memoryService.reconcileIndex(scope);
+        } catch (RuntimeException e) {
+          org.slf4j.LoggerFactory.getLogger(OryxOsRuntime.class)
+              .warn(
+                  "记忆索引启动对账失败（作用域 {}，随写入/下次启动追齐）: {}",
+                  sanitizeLog(scope),
+                  sanitizeLog(e.getMessage()));
+        }
+      }
+    };
+  }
+
+  /** 日志参数消毒：去掉换行，防日志伪造（CRLF injection）。 */
+  private static String sanitizeLog(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 
   /** 31 节：MCP server 配置读写（读写 {@code .oryxos/mcp_servers.yaml}），管理台 CRUD 与启动扫描共用同一份。 */

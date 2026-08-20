@@ -202,13 +202,15 @@ Memory 是 Agent OS 区别于普通 chatbot 的核心能力。三层记忆是完
 
 - `append(content, scope)`（追加内容到指定分区，`scope` 取 `MemoryScope.CORE` 或 `ARCHIVAL`，默认 `ARCHIVAL`）
 - `load`（返回核心记忆区全量 + 归档记忆区截断后的内容，核心区永远完整不截断）
-- `recallByKeyword`（按关键词检索，只在归档记忆区做匹配，核心区不参与检索因为它本来就会被全量注入）
+- `recallByKeyword`（关键词检索，只在归档记忆区做匹配、跨档统一不区分大小写，核心区不参与检索因为它本来就会被全量注入）
+- `capabilities()`（015 起：检索能力三态 `KEYWORD` / `HYBRID_BUILTIN` / `DELEGATED`，门面按此路由 recall）
+- `archivalEntries()`（015 起：归档区全量条目视图，供时间新近路与索引对账取数；DELEGATED 档返回空）
 
-所有实现共同遵守四条行为契约：①不缓存（每次重新读文件/查库/调 API）；②核心记忆区永不被截断，截断只作用在归档区；③写核心还是写归档由 Agent 经 `scope` 显式指定，系统不猜；④`recall` 是关键词检索不做复杂化。核心阶段**不做自动抽取**，分区完全由 Agent 通过 `save_memory` 的调用时机和 `scope` 参数手动决定，这是信号驱动升级原则在 Memory 模块的体现——自动从对话历史提炼记忆放到扩展阶段。
+所有实现共同遵守四条行为契约（015 修订）：①不缓存（每次重新读文件/查库/调 API）；②核心记忆区永不被截断，截断只作用在归档区，且核心区不参与检索、不入向量索引；③写核心还是写归档由 Agent 经 `scope` 显式指定，系统不猜；**分区语义是必选能力**——无法映射 core/archival 的后端在装配期被可读拒绝，不提供降维路径；④检索三路可降级：配置了全局 `embedding.*` 后，`recall_memory` 升级为「语义 + 关键词 + 时间新近」三路加权 RRF 融合（权重可配、缺省等权，复用 `oryxos-core/retrieval` 的 `RetrievalPipeline`——014 知识库同款融合段，015 上移 core 共用）；语义路故障时自动降级为关键词 + 时间两路并在结果尾行标注；**未配置向量化时行为与升级前逐字节一致**（唯一例外：大小写统一）。写入始终**落库优先**：本体先写、向量化异步补（有界队列 + 启动对账），任何索引异常都不影响写入。核心阶段**不做自动抽取**，分区完全由 Agent 通过 `save_memory` 的调用时机和 `scope` 参数手动决定——自动从对话历史提炼记忆放到扩展阶段（mem0 档的 `infer:true` 提炼是外部服务自身能力，不改变底座契约）。
 
 **三档后端实现（核心阶段一次交付，靠配置 `memory.backend` 选一个）。** 递进对应第 21 节讲的三级演进：
 
-- **`MarkdownMemoryStore`（默认）。** 底层操作 `.oryxos/memory/MEMORY.md` 一个 Markdown 文件，按 `## 核心记忆` / `## 归档记忆` 两个 header 分区（详见 5.2）；截断是字符串裁归档段，检索是 `String.contains` 行匹配。零依赖、人可读、git 可跟踪，记忆量不大时的首选。
+- **`MarkdownMemoryStore`（默认）。** 底层操作 `.oryxos/memory/MEMORY.md` 一个 Markdown 文件，按 `## 核心记忆` / `## 归档记忆` 两个 header 分区（详见 5.2）；截断是字符串裁归档段，检索是行匹配（015 起不区分大小写）。零依赖、人可读、git 可跟踪，记忆量不大时的首选。**定位为单机档**：记忆本体在本地文件系统，多副本部署无法共享——分布式部署请选 sqlite（共享 DB）或 mem0 等 DELEGATED 档（FR-016）。
 - **`SqliteMemoryStore`。** 记忆按条入库到 `memory_entries` 表（手工建表脚本，与 sessions/审计表同口径），截断变成归档查询的 `LIMIT N`、检索变成 SQL `LIKE`、核心区用 `WHERE scope='CORE'` 全量取。仍**零外部依赖**（复用已有 SQLite），记忆量上千、要结构化查询时的升级档。
 - **`Mem0MemoryStore`。** 接一个**自托管** Mem0 记忆层（数据不出域），Java 侧走 REST 集成，`append/load/recall` 翻译成 Mem0 的 add/get/search——提炼、冲突消解、语义检索都交给 Mem0。凭证与地址走环境变量占位。这是"真需要智能记忆"时的外部集成档，对应第 21 节第十四节"记忆若非核心差异化能力、集成可自托管方案是理性选择"。
 

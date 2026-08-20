@@ -31,25 +31,35 @@ spring:
     virtual:
       enabled: true             # 宪法七：Java 21 虚拟线程扛并发，不引入异步框架
 
-# ── 长期记忆后端（22 节可插拔）──────────────────────────
+# ── 向量化（015 起全局：知识与记忆同用一套）────────────────
+# provider 按名引用上方 Provider 注册表（DeepSeek 无 embedding 端点；qwen 用 text-embedding-v4；
+# zhipu 用 embedding-3；mock 提供确定性向量、无需 key）。不配 = 记忆纯关键词检索（行为与升级前一致）。
+# 旧键 knowledge.embedding.* 仍被兼容回读（存量部署零改动）。
+embedding:
+  provider: mock
+  model: ''
+# embedding:
+#   provider: zhipu
+#   model: embedding-3
+
 # ── 知识库（014）────────────────────────────────────────
 # store：向量索引存储档（sqlite 默认 / memory 测试演示用）
-# embedding.provider：按名引用上方 Provider 注册表（DeepSeek 无 embedding 端点；
-#   qwen 用 text-embedding-v4；mock 提供确定性向量、无需 key）
 knowledge:
   store: sqlite
-  embedding:
-    provider: mock
-    model: ''
-  # embedding:
-  #   provider: qwen
-  #   model: text-embedding-v4
 
+# ── 长期记忆（22 节可插拔；015 三路检索升级）──────────────
 memory:
   backend: markdown             # markdown（默认，零依赖）| sqlite（结构化）| mem0（自托管）
+  recall:                       # 015：配置了 embedding.* 时生效的三路加权融合（语义+关键词+时间新近）
+    top-k: 20                   # 融合后返回上限；未配置向量化时不生效（保持旧行为全量返回）
+    weight:                     # 加权 RRF 系数，缺省等权；改配置即可调整、无需改码
+      semantic: 1.0
+      keyword: 1.0
+      recency: 1.0
   mem0:
     base-url: ${MEM0_BASE_URL:} # 仅 backend=mem0 时用；走环境变量不落明文
     user-id: ${MEM0_USER_ID:oryxos}
+    api-key: ${MEM0_API_KEY:}   # 免鉴权自托管部署留空；配置时同发 Bearer 与 X-API-Key
 
 # ── Sandbox 白名单（24 节，宪法六）：空列表 = deny-all，按最小权限收窄 ──
 file:
