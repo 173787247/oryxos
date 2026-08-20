@@ -1,9 +1,13 @@
 package io.oryxos.memory;
 
+import io.oryxos.core.agent.ToolExecutionContext;
+import io.oryxos.core.memory.MemoryEntryView;
+import io.oryxos.core.memory.MemoryRecallCapability;
 import io.oryxos.core.memory.MemoryScope;
 import io.oryxos.storage.MemoryEntry;
 import io.oryxos.storage.MemoryEntryRepository;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.data.domain.PageRequest;
 
 /**
@@ -24,9 +28,19 @@ public class SqliteMemoryStore implements LongTermMemoryStore {
     this.repository = repository;
   }
 
+  /**
+   * 当前作用域（015 FR-014）：有 Agent 上下文时记忆跟 Agent 走；无上下文（非 Agent 触发的直接调用、单测） 回退 '__global__'，与 markdown
+   * 档全局文件回退语义对齐。
+   */
+  private static String agentName() {
+    String agent = ToolExecutionContext.agentName();
+    return agent == null || agent.isBlank() ? MemoryEntry.GLOBAL_AGENT : agent;
+  }
+
   @Override
   public void append(String content, MemoryScope scope) {
     MemoryEntry entry = new MemoryEntry();
+    entry.setAgentName(agentName());
     entry.setScope(scope.name());
     entry.setContent(content);
     repository.save(entry);
@@ -34,18 +48,35 @@ public class SqliteMemoryStore implements LongTermMemoryStore {
 
   @Override
   public String load() {
-    String core = render(repository.findByScopeOrderByIdAsc("CORE"));
+    String agent = agentName();
+    String core = render(repository.findByAgentNameAndScopeOrderByIdAsc(agent, "CORE"));
     // 归档取最近 N，再翻回时间正序拼接——截断只作用归档（契约二）
     List<MemoryEntry> recent =
-        repository.findByScopeOrderByIdDesc("ARCHIVAL", PageRequest.of(0, MAX_ARCHIVE_ROWS));
+        repository.findByAgentNameAndScopeOrderByIdDesc(
+            agent, "ARCHIVAL", PageRequest.of(0, MAX_ARCHIVE_ROWS));
     List<MemoryEntry> ascending = recent.reversed();
     return CORE_HEADER + "\n" + core + "\n" + ARCHIVE_HEADER + "\n" + render(ascending);
   }
 
   @Override
   public List<String> recallByKeyword(String keyword) {
-    return repository.searchArchival("%" + keyword + "%").stream()
+    // 大小写统一（FR-002）：JPQL 侧 LOWER(content)，这里把关键词也压小写，语义与 markdown 档一致
+    String pattern = "%" + keyword.toLowerCase(Locale.ROOT) + "%";
+    return repository.searchArchival(agentName(), pattern).stream()
         .map(MemoryEntry::getContent)
+        .toList();
+  }
+
+  @Override
+  public MemoryRecallCapability capabilities() {
+    return MemoryRecallCapability.HYBRID_BUILTIN;
+  }
+
+  /** 归档区全量（未截断，id 正序 = 写入顺序）；created_at 为条目时间。 */
+  @Override
+  public List<MemoryEntryView> archivalEntries() {
+    return repository.findByAgentNameAndScopeOrderByIdAsc(agentName(), "ARCHIVAL").stream()
+        .map(e -> new MemoryEntryView(e.getContent(), e.getCreatedAt()))
         .toList();
   }
 

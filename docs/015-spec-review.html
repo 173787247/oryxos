@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>015 记忆升级优化对照</title>
+<style>
+  :root {
+    --bg: #F6F8F7;
+    --surface: #FFFFFF;
+    --ink: #1E2523;
+    --muted: #5B6663;
+    --accent: #2E7D74;
+    --accent-soft: #E4F0EE;
+    --line: #E1E7E4;
+    --warn: #A66F1B;
+    --warn-soft: #F8EEDC;
+    --old: #8A6A6A;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181A;
+      --surface: #1B2123;
+      --ink: #E5EAE8;
+      --muted: #93A09B;
+      --accent: #5FB3A8;
+      --accent-soft: #1E2E2C;
+      --line: #2A3234;
+      --warn: #D9A24A;
+      --warn-soft: #2E2718;
+      --old: #B08D8D;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181A;
+    --surface: #1B2123;
+    --ink: #E5EAE8;
+    --muted: #93A09B;
+    --accent: #5FB3A8;
+    --accent-soft: #1E2E2C;
+    --line: #2A3234;
+    --warn: #D9A24A;
+    --warn-soft: #2E2718;
+    --old: #B08D8D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+    font-size: 15.5px;
+    line-height: 1.75;
+  }
+  .page { max-width: 800px; margin: 0 auto; padding: 48px 22px 80px; }
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 22px; margin-bottom: 10px; }
+  .eyebrow {
+    font-family: "SF Mono","Cascadia Mono","Consolas",monospace;
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 10px;
+  }
+  h1 {
+    font-family: "Songti SC","Noto Serif CJK SC","SimSun",serif; font-weight: 700;
+    font-size: 30px; line-height: 1.3; margin: 0 0 14px; text-wrap: balance;
+  }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 13px; color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 500; }
+  .thesis {
+    background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    padding: 16px 20px; margin: 26px 0 8px; border-radius: 4px;
+  }
+  .thesis p { margin: 0; }
+  h2 {
+    font-family: "Songti SC","Noto Serif CJK SC","SimSun",serif; font-weight: 700; font-size: 20px;
+    margin: 44px 0 6px; padding-top: 20px; border-top: 1px solid var(--line);
+    text-wrap: balance;
+  }
+  h2 .tag {
+    font-family: "SF Mono","Cascadia Mono","Consolas",monospace; font-size: 11px; font-weight: 600;
+    letter-spacing: .1em; color: var(--accent); display: block; margin-bottom: 4px;
+  }
+  .lede { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+  .item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+    padding: 18px 20px 16px; margin: 14px 0;
+  }
+  .item h3 {
+    font-size: 16px; font-weight: 700; margin: 0 0 10px; line-height: 1.5;
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  .num {
+    font-family: "SF Mono","Cascadia Mono","Consolas",monospace; font-size: 13px; font-weight: 600;
+    color: var(--accent); flex: none;
+  }
+  .delta { display: grid; grid-template-columns: 4.4em 1fr; gap: 4px 12px; margin: 0 0 10px; font-size: 14.5px; }
+  .delta dt {
+    font-family: "SF Mono","Cascadia Mono","Consolas",monospace; font-size: 11px; letter-spacing: .08em;
+    padding-top: 4px; white-space: nowrap;
+  }
+  .delta dt.o { color: var(--old); }
+  .delta dt.n { color: var(--accent); }
+  .delta dd { margin: 0; }
+  .why { font-size: 14px; color: var(--muted); margin: 0; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .why b { color: var(--ink); font-weight: 500; }
+  code {
+    font-family: "SF Mono","Cascadia Mono","Consolas",monospace; font-size: .86em;
+    background: var(--accent-soft); color: var(--ink);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; margin: 14px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+  th {
+    text-align: left; font-size: 12px; letter-spacing: .06em; color: var(--muted);
+    font-weight: 500; padding: 10px 16px; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: 9px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.k { white-space: nowrap; font-weight: 500; }
+  .risk {
+    background: var(--warn-soft); border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    border-radius: 4px; padding: 14px 18px; margin: 12px 0;
+  }
+  .risk h3 { font-size: 15px; margin: 0 0 4px; color: var(--warn); }
+  .risk p { margin: 0; font-size: 14.5px; }
+  footer {
+    margin-top: 52px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--muted); font-family: "SF Mono","Cascadia Mono","Consolas",monospace;
+  }
+  footer code { background: none; padding: 0; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+  <p class="eyebrow">OryxOS · Spec 015 评审材料</p>
+  <h1>记忆系统升级：015 对比现有功能的优化点</h1>
+  <div class="meta">
+    <span>现状基线 <b>main（014 已合入）</b></span>
+    <span>需求文档 <b>specs/015-memory-semantic-recall/spec.md</b></span>
+    <span>范围 <b>16 条 FR / 10 条 SC / 4 个用户故事</b></span>
+    <span>日期 <b>2026-08-20</b></span>
+  </div>
+</header>
+
+<div class="thesis">
+  <p><b>一句话</b>：现在的长期记忆「记得住、找不准」——只能按字面关键词翻归档区。015 让 Agent 能<b>按意思、按时间找回记忆</b>；同时把记忆后端升级为与知识库同款的插件契约，<b>并在本期把 mem0 档真实跑通</b>（百炼等其他服务将来照同一契约挂入），并为分布式部署预留设计约束。<b>未配置向量化的部署行为与今天一致，零破坏。</b></p>
+</div>
+
+<h2><span class="tag">PART 1 / 用户可感知的优化</span>Agent 的记性变好了</h2>
+
+<div class="item">
+  <h3><span class="num">01</span>检索：从「字面匹配」到「语义 + 关键词 + 时间」三路融合</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>recall_memory 只在归档区做<b>纯关键词包含匹配</b>：用户上周记了「发布流程在灰度环节踩雷」，这周问「上次那个部署的坑怎么处理的」——没有共同关键词，<b>找不回来</b>。且 markdown 档区分大小写、sqlite 档不区分，两档行为还不一致。</dd>
+    <dt class="n">015 后</dt><dd>三路并行召回再按名次融合：<b>语义路</b>（措辞不同也能命中）＋<b>关键词路</b>（工单号、代号等精确短语保底）＋<b>时间新近路</b>（同等相关时最近的排前，贴合「上次」的直觉）；大小写行为跨档统一。工具名称与参数完全不变。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：跨会话记忆真正可用——这是记忆系统从「日志」变成「记性」的分水岭。复用 014 知识库已交付的检索基建，零新依赖、零新服务。</p>
+</div>
+
+<div class="item">
+  <h3><span class="num">02</span>零配置升级，故障自动降级</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>无向量化概念。</dd>
+    <dt class="n">015 后</dt><dd>已为知识库配了向量化的部署，记忆检索<b>自动同享同一份配置</b>；没配置的部署行为与今天逐项一致（唯一例外是大小写统一修正）；向量化服务中途故障时检索自动退回「关键词＋时间」两路并在结果里标注，<b>对话不中断</b>，恢复后自动回到三路。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：存量部署无迁移动作、无学习成本；升级是「白捡的」，不是「要伺候的」。</p>
+</div>
+
+<div class="item">
+  <h3><span class="num">03</span>记忆写入零丢失，历史记忆自动补索引</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>save_memory 只落库（没有索引这回事）。</dd>
+    <dt class="n">015 后</dt><dd>落库仍然第一优先，向量化在落库后<b>异步</b>进行——向量化失败绝不影响记忆写入（标记待索引，随对账自动补齐）；升级后首次启动，<b>存量历史记忆 30 秒内自动补建索引</b>，旧记忆同样能按语义找回；向量模型更换时索引自动重建，不需要任何手动操作。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：记忆是对话的副作用，丢了不可恢复——所以一致性取舍与知识导入相反（知识可以显式失败重试，记忆必须先保住本体）。这条是专门为记忆定制的可靠性设计。</p>
+</div>
+
+<div class="item">
+  <h3><span class="num">04</span>模型更会「分区」：save_memory 参数指引增强</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>工具说明只有一句「记住一件值得长期记住的事」，模型不知道核心区/归档区的语义差别，全凭常识猜。</dd>
+    <dt class="n">015 后</dt><dd>参数说明讲清取舍依据：core = 少量常驻事实（每轮都在上下文）；archival = 一般值得记的事件（需要时检索找回）；不确定填 archival。纯文案增强，签名不变。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：核心区更干净（省每轮 context 预算），归档区职责更明确。</p>
+</div>
+
+<h2><span class="tag">PART 2 / 架构层优化</span>为后续演进把地基打平</h2>
+
+<div class="item">
+  <h3><span class="num">05</span>记忆后端升级为插件契约——外部记忆服务可安全接入</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>三档后端（markdown/sqlite/mem0）共用一个三方法接口，<b>没有能力声明、没有跨档行为测试</b>；mem0 档是未经实测的骨架。接口上人人平等，实际能力参差——干不了的事只能运行时才暴露。</dd>
+    <dt class="n">015 后</dt><dd>对齐 014 知识库验证过的插件范式：每个后端声明<b>检索能力三态</b>（仅关键词 / 条目交底座内置检索 / 后端自带语义整体接管）＋<b>分区支持位</b>（外部服务不懂 core/archival 时必须显式声明，防止 scope=core 被静默降维）＋<b>参数化契约测试</b>全档必须绿＋「自带语义」测试桩验三同（同工具/同审计/同分区语义）。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：本期直接在自托管 mem0 OSS 上跑通这条路（core=原文模式+元数据分区、archival=交提炼、分区过滤实测、docker compose 可复现，集成测试打 integration 标签）；将来接百炼、ReMe 只需新写一个实现类挂进注册表——<b>不改任何上层代码与需求</b>。知识与记忆从此共用同一套插件哲学。</p>
+</div>
+
+<div class="item">
+  <h3><span class="num">06</span>修复既有作用域缺口：sqlite 档记忆跨 Agent 共享</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>memory_entries 表<b>没有 agent_name 列</b>——sqlite 档下所有 Agent 实际共用一份记忆，与「记忆跟 Agent 走」的既定设计不符（代码核查发现的存量缺口）。</dd>
+    <dt class="n">015 后</dt><dd>补列修复（手工 DDL），存量无主数据归入全局占位并给可读迁移说明；修复后 sqlite 档与 markdown 档的 per-Agent 语义一致。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：修掉隔离性缺口；同时这也是分布式共享 DB 路径的必要前提（见 08）。</p>
+</div>
+
+<div class="item">
+  <h3><span class="num">07</span>观测与审计：记忆检索埋点对齐知识形态</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>recall_memory 审计只有一行普通工具记录，结果是裸文本，无命中明细。</dd>
+    <dt class="n">015 后</dt><dd>埋点结构化并与知识检索同形态：查询原文＋命中明细＋降级标记＋耗时，随 tool_invocations 落库。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：将来做统一检索看板（知识＋记忆）时数据现成，无需二次埋点——与 014 埋点「一次设计到位」同一原则。</p>
+</div>
+
+<div class="item">
+  <h3><span class="num">08</span>分布式就绪：五条设计约束，将来分布式零返工</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>无约束声明；markdown 档（本地文件）在多副本下的定位不明。</dd>
+    <dt class="n">015 后</dt><dd>写入设计约束：向量索引与记忆本体<b>同库</b>存储／索引是派生数据<b>可全量重建</b>／对账<b>幂等</b>（多副本同时执行收敛一致）／<b>不引入实例内状态</b>／markdown 档显式定位为<b>单机档</b>，分布式推荐 sqlite（共享 DB）或外部服务档。只写约束，本期不做分布式实现。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：与路线图方向 A（「记忆全外置共享 DB、实例无状态」）对齐，成本≈0；分布式改造时记忆域不需要回头改需求。</p>
+</div>
+
+<div class="item">
+  <h3><span class="num">09</span>配置归位：向量化配置升格全局段</h3>
+  <dl class="delta">
+    <dt class="o">现状</dt><dd>向量化配置挂在 <code>knowledge.embedding.*</code> 下——知识专属的名字，记忆要用就名不正言不顺。</dd>
+    <dt class="n">015 后</dt><dd>升格为全局 <code>embedding.provider/model</code> 段（知识与记忆共用同一份），旧键作为兼容别名继续生效，存量配置零迁移。</dd>
+  </dl>
+  <p class="why"><b>价值</b>：一套凭证一套配置；趁只有一个消费者时改名，越晚成本越高。</p>
+</div>
+
+<h2><span class="tag">PART 3 / 刻意不动的</span>零迁移、零学习成本的保证</h2>
+<div class="tablewrap"><table>
+  <tr><th>不变项</th><th>说明</th></tr>
+  <tr><td class="k">核心区语义</td><td>全量注入每轮 prompt、永不截断、不参与检索——名片夹还是名片夹</td></tr>
+  <tr><td class="k">归档区注入策略</td><td>「最近窗口」照旧推入上下文（注入管最近的，检索管相关的，两通道互补）；窗口是否收窄，等埋点数据说话</td></tr>
+  <tr><td class="k">工具签名</td><td>save_memory / recall_memory 名称、参数、返回形态完全不变，存量 Agent 零改动</td></tr>
+  <tr><td class="k">MEMORY.md</td><td>文件位置与两段结构不变，可读、可 Git、审计天然</td></tr>
+  <tr><td class="k">写入哲学</td><td>仍是 Agent 显式写入（不做 mem0 式自动提取/改写——显式写入信噪比高，且改写式记忆与「可审计」主张冲突；要提取式的企业走外部服务档）</td></tr>
+  <tr><td class="k">审计路径</td><td>工具调用照旧入 tool_invocations，只是内容更结构化</td></tr>
+</table></div>
+
+<h2><span class="tag">PART 4 / 评审关注点</span>四处最值得讨论的取舍</h2>
+<div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R1 · 已拍板：最终范围 = 检索升级 + 契约对齐 + mem0 跑通</h3><p>维护者拍板将 mem0 真实跑通并入本期。联调需 docker 起 mem0 OSS + 一个 OpenAI 兼容 LLM key（可复用现有 zhipu key）；契约桩测试保 CI 常绿，真实联调打 integration 标签按需跑。</p></div>
+<div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R2 · 已拍板：装配期拒绝，删除降维分支</h3><p>调研结论：mem0 经「infer:false 原文模式＋metadata 过滤」可完整映射两区（core 原文常驻 / archival 交提炼），百炼有等价维度——「映射不了分区」是假想场景；而降维会静默破坏「核心区每轮在场」契约，比启动报错危险。故分区定为记忆后端必选能力，装配期校验、无法映射即可读拒绝。（依据 research D8；mem0 filter 的版本性 bug 列为 016 联调验证点）</p></div>
+<div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R3 · 已拍板：缺省等权，权重留配置系数</h3><p>三路缺省 1:1:1（加权 RRF），权重为配置项——后续按埋点数据手动调整即可，无需改码。</p></div>
+<div class="risk" style="border-left-color: var(--accent); background: var(--accent-soft);"><h3 style="color: var(--accent);">R4 · 已拍板：大小写统一</h3><p>统一为不区分大小写（修两档不一致的存量 bug），作为兼容承诺的唯一例外，已确认接受。</p></div>
+
+<footer>
+  需求全文：<code>specs/015-memory-semantic-recall/spec.md</code> · 技术调研：<code>research.md</code>（含 mem0/Letta/Zep 业界对标） · 基线：main（014 知识库已合入）
+</footer>
+</div>
+</body>
+</html>

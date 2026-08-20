@@ -35,7 +35,12 @@ class MemoryEntryRepositoryTest {
   @Autowired private MemoryEntryRepository repository;
 
   private void insert(String scope, String content) {
+    insert(MemoryEntry.GLOBAL_AGENT, scope, content);
+  }
+
+  private void insert(String agentName, String scope, String content) {
     MemoryEntry e = new MemoryEntry();
+    e.setAgentName(agentName);
     e.setScope(scope);
     e.setContent(content);
     repository.save(e);
@@ -46,7 +51,8 @@ class MemoryEntryRepositoryTest {
   void manualSchemaTableSupportsSaveAndRead() {
     insert("CORE", "用户叫小王");
 
-    List<MemoryEntry> core = repository.findByScopeOrderByIdAsc("CORE");
+    List<MemoryEntry> core =
+        repository.findByAgentNameAndScopeOrderByIdAsc(MemoryEntry.GLOBAL_AGENT, "CORE");
     assertEquals(1, core.size());
     assertEquals("用户叫小王", core.get(0).getContent());
     assertTrue(core.get(0).getCreatedAt() != null, "@PrePersist 生效——表由手工脚本建出");
@@ -60,7 +66,8 @@ class MemoryEntryRepositoryTest {
     }
 
     List<MemoryEntry> recent =
-        repository.findByScopeOrderByIdDesc("ARCHIVAL", PageRequest.of(0, 3));
+        repository.findByAgentNameAndScopeOrderByIdDesc(
+            MemoryEntry.GLOBAL_AGENT, "ARCHIVAL", PageRequest.of(0, 3));
 
     assertEquals(3, recent.size());
     assertEquals("流水 4", recent.get(0).getContent()); // 最新在前
@@ -73,9 +80,36 @@ class MemoryEntryRepositoryTest {
     insert("ARCHIVAL", "归档 needle 一条");
     insert("ARCHIVAL", "无关内容");
 
-    List<MemoryEntry> hits = repository.searchArchival("%needle%");
+    List<MemoryEntry> hits = repository.searchArchival(MemoryEntry.GLOBAL_AGENT, "%needle%");
 
     assertEquals(1, hits.size(), "核心区不参与检索");
     assertEquals("归档 needle 一条", hits.get(0).getContent());
+  }
+
+  @Test
+  @DisplayName("LIKE 检索不区分大小写（LOWER 双压，FR-002）")
+  void searchArchivalIsCaseInsensitive() {
+    insert("ARCHIVAL", "工单 OPS-4721 已升级");
+
+    // 调用方（SqliteMemoryStore）把 pattern 压小写，配合 JPQL 的 LOWER(content)
+    List<MemoryEntry> hits = repository.searchArchival(MemoryEntry.GLOBAL_AGENT, "%ops-4721%");
+
+    assertEquals(1, hits.size(), "小写关键词命中大写内容");
+  }
+
+  @Test
+  @DisplayName("agent 维度隔离——A 的查询绝不命中 B 的条目（FR-014）")
+  void agentDimensionIsolatesEntries() {
+    insert("agent-a", "ARCHIVAL", "共同词 needle 属于 A");
+    insert("agent-b", "ARCHIVAL", "共同词 needle 属于 B");
+
+    List<MemoryEntry> hitsA = repository.searchArchival("agent-a", "%needle%");
+    assertEquals(1, hitsA.size());
+    assertEquals("共同词 needle 属于 A", hitsA.get(0).getContent());
+
+    assertTrue(
+        repository.findByAgentNameAndScopeOrderByIdAsc("agent-a", "ARCHIVAL").stream()
+            .noneMatch(e -> e.getContent().contains("属于 B")),
+        "读路径同样不串");
   }
 }

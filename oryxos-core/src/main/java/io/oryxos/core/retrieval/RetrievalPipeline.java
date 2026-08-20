@@ -1,4 +1,4 @@
-package io.oryxos.knowledge.retrieve;
+package io.oryxos.core.retrieval;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * 检索流水线的融合段（FR-004）：双路召回结果按名次做 RRF 融合——跨路分数量纲不可比，名次可比 （research D10）。纯函数、不带业务语义（FR-016
- * 通用基建）。精排为可选槽位：v1 无内置精排， 声明 rerank 能力的后端结果直通。
+ * 检索流水线的融合段：多路召回结果按名次做（可加权）RRF 融合——跨路分数量纲不可比，名次可比。 纯函数、不带业务语义，知识（014）与记忆（015）共用的通用基建，015 起上移
+ * oryxos-core。精排为可选槽位： v1 无内置精排，声明 rerank 能力的后端结果直通。
  */
 public final class RetrievalPipeline {
 
@@ -25,20 +25,37 @@ public final class RetrievalPipeline {
   public record Fused(long id, double score) {}
 
   /**
-   * 名次融合：score(id) = Σ_route 1/(K + rank)。任一路为空照常融合（单路即原名次序）。
+   * 等权名次融合：score(id) = Σ_route 1/(K + rank)。任一路为空照常融合（单路即原名次序）。
    *
    * @param routes 各路召回结果（每路内部已降序）
    * @param topK 保留条数
    */
   @SafeVarargs
   public static List<Fused> fuseByRank(int topK, List<Candidate>... routes) {
+    return fuseByRank(topK, null, routes);
+  }
+
+  /**
+   * 加权名次融合（015 FR-001）：score(id) = Σ_route w_r/(K + rank)。等权系数下与无权重版逐项一致。
+   *
+   * @param topK 保留条数
+   * @param weights 各路权重系数，null 视为全等权；个数必须与路数一致，零权重容忍（该路贡献为零）
+   * @param routes 各路召回结果（每路内部已降序）
+   */
+  @SafeVarargs
+  public static List<Fused> fuseByRank(int topK, double[] weights, List<Candidate>... routes) {
+    if (weights != null && weights.length != routes.length) {
+      throw new IllegalArgumentException("权重个数与召回路数不一致，拒绝融合");
+    }
     Map<Long, Double> scores = new LinkedHashMap<>();
-    for (List<Candidate> route : routes) {
+    for (int r = 0; r < routes.length; r++) {
+      List<Candidate> route = routes[r];
       if (route == null) {
         continue;
       }
+      double weight = weights == null ? 1.0 : weights[r];
       for (int rank = 0; rank < route.size(); rank++) {
-        double contribution = 1.0 / (RRF_K + rank + 1);
+        double contribution = weight / (RRF_K + rank + 1);
         scores.merge(route.get(rank).id(), contribution, Double::sum);
       }
     }
