@@ -62,34 +62,34 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 
 ### Tests
 
-- [ ] T008 [P] [US1] 在 `oryxos-core/src/main/java/io/oryxos/core/memory/` 创建
+- [x] T008 [P] [US1] 在 `oryxos-core/src/main/java/io/oryxos/core/memory/` 创建
       `MemoryRecallCapability.java`（枚举）与 `MemoryEntryView.java`（record，content+time）
       ——纯类型无行为，直接实现（无独立测试）
-- [ ] T009 [US1] `oryxos-memory/.../LongTermMemoryStore.java` 契约升级：+`capabilities()`
+- [x] T009 [US1] `oryxos-memory/.../LongTermMemoryStore.java` 契约升级：+`capabilities()`
       +`archivalEntries()`；javadoc 契约四修订为「三路可降级，降级态即统一后的关键词行为」
       （FR-010/012）
-- [ ] T010 [P] [US1] 在 `oryxos-memory/src/test/java/io/oryxos/memory/MarkdownMemoryStoreTest.java`
+- [x] T010 [P] [US1] 在 `oryxos-memory/src/test/java/io/oryxos/memory/MarkdownMemoryStoreTest.java`
       补失败测试：`archivalEntries()` 解析 `- [yyyy-MM-dd HH:mm]` 时间戳（解析失败 time=null）、
       `recallByKeyword` 不区分大小写（FR-002）、仅归档区
-- [ ] T011 [US1] `MarkdownMemoryStore` 实现 T010（capabilities=HYBRID_BUILTIN）
-- [ ] T012 [US1] `SqliteMemoryStore`：读写全部带 agent_name（经 ToolExecutionContext）、
+- [x] T011 [US1] `MarkdownMemoryStore` 实现 T010（capabilities=HYBRID_BUILTIN）
+- [x] T012 [US1] `SqliteMemoryStore`：读写全部带 agent_name（经 ToolExecutionContext）、
       `archivalEntries()`（created_at 为 time）、大小写不区分确认、capabilities=HYBRID_BUILTIN；
       补 `SqliteMemoryStoreTest` agent 隔离断言（US1 场景 6 / FR-014）
-- [ ] T013 [P] [US2] 在 `oryxos-memory/src/test/java/io/oryxos/memory/MemoryVectorIndexTest.java`
+- [x] T013 [P] [US2] 在 `oryxos-memory/src/test/java/io/oryxos/memory/MemoryVectorIndexTest.java`
       新建失败测试：落库后异步入队向量化（direct executor）、**core 条目不入队不入表（仅归档
       向量化，FR-005）**、embedder 异常不抛出不阻塞（零丢失，FR-005）、队满静默丢弃、
       `reconcile()` 补缺失/清孤儿/模型变更整体重建、重复执行幂等（FR-007）
-- [ ] T014 [US2] 在 `oryxos-memory/src/main/java/io/oryxos/memory/MemoryVectorIndex.java` 实现：
+- [x] T014 [US2] 在 `oryxos-memory/src/main/java/io/oryxos/memory/MemoryVectorIndex.java` 实现：
       entry_hash=sha256(agent|scope|行原文)、有界执行器（1 worker + 有限队列，构造可注入 direct
       executor 供测试）、写 `memory_vectors`、`reconcile(agentName, List<MemoryEntryView>)`
       （T013 转绿）
-- [ ] T015 [P] [US1] 在 `oryxos-memory/src/test/java/io/oryxos/memory/MemoryRecallEngineTest.java`
+- [x] T015 [P] [US1] 在 `oryxos-memory/src/test/java/io/oryxos/memory/MemoryRecallEngineTest.java`
       新建失败测试：三路融合（语义命中措辞不同条目 / 关键词命中精确代号 / 相关性相当时较新者
       排前）、权重系数生效（recency 权重调大改变排序，SC-004）、未配置 embedding = 两路且输出
       与旧格式等价、降级尾行仅配置态出现（FR-003/013）、top-k 截断仅配置态生效
-- [ ] T016 [US1] 在 `oryxos-memory/src/main/java/io/oryxos/memory/MemoryRecallEngine.java` 实现
+- [x] T016 [US1] 在 `oryxos-memory/src/main/java/io/oryxos/memory/MemoryRecallEngine.java` 实现
       三路加权 RRF（复用 core `RetrievalPipeline`；候选按 entry_hash 对齐）（T015 转绿）
-- [ ] T017 [US1] `MemoryServiceImpl`：recall 按 `capabilities()` 路由（DELEGATED 直通 / 其余走
+- [x] T017 [US1] `MemoryServiceImpl`：recall 按 `capabilities()` 路由（DELEGATED 直通 / 其余走
       引擎）；`remember()` 落库成功后**仅 archival 条目**入队 `MemoryVectorIndex`（core 不入索引，
       FR-005）；启动对账入口方法；补路由单测
 
