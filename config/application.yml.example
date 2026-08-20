@@ -48,14 +48,26 @@ knowledge:
   store: sqlite
 
 # ── 长期记忆（22 节可插拔；015 三路检索升级）──────────────
+# 使用方式 = 后端档（memory.backend）× 向量化（embedding.*）两个开关的组合：
+#
+#   backend    │ 未配 embedding.*            │ 已配 embedding.*
+#   ───────────┼────────────────────────────┼──────────────────────────────────────
+#   markdown   │ 关键词检索（升级前旧行为）  │ 三路融合：语义+关键词+时间新近（单机档）
+#   sqlite     │ 关键词检索 + per-Agent 隔离 │ 三路融合 + per-Agent 隔离（分布式选它）
+#   mem0       │ ——检索始终委托 mem0 的语义搜索，embedding.* 对这一档不参与——
+#
+# 已配 embedding.* 但服务临时不可用时自动降级为「关键词+时间」两路，结果尾行标注、恢复即回归；
+# 写入永远先落本体再异步建索引，索引故障不丢记忆（启动自动对账补齐）。
+# mem0 档需先起自托管服务：docker compose -f docker/mem0/compose.yaml up -d --build
+# （LLM/embedder、维度对齐等见该文件头部注释），再设 MEM0_BASE_URL=http://localhost:8888。
 memory:
   backend: markdown             # markdown（默认，零依赖）| sqlite（结构化）| mem0（自托管）
   recall:                       # 015：配置了 embedding.* 时生效的三路加权融合（语义+关键词+时间新近）
     top-k: 20                   # 融合后返回上限；未配置向量化时不生效（保持旧行为全量返回）
     weight:                     # 加权 RRF 系数，缺省等权；改配置即可调整、无需改码
-      semantic: 1.0
+      semantic: 1.0             # 语义命中偏弱时调大（如 2.0~3.0，旧记忆的语义命中更易登顶）
       keyword: 1.0
-      recency: 1.0
+      recency: 1.0              # 时间新近权重，希望「新近优先」更明显时调大
   mem0:
     base-url: ${MEM0_BASE_URL:} # 仅 backend=mem0 时用；走环境变量不落明文
     user-id: ${MEM0_USER_ID:oryxos}
