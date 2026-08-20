@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain（存留 2 处：FR-005 连接方式、FR-011 Agent 路由模型，待维护者裁决）
+- [x] No [NEEDS CLARIFICATION] markers remain（FR-005 长连接、FR-011 一应用一 Agent 均已裁决，见 Clarifications）
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
