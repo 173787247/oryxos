@@ -87,6 +87,17 @@ class MemoryEntryRepositoryTest {
   }
 
   @Test
+  @DisplayName("LIKE 检索不区分大小写（LOWER 双压，FR-002）")
+  void searchArchivalIsCaseInsensitive() {
+    insert("ARCHIVAL", "工单 OPS-4721 已升级");
+
+    // 调用方（SqliteMemoryStore）把 pattern 压小写，配合 JPQL 的 LOWER(content)
+    List<MemoryEntry> hits = repository.searchArchival(MemoryEntry.GLOBAL_AGENT, "%ops-4721%");
+
+    assertEquals(1, hits.size(), "小写关键词命中大写内容");
+  }
+
+  @Test
   @DisplayName("agent 维度隔离——A 的查询绝不命中 B 的条目（FR-014）")
   void agentDimensionIsolatesEntries() {
     insert("agent-a", "ARCHIVAL", "共同词 needle 属于 A");

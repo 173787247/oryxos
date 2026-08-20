@@ -2,6 +2,8 @@ package io.oryxos.memory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.memory.MemoryEntryView;
+import io.oryxos.core.memory.MemoryRecallCapability;
 import io.oryxos.core.memory.MemoryScope;
 import java.util.ArrayList;
 import java.util.List;
@@ -69,6 +71,17 @@ public class Mem0MemoryStore implements LongTermMemoryStore {
             .retrieve()
             .body(String.class);
     return extractMemoryTexts(body);
+  }
+
+  /** mem0 自带语义检索——recall 直通、底座不建索引（015 FR-009；T022 按 contracts §3 完整改造）。 */
+  @Override
+  public MemoryRecallCapability capabilities() {
+    return MemoryRecallCapability.DELEGATED;
+  }
+
+  @Override
+  public List<MemoryEntryView> archivalEntries() {
+    return List.of(); // DELEGATED 档：时间路与索引对账不适用
   }
 
   private List<String> getByScope(String scope) {

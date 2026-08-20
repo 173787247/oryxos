@@ -1,12 +1,11 @@
 package io.oryxos.knowledge.store;
 
+import io.oryxos.core.embedding.VectorCodec;
 import io.oryxos.core.knowledge.model.DocumentState;
 import io.oryxos.storage.KnowledgeChunkEntity;
 import io.oryxos.storage.KnowledgeChunkRepository;
 import io.oryxos.storage.KnowledgeDocumentEntity;
 import io.oryxos.storage.KnowledgeDocumentRepository;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.List;
 import java.util.Optional;
 
@@ -151,11 +150,7 @@ public class SqliteChunkStore implements ChunkStore {
     if (vector == null) {
       return null;
     }
-    ByteBuffer buffer = ByteBuffer.allocate(vector.length * 4).order(ByteOrder.LITTLE_ENDIAN);
-    for (float value : vector) {
-      buffer.putFloat(value);
-    }
-    return buffer.array();
+    return VectorCodec.encode(vector);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -165,11 +160,6 @@ public class SqliteChunkStore implements ChunkStore {
     if (bytes == null) {
       return null;
     }
-    ByteBuffer buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-    float[] vector = new float[bytes.length / 4];
-    for (int i = 0; i < vector.length; i++) {
-      vector[i] = buffer.getFloat();
-    }
-    return vector;
+    return VectorCodec.decode(bytes);
   }
 }

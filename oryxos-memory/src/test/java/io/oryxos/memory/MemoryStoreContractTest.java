@@ -137,13 +137,14 @@ class MemoryStoreContractTest {
         .thenAnswer(
             inv -> {
               String agent = inv.getArgument(0);
+              // 真库为 LOWER(content) LIKE :pattern（调用方已把 pattern 压小写），mock 同语义
               String needle = ((String) inv.getArgument(1)).replace("%", "");
               return data.stream()
                   .filter(
                       e ->
                           e.getAgentName().equals(agent)
                               && "ARCHIVAL".equals(e.getScope())
-                              && e.getContent().contains(needle))
+                              && e.getContent().toLowerCase(java.util.Locale.ROOT).contains(needle))
                   .toList();
             });
     return repo;

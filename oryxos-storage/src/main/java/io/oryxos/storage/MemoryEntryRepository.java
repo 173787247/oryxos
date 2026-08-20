@@ -19,10 +19,10 @@ public interface MemoryEntryRepository extends JpaRepository<MemoryEntry, Long> 
   List<MemoryEntry> findByAgentNameAndScopeOrderByIdDesc(
       String agentName, String scope, Pageable pageable);
 
-  /** 归档区关键词检索（LIKE，契约四；SQLite LIKE 对 ASCII 天然不区分大小写——FR-002 由调用方统一保证）。 */
+  /** 归档区关键词检索（契约四）；LOWER 双压显式钉死不区分大小写（FR-002），不依赖方言 LIKE 的缺省行为。 */
   @Query(
       "SELECT m FROM MemoryEntry m WHERE m.agentName = :agentName AND m.scope = 'ARCHIVAL'"
-          + " AND m.content LIKE :pattern ORDER BY m.id ASC")
+          + " AND LOWER(m.content) LIKE :pattern ORDER BY m.id ASC")
   List<MemoryEntry> searchArchival(
       @Param("agentName") String agentName, @Param("pattern") String pattern);
 }

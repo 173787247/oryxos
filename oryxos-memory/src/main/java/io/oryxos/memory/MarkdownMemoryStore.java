@@ -1,6 +1,8 @@
 package io.oryxos.memory;
 
 import io.oryxos.core.agent.ToolExecutionContext;
+import io.oryxos.core.memory.MemoryEntryView;
+import io.oryxos.core.memory.MemoryRecallCapability;
 import io.oryxos.core.memory.MemoryScope;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -8,9 +10,13 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -41,6 +47,13 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
   private static final Pattern SAFE_AGENT = Pattern.compile("[A-Za-z0-9_-]+");
   private static final DateTimeFormatter TIMESTAMP =
       DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+  /** 条目行首时间戳（015 时间新近路取数）：秒段可选，兼容手工补录的 `HH:mm` 形态。 */
+  private static final Pattern ENTRY_TIMESTAMP =
+      Pattern.compile("^- \\[(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}(?::\\d{2})?)\\]");
+
+  private static final DateTimeFormatter ENTRY_TIME_PARSER =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm[:ss]");
 
   /** 每个 MEMORY.md 一把锁（静态：多个 store 实例指向同一文件也互斥），条目数上限 = Agent 数 + 1，不会膨胀。 */
   private static final Map<Path, Object> FILE_LOCKS = new ConcurrentHashMap<>();
@@ -105,10 +118,40 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
 
   @Override
   public List<String> recallByKeyword(String keyword) {
+    String needle = keyword.toLowerCase(Locale.ROOT);
     return extractSection(read(), ARCHIVE_HEADER)
         .lines()
-        .filter(line -> !line.isBlank() && line.contains(keyword))
+        .filter(line -> !line.isBlank() && line.toLowerCase(Locale.ROOT).contains(needle))
         .toList();
+  }
+
+  @Override
+  public MemoryRecallCapability capabilities() {
+    return MemoryRecallCapability.HYBRID_BUILTIN;
+  }
+
+  /** 归档区全量条目（未截断——索引与时间路必须覆盖全部本体，防召回黑洞）；时间解析不出为 null。 */
+  @Override
+  public List<MemoryEntryView> archivalEntries() {
+    return extractSection(read(), ARCHIVE_HEADER)
+        .lines()
+        .filter(line -> !line.isBlank())
+        .map(line -> new MemoryEntryView(line, parseEntryTime(line)))
+        .toList();
+  }
+
+  private static Instant parseEntryTime(String line) {
+    Matcher matcher = ENTRY_TIMESTAMP.matcher(line);
+    if (!matcher.find()) {
+      return null;
+    }
+    try {
+      return LocalDateTime.parse(matcher.group(1), ENTRY_TIME_PARSER)
+          .atZone(ZoneId.systemDefault())
+          .toInstant();
+    } catch (DateTimeParseException e) {
+      return null;
+    }
   }
 
   /** 只裁归档段字符串，核心区不在入参里——契约二靠物理隔离保证。 */

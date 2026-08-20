@@ -1,11 +1,16 @@
 package io.oryxos.memory;
 
 import io.oryxos.core.agent.ToolExecutionContext;
+import io.oryxos.core.memory.MemoryEntryView;
+import io.oryxos.core.memory.MemoryRecallCapability;
 import io.oryxos.core.memory.MemoryScope;
 import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.session.Session;
+import io.oryxos.storage.MemoryEntry;
 import java.util.List;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * MemoryService 门面实现：把长期记忆读写委托给可插拔的 {@link LongTermMemoryStore}——换后端只换注入的 store， 门面签名与上层调用不变。
@@ -17,16 +22,32 @@ import java.util.function.Supplier;
  * 名已由 {@link ToolExecutionContext}（ToolExecutor 置入）就位，门面直接透传给 store 即可；读路径（buildContext/readAll）不经
  * ToolExecutor，门面在委托 store.load 前后临时置入 Agent 名（buildContext 取 session.profileName()、readAll
  * 取入参），读完复原。
+ *
+ * <p>检索路由（015 FR-009）：recall 按 {@code store.capabilities()} 分流——DELEGATED（后端自带语义）直通
+ * recallByKeyword；其余走 {@link MemoryRecallEngine} 三路加权融合。写路径落库优先（FR-005）：append 成功后 仅 archival
+ * 条目异步入队 {@link MemoryVectorIndex}（core 不参与检索、不入索引），索引侧任何异常不影响写入。
  */
 public class MemoryServiceImpl implements MemoryService {
 
+  private static final Logger log = LoggerFactory.getLogger(MemoryServiceImpl.class);
+
   private final LongTermMemoryStore store;
+  private final MemoryRecallEngine engine; // null = 无三路引擎：recall 直通关键词（旧行为）
+  private final MemoryVectorIndex index; // null = 未配置向量化：不建索引
+
+  /** 旧装配形态：纯关键词检索、不建索引（未配置向量化的运行时与既有测试走这里，行为与升级前一致）。 */
+  public MemoryServiceImpl(LongTermMemoryStore store) {
+    this(store, null, null);
+  }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
-      justification = "门面必须持有注入的后端 store 引用（组合模式的协作者）；生命周期由装配方管理")
-  public MemoryServiceImpl(LongTermMemoryStore store) {
+      justification = "门面必须持有注入的后端 store/引擎/索引引用（组合模式的协作者）；生命周期由装配方管理")
+  public MemoryServiceImpl(
+      LongTermMemoryStore store, MemoryRecallEngine engine, MemoryVectorIndex index) {
     this.store = store;
+    this.engine = engine;
+    this.index = index;
   }
 
   @Override
@@ -37,16 +58,50 @@ public class MemoryServiceImpl implements MemoryService {
   @Override
   public void remember(String content, MemoryScope scope) {
     store.append(content, scope);
+    if (scope != MemoryScope.ARCHIVAL
+        || index == null
+        || store.capabilities() != MemoryRecallCapability.HYBRID_BUILTIN) {
+      return; // core 不入索引（FR-005）；DELEGATED 档索引归外部服务
+    }
+    try {
+      List<MemoryEntryView> entries = store.archivalEntries();
+      if (!entries.isEmpty()) {
+        index.enqueue(currentAgent(), entries.getLast());
+      }
+    } catch (RuntimeException e) {
+      log.warn("记忆索引入队失败（本体已落库，随对账补齐）: {}", e.getMessage());
+    }
   }
 
   @Override
   public List<String> recall(String keyword) {
-    return store.recallByKeyword(keyword);
+    if (engine == null || store.capabilities() == MemoryRecallCapability.DELEGATED) {
+      return store.recallByKeyword(keyword);
+    }
+    return engine.recall(store, currentAgent(), keyword);
   }
 
   @Override
   public String readAll(String agentName) {
     return withAgent(agentName, store::load);
+  }
+
+  /** 启动对账入口（FR-007，T025 对每个已知 Agent + 全局各调一次）；未配置向量化或 DELEGATED 档为 no-op。 */
+  public void reconcileIndex(String agentName) {
+    if (index == null || store.capabilities() != MemoryRecallCapability.HYBRID_BUILTIN) {
+      return;
+    }
+    withAgent(
+        agentName,
+        () -> {
+          index.reconcile(agentName, store.archivalEntries());
+          return null;
+        });
+  }
+
+  private static String currentAgent() {
+    String agent = ToolExecutionContext.agentName();
+    return agent == null || agent.isBlank() ? MemoryEntry.GLOBAL_AGENT : agent;
   }
 
   /** 临时置入 Agent 名跑一段读操作，结束后复原上一层上下文（读路径不经 ToolExecutor，需自行圈定作用域）。 */
