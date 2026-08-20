@@ -111,15 +111,15 @@ Phase 6 装配、mock 全链路（US4）与文档收口。
 
 ## Phase 5: mem0 档真实跑通（US5，P2）
 
-- [ ] T020 [P] [US5] 新建 `docker/mem0/compose.yaml`（mem0 OSS + 依赖存储；LLM/embedder 经
+- [x] T020 [P] [US5] 新建 `docker/mem0/compose.yaml`（mem0 OSS + 依赖存储；LLM/embedder 经
       OpenAI 兼容端点环境变量注入，含使用说明注释：`ZHIPU_API_KEY` 复用）；`.gitignore` 确认
       不吞该目录
-- [ ] T021 [P] [US5] 在 `oryxos-memory/src/test/java/io/oryxos/memory/Mem0MemoryStoreTest.java`
+- [x] T021 [P] [US5] 在 `oryxos-memory/src/test/java/io/oryxos/memory/Mem0MemoryStoreTest.java`
       新建失败测试（MockRestServiceServer/自建桩 server）：core 写入带 `infer:false` +
       metadata scope、archival 带 `infer:true`、search 带 `filters:{scope:ARCHIVAL}`、
       get_all 按区过滤、`Authorization: Bearer` 头（配置为空不发头）、连接异常 → 可读
       IllegalStateException、capabilities=DELEGATED、archivalEntries 返回空
-- [ ] T022 [US5] `Mem0MemoryStore` 按 contracts §3 映射表改造（T021 转绿）；`memory.mem0.api-key`
+- [x] T022 [US5] `Mem0MemoryStore` 按 contracts §3 映射表改造（T021 转绿）；`memory.mem0.api-key`
       配置接入
 - [ ] T023 [US5] 在 `oryxos-memory/src/test/java/io/oryxos/memory/Mem0FlowIT.java`
       （@Tag("integration")）：真实 compose 环境跑 US5 四场景——core 原文逐字保真与注入、
