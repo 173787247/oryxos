@@ -773,11 +773,8 @@ public class OryxOsRuntime {
 
   @Bean
   AgentService agentService(
-      ProfileRegistry profileRegistry,
-      ReActLoop reActLoop,
-      SessionManager sessionManager,
-      MemoryService memoryService) {
-    return new AgentService(profileRegistry, reActLoop, sessionManager, memoryService);
+      ProfileRegistry profileRegistry, ReActLoop reActLoop, SessionManager sessionManager) {
+    return new AgentService(profileRegistry, reActLoop, sessionManager);
   }
 
   @Bean

@@ -94,7 +94,7 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
 
   /**
    * 条目压成单行，并中和区块头字面量——否则 {@code indexOf}/{@link #extractSection} 会把内容当成分区边界，
-   * 导致核心记忆被截断或串区（save_memory / 触发足迹均可写入用户可控文本）。
+   * 导致核心记忆被截断或串区（save_memory 可写入用户可控文本）。
    */
   static String sanitizeEntryContent(String content) {
     if (content == null || content.isBlank()) {
