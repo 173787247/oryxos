@@ -1,7 +1,5 @@
 package io.oryxos.core.agent;
 
-import io.oryxos.core.memory.MemoryScope;
-import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Message;
@@ -24,13 +22,15 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>并发（review 高危 4）：同一会话（sessionId）的并发请求在此按会话串行化。web 的 send/invoke/trigger 与定时触发
  * 都可能并发操作同一会话（Session 无锁 ArrayList + JpaSessionManager.save 整段覆写），不加锁会 last-write-wins 丢消息。 锁是进程内、按
  * sessionId 隔离——跨会话并行不受影响（宪法 VII 虚拟线程并发仍成立）。进入锁后必须重读最新快照；保存时再由 SessionManager 做条件更新， 防止跨进程旧快照静默覆盖。
+ *
+ * <p>不再把「触发问答摘要」自动写入归档记忆：失败回答会带着问句原文进语义召回，轻量模型照抄形成失败自我固化（issue #206）。 执行留痕走 {@code
+ * tool_invocations}/{@code agent_executions}；真正要沉淀的事实由 Agent 显式 {@code save_memory}。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
     justification = "profileRegistry 是 Spring 注入的单例注册表，三种触发源共享同一引用正是意图（29 节起可运行时增删，必须同一份）。")
 public class AgentService {
 
-  private static final int MEMORY_LINE_MAX = 200;
   private static final String STATELESS_EXECUTION_ID_PREFIX = "invoke-exec:";
 
   /** 会话 id → 该会话的串行锁。会话数是有限的（channel:user:profile 三元组），增长有界，可接受。 */
@@ -39,17 +39,12 @@ public class AgentService {
   private final ProfileRegistry profileRegistry;
   private final ReActLoop reActLoop;
   private final SessionManager sessionManager;
-  private final MemoryService memoryService;
 
   public AgentService(
-      ProfileRegistry profileRegistry,
-      ReActLoop reActLoop,
-      SessionManager sessionManager,
-      MemoryService memoryService) {
+      ProfileRegistry profileRegistry, ReActLoop reActLoop, SessionManager sessionManager) {
     this.profileRegistry = profileRegistry;
     this.reActLoop = reActLoop;
     this.sessionManager = sessionManager;
-    this.memoryService = memoryService;
   }
 
   public String process(Session session, String userMessage) {
@@ -81,7 +76,6 @@ public class AgentService {
         if (exhausted) {
           throw new AgentMaxIterationsExceededException(reply);
         }
-        recordTrigger(profile.name(), userMessage, reply); // 正常完成才记运行足迹
         return reply;
       } finally {
         ProfileContext.clear(); // 虚拟线程每请求独立，用完必须清
@@ -109,7 +103,6 @@ public class AgentService {
       if (ReActLoop.MAX_ITERATIONS_REPLY.equals(reply)) {
         throw new AgentMaxIterationsExceededException(reply);
       }
-      recordTrigger(profile.name(), userMessage, reply);
       return reply;
     } finally {
       ProfileContext.clear();
@@ -119,26 +112,5 @@ public class AgentService {
   private static String profileNameOrFallback(Session session) {
     String name = session.profileName();
     return name == null ? "(null-session)" : name;
-  }
-
-  /** 每次触发都往这个 Agent 的记忆归档区记一条运行足迹（这个 Agent 干过什么，事后可回看）。 */
-  private void recordTrigger(String agentName, String userMessage, String reply) {
-    String line = "触发「" + oneLine(userMessage) + "」⇒ " + oneLine(reply);
-    // remember 靠 ToolExecutionContext 定位 Agent（同工具写记忆的路径）：读写路径外要自己置入再清除
-    ToolExecutionContext.setAgentName(agentName);
-    try {
-      memoryService.remember(line, MemoryScope.ARCHIVAL);
-    } finally {
-      ToolExecutionContext.clear();
-    }
-  }
-
-  /** 记忆是逐行存的：把多行压成一行、超长截断，避免撑坏归档区的行结构。 */
-  private static String oneLine(String text) {
-    if (text == null || text.isBlank()) {
-      return "（空）";
-    }
-    String flat = text.replaceAll("\\s+", " ").strip();
-    return flat.length() > MEMORY_LINE_MAX ? flat.substring(0, MEMORY_LINE_MAX) + "…" : flat;
   }
 }
