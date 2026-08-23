@@ -20,6 +20,7 @@ import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.notify.NotifyChannelRegistry;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.provider.LlmCallAuditor;
+import io.oryxos.core.provider.PricingStore;
 import io.oryxos.core.provider.ProviderDef;
 import io.oryxos.core.provider.ProviderRegistry;
 import io.oryxos.core.provider.ProviderService;
@@ -48,15 +49,18 @@ import io.oryxos.provider.ProvidersProperties;
 import io.oryxos.provider.SpringAiProviderServiceImpl;
 import io.oryxos.provider.ToolSchemaAdapter;
 import io.oryxos.storage.AgentExecutionRepository;
+import io.oryxos.storage.AuditSchemaUpgrade;
 import io.oryxos.storage.JpaAgentExecutionStore;
 import io.oryxos.storage.JpaLlmCallAuditor;
 import io.oryxos.storage.JpaNotifyChannelRegistry;
+import io.oryxos.storage.JpaPricingStore;
 import io.oryxos.storage.JpaProviderRegistry;
 import io.oryxos.storage.JpaSandboxWhitelistStore;
 import io.oryxos.storage.JpaScheduledTaskStore;
 import io.oryxos.storage.JpaSessionManager;
 import io.oryxos.storage.JpaToolInvocationAuditor;
 import io.oryxos.storage.LlmCallRepository;
+import io.oryxos.storage.LlmPricingRepository;
 import io.oryxos.storage.LlmProviderRepository;
 import io.oryxos.storage.MemoryEntryRepository;
 import io.oryxos.storage.NotifyChannelRepository;
@@ -181,14 +185,32 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  ProviderService providerService(ProviderRegistry providerRegistry, LlmCallAuditor auditor) {
+  PricingStore pricingStore(LlmPricingRepository repository) {
+    return new JpaPricingStore(repository);
+  }
+
+  /** 016 审计看板：llm_calls/tool_invocations 补列 + 建 llm_pricing 表（幂等，先跑 schema.sql）。 */
+  @Bean
+  @DependsOn("dataSourceScriptDatabaseInitializer")
+  AuditSchemaUpgrade auditSchemaUpgrade(DataSource dataSource) {
+    return new AuditSchemaUpgrade(dataSource);
+  }
+
+  @Bean
+  ProviderService providerService(
+      ProviderRegistry providerRegistry,
+      LlmCallAuditor auditor,
+      PricingStore pricingStore,
+      AuditSchemaUpgrade auditSchemaUpgrade) {
+    auditSchemaUpgrade.upgrade(); // 幂等：存量库补列 + 建 llm_pricing 表
     // 动态解析（31 节）：按名从注册表取参数、经工厂即时建/缓存 ChatModel（宪法 III 显式映射，只是运行时可变）
     ProviderChatModelFactory factory = new ProviderChatModelFactory();
     return new SpringAiProviderServiceImpl(
         providerRegistry,
         def -> factory.buildOne(def.name(), def.apiKey(), def.baseUrl()),
         new ToolSchemaAdapter(),
-        auditor);
+        auditor,
+        pricingStore);
   }
 
   @Bean

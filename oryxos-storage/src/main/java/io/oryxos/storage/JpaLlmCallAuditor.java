@@ -23,15 +23,18 @@ public class JpaLlmCallAuditor implements LlmCallAuditor {
   @Override
   public void record(
       String sessionId,
+      String profileName,
       String provider,
       String model,
       Usage usage,
+      Long costMicros,
       boolean success,
       String errorMessage,
       long durationMs) {
     try {
       LlmCall record = new LlmCall();
       record.setSessionId(sessionId);
+      record.setProfileName(profileName);
       record.setProvider(provider);
       record.setModel(model);
       if (usage != null) {
@@ -39,6 +42,7 @@ public class JpaLlmCallAuditor implements LlmCallAuditor {
         record.setCompletionTokens(usage.completionTokens());
         record.setTotalTokens(usage.totalTokens());
       }
+      record.setCostMicros(costMicros);
       record.setSuccess(success);
       record.setErrorMessage(errorMessage);
       record.setDurationMs(durationMs);

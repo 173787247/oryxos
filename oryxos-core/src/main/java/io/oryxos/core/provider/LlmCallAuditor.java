@@ -10,9 +10,11 @@ public interface LlmCallAuditor {
 
   void record(
       String sessionId,
+      String profileName,
       String provider,
       String model,
       Usage usage,
+      Long costMicros,
       boolean success,
       String errorMessage,
       long durationMs);

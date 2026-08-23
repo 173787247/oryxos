@@ -31,9 +31,11 @@ class ProviderSmokeIT {
     @Override
     public void record(
         String sessionId,
+        String profileName,
         String provider,
         String model,
         Usage usage,
+        Long costMicros,
         boolean success,
         String errorMessage,
         long durationMs) {
@@ -60,7 +62,8 @@ class ProviderSmokeIT {
             registry,
             def -> factory.buildOne(def.name(), def.apiKey(), def.baseUrl()),
             new ToolSchemaAdapter(),
-            auditor);
+            auditor,
+            (p, m) -> java.util.Optional.empty());
     Profile profile =
         new Profile(
             "smoke",

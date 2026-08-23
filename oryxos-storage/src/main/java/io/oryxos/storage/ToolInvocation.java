@@ -30,6 +30,9 @@ public class ToolInvocation {
   @Column(name = "result_json")
   private String resultJson;
 
+  @Column(name = "profile_name")
+  private String profileName;
+
   @Column(nullable = false)
   private boolean success;
 
@@ -83,6 +86,14 @@ public class ToolInvocation {
 
   public void setResultJson(String resultJson) {
     this.resultJson = resultJson;
+  }
+
+  public String getProfileName() {
+    return profileName;
+  }
+
+  public void setProfileName(String profileName) {
+    this.profileName = profileName;
   }
 
   public boolean isSuccess() {

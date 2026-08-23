@@ -8,12 +8,16 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
     total_tokens INTEGER,
+    cost_micros INTEGER,
+    profile_name VARCHAR(255),
     success BOOLEAN NOT NULL,
     error_message TEXT,
     duration_ms INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls (session_id);
+-- idx_llm_calls_profile (profile_name) 由 AuditSchemaUpgrade 创建：本脚本先于升级器执行，
+-- 存量库此刻还没有 profile_name 列，在这里建索引会让整个应用启动失败（idx_memory_agent 教训）。
 
 -- tool_invocations：工具调用审计（宪法 V：Day One 落库，成功要记、失败也要记）
 CREATE TABLE IF NOT EXISTS tool_invocations (
@@ -22,12 +26,14 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     tool_name VARCHAR(128) NOT NULL,
     input_json TEXT,
     result_json TEXT,
+    profile_name VARCHAR(255),
     success BOOLEAN NOT NULL,
     error_message TEXT,
     duration_ms INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_session ON tool_invocations (session_id);
+-- idx_tool_invocations_profile (profile_name) 由 AuditSchemaUpgrade 创建（同上）。
 
 -- sessions：会话元数据 + JSON 序列化的对话历史（18 节）
 -- session_id 由 SessionManager 按 channel:user:profile 唯一拼接（全库唯一拼接点，H4④）
@@ -147,6 +153,20 @@ CREATE TABLE IF NOT EXISTS providers (
     description TEXT,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
+);
+
+-- llm_pricing：模型定价（016 审计看板）——(provider, model) → 输入/输出 token 单价（元/百万 token）。
+-- 成本写时定格：LLM 调用落库时按 (provider, model) 查价算 cost_micros，历史成本不随改价变动。
+-- 新表，CREATE TABLE IF NOT EXISTS，非 ALTER，无迁移风险。prompt_price/completion_price 可空=未定价。
+CREATE TABLE IF NOT EXISTS llm_pricing (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider VARCHAR(64) NOT NULL,
+    model VARCHAR(128) NOT NULL,
+    prompt_price REAL,
+    completion_price REAL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    UNIQUE (provider, model)
 );
 
 -- sandbox_whitelist：Sandbox 白名单持久化（宪法 VI 第一档）——三类 category（FILE/SHELL/HTTP）→ entry_value。

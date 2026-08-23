@@ -10,4 +10,6 @@ public interface ToolInvocationRepository extends JpaRepository<ToolInvocation, 
 
   List<ToolInvocation> findByToolNameAndCreatedAtBetweenOrderByIdDesc(
       String toolName, java.time.Instant from, java.time.Instant to);
+
+  List<ToolInvocation> findByCreatedAtBetween(java.time.Instant from, java.time.Instant to);
 }

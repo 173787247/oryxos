@@ -90,7 +90,11 @@ class MockProviderFlowTest {
                 new io.oryxos.core.provider.ProviderDef("mock", null, null, null)));
     ProviderService provider =
         new SpringAiProviderServiceImpl(
-            providerRegistry, def -> new MockChatModel(), new ToolSchemaAdapter(), llmAuditor);
+            providerRegistry,
+            def -> new MockChatModel(),
+            new ToolSchemaAdapter(),
+            llmAuditor,
+            (p, m) -> java.util.Optional.empty());
 
     PromptBuilder promptBuilder =
         new PromptBuilder(
@@ -138,9 +142,10 @@ class MockProviderFlowTest {
     // 记忆记录：save_memory 真写了这个 Agent 专属的 MEMORY.md（30 节：记忆跟着 Agent 走）
     assertTrue(memory.readAll(AGENT).contains("北京"), "该 Agent 的记忆文件应记下事实");
     // 审计：llm_calls 恰 2、tool_invocations 恰 1（宪法 V）
-    verify(llmAuditor, times(2)).record(any(), any(), any(), any(), anyBoolean(), any(), anyLong());
+    verify(llmAuditor, times(2))
+        .record(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyLong());
     verify(toolAuditor, times(1))
-        .record(any(), any(), any(), any(), anyBoolean(), any(), anyLong());
+        .record(any(), any(), any(), any(), any(), anyBoolean(), any(), anyLong());
 
     // —— 管理台三个只读端点，读同一批服务，应能查到链路留下的数据 ——
     when(sessionManager.listRecent(anyInt()))

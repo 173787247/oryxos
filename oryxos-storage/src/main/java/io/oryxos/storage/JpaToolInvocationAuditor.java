@@ -22,6 +22,7 @@ public class JpaToolInvocationAuditor implements ToolInvocationAuditor {
   @Override
   public void record(
       String sessionId,
+      String profileName,
       String toolName,
       String inputJson,
       String resultJson,
@@ -31,6 +32,7 @@ public class JpaToolInvocationAuditor implements ToolInvocationAuditor {
     try {
       ToolInvocation record = new ToolInvocation();
       record.setSessionId(sessionId);
+      record.setProfileName(profileName);
       record.setToolName(toolName);
       record.setInputJson(inputJson);
       record.setResultJson(resultJson);

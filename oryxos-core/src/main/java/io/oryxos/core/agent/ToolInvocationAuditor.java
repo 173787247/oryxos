@@ -9,6 +9,7 @@ public interface ToolInvocationAuditor {
 
   void record(
       String sessionId,
+      String profileName,
       String toolName,
       String inputJson,
       String resultJson,

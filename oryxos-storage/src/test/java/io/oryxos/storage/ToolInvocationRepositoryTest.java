@@ -86,7 +86,7 @@ class ToolInvocationRepositoryTest {
     IllegalStateException error =
         assertThrows(
             IllegalStateException.class,
-            () -> auditor.record("s-3", "http_get", "{}", null, true, null, 1L));
+            () -> auditor.record("s-3", "agent", "http_get", "{}", null, true, null, 1L));
     assertTrue(error.getMessage().contains("tool_invocations"));
     assertEquals("db locked", error.getCause().getMessage());
   }

@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface LlmCallRepository extends JpaRepository<LlmCall, Long> {
 
   List<LlmCall> findBySessionId(String sessionId);
+
+  List<LlmCall> findByCreatedAtBetween(java.time.Instant from, java.time.Instant to);
 }

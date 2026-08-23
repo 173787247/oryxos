@@ -2,6 +2,8 @@ package io.oryxos.provider;
 
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.provider.LlmCallAuditor;
+import io.oryxos.core.provider.ModelPricing;
+import io.oryxos.core.provider.PricingStore;
 import io.oryxos.core.provider.ProviderDef;
 import io.oryxos.core.provider.ProviderRegistry;
 import io.oryxos.core.provider.ProviderRequest;
@@ -43,6 +45,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   private final Function<ProviderDef, ChatModel> chatModelBuilder;
   private final ToolSchemaAdapter adapter;
   private final LlmCallAuditor audit;
+  private final PricingStore pricingStore;
   // 已建的 ChatModel 缓存：key = provider name，值携带配置指纹（apiKey|baseUrl）。指纹变了原地替换旧条目——
   // 缓存大小恒等于 provider 数，反复改 key/url 不再累积不可回收的旧实例（31 节动态 provider）。
   private final Map<String, CachedModel> cache = new ConcurrentHashMap<>();
@@ -57,11 +60,13 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       ProviderRegistry registry,
       Function<ProviderDef, ChatModel> chatModelBuilder,
       ToolSchemaAdapter adapter,
-      LlmCallAuditor audit) {
+      LlmCallAuditor audit,
+      PricingStore pricingStore) {
     this.registry = registry;
     this.chatModelBuilder = chatModelBuilder;
     this.adapter = adapter;
     this.audit = audit;
+    this.pricingStore = pricingStore;
   }
 
   @Override
@@ -87,8 +92,10 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       try {
         audit.record(
             sessionId,
+            profile.name(),
             providerName,
             profile.provider().model(),
+            null,
             null,
             false,
             e.getMessage(),
@@ -104,9 +111,11 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     try {
       audit.record(
           sessionId,
+          profile.name(),
           providerName,
           profile.provider().model(),
           result.usage(),
+          computeCost(providerName, profile.provider().model(), result.usage()),
           true,
           null,
           System.currentTimeMillis() - startedAt);
@@ -119,6 +128,30 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   /** 日志参数消毒：去掉换行，防日志伪造（CRLF injection）。 */
   private static String sanitize(String value) {
     return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
+  }
+
+  /** 按 (provider, model) 查价算成本（微元）；失败/查不到价 → null（未计量）。 */
+  private Long computeCost(String providerName, String model, Usage usage) {
+    if (usage == null || usage.totalTokens() == null) {
+      return null;
+    }
+    return pricingStore.find(providerName, model).map(p -> computeMicros(usage, p)).orElse(null);
+  }
+
+  private static Long computeMicros(Usage usage, ModelPricing pricing) {
+    Double promptPrice = pricing.promptPrice();
+    Double completionPrice = pricing.completionPrice();
+    if (promptPrice == null && completionPrice == null) {
+      return null;
+    }
+    long micros = 0;
+    if (usage.promptTokens() != null && promptPrice != null) {
+      micros += Math.round(usage.promptTokens() * promptPrice);
+    }
+    if (usage.completionTokens() != null && completionPrice != null) {
+      micros += Math.round(usage.completionTokens() * completionPrice);
+    }
+    return micros;
   }
 
   /** 按 provider 名缓存已建的 ChatModel；同名下 key/url 变化即原地重建替换（provider CRUD 改了配置立即生效，旧实例可回收）。 */

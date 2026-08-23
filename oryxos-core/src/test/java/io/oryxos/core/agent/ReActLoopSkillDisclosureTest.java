@@ -111,7 +111,8 @@ class ReActLoopSkillDisclosureTest {
     assertTrue(
         requests.get(1).messages().stream()
             .anyMatch(message -> message.content().contains("只在读取后出现的正文")));
-    verify(auditor).record(eq("s-1"), eq("read_file"), any(), any(), eq(true), eq(null), anyLong());
+    verify(auditor)
+        .record(eq("s-1"), any(), eq("read_file"), any(), any(), eq(true), eq(null), anyLong());
   }
 
   private static Profile profile() {

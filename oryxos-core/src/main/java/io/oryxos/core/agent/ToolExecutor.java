@@ -59,17 +59,17 @@ public class ToolExecutor {
     long startedAt = System.currentTimeMillis();
     OryxTool tool = tools.get(call.name());
     if (tool == null) {
-      return fail(sessionId, call, "未注册的工具: " + call.name(), startedAt);
+      return fail(sessionId, agentName, call, "未注册的工具: " + call.name(), startedAt);
     }
     String deniedReason = checkMcpAuthorization(agentName, call.name());
     if (deniedReason != null) {
-      return fail(sessionId, call, deniedReason, startedAt);
+      return fail(sessionId, agentName, call, deniedReason, startedAt);
     }
     JsonNode input;
     try {
       input = MAPPER.readTree(call.argumentsJson() == null ? "{}" : call.argumentsJson());
     } catch (Exception e) {
-      return fail(sessionId, call, "工具入参不是合法 JSON: " + e.getMessage(), startedAt);
+      return fail(sessionId, agentName, call, "工具入参不是合法 JSON: " + e.getMessage(), startedAt);
     }
     // 沙箱检查位：24 节 SandboxChecker 就位后在此接线（执行前白名单校验，宪法 VI）
     // 置入当前 Agent 名（30 节 Agent 专属记忆）：save_memory 等工具据此落到本 Agent 自己的 MEMORY.md；执行后必清除。
@@ -79,13 +79,14 @@ public class ToolExecutor {
       try {
         result = tool.execute(input);
       } catch (RuntimeException e) {
-        return fail(sessionId, call, e.getMessage(), startedAt);
+        return fail(sessionId, agentName, call, e.getMessage(), startedAt);
       }
       // 审计 fail-open：工具已执行完、副作用已发生，审计存储抖动不应让循环把这次执行当失败处理（否则模型可能
       // 重调一次有副作用的工具）；不重试审计也不伪造第二条失败审计，失败走 ERROR 日志独立告警。
       try {
         auditor.record(
             sessionId,
+            agentName,
             call.name(),
             call.argumentsJson(),
             result.success() ? result.content() : null,
@@ -126,11 +127,16 @@ public class ToolExecutor {
       value = "CRLF_INJECTION_LOGS",
       justification = "日志中的工具名已经 sanitize() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
   private ToolResult fail(
-      String sessionId, ToolCallRequest call, String errorMessage, long startedAt) {
+      String sessionId,
+      String agentName,
+      ToolCallRequest call,
+      String errorMessage,
+      long startedAt) {
     // 同成功路径：审计失败不掩盖工具的真实失败原因（否则循环看到的是审计异常而非工具错误）。
     try {
       auditor.record(
           sessionId,
+          agentName,
           call.name(),
           call.argumentsJson(),
           null,

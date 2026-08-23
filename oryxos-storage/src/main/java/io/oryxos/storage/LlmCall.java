@@ -36,6 +36,12 @@ public class LlmCall {
   @Column(name = "total_tokens")
   private Integer totalTokens;
 
+  @Column(name = "cost_micros")
+  private Long costMicros;
+
+  @Column(name = "profile_name")
+  private String profileName;
+
   @Column(nullable = false)
   private boolean success;
 
@@ -105,6 +111,22 @@ public class LlmCall {
 
   public void setTotalTokens(Integer totalTokens) {
     this.totalTokens = totalTokens;
+  }
+
+  public Long getCostMicros() {
+    return costMicros;
+  }
+
+  public void setCostMicros(Long costMicros) {
+    this.costMicros = costMicros;
+  }
+
+  public String getProfileName() {
+    return profileName;
+  }
+
+  public void setProfileName(String profileName) {
+    this.profileName = profileName;
   }
 
   public boolean isSuccess() {

@@ -52,6 +52,7 @@ const TOP_NAV = [
   // Skill 列表（第 32 节）：全局 Skill 库，自定义加载器（loadSkills）不走通用 path。知识库仍为占位页
   { key: 'skills', label: 'Skill 列表' },
   { key: 'knowledge', label: '知识库' },
+  { key: 'report', label: '报表' },
 ]
 
 const RUNTIME_NAV = [
@@ -200,6 +201,7 @@ function select(key) {
   if (key === 'skills') { cancelSkill(); closeSkillDetail(); loadSkills() }
   if (key === 'knowledge') { cancelKb(); closeKbDetail(); loadKnowledge() }
   if (key === 'overview') { loadOverviewStats() }
+  if (key === 'report') { loadReport() }
 }
 
 // 刷新当前页的列表：各页复用各自的加载函数（agents / notify-channels / 概览 / 其余按 path 的通用列表）
@@ -213,6 +215,7 @@ function refresh() {
   if (key === 'skills') { loadSkills(); return }
   if (key === 'knowledge') { kbDetail.value ? refreshKbDetail(kbDetail.value.name) : loadKnowledge(); return }
   if (key === 'overview') { loadOverviewStats(); return }
+  if (key === 'report') { loadReport(); return }
   if (NAV.find((n) => n.key === key)?.path) load(key)
 }
 
@@ -313,7 +316,91 @@ async function loadKbMetrics(range) {
     kbMetrics.data = body.data
   } catch (e) { kbMetrics.error = e.message } finally { kbMetrics.loading = false }
 }
-function fmtRate(rate) { return rate == null ? '—' : (rate * 100).toFixed(1) + '%' }
+function fmtRate(rate) { return rate == null ? '—' : (rate * 100).toFixed(2) + '%' }
+
+// —— 报表（016 审计看板）：只读审计聚合，KPI + 分布 + 明细下钻；时间窗三档 ——
+const report = reactive({ range: '7d', loading: false, error: null, llm: null, tool: null, byModel: [], byTool: [], byAgent: [], llmList: [], toolList: [] })
+function reportFrom(range) {
+  const now = Date.now()
+  if (range === '7d') return new Date(now - 7 * 86400e3).toISOString()
+  if (range === '30d') return new Date(now - 30 * 86400e3).toISOString()
+  return new Date(0).toISOString()
+}
+async function loadReport(range) {
+  report.range = range || report.range
+  report.loading = true; report.error = null
+  const q = `from=${encodeURIComponent(reportFrom(report.range))}&to=${encodeURIComponent(new Date().toISOString())}`
+  try {
+    const [llm, tool, byModel, byTool, byAgent, llmList, toolList] = await Promise.all([
+      fetch(`/api/v1/audit/llm/summary?${q}`).then((r) => r.json()),
+      fetch(`/api/v1/audit/tool/summary?${q}`).then((r) => r.json()),
+      fetch(`/api/v1/audit/llm/by-model?${q}`).then((r) => r.json()),
+      fetch(`/api/v1/audit/tool/by-name?${q}`).then((r) => r.json()),
+      fetch(`/api/v1/audit/by-agent?${q}`).then((r) => r.json()),
+      fetch(`/api/v1/audit/llm?${q}&limit=100`).then((r) => r.json()),
+      fetch(`/api/v1/audit/tool?${q}&limit=100`).then((r) => r.json()),
+    ])
+    for (const b of [llm, tool, byModel, byTool, byAgent, llmList, toolList]) {
+      if (b.code !== 0) throw new Error(b.message || '加载失败')
+    }
+    report.llm = llm.data
+    report.tool = tool.data
+    report.byModel = byModel.data || []
+    report.byTool = byTool.data || []
+    report.byAgent = byAgent.data || []
+    report.llmList = llmList.data || []
+    report.toolList = toolList.data || []
+  } catch (e) { report.error = e.message } finally { report.loading = false }
+}
+function fmtCost(micros) { return micros == null ? '—' : '¥' + (micros / 1e6).toFixed(4) }
+function barWidth(list, count) { return ((count / Math.max(1, ...list.map((x) => x.count))) * 100) + '%' }
+// 下钻过滤：点击分布项 → 过滤明细表（模型/工具/Agent 三维度）；点同一项再点一次 = 清除
+const reportFilter = ref(null) // { type: 'model' | 'tool' | 'agent', key }
+function setReportFilter(type, key) {
+  const next = reportFilter.value?.type === type && reportFilter.value?.key === key ? null : { type, key }
+  reportFilter.value = next
+  llmPage.page = 1
+  toolPage.page = 1
+  if (!next) return
+  // 点击分布项 → 自动展开对应明细表
+  if (type === 'model') reportExpand.llm = true
+  if (type === 'tool') reportExpand.tool = true
+  if (type === 'agent') { reportExpand.llm = true; reportExpand.tool = true }
+}
+function clearReportFilter() {
+  reportFilter.value = null
+  llmPage.page = 1
+  toolPage.page = 1
+}
+// 明细表折叠：默认折叠，点击标题展开
+const reportExpand = reactive({ llm: false, tool: false })
+const filteredLlmList = computed(() => {
+  if (!reportFilter.value) return report.llmList
+  const { type, key } = reportFilter.value
+  if (type === 'model') return report.llmList.filter((c) => c.model === key)
+  if (type === 'agent') return report.llmList.filter((c) => (c.profileName || '(未归属)') === key)
+  return report.llmList
+})
+const filteredToolList = computed(() => {
+  if (!reportFilter.value) return report.toolList
+  const { type, key } = reportFilter.value
+  if (type === 'tool') return report.toolList.filter((t) => t.toolName === key)
+  if (type === 'agent') return report.toolList.filter((t) => (t.profileName || '(未归属)') === key)
+  return report.toolList
+})
+// 明细分页：每页默认 10 条，可改每页大小
+const llmPage = reactive({ page: 1, size: 10 })
+const toolPage = reactive({ page: 1, size: 10 })
+const totalLlmPages = computed(() => Math.max(1, Math.ceil(filteredLlmList.value.length / llmPage.size)))
+const totalToolPages = computed(() => Math.max(1, Math.ceil(filteredToolList.value.length / toolPage.size)))
+const pagedLlmList = computed(() => {
+  const start = (llmPage.page - 1) * llmPage.size
+  return filteredLlmList.value.slice(start, start + llmPage.size)
+})
+const pagedToolList = computed(() => {
+  const start = (toolPage.page - 1) * toolPage.size
+  return filteredToolList.value.slice(start, start + toolPage.size)
+})
 
 async function deleteKbDoc(relPath) {
   if (!kbDetail.value) return
@@ -747,6 +834,7 @@ async function loadProviders() {
   } catch (e) {
     providers.value = { loading: false, error: e.message, data: [] }
   }
+  loadPricing()
 }
 
 async function testProvider(name) {
@@ -821,6 +909,59 @@ async function deleteProvider(name) {
     if (body.code !== 0) throw new Error(body.message || '删除失败')
     await loadProviders()
   } catch (e) { providers.value = { ...providers.value, error: e.message } }
+}
+
+// —— 模型定价（016 审计看板）：(provider, model) → 输入/输出 token 单价（元/百万 token）——
+const pricing = ref({ loading: false, error: null, data: [] })
+const pricingForm = reactive({ open: false, editing: null, provider: '', model: '', promptPrice: '', completionPrice: '', busy: false, error: null })
+async function loadPricing() {
+  pricing.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch('/api/v1/pricing')
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    pricing.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) { pricing.value = { loading: false, error: e.message, data: [] } }
+}
+function openPricingForm(row) {
+  pricingForm.editing = row?.id ?? null
+  pricingForm.provider = row?.provider ?? ''
+  pricingForm.model = row?.model ?? ''
+  pricingForm.promptPrice = row?.promptPrice ?? ''
+  pricingForm.completionPrice = row?.completionPrice ?? ''
+  pricingForm.error = null
+  pricingForm.open = true
+}
+function cancelPricing() {
+  pricingForm.open = false; pricingForm.editing = null; pricingForm.provider = ''; pricingForm.model = ''; pricingForm.promptPrice = ''; pricingForm.completionPrice = ''; pricingForm.error = null
+}
+function parsePrice(v) { return v === '' || v == null ? null : Number(v) }
+async function savePricing() {
+  pricingForm.busy = true; pricingForm.error = null
+  try {
+    const prices = { promptPrice: parsePrice(pricingForm.promptPrice), completionPrice: parsePrice(pricingForm.completionPrice) }
+    const payload = pricingForm.editing
+      ? prices
+      : { provider: pricingForm.provider.trim(), model: pricingForm.model.trim(), ...prices }
+    const url = pricingForm.editing ? `/api/v1/pricing/${pricingForm.editing}` : '/api/v1/pricing'
+    const res = await fetch(url, {
+      method: pricingForm.editing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存失败')
+    cancelPricing(); await loadPricing()
+  } catch (e) { pricingForm.error = e.message } finally { pricingForm.busy = false }
+}
+async function deletePricing(id) {
+  if (!confirm('删除这条模型定价？')) return
+  try {
+    const res = await fetch(`/api/v1/pricing/${id}`, { method: 'DELETE' })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '删除失败')
+    await loadPricing()
+  } catch (e) { pricing.value = { ...pricing.value, error: e.message } }
 }
 
 // —— MCP 管理（CRUD /api/v1/mcp-servers + 内置目录一键启用）：31 节 ——
@@ -1293,7 +1434,7 @@ function fmtDuration(ms) {
   if (ms == null) return '—'
   if (ms < 1000) return ms + ' ms'
   const s = ms / 1000
-  return s < 60 ? s.toFixed(1) + ' s' : Math.floor(s / 60) + ' 分 ' + Math.round(s % 60) + ' 秒'
+  return s < 60 ? s.toFixed(2) + ' s' : Math.floor(s / 60) + ' 分 ' + Math.round(s % 60) + ' 秒'
 }
 function execStatusLabel(s) {
   return { RUNNING: '运行中', SUCCESS: '成功', FAILED: '失败' }[s] || s
@@ -1546,6 +1687,131 @@ const outputRows = computed(() =>
           <div class="page-head">
             <h2>{{ current.label }}</h2>
             <button class="btn" @click="refresh()">刷新</button>
+          </div>
+
+          <!-- 报表（016 审计看板）：KPI 汇总 + 分布条形图 + 明细下钻；时间窗三档 -->
+          <div v-if="active === 'report'">
+            <div class="md-toggle" style="margin-bottom:14px">
+              <button v-for="r in ['7d','30d','all']" :key="r" :class="['md-seg', { on: report.range === r }]" @click="loadReport(r)">{{ r === '7d' ? '近 7 天' : r === '30d' ? '近 30 天' : '全部' }}</button>
+            </div>
+            <p v-if="report.loading" class="empty">加载中…</p>
+            <p v-else-if="report.error" class="error">出错：{{ report.error }}</p>
+            <template v-else>
+              <div class="cards">
+                <div class="card"><div class="card-val">{{ report.llm?.count ?? '—' }}</div><div class="card-label">LLM 调用</div><div class="card-hint">总次数</div></div>
+                <div class="card"><div class="card-val">{{ fmtCost(report.llm?.totalCostMicros) }}</div><div class="card-label">总成本</div><div class="card-hint">已计量调用</div></div>
+                <div class="card"><div class="card-val">{{ fmtRate(report.llm?.successRate) }}</div><div class="card-label">LLM 成功率</div><div class="card-hint">成功 / 总数</div></div>
+                <div class="card"><div class="card-val">{{ report.llm ? fmtDuration(report.llm.avgDurationMs) : '—' }}</div><div class="card-label">LLM 平均耗时</div><div class="card-hint">单次调用</div></div>
+                <div class="card"><div class="card-val">{{ report.tool?.count ?? '—' }}</div><div class="card-label">工具调用</div><div class="card-hint">总次数</div></div>
+                <div class="card"><div class="card-val">{{ fmtRate(report.tool?.successRate) }}</div><div class="card-label">工具成功率</div><div class="card-hint">成功 / 总数</div></div>
+              </div>
+
+              <h3 class="sec">模型分布</h3>
+              <div v-if="report.byModel.length" class="bars">
+                <div v-for="m in report.byModel" :key="m.key"
+                     :class="['bar-row', 'clickable', { on: reportFilter?.type === 'model' && reportFilter?.key === m.key }]"
+                     @click="setReportFilter('model', m.key)">
+                  <div class="bar-label mono">{{ m.key }}</div>
+                  <div class="bar-track"><div class="bar-fill" :style="{ width: barWidth(report.byModel, m.count) }"></div></div>
+                  <div class="bar-val mono">{{ m.count }} · {{ fmtCost(m.totalCostMicros) }}</div>
+                </div>
+              </div>
+              <p v-else class="empty">（暂无数据）</p>
+
+              <h3 class="sec">工具分布</h3>
+              <div v-if="report.byTool.length" class="bars">
+                <div v-for="m in report.byTool" :key="m.key"
+                     :class="['bar-row', 'clickable', { on: reportFilter?.type === 'tool' && reportFilter?.key === m.key }]"
+                     @click="setReportFilter('tool', m.key)">
+                  <div class="bar-label mono">{{ m.key }}</div>
+                  <div class="bar-track"><div class="bar-fill" :style="{ width: barWidth(report.byTool, m.count) }"></div></div>
+                  <div class="bar-val mono">{{ m.count }}</div>
+                </div>
+              </div>
+              <p v-else class="empty">（暂无数据）</p>
+
+              <h3 class="sec">Agent 分布</h3>
+              <div v-if="report.byAgent.length" class="bars">
+                <div v-for="m in report.byAgent" :key="m.key"
+                     :class="['bar-row', 'clickable', { on: reportFilter?.type === 'agent' && reportFilter?.key === m.key }]"
+                     @click="setReportFilter('agent', m.key)">
+                  <div class="bar-label mono">{{ m.key }}</div>
+                  <div class="bar-track"><div class="bar-fill" :style="{ width: barWidth(report.byAgent, m.count) }"></div></div>
+                  <div class="bar-val mono">{{ m.count }} · {{ fmtCost(m.totalCostMicros) }}</div>
+                </div>
+              </div>
+              <p v-else class="empty">（暂无数据）</p>
+
+              <div v-if="reportFilter" class="filter-bar">
+                <span>已过滤：<b>{{ reportFilter.key }}</b>（{{ reportFilter.type === 'model' ? '模型' : reportFilter.type === 'tool' ? '工具' : 'Agent' }}）</span>
+                <button class="btn" @click="clearReportFilter">✕ 清除过滤</button>
+              </div>
+
+              <h3 class="sec clickable" @click="reportExpand.llm = !reportExpand.llm">
+                LLM 调用明细 <span class="mono">{{ reportExpand.llm ? '▾' : '▸' }}</span>
+              </h3>
+              <template v-if="reportExpand.llm">
+                <table>
+                  <thead><tr><th>时间</th><th>Agent</th><th>Provider</th><th>模型</th><th>输入</th><th>输出</th><th>总</th><th>成本</th><th>耗时</th><th>结果</th></tr></thead>
+                  <tbody>
+                    <tr v-if="!pagedLlmList.length"><td colspan="10" class="empty">（暂无数据）</td></tr>
+                    <tr v-for="c in pagedLlmList" :key="c.id">
+                      <td class="mono">{{ fmtTime(c.createdAt) }}</td>
+                      <td>{{ c.profileName || '—' }}</td>
+                      <td>{{ c.provider }}</td>
+                      <td class="mono">{{ c.model }}</td>
+                      <td class="mono">{{ c.promptTokens ?? '—' }}</td>
+                      <td class="mono">{{ c.completionTokens ?? '—' }}</td>
+                      <td class="mono">{{ c.totalTokens ?? '—' }}</td>
+                      <td class="mono">{{ fmtCost(c.costMicros) }}</td>
+                      <td class="mono">{{ fmtDuration(c.durationMs) }}</td>
+                      <td><span :class="['tag', c.success ? 'ok' : 'off']">{{ c.success ? '成功' : '失败' }}</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="pager">
+                  <span class="mono">共 {{ filteredLlmList.length }} 条</span>
+                  <select v-model.number="llmPage.size">
+                    <option :value="10">10 条/页</option>
+                    <option :value="20">20 条/页</option>
+                    <option :value="50">50 条/页</option>
+                  </select>
+                  <button class="btn" :disabled="llmPage.page <= 1" @click="llmPage.page--">上一页</button>
+                  <span class="mono">{{ llmPage.page }} / {{ totalLlmPages }}</span>
+                  <button class="btn" :disabled="llmPage.page >= totalLlmPages" @click="llmPage.page++">下一页</button>
+                </div>
+              </template>
+
+              <h3 class="sec clickable" @click="reportExpand.tool = !reportExpand.tool">
+                工具调用明细 <span class="mono">{{ reportExpand.tool ? '▾' : '▸' }}</span>
+              </h3>
+              <template v-if="reportExpand.tool">
+                <table>
+                  <thead><tr><th>时间</th><th>Agent</th><th>工具</th><th>耗时</th><th>结果</th></tr></thead>
+                  <tbody>
+                    <tr v-if="!pagedToolList.length"><td colspan="5" class="empty">（暂无数据）</td></tr>
+                    <tr v-for="t in pagedToolList" :key="t.id">
+                      <td class="mono">{{ fmtTime(t.createdAt) }}</td>
+                      <td>{{ t.profileName || '—' }}</td>
+                      <td class="mono">{{ t.toolName }}</td>
+                      <td class="mono">{{ fmtDuration(t.durationMs) }}</td>
+                      <td><span :class="['tag', t.success ? 'ok' : 'off']">{{ t.success ? '成功' : '失败' }}</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="pager">
+                  <span class="mono">共 {{ filteredToolList.length }} 条</span>
+                  <select v-model.number="toolPage.size">
+                    <option :value="10">10 条/页</option>
+                    <option :value="20">20 条/页</option>
+                    <option :value="50">50 条/页</option>
+                  </select>
+                  <button class="btn" :disabled="toolPage.page <= 1" @click="toolPage.page--">上一页</button>
+                  <span class="mono">{{ toolPage.page }} / {{ totalToolPages }}</span>
+                  <button class="btn" :disabled="toolPage.page >= totalToolPages" @click="toolPage.page++">下一页</button>
+                </div>
+              </template>
+            </template>
           </div>
 
           <!-- Skill：纯 CRUD 列表（存在即已安装）；绑定一致性仅在变更后回检发现问题时展示 -->
@@ -2318,6 +2584,46 @@ const outputRows = computed(() =>
                 </tr>
               </tbody>
             </table>
+
+            <h3 class="sec">模型定价</h3>
+            <div class="toolbar">
+              <button class="btn btn-primary" @click="openPricingForm()">+ 新增定价</button>
+            </div>
+            <div v-if="pricingForm.open" class="modal-overlay" @click.self="cancelPricing()">
+              <div class="modal-card">
+                <div class="modal-head"><h3>{{ pricingForm.editing ? '编辑模型定价' : '新增模型定价' }}</h3><button class="modal-x" @click="cancelPricing()">✕</button></div>
+                <div class="modal-body">
+                  <input v-model="pricingForm.provider" class="gen-input" :disabled="!!pricingForm.editing" placeholder="provider 名，如 deepseek" />
+                  <input v-model="pricingForm.model" class="gen-input" :disabled="!!pricingForm.editing" placeholder="模型名，如 deepseek-chat" />
+                  <input v-model="pricingForm.promptPrice" class="gen-input" placeholder="输入单价（元/百万 token），如 1.0" />
+                  <input v-model="pricingForm.completionPrice" class="gen-input" placeholder="输出单价（元/百万 token），如 2.0" />
+                  <p class="empty">单价单位「元/百万 token」，留空=未定价（成本记「未计量」）。</p>
+                  <p v-if="pricingForm.error" class="error">{{ pricingForm.error }}</p>
+                </div>
+                <div class="modal-foot">
+                  <button class="btn" @click="cancelPricing">取消</button>
+                  <button class="btn btn-primary" :disabled="pricingForm.busy || !pricingForm.provider || !pricingForm.model" @click="savePricing">保存</button>
+                </div>
+              </div>
+            </div>
+            <p v-if="pricing.loading" class="empty">加载中…</p>
+            <p v-else-if="pricing.error" class="error">出错：{{ pricing.error }}</p>
+            <table v-else>
+              <thead><tr><th>provider</th><th>model</th><th>输入单价</th><th>输出单价</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-if="!pricing.data.length"><td colspan="5" class="empty">（暂无定价 · 点上面「新增定价」）</td></tr>
+                <tr v-for="row in pricing.data" :key="row.id">
+                  <td class="mono">{{ row.provider }}</td>
+                  <td class="mono">{{ row.model }}</td>
+                  <td class="mono">{{ row.promptPrice ?? '—' }}</td>
+                  <td class="mono">{{ row.completionPrice ?? '—' }}</td>
+                  <td class="ops">
+                    <button class="btn" @click="openPricingForm(row)">编辑</button>
+                    <button class="btn" @click="deletePricing(row.id)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <!-- MCP 管理（31 节）：内置目录一键启用 + 手动增删改，落盘即生效，不用重启 -->
@@ -2595,6 +2901,19 @@ th { color: var(--text-2); font-weight: 500; }
 .hero-sub { color: var(--text-2); margin: 12px 0 0; max-width: 640px; line-height: 1.6; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 28px; }
 .card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+.bars { margin-bottom: 24px; }
+.bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.bar-label { width: 160px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.bar-track { flex: 1; height: 14px; background: var(--bg-mute); border-radius: 7px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--brand); border-radius: 7px; }
+.bar-val { width: 140px; flex-shrink: 0; font-size: 12px; color: var(--text-2); }
+.bar-row.clickable { cursor: pointer; }
+.bar-row.clickable:hover { opacity: 0.85; }
+.bar-row.on .bar-label { color: var(--brand); font-weight: 600; }
+.filter-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; padding: 8px 12px; background: var(--brand-soft); border-radius: 6px; }
+.pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.pager select { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 6px; color: var(--text-1); padding: 4px 8px; }
+.pager .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .card-val { font-size: 30px; font-weight: 700; color: var(--brand); font-family: var(--font-mono); line-height: 1; }
 .card-label { margin-top: 8px; font-weight: 500; }
 .card-hint { margin-top: 4px; font-size: 12px; color: var(--text-3); }

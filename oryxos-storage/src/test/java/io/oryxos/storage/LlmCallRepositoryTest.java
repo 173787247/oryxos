@@ -84,7 +84,9 @@ class LlmCallRepositoryTest {
     IllegalStateException error =
         assertThrows(
             IllegalStateException.class,
-            () -> auditor.record("s-3", "deepseek", "m", null, true, null, List.of().size()));
+            () ->
+                auditor.record(
+                    "s-3", "agent", "deepseek", "m", null, null, true, null, List.of().size()));
     assertTrue(error.getMessage().contains("llm_calls"));
     assertEquals("db locked", error.getCause().getMessage());
   }
