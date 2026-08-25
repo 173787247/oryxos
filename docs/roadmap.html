@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OryxOS 演进路线图</title>
+<style>
+  :root {
+    --bg: #0e0d0b;
+    --surface: #171512;
+    --surface-2: #1f1c17;
+    --line: #2c2820;
+    --text: #e9e5de;
+    --muted: #96917f;
+    --accent: #f97316;
+    --accent-soft: rgba(249, 115, 22, 0.14);
+    --done: #4ade80;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #faf8f4;
+      --surface: #ffffff;
+      --surface-2: #f3f0e9;
+      --line: #e2ddd2;
+      --text: #29251d;
+      --muted: #7d7666;
+      --accent: #ea580c;
+      --accent-soft: rgba(234, 88, 12, 0.1);
+      --done: #16a34a;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #faf8f4;
+    --surface: #ffffff;
+    --surface-2: #f3f0e9;
+    --line: #e2ddd2;
+    --text: #29251d;
+    --muted: #7d7666;
+    --accent: #ea580c;
+    --accent-soft: rgba(234, 88, 12, 0.1);
+    --done: #16a34a;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.75;
+    margin: 0;
+    padding: 0 20px;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 56px 0 96px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 12px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 42px);
+    line-height: 1.2;
+    margin: 0 0 10px;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  .lede { color: var(--muted); max-width: 40em; margin: 0 0 8px; }
+  .meta {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-bottom: 48px;
+  }
+  .meta b { color: var(--text); font-weight: 600; }
+
+  h2 {
+    font-size: 21px;
+    margin: 64px 0 6px;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  h2 + .sub { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; }
+
+  /* 演进原则 */
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+  .principle {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .principle h3 { font-size: 15.5px; margin: 0 0 6px; }
+  .principle p { font-size: 13.5px; color: var(--muted); margin: 0; }
+  .principle .k {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  /* 时间轴 */
+  .phase {
+    position: relative;
+    padding: 0 0 40px 34px;
+    border-left: 2px solid var(--line);
+    margin-left: 8px;
+  }
+  .phase:last-of-type { border-left-color: transparent; padding-bottom: 0; }
+  .phase::before {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 6px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid var(--accent);
+  }
+  .phase.shipped::before { border-color: var(--done); }
+  .phase-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .ver {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--accent);
+  }
+  .phase.shipped .ver { color: var(--done); }
+  .phase-head h3 { font-size: 18px; margin: 0; }
+  .when { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .phase > p.why { color: var(--muted); font-size: 14px; margin: 4px 0 14px; max-width: 44em; }
+
+  .items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .items li {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .items .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 4px;
+    padding: 1px 7px;
+    white-space: nowrap;
+  }
+  .items li span.d { color: var(--muted); }
+
+  .demo {
+    margin-top: 14px;
+    background: var(--surface-2);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 10px 16px;
+    font-size: 13.5px;
+  }
+  .demo b { color: var(--accent); font-weight: 600; }
+  .phase.shipped .demo b { color: var(--done); }
+  .gate {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .gate b { color: var(--text); }
+
+  /* mermaid 画板：固定浅色，两个主题下都可读 */
+  .diagram {
+    background: #f7f5f0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 12px;
+    overflow-x: auto;
+    margin: 22px 0;
+  }
+  .diagram pre.mermaid { margin: 0; display: flex; justify-content: center; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 18px 0; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12.5px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; }
+  td b { font-family: var(--mono); font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 18px;
+  }
+  .note b { color: var(--text); }
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--surface-2);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+</style>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  .svg-holder { display: flex; justify-content: center; min-width: 640px; }
+  .svg-holder svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">OryxOS · Roadmap</p>
+  <h1>OryxOS 演进路线图</h1>
+  <p class="lede">从「单机可信的 Agent Harness」演进为「企业级分布式 Agent OS」，五个版本主题依次递进，每一步都以可演示的 Demo 验收。</p>
+  <div class="meta">
+    <span>当前版本 <b>v0.1.2</b></span>
+    <span>目标 <b>Apache 孵化</b></span>
+    <span>制定于 <b>2026-08</b></span>
+  </div>
+
+  <h2>演进方式：六条原则</h2>
+  <p class="sub">决定「怎么走」比「走到哪」更重要，所有排期冲突回到这六条裁决。</p>
+  <div class="principles">
+    <div class="principle"><span class="k">01 · 版本主题制</span>
+      <h3>一个版本只讲一个故事</h3>
+      <p>延续 spec-driven 节奏（specs/NNN），每个 minor 版本一个主题、一组 spec、一个验收 Demo。不做没有主题归属的散功能。</p>
+    </div>
+    <div class="principle"><span class="k">02 · 状态外置先行</span>
+      <h3>单机做深，分布式自然展开</h3>
+      <p>不引入 etcd/Nacos。先把 Session、记忆、调度、审计全部外置到可插拔存储，实例无状态化后，分布式只是「多跑几个副本」。</p>
+    </div>
+    <div class="principle"><span class="k">03 · 治理领先半步</span>
+      <h3>每次能力扩张前，先补齐管它的手段</h3>
+      <p>审计 → 可视 → 可查 → 可审批，治理面始终比功能面领先。这是对 96% 已上生产、只有 12% 管得住的市场缺口的直接回答。</p>
+    </div>
+    <div class="principle"><span class="k">04 · 开放标准优先</span>
+      <h3>不自造协议</h3>
+      <p>工具走 MCP，跨 Agent 走 A2A，Skill 兼容 agentskills.io 目录形态。与 OpenClaw / Hermes 生态互通而非对抗。</p>
+    </div>
+    <div class="principle"><span class="k">05 · 接口即承诺</span>
+      <h3>AGENT.md 与 /api/v1 保持稳定</h3>
+      <p>目录格式和 REST 契约是用户资产。破坏性变更必须走版本门禁 + 迁移脚本，SQLite → PostgreSQL 迁移由 Flyway 承载。</p>
+    </div>
+    <div class="principle"><span class="k">06 · 单一事实源</span>
+      <h3>文档先对齐，再对外</h3>
+      <p>以 VisionAndRoadmap.md 为准，修正「做不做编排」「etcd vs DB」两处文档冲突，归档过期的里程碑章节。</p>
+    </div>
+  </div>
+
+  <h2>主线：五个版本，四次能力跃迁</h2>
+  <p class="sub">排序逻辑：先补打单短板 → 再坐实治理差异化 → 分布式垫底座 → 多 Agent 协作 → 生态飞轮。</p>
+
+  <div class="diagram">
+    <div class="svg-holder"><svg id="mermaid-1786974790717" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 1406.640625px;" viewBox="0 0 1406.640625 88" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mermaid-1786974790717{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:14px;fill:#3d2c1e;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mermaid-1786974790717 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mermaid-1786974790717 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mermaid-1786974790717 .error-icon{fill:hsl(213.3333333333, 100%, 100%);}#mermaid-1786974790717 .error-text{fill:#000000;stroke:#000000;}#mermaid-1786974790717 .edge-thickness-normal{stroke-width:1px;}#mermaid-1786974790717 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1786974790717 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1786974790717 .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-1786974790717 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1786974790717 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1786974790717 .marker{fill:#b8ae9c;stroke:#b8ae9c;}#mermaid-1786974790717 .marker.cross{stroke:#b8ae9c;}#mermaid-1786974790717 svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:14px;}#mermaid-1786974790717 p{margin:0;}#mermaid-1786974790717 .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#3d2c1e;}#mermaid-1786974790717 .cluster-label text{fill:#000000;}#mermaid-1786974790717 .cluster-label span{color:#000000;}#mermaid-1786974790717 .cluster-label span p{background-color:transparent;}#mermaid-1786974790717 .label text,#mermaid-1786974790717 span{fill:#3d2c1e;color:#3d2c1e;}#mermaid-1786974790717 .node rect,#mermaid-1786974790717 .node circle,#mermaid-1786974790717 .node ellipse,#mermaid-1786974790717 .node polygon,#mermaid-1786974790717 .node path{fill:#fff7ed;stroke:#f97316;stroke-width:1px;}#mermaid-1786974790717 .rough-node .label text,#mermaid-1786974790717 .node .label text,#mermaid-1786974790717 .image-shape .label,#mermaid-1786974790717 .icon-shape .label{text-anchor:middle;}#mermaid-1786974790717 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1786974790717 .rough-node .label,#mermaid-1786974790717 .node .label,#mermaid-1786974790717 .image-shape .label,#mermaid-1786974790717 .icon-shape .label{text-align:center;}#mermaid-1786974790717 .node.clickable{cursor:pointer;}#mermaid-1786974790717 .root .anchor path{fill:#b8ae9c!important;stroke-width:0;stroke:#b8ae9c;}#mermaid-1786974790717 .arrowheadPath{fill:#0b0b0b;}#mermaid-1786974790717 .edgePath .path{stroke:#b8ae9c;stroke-width:1px;}#mermaid-1786974790717 .flowchart-link{stroke:#b8ae9c;fill:none;}#mermaid-1786974790717 .edgeLabel{background-color:hsl(-86.6666666667, 100%, 96.4705882353%);text-align:center;}#mermaid-1786974790717 .edgeLabel p{background-color:hsl(-86.6666666667, 100%, 96.4705882353%);}#mermaid-1786974790717 .edgeLabel rect{opacity:0.5;background-color:hsl(-86.6666666667, 100%, 96.4705882353%);fill:hsl(-86.6666666667, 100%, 96.4705882353%);}#mermaid-1786974790717 .labelBkg{background-color:rgba(247, 237, 255, 0.5);}#mermaid-1786974790717 .cluster rect{fill:hsl(213.3333333333, 100%, 100%);stroke:hsl(213.3333333333, 60%, 90%);stroke-width:1px;}#mermaid-1786974790717 .cluster text{fill:#000000;}#mermaid-1786974790717 .cluster span{color:#000000;}#mermaid-1786974790717 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(213.3333333333, 100%, 100%);border:1px solid hsl(213.3333333333, 60%, 90%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1786974790717 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#3d2c1e;}#mermaid-1786974790717 rect.text{fill:none;stroke-width:0;}#mermaid-1786974790717 .icon-shape,#mermaid-1786974790717 .image-shape{background-color:hsl(-86.6666666667, 100%, 96.4705882353%);text-align:center;}#mermaid-1786974790717 .icon-shape p,#mermaid-1786974790717 .image-shape p{background-color:hsl(-86.6666666667, 100%, 96.4705882353%);padding:2px;}#mermaid-1786974790717 .icon-shape .label rect,#mermaid-1786974790717 .image-shape .label rect{opacity:0.5;background-color:hsl(-86.6666666667, 100%, 96.4705882353%);fill:hsl(-86.6666666667, 100%, 96.4705882353%);}#mermaid-1786974790717 .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mermaid-1786974790717 .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mermaid-1786974790717 .node .neo-node{stroke:#f97316;}#mermaid-1786974790717 [data-look="neo"].node rect,#mermaid-1786974790717 [data-look="neo"].cluster rect,#mermaid-1786974790717 [data-look="neo"].node polygon{stroke:url(#mermaid-1786974790717-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974790717 [data-look="neo"].swimlane.cluster rect{filter:none;}#mermaid-1786974790717 [data-look="neo"].node path{stroke:url(#mermaid-1786974790717-gradient);stroke-width:1px;}#mermaid-1786974790717 [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974790717 [data-look="neo"].node .neo-line path{stroke:#f97316;filter:none;}#mermaid-1786974790717 [data-look="neo"].node circle{stroke:url(#mermaid-1786974790717-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974790717 [data-look="neo"].node circle .state-start{fill:#000000;}#mermaid-1786974790717 [data-look="neo"].icon-shape .icon{fill:url(#mermaid-1786974790717-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974790717 [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mermaid-1786974790717-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974790717 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="mermaid-1786974790717_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1786974790717_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1786974790717_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1786974790717_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></polygon></marker><marker id="mermaid-1786974790717_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1786974790717_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1786974790717_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1786974790717_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1786974790717_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1786974790717_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1786974790717_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"></path></marker><marker id="mermaid-1786974790717_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M245.75,44L249.917,44C254.083,44,262.417,44,270.083,44C277.75,44,284.75,44,288.25,44L291.75,44" id="mermaid-1786974790717-L_A_B_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_B_0" data-points="W3sieCI6MjQ1Ljc1LCJ5Ijo0NH0seyJ4IjoyNzAuNzUsInkiOjQ0fSx7IngiOjI5NS43NSwieSI6NDR9XQ==" data-look="classic" marker-end="url(#mermaid-1786974790717_flowchart-v2-pointEnd)"></path><path d="M508.234,44L512.401,44C516.568,44,524.901,44,532.568,44C540.234,44,547.234,44,550.734,44L554.234,44" id="mermaid-1786974790717-L_B_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_C_0" data-points="W3sieCI6NTA4LjIzNDM3NSwieSI6NDR9LHsieCI6NTMzLjIzNDM3NSwieSI6NDR9LHsieCI6NTU4LjIzNDM3NSwieSI6NDR9XQ==" data-look="classic" marker-end="url(#mermaid-1786974790717_flowchart-v2-pointEnd)"></path><path d="M772.672,44L776.839,44C781.005,44,789.339,44,797.005,44C804.672,44,811.672,44,815.172,44L818.672,44" id="mermaid-1786974790717-L_C_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_D_0" data-points="W3sieCI6NzcyLjY3MTg3NSwieSI6NDR9LHsieCI6Nzk3LjY3MTg3NSwieSI6NDR9LHsieCI6ODIyLjY3MTg3NSwieSI6NDR9XQ==" data-look="classic" marker-end="url(#mermaid-1786974790717_flowchart-v2-pointEnd)"></path><path d="M1015.891,44L1020.057,44C1024.224,44,1032.557,44,1040.224,44C1047.891,44,1054.891,44,1058.391,44L1061.891,44" id="mermaid-1786974790717-L_D_E_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_E_0" data-points="W3sieCI6MTAxNS44OTA2MjUsInkiOjQ0fSx7IngiOjEwNDAuODkwNjI1LCJ5Ijo0NH0seyJ4IjoxMDY1Ljg5MDYyNSwieSI6NDR9XQ==" data-look="classic" marker-end="url(#mermaid-1786974790717_flowchart-v2-pointEnd)"></path><path d="M1288,44L1292.167,44C1296.333,44,1304.667,44,1312.333,44C1320,44,1327,44,1330.5,44L1334,44" id="mermaid-1786974790717-L_E_F_0" class="edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_E_F_0" data-points="W3sieCI6MTI4OCwieSI6NDR9LHsieCI6MTMxMywieSI6NDR9LHsieCI6MTMzOCwieSI6NDR9XQ==" data-look="classic" marker-end="url(#mermaid-1786974790717_flowchart-v2-pointEnd)"></path></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_A_B_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_B_C_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_D_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_D_E_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_E_F_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="mermaid-1786974790717-flowchart-A-0" data-look="classic" transform="translate(126.875, 44)"><rect class="basic label-container" style="" x="-118.875" y="-36" width="237.75" height="72"></rect><g class="label" style="" transform="translate(-88.875, -21)"><rect></rect><foreignObject width="177.75" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>v0.2 补齐公式<br>知识库 · IM 入站 · SSE · 认证</p></span></div></foreignObject></g></g><g class="node default" id="mermaid-1786974790717-flowchart-B-1" data-look="classic" transform="translate(401.9921875, 44)"><rect class="basic label-container" style="" x="-106.2421875" y="-36" width="212.484375" height="72"></rect><g class="label" style="" transform="translate(-76.2421875, -21)"><rect></rect><foreignObject width="152.484375" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>v0.3 治理面<br>HITL · 看板 · 策略 · 路由</p></span></div></foreignObject></g></g><g class="node default" id="mermaid-1786974790717-flowchart-C-3" data-look="classic" transform="translate(665.453125, 44)"><rect class="basic label-container" style="" x="-107.21875" y="-36" width="214.4375" height="72"></rect><g class="label" style="" transform="translate(-77.21875, -21)"><rect></rect><foreignObject width="154.4375" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>v0.4 分布式底座<br>PG/MySQL · 无状态 · K8s</p></span></div></foreignObject></g></g><g class="node default" id="mermaid-1786974790717-flowchart-D-5" data-look="classic" transform="translate(919.28125, 44)"><rect class="basic label-container" style="" x="-96.609375" y="-36" width="193.21875" height="72"></rect><g class="label" style="" transform="translate(-66.609375, -21)"><rect></rect><foreignObject width="133.21875" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>v0.5 多 Agent 协作<br>子 Agent · A2A · Flow</p></span></div></foreignObject></g></g><g class="node default" id="mermaid-1786974790717-flowchart-E-7" data-look="classic" transform="translate(1176.9453125, 44)"><rect class="basic label-container" style="" x="-111.0546875" y="-36" width="222.109375" height="72"></rect><g class="label" style="" transform="translate(-81.0546875, -21)"><rect></rect><foreignObject width="162.109375" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>v1.0 生态与飞轮<br>评测 · 自沉淀 · 市场 · SDK</p></span></div></foreignObject></g></g><g class="node default" id="mermaid-1786974790717-flowchart-F-9" data-look="classic" transform="translate(1368.3203125, 44)"><circle class="basic label-container" style="" r="30.3203125" cx="0" cy="0"></circle><g class="label" style="" transform="translate(-22.8203125, -21)"><rect></rect><foreignObject width="45.640625" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Apache<br>孵化</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="mermaid-1786974790717-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><defs><filter id="mermaid-1786974790717-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><linearGradient id="mermaid-1786974790717-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#f97316" stop-opacity="1"></stop><stop offset="100%" stop-color="hsl(-86.6666666667, 60%, 86.4705882353%)" stop-opacity="1"></stop></linearGradient></svg></div>
+  </div>
+
+  <div class="diagram">
+    <div class="svg-holder"><svg id="mermaid-1786974792034" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1264 220" style="max-width: 1264px;" role="graphics-document document" aria-roledescription="gantt"><style>#mermaid-1786974792034{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:13px;fill:#333;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mermaid-1786974792034 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mermaid-1786974792034 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mermaid-1786974792034 .error-icon{fill:hsl(220.5882352941, 100%, 98.3333333333%);}#mermaid-1786974792034 .error-text{fill:rgb(8.5000000002, 5.7500000001, 0);stroke:rgb(8.5000000002, 5.7500000001, 0);}#mermaid-1786974792034 .edge-thickness-normal{stroke-width:1px;}#mermaid-1786974792034 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1786974792034 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1786974792034 .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-1786974792034 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1786974792034 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1786974792034 .marker{fill:#0b0b0b;stroke:#0b0b0b;}#mermaid-1786974792034 .marker.cross{stroke:#0b0b0b;}#mermaid-1786974792034 svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:13px;}#mermaid-1786974792034 p{margin:0;}#mermaid-1786974792034 .mermaid-main-font{font-family:"trebuchet ms",verdana,arial,sans-serif;}#mermaid-1786974792034 .exclude-range{fill:#eeeeee;}#mermaid-1786974792034 .section{stroke:none;opacity:0.2;}#mermaid-1786974792034 .section0{fill:hsl(220.5882352941, 100%, 98.3333333333%);}#mermaid-1786974792034 .section2{fill:#fff4dd;}#mermaid-1786974792034 .section1,#mermaid-1786974792034 .section3{fill:white;opacity:0.2;}#mermaid-1786974792034 .sectionTitle0{fill:rgb(8.5000000002, 5.7500000001, 0);}#mermaid-1786974792034 .sectionTitle1{fill:rgb(8.5000000002, 5.7500000001, 0);}#mermaid-1786974792034 .sectionTitle2{fill:rgb(8.5000000002, 5.7500000001, 0);}#mermaid-1786974792034 .sectionTitle3{fill:rgb(8.5000000002, 5.7500000001, 0);}#mermaid-1786974792034 .sectionTitle{text-anchor:start;font-family:"trebuchet ms",verdana,arial,sans-serif;}#mermaid-1786974792034 .grid .tick{stroke:lightgrey;opacity:0.8;shape-rendering:crispEdges;}#mermaid-1786974792034 .grid .tick text{font-family:"trebuchet ms",verdana,arial,sans-serif;fill:#333;}#mermaid-1786974792034 .grid path{stroke-width:0;}#mermaid-1786974792034 .today{fill:none;stroke:red;stroke-width:2px;}#mermaid-1786974792034 .task{stroke-width:2;}#mermaid-1786974792034 .taskText{text-anchor:middle;font-family:"trebuchet ms",verdana,arial,sans-serif;}#mermaid-1786974792034 .taskTextOutsideRight{fill:#333;text-anchor:start;font-family:"trebuchet ms",verdana,arial,sans-serif;}#mermaid-1786974792034 .taskTextOutsideLeft{fill:#333;text-anchor:end;}#mermaid-1786974792034 .task.clickable{cursor:pointer;}#mermaid-1786974792034 .taskText.clickable{cursor:pointer;fill:#003163!important;font-weight:bold;}#mermaid-1786974792034 .taskTextOutsideLeft.clickable{cursor:pointer;fill:#003163!important;font-weight:bold;}#mermaid-1786974792034 .taskTextOutsideRight.clickable{cursor:pointer;fill:#003163!important;font-weight:bold;}#mermaid-1786974792034 .taskText0,#mermaid-1786974792034 .taskText1,#mermaid-1786974792034 .taskText2,#mermaid-1786974792034 .taskText3{fill:#333;}#mermaid-1786974792034 .task0,#mermaid-1786974792034 .task1,#mermaid-1786974792034 .task2,#mermaid-1786974792034 .task3{fill:#fff4dd;stroke:hsl(40.5882352941, 60%, 83.3333333333%);}#mermaid-1786974792034 .taskTextOutside0,#mermaid-1786974792034 .taskTextOutside2{fill:#333;}#mermaid-1786974792034 .taskTextOutside1,#mermaid-1786974792034 .taskTextOutside3{fill:#333;}#mermaid-1786974792034 .active0,#mermaid-1786974792034 .active1,#mermaid-1786974792034 .active2,#mermaid-1786974792034 .active3{fill:hsl(40.5882352941, 100%, 100%);stroke:#fff4dd;}#mermaid-1786974792034 .activeText0,#mermaid-1786974792034 .activeText1,#mermaid-1786974792034 .activeText2,#mermaid-1786974792034 .activeText3{fill:#333!important;}#mermaid-1786974792034 .done0,#mermaid-1786974792034 .done1,#mermaid-1786974792034 .done2,#mermaid-1786974792034 .done3{stroke:grey;fill:lightgrey;stroke-width:2;}#mermaid-1786974792034 .doneText0,#mermaid-1786974792034 .doneText1,#mermaid-1786974792034 .doneText2,#mermaid-1786974792034 .doneText3{fill:#333!important;}#mermaid-1786974792034 .doneText0.taskTextOutsideLeft,#mermaid-1786974792034 .doneText0.taskTextOutsideRight,#mermaid-1786974792034 .doneText1.taskTextOutsideLeft,#mermaid-1786974792034 .doneText1.taskTextOutsideRight,#mermaid-1786974792034 .doneText2.taskTextOutsideLeft,#mermaid-1786974792034 .doneText2.taskTextOutsideRight,#mermaid-1786974792034 .doneText3.taskTextOutsideLeft,#mermaid-1786974792034 .doneText3.taskTextOutsideRight{fill:#333!important;}#mermaid-1786974792034 .crit0,#mermaid-1786974792034 .crit1,#mermaid-1786974792034 .crit2,#mermaid-1786974792034 .crit3{stroke:#ff8888;fill:red;stroke-width:2;}#mermaid-1786974792034 .activeCrit0,#mermaid-1786974792034 .activeCrit1,#mermaid-1786974792034 .activeCrit2,#mermaid-1786974792034 .activeCrit3{stroke:#ff8888;fill:hsl(40.5882352941, 100%, 100%);stroke-width:2;}#mermaid-1786974792034 .doneCrit0,#mermaid-1786974792034 .doneCrit1,#mermaid-1786974792034 .doneCrit2,#mermaid-1786974792034 .doneCrit3{stroke:#ff8888;fill:lightgrey;stroke-width:2;cursor:pointer;shape-rendering:crispEdges;}#mermaid-1786974792034 .milestone{transform:rotate(45deg) scale(0.8,0.8);}#mermaid-1786974792034 .milestoneText{font-style:italic;}#mermaid-1786974792034 .doneCritText0,#mermaid-1786974792034 .doneCritText1,#mermaid-1786974792034 .doneCritText2,#mermaid-1786974792034 .doneCritText3{fill:#333!important;}#mermaid-1786974792034 .doneCritText0.taskTextOutsideLeft,#mermaid-1786974792034 .doneCritText0.taskTextOutsideRight,#mermaid-1786974792034 .doneCritText1.taskTextOutsideLeft,#mermaid-1786974792034 .doneCritText1.taskTextOutsideRight,#mermaid-1786974792034 .doneCritText2.taskTextOutsideLeft,#mermaid-1786974792034 .doneCritText2.taskTextOutsideRight,#mermaid-1786974792034 .doneCritText3.taskTextOutsideLeft,#mermaid-1786974792034 .doneCritText3.taskTextOutsideRight{fill:#333!important;}#mermaid-1786974792034 .vert{stroke:navy;}#mermaid-1786974792034 .vertText{font-size:15px;text-anchor:middle;fill:navy!important;}#mermaid-1786974792034 .activeCritText0,#mermaid-1786974792034 .activeCritText1,#mermaid-1786974792034 .activeCritText2,#mermaid-1786974792034 .activeCritText3{fill:#333!important;}#mermaid-1786974792034 .titleText{text-anchor:middle;font-size:18px;fill:rgb(8.5000000002, 5.7500000001, 0);font-family:"trebuchet ms",verdana,arial,sans-serif;}#mermaid-1786974792034 .node .neo-node{stroke:hsl(40.5882352941, 60%, 83.3333333333%);}#mermaid-1786974792034 [data-look="neo"].node rect,#mermaid-1786974792034 [data-look="neo"].cluster rect,#mermaid-1786974792034 [data-look="neo"].node polygon{stroke:url(#mermaid-1786974792034-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974792034 [data-look="neo"].swimlane.cluster rect{filter:none;}#mermaid-1786974792034 [data-look="neo"].node path{stroke:url(#mermaid-1786974792034-gradient);stroke-width:1px;}#mermaid-1786974792034 [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974792034 [data-look="neo"].node .neo-line path{stroke:hsl(40.5882352941, 60%, 83.3333333333%);filter:none;}#mermaid-1786974792034 [data-look="neo"].node circle{stroke:url(#mermaid-1786974792034-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974792034 [data-look="neo"].node circle .state-start{fill:#000000;}#mermaid-1786974792034 [data-look="neo"].icon-shape .icon{fill:url(#mermaid-1786974792034-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974792034 [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mermaid-1786974792034-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1786974792034 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g></g><g class="grid" transform="translate(75, 170)" fill="none" font-size="10" font-family="sans-serif" text-anchor="middle"><path class="domain" stroke="currentColor" d="M0.5,-135V0.5H1114.5V-135"></path><g class="tick" opacity="1" transform="translate(0.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2026-09</text></g><g class="tick" opacity="1" transform="translate(69.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2026-10</text></g><g class="tick" opacity="1" transform="translate(140.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2026-11</text></g><g class="tick" opacity="1" transform="translate(208.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2026-12</text></g><g class="tick" opacity="1" transform="translate(279.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-01</text></g><g class="tick" opacity="1" transform="translate(350.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-02</text></g><g class="tick" opacity="1" transform="translate(414.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-03</text></g><g class="tick" opacity="1" transform="translate(485.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-04</text></g><g class="tick" opacity="1" transform="translate(554.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-05</text></g><g class="tick" opacity="1" transform="translate(624.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-06</text></g><g class="tick" opacity="1" transform="translate(693.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-07</text></g><g class="tick" opacity="1" transform="translate(764.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-08</text></g><g class="tick" opacity="1" transform="translate(835.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-09</text></g><g class="tick" opacity="1" transform="translate(904.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-10</text></g><g class="tick" opacity="1" transform="translate(974.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-11</text></g><g class="tick" opacity="1" transform="translate(1043.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2027-12</text></g><g class="tick" opacity="1" transform="translate(1114.5,0)"><line stroke="currentColor" y2="-135"></line><text fill="#000" y="3" dy="1em" stroke="none" font-size="10" style="text-anchor: middle;">2028-01</text></g></g><g><rect x="0" y="48" width="1226.5" height="24" class="section section0"></rect><rect x="0" y="72" width="1226.5" height="24" class="section section1"></rect><rect x="0" y="96" width="1226.5" height="24" class="section section2"></rect><rect x="0" y="120" width="1226.5" height="24" class="section section3"></rect><rect x="0" y="144" width="1226.5" height="24" class="section section0"></rect></g><g><rect id="mermaid-1786974792034-task1" rx="3" ry="3" x="75" y="50" width="208" height="20" transform-origin="179px 60px" class="task task0"></rect><rect id="mermaid-1786974792034-task2" rx="3" ry="3" x="283" y="74" width="206" height="20" transform-origin="386px 84px" class="task task1"></rect><rect id="mermaid-1786974792034-task3" rx="3" ry="3" x="489" y="98" width="210" height="20" transform-origin="594px 108px" class="task task2"></rect><rect id="mermaid-1786974792034-task4" rx="3" ry="3" x="699" y="122" width="211" height="20" transform-origin="804.5px 132px" class="task task3"></rect><rect id="mermaid-1786974792034-task5" rx="3" ry="3" x="910" y="146" width="279" height="20" transform-origin="1049.5px 156px" class="task task0"></rect><text id="mermaid-1786974792034-task1-text" font-size="11" x="179" y="63.5" class="taskText taskText0  width-154.03271484375">知识库 · IM 入站 · SSE · API Key </text><text id="mermaid-1786974792034-task2-text" font-size="11" x="386" y="87.5" class="taskText taskText1  width-164.04443359375">HITL · 审计 UI · 看板 · Tool Policy </text><text id="mermaid-1786974792034-task3-text" font-size="11" x="594" y="111.5" class="taskText taskText2  width-157.775390625">可插拔存储 · 无状态 · Helm/K8s </text><text id="mermaid-1786974792034-task4-text" font-size="11" x="804.5" y="135.5" class="taskText taskText3  width-129.984375">子 Agent · A2A · Flow 编排 </text><text id="mermaid-1786974792034-task5-text" font-size="11" x="1049.5" y="159.5" class="taskText taskText0  width-151.8154296875">评测 · Skill 自沉淀 · 市场 · SDK </text></g><g><text dy="0em" x="10" y="62" font-size="11" class="sectionTitle sectionTitle0"><tspan alignment-baseline="central" x="10">v0.2 补齐公式</tspan></text><text dy="0em" x="10" y="86" font-size="11" class="sectionTitle sectionTitle1"><tspan alignment-baseline="central" x="10">v0.3 治理面</tspan></text><text dy="0em" x="10" y="110" font-size="11" class="sectionTitle sectionTitle2"><tspan alignment-baseline="central" x="10">v0.4 分布式底座</tspan></text><text dy="0em" x="10" y="134" font-size="11" class="sectionTitle sectionTitle3"><tspan alignment-baseline="central" x="10">v0.5 多 Agent 协作</tspan></text><text dy="0em" x="10" y="158" font-size="11" class="sectionTitle sectionTitle0"><tspan alignment-baseline="central" x="10">v1.0 生态与飞轮</tspan></text></g><g class="today"><line x1="43" x2="43" y1="25" y2="195" class="today"></line></g><text x="632" y="25" class="titleText"></text></svg></div>
+  </div>
+
+  <h2>分阶段拆解</h2>
+  <p class="sub">每阶段：为什么是它 → 交付什么 → 怎么验收。</p>
+
+  <div class="phase shipped">
+    <div class="phase-head"><span class="ver">v0.1</span><h3>可信单机 Harness</h3><span class="when">已交付</span></div>
+    <p class="why">Provider 显式映射、自实现 ReAct、24 内置工具、MCP Client、沙箱白名单、定时任务、目录即 Agent、Web 管理台、审计 day-one 落库。北极星公式七要素已就位六个。</p>
+    <div class="demo"><b>已验收</b>：单 JAR 启动，REST + 管理台同端口，Agent 丢目录即上线。</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="ver">v0.2</span><h3>补齐公式 —— 让 Agent 有知识、有入口</h3><span class="when">2026 Q4</span></div>
+    <p class="why">三块打单短板一次补齐：知识库是公式唯一缺角（Dify/RAGFlow 的核心卖点）；IM 入站是企业 Agent 的实际入口（OpenClaw 最大吸引力）；API 裸奔过不了企业安全评审。</p>
+    <ul class="items">
+      <li><span class="tag">知识库</span><span>导入/切分/检索 + <code>retrieve_knowledge</code> 工具 + frontmatter <code>knowledge:</code> 引用。向量层定义 <code>VectorStore</code> 接口，先用 sqlite-vec 落地（零新依赖），为 v0.4 换 pgvector 留缝</span></li>
+      <li><span class="tag">Channel</span><span>IM 入站抽象 + 飞书双向接入先行（沙箱域名白名单已含 <code>*.feishu.cn</code>），企微/钉钉随后。复用现有 Notify 凭证体系</span></li>
+      <li><span class="tag">流式</span><span>SSE 流式响应（<code>text/event-stream</code>），保持同步模型不变——虚拟线程内逐 token 写出，不引入 WebFlux</span></li>
+      <li><span class="tag">认证</span><span><code>/api/v1</code> API Key 认证（RBAC 留到 v1.0，先把门锁上）；CORS 白名单收紧</span></li>
+    </ul>
+    <div class="demo"><b>验收 Demo</b>：在飞书里 @Agent 提问，Agent 检索企业知识库流式回答；未带 API Key 的 REST 调用被拒。</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="ver">v0.3</span><h3>治理面 —— 把「可审计」升级为「可治理」</h3><span class="when">2027 Q1</span></div>
+    <p class="why">审计数据已落库一年，只写不查等于没有。这一版把差异化主张坐实：单机就能交付、且被后续分布式放大的治理能力。全部端到端可控，无外部依赖，适合放在分布式之前。</p>
+    <ul class="items">
+      <li><span class="tag">HITL</span><span>危险动作挂起 → 飞书/企微审批卡片一键 approve/deny → 批了再执行（复用 v0.2 双向渠道）</span></li>
+      <li><span class="tag">审计</span><span>审计查询 API + 管理台审计页，trace ID 串联一次 ReAct 全链路，敏感字段脱敏</span></li>
+      <li><span class="tag">看板</span><span>成本/token 聚合看板（数据已在 <code>llm_calls</code>，只差聚合与 UI）；Actuator + Micrometer + Prometheus 端点</span></li>
+      <li><span class="tag">策略</span><span>Profile 级 Tool Policy（allow/deny）；密钥加密存储，预留 KMS/Vault 接口</span></li>
+      <li><span class="tag">路由</span><span>Provider fallback / 失败切换（frontmatter <code>fallback</code> 字段），智能路由留到数据积累后</span></li>
+    </ul>
+    <div class="demo"><b>验收 Demo</b>：Agent 要执行白名单外命令 → 飞书弹审批卡 → 批准后执行 → 管理台按 trace ID 查到完整链路与成本。</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="ver">v0.4</span><h3>分布式底座 —— 兑现名字里的 Distributed</h3><span class="when">2027 Q2</span></div>
+    <p class="why">「无状态实例、状态外置」从 day one 就是设计前提，这一版兑现它。放在多 Agent 之前，因为多 Agent 协作吃资源弹性；kagent 已带着 CNCF 背书占位 K8s 场景，Helm/Operator 是必答题。</p>
+    <ul class="items">
+      <li><span class="tag">存储</span><span>存储层可插拔：PostgreSQL / MySQL，Flyway 接管迁移（同时解决 SQLite ALTER TABLE 顽疾）；向量层切 pgvector</span></li>
+      <li><span class="tag">无状态</span><span>Session/记忆/调度/审计全外置共享 DB，实例彻底无状态</span></li>
+      <li><span class="tag">调度</span><span>定时任务 DB 抢锁（xxl-job 式），多副本不重跑；实例注册 + 心跳</span></li>
+      <li><span class="tag">交付</span><span>官方镜像 + Helm Chart；OpenTelemetry tracing（对齐 kagent 的可观测水位）</span></li>
+    </ul>
+    <div class="demo"><b>验收 Demo</b>：K8s 双副本滚动升级，进行中的会话不断线、定时任务恰好执行一次。</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="ver">v0.5</span><h3>多 Agent 协作 —— 从单兵到团队</h3><span class="when">2027 Q3</span></div>
+    <p class="why">愿景的核心一跃：一句话任务 → 底座拆解 → Agent 团队分工交付。前四版把「可靠、可治理、可扩容」垫好，这一版才有资格做协作——否则是在不可控的地基上叠不可控。</p>
+    <ul class="items">
+      <li><span class="tag">委托</span><span>子 Agent 委托：隔离会话、隔离上下文、结果回传（Hermes 模式的企业版）</span></li>
+      <li><span class="tag">A2A</span><span>对接 A2A 协议：跨 Agent / 跨节点发现与协同，进程内与跨实例同一套语义</span></li>
+      <li><span class="tag">Flow</span><span>Flow 声明式编排：一个目录/一个 md 定义多 Agent 流程，与「目录即 Agent」同构；自然语言生成 Flow 草稿</span></li>
+      <li><span class="tag">降本</span><span><code>execute_code</code>：多步工具流水线压成一次推理执行</span></li>
+    </ul>
+    <div class="demo"><b>验收 Demo</b>：发布「调研 X 并出报告」一句话任务 → 协调者拆解 → 检索/分析/撰写三个 Agent 协作 → 审批后交付，全程审计可回放。</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="ver">v1.0</span><h3>生态与飞轮 —— Apache 就绪</h3><span class="when">2027 Q4 →</span></div>
+    <p class="why">1.0 的定义不是功能多，而是接口稳定 + 质量可证 + 社区可长。评测 harness 与 Skill 自沉淀让审计数据变成成长飞轮；完整 RBAC/多租户补齐企业采购最后一公里。</p>
+    <ul class="items">
+      <li><span class="tag">质量</span><span>Agent 评测 harness（行为回归），发版门禁挂评测分</span></li>
+      <li><span class="tag">飞轮</span><span>成功执行自动沉淀 Skill；审计轨迹 → 离线评测 → 蒸馏便宜模型</span></li>
+      <li><span class="tag">安全</span><span>容器级沙箱后端（Docker，microVM 留升级位）；三级租户 + RBAC + SSO（OIDC）</span></li>
+      <li><span class="tag">生态</span><span>Skill 市场（agentskills.io 兼容）；Java/Python SDK；OryxOS 自身作为 MCP Server 对外暴露</span></li>
+    </ul>
+    <div class="gate"><b>阶段门禁</b>：API 冻结一个版本无破坏性变更 + 3 家以上真实企业部署案例 + 提交 Apache 孵化提案。</div>
+  </div>
+
+  <h2>关键取舍备忘</h2>
+  <div class="table-wrap">
+  <table>
+    <tr><th>决策点</th><th>取舍</th><th>理由</th></tr>
+    <tr><td><b>向量库两步走</b></td><td>v0.2 sqlite-vec → v0.4 pgvector</td><td>知识库不等 PostgreSQL；用 <code>VectorStore</code> 接口隔离，迁移成本封在一层</td></tr>
+    <tr><td><b>认证两步走</b></td><td>v0.2 API Key → v1.0 RBAC/SSO</td><td>先把门锁上过安全评审，权限模型等租户模型定型再做，避免返工</td></tr>
+    <tr><td><b>分布式不用 etcd</b></td><td>DB 抢锁 + 心跳</td><td>企业已有 DB 运维能力，零新增件；与「无状态实例」原则同构（采 VisionAndRoadmap 方向 A，废弃旧文档 Nacos/ETCD 方案）</td></tr>
+    <tr><td><b>编排的边界</b></td><td>做 Flow 目录编排，不做可视化画布</td><td>与 Dify/n8n 保持互补而非对撞；md 声明式与「目录即 Agent」同一心智模型</td></tr>
+    <tr><td><b>同步模型不动摇</b></td><td>SSE/并行工具都在虚拟线程内做</td><td>宪法七；异步框架带来的复杂度在 Agent 场景无收益</td></tr>
+  </table>
+  </div>
+
+  <p class="note"><b>节奏说明</b>：季度粒度是主题排期，不是承诺交付日；每版本内部仍按 spec → clarify → plan → tasks → implement 的既有流程走，主题内的 spec 可并行。竞品情报（OpenClaw 生态、kagent 进 CNCF incubation、AgentCore Policy 演进）每季度复盘一次，只调整优先级，不推翻主线。</p>
+</main>
+</body>
+</html>
