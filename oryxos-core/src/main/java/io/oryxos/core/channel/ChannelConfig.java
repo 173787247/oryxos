@@ -20,6 +20,9 @@ public record ChannelConfig(
 
   private static final Pattern NAME_PATTERN = Pattern.compile("[a-zA-Z0-9_-]+");
 
+  /** resolved 值仍含此标记 = ${ENV} 占位符未被环境变量解析（仿 ProvidersProperties 的检测口径）。 */
+  private static final String UNRESOLVED_PLACEHOLDER_MARKER = "${";
+
   /**
    * 结构校验（name/type/agent 非空、name 字符集）；凭证 resolved 校验与 type/agent 存在性校验发生在装配与 Admin 变更时（需要注册表在场）。
    *
@@ -51,7 +54,7 @@ public record ChannelConfig(
   }
 
   private void requireResolved(String value, String field) {
-    if (value == null || value.isBlank() || value.contains("${")) {
+    if (value == null || value.isBlank() || value.contains(UNRESOLVED_PLACEHOLDER_MARKER)) {
       throw new IllegalArgumentException("渠道 " + name + " 的 " + field + " 未配置或环境变量未解析，请检查对应环境变量");
     }
   }

@@ -29,6 +29,10 @@ import org.slf4j.LoggerFactory;
  * <p>契约规则 A4：start 前置校验凭证已解析、绑定 Agent 存在，失败抛点名异常、渠道不上线（FR-013/SC-008）。 事件 handler
  * 不抛异常（抛出会触发平台重推循环）；归一化返回 empty 的事件（非 @ 群消息等）直接丢弃。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "UWF_FIELD_NOT_INITIALIZED_IN_CONSTRUCTOR",
+    justification =
+        "apiClient/normalizer/sender 在 start() 内初始化（长连接生命周期晚于构造）；事件回调只会在 start 成功后由 SDK 触发，sendReply 有显式空判，不存在未初始化解引用路径。")
 public class FeishuChannelAdapter implements InboundChannelAdapter {
 
   private static final Logger LOG = LoggerFactory.getLogger(FeishuChannelAdapter.class);
@@ -36,6 +40,8 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   public static final String TYPE = "feishu";
   private static final String API_BASE_URL = "https://open.feishu.cn";
   private static final String BOT_INFO_PATH = "/open-apis/bot/v3/info";
+  private static final String BOT_OPEN_ID_FIELD = "open_id";
+  private static final int HTTP_OK = 200;
   private static final long READY_TIMEOUT_MS = 15_000;
 
   private final ChannelConfig config; // resolved 口径（凭证为真实值，仅存活内存）
@@ -172,7 +178,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private String fetchBotOpenId() {
     try {
       RawResponse resp = apiClient.get(BOT_INFO_PATH, null, AccessTokenType.Tenant);
-      if (resp == null || resp.getStatusCode() != 200 || resp.getBody() == null) {
+      if (resp == null || resp.getStatusCode() != HTTP_OK || resp.getBody() == null) {
         LOG.warn(
             "飞书渠道 {} 获取机器人身份失败（HTTP {}），群聊 @ 判定降级",
             sanitize(config.name()),
@@ -187,11 +193,11 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
               : obj.has("data") && obj.get("data").isJsonObject()
                   ? obj.getAsJsonObject("data").getAsJsonObject("bot")
                   : null;
-      if (bot == null || bot.get("open_id") == null) {
+      if (bot == null || bot.get(BOT_OPEN_ID_FIELD) == null) {
         LOG.warn("飞书渠道 {} 机器人身份响应缺 open_id，群聊 @ 判定降级", sanitize(config.name()));
         return null;
       }
-      return bot.get("open_id").getAsString();
+      return bot.get(BOT_OPEN_ID_FIELD).getAsString();
     } catch (Exception e) {
       LOG.warn(
           "飞书渠道 {} 获取机器人身份异常（{}），群聊 @ 判定降级", sanitize(config.name()), sanitize(e.getMessage()));

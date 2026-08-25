@@ -35,6 +35,9 @@ public class FeishuMessageSender {
   private final String apiBaseUrl;
   private final int chunkSize;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "client 是适配器持有的 SDK 单例（token 缓存共享正是意图），构造注入共享引用。")
   public FeishuMessageSender(Client client, OutboundGuard guard, String apiBaseUrl, int chunkSize) {
     this.client = client;
     this.guard = guard;

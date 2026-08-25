@@ -26,6 +26,8 @@ public class InboundMessageService {
 
   private static final Logger LOG = LoggerFactory.getLogger(InboundMessageService.class);
 
+  private static final String DEDUP_KEY_SEPARATOR = ":";
+
   static final String UNSUPPORTED_TYPE_REPLY = "当前仅支持文本提问，请用文字描述你的问题。";
   static final String AGENT_UNAVAILABLE_REPLY = "Agent 暂不可用（未找到绑定的 Agent），请联系管理员。";
   static final String FAILURE_REPLY = "抱歉，这次处理失败了，请稍后重试或联系管理员。";
@@ -64,7 +66,7 @@ public class InboundMessageService {
    */
   public void onMessage(InboundMessage msg, InboundChannelAdapter replyVia) {
     // B1：同一渠道同一 message_id 只处理一次（平台超时重推场景用户只收到一条回答）
-    if (!deduplicator.markIfFirst(msg.channelName() + ":" + msg.messageId())) {
+    if (!deduplicator.markIfFirst(msg.channelName() + DEDUP_KEY_SEPARATOR + msg.messageId())) {
       LOG.info("渠道 {} 重复事件已忽略: {}", sanitize(msg.channelName()), sanitize(msg.messageId()));
       return;
     }

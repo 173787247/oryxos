@@ -59,7 +59,7 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 - [x] T012 [P] [US1] 消息发送器：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuMessageSender.java`——经 SDK `Client`（appId/appSecret 构建，tenant token 自动管理）调 `im/v1/messages` 同步发送；发送前 `sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, "https://open.feishu.cn/..."))`（A3/R7，拒绝时沿用 `SandboxViolationException` 引导文案口吻）；超长按可配段长（默认 4000 字符）分段顺序发送（A3/R8）；每段带随机 `uuid`（≤50 字符）幂等；`replyToMessageId` 非空走 `im/v1/messages/:message_id/reply`；单测 `FeishuMessageSenderTest.java` 覆盖分段边界、sandbox 拒绝、reply 分支（HTTP 层 mock）
 - [x] T013 [US1] 适配器：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuChannelAdapter.java` 实现 `InboundChannelAdapter`——`start()`：`EventDispatcher.newBuilder("", "")`（长连接免验签，两参必空串，R2）注册 `onP2MessageReceiveV1` → normalizer → `inboundMessageService.onMessage(msg, this)`；`ws.Client.Builder(appId, appSecret)` 建连（自动重连白拿）；启动时经 SDK 获取 bot 身份（open_id，供 US2 @ 判断）；`stop()` 幂等断开；`status()` 实时状态；`start` 前置校验凭证 resolved + 绑定 Agent 存在，失败抛点名异常（A4）；另建空 marker `ChannelFeishuModule.java`
 - [x] T014 [US1] Runtime 装配：`oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java` 新增显式 `@Bean`（紧挨 `cliChannel`）：`ChannelConfigLoader`、`MessageDeduplicator`、`InboundChannelRegistry`、`InboundMessageService`、渠道启动器 Bean（`initMethod`/`destroyMethod` 管生命周期，参照 `WorkspaceWatcher` 先例）——启动时 `loader.load()` 逐条校验并 `new FeishuChannelAdapter(...).start()` 注册进 registry；单条失败记 ERROR + registry 留 ERROR 状态、不阻断其余启动（FR-013 语义，仿 `ProfileLoader.loadAll` 口径）
-- [ ] T015 [US1] 端到端验证：按 quickstart 前置条件配真实飞书自建应用，跑 V1（私聊问答 + 追问承接 + sessions 审计核查）与 V3 前半（慢问题仅 1 条回答）；修复发现的问题并把样例事件 JSON 回填 T011 测试
+- [ ] T015 [US1] ⏳（待真实飞书应用凭证，真机验证）端到端验证：按 quickstart 前置条件配真实飞书自建应用，跑 V1（私聊问答 + 追问承接 + sessions 审计核查）与 V3 前半（慢问题仅 1 条回答）；修复发现的问题并把样例事件 JSON 回填 T011 测试
 
 **Checkpoint**: MVP 可演示——飞书私聊完整闭环，审计落库
 
@@ -73,7 +73,7 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 - [x] T016 [P] [US2] 归一化群聊部分：扩展 `FeishuEventNormalizer.java`——chat_type=group 时解析 `mentions[]`，以 mention 的 `open_id` 与 bot 自身 open_id 比对判定 `mentionedBot`（R5）；剥离 @ 机器人占位符 `@_user_N`、其余 mention 替换为人名（FR-002/A2）；**非 @ 群消息返回空（丢弃标记），不构造 InboundMessage**（A1/SC-002）；扩展 `FeishuEventNormalizerTest.java`：@bot 剥离、@他人替换、非 @ 丢弃、@bot 加多 mention 混合
 - [x] T017 [US2] 适配器群聊接线：`FeishuChannelAdapter` 的 handler 对 normalizer 返回的丢弃标记直接 return（不进编排、不留痕）；群聊消息进编排后回复自动带 `replyToMessageId`（B4 已在 T009 实现，此处验证接线）；补集成式单测：群聊事件 → `processStateless` 被调且 tag 为 `feishu-group`、`sessions` 无写入
-- [ ] T018 [US2] 端到端验证：跑 quickstart V2（@ 响应引用原消息、两人互不串扰、非 @ 零留痕核查 `sessions`/`agent_executions`）与 V7 非文本场景；修复问题
+- [ ] T018 [US2] ⏳（待真机验证）端到端验证：跑 quickstart V2（@ 响应引用原消息、两人互不串扰、非 @ 零留痕核查 `sessions`/`agent_executions`）与 V7 非文本场景；修复问题
 
 **Checkpoint**: US1+US2 均独立可测，群聊语义与 Clarify-Q3 一致
 
@@ -88,7 +88,7 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 - [x] T019 [US3] AdminService：`oryxos-core/src/main/java/io/oryxos/core/channel/ChannelAdminService.java`——复刻 `McpServerAdminService` 骨架：`synchronized` 的 `add`/`update`/`remove`/`reload` = 校验（复用 T005 校验）→ `save()` 落盘 → **先 `stop()` 旧适配器再 `start()` 新配置**（避免新旧连接并存）→ 更新 registry；适配器创建经 `Map<String, Function<ChannelConfig, InboundChannelAdapter>>` 类型工厂（feishu 工厂在 Runtime 装配注入，core 不依赖飞书模块）；单测 `ChannelAdminServiceTest.java` 覆盖断旧建新顺序、校验失败不落盘、name 冲突
 - [x] T020 [P] [US3] REST 面：`oryxos-web/src/main/java/io/oryxos/web/controller/ChannelApiController.java` + `dto/ChannelView.java`/`ChannelStatusView.java`/`ChannelRequest.java`——按 contracts/channels-api.md 实现 5 端点（列表用 `loadRaw()` 且 appSecret 掩码、status 走 registry 活视图、写操作走 AdminService、错误映射 400/404 统一 `ApiResponse`，参照 `McpApiController`）；MockMvc 测试 `ChannelApiControllerTest.java` 覆盖 CRUD、掩码不泄密、点名错误文案
 - [x] T021 [US3] 启动校验闭环（SC-008 三类 100%）：确认/补齐三类错误路径的点名文案与「不带病上线且不影响其余功能」行为——缺凭证（`app_secret 未配置或环境变量未解析，请检查 FEISHU_APP_SECRET` 口径）、Agent 不存在、绑定格式非法（YAML 结构/name 非法/type 不支持）；每类各一条集成测试（T014 启动器路径 + T019 变更路径双入口）
-- [ ] T022 [US3] 端到端验证：跑 quickstart V4（两类报错 + status 呈现 ERROR 与原因）与 V5（运行中 PUT 换绑 Agent 即生效）；修复问题
+- [ ] T022 [US3] ⏳（待真机验证）端到端验证：跑 quickstart V4（两类报错 + status 呈现 ERROR 与原因）与 V5（运行中 PUT 换绑 Agent 即生效）；修复问题
 
 **Checkpoint**: 配置接入企业可落地，FR-012/FR-013/SC-008 达成
 
@@ -111,10 +111,10 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T027 [P] 文档同步（宪法模块演进要求）：`CLAUDE.md` 模块表加 `oryxos-channel-feishu` 行；`docs/TechnicalSolution.md` §10 同步模块清单与渠道契约说明
-- [ ] T028 [P] 日志与安全审查：渠道全链路结构化日志（连接建立/断开/重连、事件拒绝痕迹、点名报错）不含 app_secret 与用户消息明文之外的敏感信息；错误回复不泄堆栈（B6 复查）；`channels.yaml` 权限 `rw-------` 复查
-- [ ] T029 质量门禁：`mvn -q verify` 全绿（Spotless/P3C/Checkstyle/SpotBugs/OWASP Dependency-Check——重点看新增 oapi-sdk 及其 guava/httpclient 传递依赖有无高危 CVE，有则评估升级或抑制并记录理由）
-- [ ] T030 验收收尾：完整跑 quickstart V1~V7 并逐条对照 spec SC-001~SC-009 记录结果；遗留项记入 spec 或另立 issue
+- [x] T027 [P] 文档同步（宪法模块演进要求）：`CLAUDE.md` 模块表加 `oryxos-channel-feishu` 行；`docs/TechnicalSolution.md` §10 同步模块清单与渠道契约说明
+- [x] T028 [P] 日志与安全审查：渠道全链路结构化日志（连接建立/断开/重连、事件拒绝痕迹、点名报错）不含 app_secret 与用户消息明文之外的敏感信息；错误回复不泄堆栈（B6 复查）；`channels.yaml` 权限 `rw-------` 复查
+- [x] T029 质量门禁：`mvn -q verify` 全绿（Spotless/P3C/Checkstyle/SpotBugs/OWASP Dependency-Check——重点看新增 oapi-sdk 及其 guava/httpclient 传递依赖有无高危 CVE，有则评估升级或抑制并记录理由）
+- [ ] T030 ⏳（V6 已完成并固化；V1~V5/V7 待真机）验收收尾：完整跑 quickstart V1~V7 并逐条对照 spec SC-001~SC-009 记录结果；遗留项记入 spec 或另立 issue
 
 ---
 
