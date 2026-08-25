@@ -1,6 +1,6 @@
 # Feature Specification: IM 入站渠道抽象与飞书双向接入
 
-**Feature Branch**: `016-feishu-im-channel`
+**Feature Branch**: `017-feishu-im-channel`
 
 **Created**: 2026-08-20
 
