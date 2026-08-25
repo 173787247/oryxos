@@ -23,9 +23,9 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 **Purpose**: 新模块挂载、SDK 引入、白名单与示例配置就位
 
-- [ ] T001 新建 `oryxos-channel-feishu/pom.xml`（parent 指根 pom；依赖 `io.oryxos:oryxos-core` + `com.larksuite.oapi:oapi-sdk:2.8.5`）；根 `pom.xml` 的 `<modules>` 与 `<dependencyManagement>` 各加一条（紧跟 oryxos-channel-cli，参照其写法）；跑 `mvn -q dependency:tree -pl oryxos-channel-feishu` 确认 guava 32.0.0-jre 无版本冲突（R1）
-- [ ] T002 `oryxos-cli/pom.xml` 与 `oryxos-boot/pom.xml` 各加 `io.oryxos:oryxos-channel-feishu` 依赖（Runtime 装配 import 与 fat jar 打包都需要）；`mvn -q compile -pl oryxos-cli -am` 通过
-- [ ] T003 [P] `config/application.yml` 的 `http.allowed_domains` 补 `*.feishu.cn`（实际运行配置当前缺失，R7）；新增 `config/channels.yaml.example`（按 data-model.md §3 的 YAML 样例，凭证用 `${FEISHU_APP_ID}`/`${FEISHU_APP_SECRET}` 占位）
+- [x] T001 新建 `oryxos-channel-feishu/pom.xml`（parent 指根 pom；依赖 `io.oryxos:oryxos-core` + `com.larksuite.oapi:oapi-sdk:2.8.5`）；根 `pom.xml` 的 `<modules>` 与 `<dependencyManagement>` 各加一条（紧跟 oryxos-channel-cli，参照其写法）；跑 `mvn -q dependency:tree -pl oryxos-channel-feishu` 确认 guava 32.0.0-jre 无版本冲突（R1）
+- [x] T002 `oryxos-cli/pom.xml` 与 `oryxos-boot/pom.xml` 各加 `io.oryxos:oryxos-channel-feishu` 依赖（Runtime 装配 import 与 fat jar 打包都需要）；`mvn -q compile -pl oryxos-cli -am` 通过
+- [x] T003 [P] `config/application.yml` 的 `http.allowed_domains` 补 `*.feishu.cn`（实际运行配置当前缺失，R7）；新增 `config/channels.yaml.example`（按 data-model.md §3 的 YAML 样例，凭证用 `${FEISHU_APP_ID}`/`${FEISHU_APP_SECRET}` 占位）
 
 **Checkpoint**: `mvn -q compile` 全模块通过，新模块空壳在构建里
 
@@ -37,13 +37,13 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 **⚠️ CRITICAL**: 本阶段完成前不得开始任何 User Story
 
-- [ ] T004 [P] 值对象与接口：`oryxos-core/src/main/java/io/oryxos/core/channel/` 下创建 `InboundMessage.java`（record，字段按 data-model.md §1 含不变式注释）、`ChatKind.java`（P2P/GROUP）、`ChannelStatus.java`（record + state 枚举 CONNECTED/DISCONNECTED/DISABLED/ERROR）、`InboundChannelAdapter.java`（name/type/start/stop/status/sendReply，按 contracts/inbound-channel-contract.md 签名）——纯 POJO 零框架依赖
-- [ ] T005 [P] 配置模型与加载器：同包创建 `ChannelConfig.java`（name/type/appId/appSecret/agent/enabled）与 `ChannelConfigLoader.java`——复刻 `McpConfigLoader` 口径：`load()`（resolved）/`loadRaw()`（保留 `${}` 字面量）/`save()`（落盘 `.oryxos/channels.yaml` 并 `restrictToOwner` 收紧 `rw-------`）；`${ENV}` 正则与既有两 loader 完全一致（`\$\{([A-Za-z0-9_]+)}`）；校验按 data-model.md §3 逐条点名报错（name 唯一/type 已注册/凭证 resolved 后不含 `${`）；单测 `oryxos-core/src/test/java/io/oryxos/core/channel/ChannelConfigLoaderTest.java` 覆盖双读法、占位保留落盘、三类校验报错文案
-- [ ] T006 [P] 去重器：同包创建 `MessageDeduplicator.java`（`LinkedHashMap` LRU 容量 5000 + TTL 12h，`synchronized`，原子 `markIfFirst(channelName + ":" + messageId)`，R3）；单测 `MessageDeduplicatorTest.java` 覆盖重复拦截、LRU 淘汰、TTL 过期
-- [ ] T007 注册表：同包创建 `InboundChannelRegistry.java`（`ConcurrentHashMap<String, InboundChannelAdapter>`，`statusAll()` 返回**活视图**不 `Map.copyOf` 拍照——#203 教训，参照 `ToolRegistry.asMap()` 写法）
-- [ ] T008 `AgentService` 重载：`oryxos-core/src/main/java/io/oryxos/core/agent/AgentService.java` 新增 `processStateless(String agentName, String userMessage, String executionTag)`（session_id = `executionTag + ":" + UUID`），旧签名 `processStateless(name, msg)` 委托新重载传 `"invoke-exec"` 保持行为不变（R5）；补/改 `oryxos-core` 既有 AgentService 测试断言前缀
-- [ ] T009 共享编排服务：同包创建 `InboundMessageService.java`，实现 contracts 行为规则 B1~B10 全部：`onMessage(msg, replyVia)` 在确认线程内只做去重（B1）+ `agentExecutionService.triggerAsync(agent, "feishu", sessionId, work)` 提交后返回（B5）；虚拟线程内按 `ChatKind` 分流——P2P 走 `sessionManager.getOrCreate(msg.channelType(), msg.userId(), agent)` + `agentService.process`（B2），GROUP 走 `processStateless(agent, content, msg.channelType() + "-group")`（B3）；回复经 `replyVia.sendReply(chatId, text, GROUP ? messageId : null)`（B4）；非文本回能力说明（B7）；Agent 不存在回「Agent 不可用」（B9，`profileRegistry.get(agent).isEmpty()` 判定）；处理失败回可读说明不含堆栈（B6）；「处理中」提示——提交时另起虚拟线程 `CountDownLatch.await(阈值默认 15s 可配)` 未完成先发提示（B8，纯同步原语，禁 CompletableFuture）；构造注入：`AgentService`/`SessionManager`/`ProfileRegistry`/`AgentExecutionService`/`MessageDeduplicator`
-- [ ] T010 编排服务单测：`oryxos-core/src/test/java/io/oryxos/core/channel/InboundMessageServiceTest.java`（Mockito），逐条覆盖 B1~B10（重复丢弃、私聊三元组、群聊 tag、失败文案、处理中提示时序用短阈值）
+- [x] T004 [P] 值对象与接口：`oryxos-core/src/main/java/io/oryxos/core/channel/` 下创建 `InboundMessage.java`（record，字段按 data-model.md §1 含不变式注释）、`ChatKind.java`（P2P/GROUP）、`ChannelStatus.java`（record + state 枚举 CONNECTED/DISCONNECTED/DISABLED/ERROR）、`InboundChannelAdapter.java`（name/type/start/stop/status/sendReply，按 contracts/inbound-channel-contract.md 签名）——纯 POJO 零框架依赖
+- [x] T005 [P] 配置模型与加载器：同包创建 `ChannelConfig.java`（name/type/appId/appSecret/agent/enabled）与 `ChannelConfigLoader.java`——复刻 `McpConfigLoader` 口径：`load()`（resolved）/`loadRaw()`（保留 `${}` 字面量）/`save()`（落盘 `.oryxos/channels.yaml` 并 `restrictToOwner` 收紧 `rw-------`）；`${ENV}` 正则与既有两 loader 完全一致（`\$\{([A-Za-z0-9_]+)}`）；校验按 data-model.md §3 逐条点名报错（name 唯一/type 已注册/凭证 resolved 后不含 `${`）；单测 `oryxos-core/src/test/java/io/oryxos/core/channel/ChannelConfigLoaderTest.java` 覆盖双读法、占位保留落盘、三类校验报错文案
+- [x] T006 [P] 去重器：同包创建 `MessageDeduplicator.java`（`LinkedHashMap` LRU 容量 5000 + TTL 12h，`synchronized`，原子 `markIfFirst(channelName + ":" + messageId)`，R3）；单测 `MessageDeduplicatorTest.java` 覆盖重复拦截、LRU 淘汰、TTL 过期
+- [x] T007 注册表：同包创建 `InboundChannelRegistry.java`（`ConcurrentHashMap<String, InboundChannelAdapter>`，`statusAll()` 返回**活视图**不 `Map.copyOf` 拍照——#203 教训，参照 `ToolRegistry.asMap()` 写法）
+- [x] T008 `AgentService` 重载：`oryxos-core/src/main/java/io/oryxos/core/agent/AgentService.java` 新增 `processStateless(String agentName, String userMessage, String executionTag)`（session_id = `executionTag + ":" + UUID`），旧签名 `processStateless(name, msg)` 委托新重载传 `"invoke-exec"` 保持行为不变（R5）；补/改 `oryxos-core` 既有 AgentService 测试断言前缀
+- [x] T009 共享编排服务：同包创建 `InboundMessageService.java`，实现 contracts 行为规则 B1~B10 全部：`onMessage(msg, replyVia)` 在确认线程内只做去重（B1）+ `agentExecutionService.triggerAsync(agent, "feishu", sessionId, work)` 提交后返回（B5）；虚拟线程内按 `ChatKind` 分流——P2P 走 `sessionManager.getOrCreate(msg.channelType(), msg.userId(), agent)` + `agentService.process`（B2），GROUP 走 `processStateless(agent, content, msg.channelType() + "-group")`（B3）；回复经 `replyVia.sendReply(chatId, text, GROUP ? messageId : null)`（B4）；非文本回能力说明（B7）；Agent 不存在回「Agent 不可用」（B9，`profileRegistry.get(agent).isEmpty()` 判定）；处理失败回可读说明不含堆栈（B6）；「处理中」提示——提交时另起虚拟线程 `CountDownLatch.await(阈值默认 15s 可配)` 未完成先发提示（B8，纯同步原语，禁 CompletableFuture）；构造注入：`AgentService`/`SessionManager`/`ProfileRegistry`/`AgentExecutionService`/`MessageDeduplicator`
+- [x] T010 编排服务单测：`oryxos-core/src/test/java/io/oryxos/core/channel/InboundMessageServiceTest.java`（Mockito），逐条覆盖 B1~B10（重复丢弃、私聊三元组、群聊 tag、失败文案、处理中提示时序用短阈值）
 
 **Checkpoint**: `mvn -q test -pl oryxos-core` 全绿——契约地基就绪，US1/US2/US3/US4 可并行开工
 
@@ -100,7 +100,7 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 **Independent Test**: quickstart V6——契约测试两档全绿 + 桩渠道接入 `oryxos-core` 零 diff
 
-- [ ] T023 [P] [US4] 测试桩渠道：`oryxos-core/src/test/java/io/oryxos/core/channel/StubChannelAdapter.java`——实现 `InboundChannelAdapter`，内存收发（发出的回复存 List 供断言），可注入模拟消息
+- [x] T023 [P] [US4] 测试桩渠道：`oryxos-core/src/test/java/io/oryxos/core/channel/StubChannelAdapter.java`——实现 `InboundChannelAdapter`，内存收发（发出的回复存 List 供断言），可注入模拟消息
 - [ ] T024 [US4] 参数化契约测试集：`oryxos-core/src/test/java/io/oryxos/core/channel/InboundMessageServiceContractTest.java`——JUnit 5 `@ParameterizedTest` 对 contracts B1~B10 逐条断言（桩档参数源）；设计为可复用测试基类（`abstract` 基类 + 桩子类），供飞书档继承
 - [ ] T025 [US4] 契约测试飞书档：`oryxos-channel-feishu/src/test/java/io/oryxos/channel/feishu/FeishuChannelContractTest.java`——继承 T024 基类，参数源换 `FeishuEventNormalizer` 真实事件 JSON 归一化产出 + mock 发送端；两档全绿
 - [ ] T026 [US4] SC-007 证据固化：执行 `git diff --stat <Phase 2 完成提交> -- oryxos-core/` 确认桩渠道接入（T023~T024）未改动 `oryxos-core/src/main`；把验证命令与结论记入 `specs/017-feishu-im-channel/quickstart.md` V6 结果

@@ -11,6 +11,7 @@
 public interface InboundChannelAdapter {
     String name();                 // channels.yaml 条目名
     String type();                 // "feishu" | "stub" | ...
+    String boundAgent();           // 本渠道绑定的 Agent（一应用一 Agent），编排据此路由
     void start();                  // 建立长连接；失败抛出带点名原因的异常（不得静默）
     void stop();                   // 幂等断开
     ChannelStatus status();        // 实时状态（CONNECTED/DISCONNECTED/DISABLED/ERROR）
@@ -31,7 +32,7 @@ public final class InboundMessageService {
 |---|------|------|
 | B1 | 同一 `channelName:messageId` 重复到达只处理一次，用户仅收 1 条回答 | FR-004/SC-004 |
 | B2 | `P2P` → `getOrCreate("feishu", userId, agent)` + `process`；多轮承接上下文 | FR-006 |
-| B3 | `GROUP` → `processStateless(agent, content, "feishu-group")`；互不携带彼此上下文，不落 sessions 表 | FR-006/SC-009 |
+| B3 | `GROUP` → `processStateless(agent, content, "feishu-group:<uuid>")`（编排生成完整临时会话 id，与 agent_executions 同 id 关联）；互不携带彼此上下文，不落 sessions 表 | FR-006/SC-009 |
 | B4 | 回复送回来源 `chatId`；群聊带 `replyToMessageId` 引用原消息 | FR-007 |
 | B5 | `onMessage` 在确认线程内不跑推理（去重+提交后即返回）；推理在 `triggerAsync(source="feishu")` 虚拟线程 | FR-008 |
 | B6 | 处理失败（Agent 不存在/推理异常/迭代耗尽）→ 回复可读失败说明，不含堆栈，不静默 | FR-008/US1-AS3 |
