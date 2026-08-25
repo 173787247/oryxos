@@ -55,10 +55,10 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 **Independent Test**: quickstart V1——私聊问答 + 追问承接 + `sessions` 表落 `channel=feishu`
 
-- [ ] T011 [P] [US1] 事件归一化（私聊部分）：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuEventNormalizer.java`——`P2MessageReceiveV1` 事件 → `InboundMessage`：解析 chat_type=p2p、message_id、sender open_id、chat_id；`message_type=="text"` 解析 content JSON 取 text，非文本置 `textual=false`（A1 群聊部分留 US2）；单测 `FeishuEventNormalizerTest.java` 用真实事件 JSON 样例覆盖文本/图片/空文本
-- [ ] T012 [P] [US1] 消息发送器：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuMessageSender.java`——经 SDK `Client`（appId/appSecret 构建，tenant token 自动管理）调 `im/v1/messages` 同步发送；发送前 `sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, "https://open.feishu.cn/..."))`（A3/R7，拒绝时沿用 `SandboxViolationException` 引导文案口吻）；超长按可配段长（默认 4000 字符）分段顺序发送（A3/R8）；每段带随机 `uuid`（≤50 字符）幂等；`replyToMessageId` 非空走 `im/v1/messages/:message_id/reply`；单测 `FeishuMessageSenderTest.java` 覆盖分段边界、sandbox 拒绝、reply 分支（HTTP 层 mock）
-- [ ] T013 [US1] 适配器：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuChannelAdapter.java` 实现 `InboundChannelAdapter`——`start()`：`EventDispatcher.newBuilder("", "")`（长连接免验签，两参必空串，R2）注册 `onP2MessageReceiveV1` → normalizer → `inboundMessageService.onMessage(msg, this)`；`ws.Client.Builder(appId, appSecret)` 建连（自动重连白拿）；启动时经 SDK 获取 bot 身份（open_id，供 US2 @ 判断）；`stop()` 幂等断开；`status()` 实时状态；`start` 前置校验凭证 resolved + 绑定 Agent 存在，失败抛点名异常（A4）；另建空 marker `ChannelFeishuModule.java`
-- [ ] T014 [US1] Runtime 装配：`oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java` 新增显式 `@Bean`（紧挨 `cliChannel`）：`ChannelConfigLoader`、`MessageDeduplicator`、`InboundChannelRegistry`、`InboundMessageService`、渠道启动器 Bean（`initMethod`/`destroyMethod` 管生命周期，参照 `WorkspaceWatcher` 先例）——启动时 `loader.load()` 逐条校验并 `new FeishuChannelAdapter(...).start()` 注册进 registry；单条失败记 ERROR + registry 留 ERROR 状态、不阻断其余启动（FR-013 语义，仿 `ProfileLoader.loadAll` 口径）
+- [x] T011 [P] [US1] 事件归一化（私聊部分）：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuEventNormalizer.java`——`P2MessageReceiveV1` 事件 → `InboundMessage`：解析 chat_type=p2p、message_id、sender open_id、chat_id；`message_type=="text"` 解析 content JSON 取 text，非文本置 `textual=false`（A1 群聊部分留 US2）；单测 `FeishuEventNormalizerTest.java` 用真实事件 JSON 样例覆盖文本/图片/空文本
+- [x] T012 [P] [US1] 消息发送器：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuMessageSender.java`——经 SDK `Client`（appId/appSecret 构建，tenant token 自动管理）调 `im/v1/messages` 同步发送；发送前 `sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, "https://open.feishu.cn/..."))`（A3/R7，拒绝时沿用 `SandboxViolationException` 引导文案口吻）；超长按可配段长（默认 4000 字符）分段顺序发送（A3/R8）；每段带随机 `uuid`（≤50 字符）幂等；`replyToMessageId` 非空走 `im/v1/messages/:message_id/reply`；单测 `FeishuMessageSenderTest.java` 覆盖分段边界、sandbox 拒绝、reply 分支（HTTP 层 mock）
+- [x] T013 [US1] 适配器：`oryxos-channel-feishu/src/main/java/io/oryxos/channel/feishu/FeishuChannelAdapter.java` 实现 `InboundChannelAdapter`——`start()`：`EventDispatcher.newBuilder("", "")`（长连接免验签，两参必空串，R2）注册 `onP2MessageReceiveV1` → normalizer → `inboundMessageService.onMessage(msg, this)`；`ws.Client.Builder(appId, appSecret)` 建连（自动重连白拿）；启动时经 SDK 获取 bot 身份（open_id，供 US2 @ 判断）；`stop()` 幂等断开；`status()` 实时状态；`start` 前置校验凭证 resolved + 绑定 Agent 存在，失败抛点名异常（A4）；另建空 marker `ChannelFeishuModule.java`
+- [x] T014 [US1] Runtime 装配：`oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java` 新增显式 `@Bean`（紧挨 `cliChannel`）：`ChannelConfigLoader`、`MessageDeduplicator`、`InboundChannelRegistry`、`InboundMessageService`、渠道启动器 Bean（`initMethod`/`destroyMethod` 管生命周期，参照 `WorkspaceWatcher` 先例）——启动时 `loader.load()` 逐条校验并 `new FeishuChannelAdapter(...).start()` 注册进 registry；单条失败记 ERROR + registry 留 ERROR 状态、不阻断其余启动（FR-013 语义，仿 `ProfileLoader.loadAll` 口径）
 - [ ] T015 [US1] 端到端验证：按 quickstart 前置条件配真实飞书自建应用，跑 V1（私聊问答 + 追问承接 + sessions 审计核查）与 V3 前半（慢问题仅 1 条回答）；修复发现的问题并把样例事件 JSON 回填 T011 测试
 
 **Checkpoint**: MVP 可演示——飞书私聊完整闭环，审计落库
@@ -71,8 +71,8 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 **Independent Test**: quickstart V2——@ 响应且互相独立、非 @ 零留痕
 
-- [ ] T016 [P] [US2] 归一化群聊部分：扩展 `FeishuEventNormalizer.java`——chat_type=group 时解析 `mentions[]`，以 mention 的 `open_id` 与 bot 自身 open_id 比对判定 `mentionedBot`（R5）；剥离 @ 机器人占位符 `@_user_N`、其余 mention 替换为人名（FR-002/A2）；**非 @ 群消息返回空（丢弃标记），不构造 InboundMessage**（A1/SC-002）；扩展 `FeishuEventNormalizerTest.java`：@bot 剥离、@他人替换、非 @ 丢弃、@bot 加多 mention 混合
-- [ ] T017 [US2] 适配器群聊接线：`FeishuChannelAdapter` 的 handler 对 normalizer 返回的丢弃标记直接 return（不进编排、不留痕）；群聊消息进编排后回复自动带 `replyToMessageId`（B4 已在 T009 实现，此处验证接线）；补集成式单测：群聊事件 → `processStateless` 被调且 tag 为 `feishu-group`、`sessions` 无写入
+- [x] T016 [P] [US2] 归一化群聊部分：扩展 `FeishuEventNormalizer.java`——chat_type=group 时解析 `mentions[]`，以 mention 的 `open_id` 与 bot 自身 open_id 比对判定 `mentionedBot`（R5）；剥离 @ 机器人占位符 `@_user_N`、其余 mention 替换为人名（FR-002/A2）；**非 @ 群消息返回空（丢弃标记），不构造 InboundMessage**（A1/SC-002）；扩展 `FeishuEventNormalizerTest.java`：@bot 剥离、@他人替换、非 @ 丢弃、@bot 加多 mention 混合
+- [x] T017 [US2] 适配器群聊接线：`FeishuChannelAdapter` 的 handler 对 normalizer 返回的丢弃标记直接 return（不进编排、不留痕）；群聊消息进编排后回复自动带 `replyToMessageId`（B4 已在 T009 实现，此处验证接线）；补集成式单测：群聊事件 → `processStateless` 被调且 tag 为 `feishu-group`、`sessions` 无写入
 - [ ] T018 [US2] 端到端验证：跑 quickstart V2（@ 响应引用原消息、两人互不串扰、非 @ 零留痕核查 `sessions`/`agent_executions`）与 V7 非文本场景；修复问题
 
 **Checkpoint**: US1+US2 均独立可测，群聊语义与 Clarify-Q3 一致
@@ -85,9 +85,9 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 
 **Independent Test**: quickstart V4（缺凭证/Agent 不存在两类点名报错）+ V5（热更换绑定即生效）
 
-- [ ] T019 [US3] AdminService：`oryxos-core/src/main/java/io/oryxos/core/channel/ChannelAdminService.java`——复刻 `McpServerAdminService` 骨架：`synchronized` 的 `add`/`update`/`remove`/`reload` = 校验（复用 T005 校验）→ `save()` 落盘 → **先 `stop()` 旧适配器再 `start()` 新配置**（避免新旧连接并存）→ 更新 registry；适配器创建经 `Map<String, Function<ChannelConfig, InboundChannelAdapter>>` 类型工厂（feishu 工厂在 Runtime 装配注入，core 不依赖飞书模块）；单测 `ChannelAdminServiceTest.java` 覆盖断旧建新顺序、校验失败不落盘、name 冲突
-- [ ] T020 [P] [US3] REST 面：`oryxos-web/src/main/java/io/oryxos/web/controller/ChannelApiController.java` + `dto/ChannelView.java`/`ChannelStatusView.java`/`ChannelRequest.java`——按 contracts/channels-api.md 实现 5 端点（列表用 `loadRaw()` 且 appSecret 掩码、status 走 registry 活视图、写操作走 AdminService、错误映射 400/404 统一 `ApiResponse`，参照 `McpApiController`）；MockMvc 测试 `ChannelApiControllerTest.java` 覆盖 CRUD、掩码不泄密、点名错误文案
-- [ ] T021 [US3] 启动校验闭环（SC-008 三类 100%）：确认/补齐三类错误路径的点名文案与「不带病上线且不影响其余功能」行为——缺凭证（`app_secret 未配置或环境变量未解析，请检查 FEISHU_APP_SECRET` 口径）、Agent 不存在、绑定格式非法（YAML 结构/name 非法/type 不支持）；每类各一条集成测试（T014 启动器路径 + T019 变更路径双入口）
+- [x] T019 [US3] AdminService：`oryxos-core/src/main/java/io/oryxos/core/channel/ChannelAdminService.java`——复刻 `McpServerAdminService` 骨架：`synchronized` 的 `add`/`update`/`remove`/`reload` = 校验（复用 T005 校验）→ `save()` 落盘 → **先 `stop()` 旧适配器再 `start()` 新配置**（避免新旧连接并存）→ 更新 registry；适配器创建经 `Map<String, Function<ChannelConfig, InboundChannelAdapter>>` 类型工厂（feishu 工厂在 Runtime 装配注入，core 不依赖飞书模块）；单测 `ChannelAdminServiceTest.java` 覆盖断旧建新顺序、校验失败不落盘、name 冲突
+- [x] T020 [P] [US3] REST 面：`oryxos-web/src/main/java/io/oryxos/web/controller/ChannelApiController.java` + `dto/ChannelView.java`/`ChannelStatusView.java`/`ChannelRequest.java`——按 contracts/channels-api.md 实现 5 端点（列表用 `loadRaw()` 且 appSecret 掩码、status 走 registry 活视图、写操作走 AdminService、错误映射 400/404 统一 `ApiResponse`，参照 `McpApiController`）；MockMvc 测试 `ChannelApiControllerTest.java` 覆盖 CRUD、掩码不泄密、点名错误文案
+- [x] T021 [US3] 启动校验闭环（SC-008 三类 100%）：确认/补齐三类错误路径的点名文案与「不带病上线且不影响其余功能」行为——缺凭证（`app_secret 未配置或环境变量未解析，请检查 FEISHU_APP_SECRET` 口径）、Agent 不存在、绑定格式非法（YAML 结构/name 非法/type 不支持）；每类各一条集成测试（T014 启动器路径 + T019 变更路径双入口）
 - [ ] T022 [US3] 端到端验证：跑 quickstart V4（两类报错 + status 呈现 ERROR 与原因）与 V5（运行中 PUT 换绑 Agent 即生效）；修复问题
 
 **Checkpoint**: 配置接入企业可落地，FR-012/FR-013/SC-008 达成
@@ -101,9 +101,9 @@ Maven 多模块：契约与编排在 `oryxos-core`，适配器在新模块 `oryx
 **Independent Test**: quickstart V6——契约测试两档全绿 + 桩渠道接入 `oryxos-core` 零 diff
 
 - [x] T023 [P] [US4] 测试桩渠道：`oryxos-core/src/test/java/io/oryxos/core/channel/StubChannelAdapter.java`——实现 `InboundChannelAdapter`，内存收发（发出的回复存 List 供断言），可注入模拟消息
-- [ ] T024 [US4] 参数化契约测试集：`oryxos-core/src/test/java/io/oryxos/core/channel/InboundMessageServiceContractTest.java`——JUnit 5 `@ParameterizedTest` 对 contracts B1~B10 逐条断言（桩档参数源）；设计为可复用测试基类（`abstract` 基类 + 桩子类），供飞书档继承
-- [ ] T025 [US4] 契约测试飞书档：`oryxos-channel-feishu/src/test/java/io/oryxos/channel/feishu/FeishuChannelContractTest.java`——继承 T024 基类，参数源换 `FeishuEventNormalizer` 真实事件 JSON 归一化产出 + mock 发送端；两档全绿
-- [ ] T026 [US4] SC-007 证据固化：执行 `git diff --stat <Phase 2 完成提交> -- oryxos-core/` 确认桩渠道接入（T023~T024）未改动 `oryxos-core/src/main`；把验证命令与结论记入 `specs/017-feishu-im-channel/quickstart.md` V6 结果
+- [x] T024 [US4] 参数化契约测试集：`oryxos-core/src/test/java/io/oryxos/core/channel/InboundMessageServiceContractTest.java`——JUnit 5 `@ParameterizedTest` 对 contracts B1~B10 逐条断言（桩档参数源）；设计为可复用测试基类（`abstract` 基类 + 桩子类），供飞书档继承
+- [x] T025 [US4] 契约测试飞书档：`oryxos-channel-feishu/src/test/java/io/oryxos/channel/feishu/FeishuChannelContractTest.java`——继承 T024 基类，参数源换 `FeishuEventNormalizer` 真实事件 JSON 归一化产出 + mock 发送端；两档全绿
+- [x] T026 [US4] SC-007 证据固化：执行 `git diff --stat <Phase 2 完成提交> -- oryxos-core/` 确认桩渠道接入（T023~T024）未改动 `oryxos-core/src/main`；把验证命令与结论记入 `specs/017-feishu-im-channel/quickstart.md` V6 结果
 
 **Checkpoint**: 渠道契约资产成立，企微/钉钉接入路径被测试钉死
 

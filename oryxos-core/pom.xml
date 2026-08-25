@@ -35,4 +35,21 @@
         </dependency>
     </dependencies>
 
+    <build>
+        <plugins>
+            <!-- 017：发布 test-jar，供渠道模块继承入站渠道契约测试基类（飞书档复用同一套 B1~B10 断言） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>

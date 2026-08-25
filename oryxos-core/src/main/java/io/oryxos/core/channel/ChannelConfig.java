@@ -43,7 +43,7 @@ public record ChannelConfig(
   /**
    * 凭证已解析校验：resolved 读法下值仍含 {@code ${} } 即环境变量未解析（仿 ProvidersProperties 口径，017 R2）。
    *
-   * @throws IllegalStateException 凭证缺失或未解析时点名报错
+   * @throws IllegalArgumentException 凭证缺失或未解析时点名报错
    */
   public void validateCredentialsResolved() {
     requireResolved(appId, "app_id");
@@ -52,7 +52,7 @@ public record ChannelConfig(
 
   private void requireResolved(String value, String field) {
     if (value == null || value.isBlank() || value.contains("${")) {
-      throw new IllegalStateException("渠道 " + name + " 的 " + field + " 未配置或环境变量未解析，请检查对应环境变量");
+      throw new IllegalArgumentException("渠道 " + name + " 的 " + field + " 未配置或环境变量未解析，请检查对应环境变量");
     }
   }
 }

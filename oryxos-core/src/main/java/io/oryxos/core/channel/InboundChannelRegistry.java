@@ -15,38 +15,38 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InboundChannelRegistry {
 
   private final Map<String, InboundChannelAdapter> adapters = new ConcurrentHashMap<>();
-  // 校验/启动失败而未上线的渠道：name → ERROR 状态（配置仍在，状态可见，不带病上线）
-  private final Map<String, ChannelStatus> failed = new ConcurrentHashMap<>();
+  // 未上线渠道（校验/启动失败 = ERROR，停用 = DISABLED）：name → 状态（配置仍在，状态可见，不带病上线）
+  private final Map<String, ChannelStatus> offline = new ConcurrentHashMap<>();
 
-  /** 登记一个已启动的适配器；同名 ERROR 记录清除。 */
+  /** 登记一个已启动的适配器；同名离线记录清除。 */
   public void register(InboundChannelAdapter adapter) {
-    failed.remove(adapter.name());
+    offline.remove(adapter.name());
     adapters.put(adapter.name(), adapter);
   }
 
-  /** 登记一个未能上线的渠道及其点名原因。 */
-  public void registerFailure(ChannelStatus errorStatus) {
-    adapters.remove(errorStatus.name());
-    failed.put(errorStatus.name(), errorStatus);
+  /** 登记一个未上线渠道的状态（ERROR 带点名原因 / DISABLED 停用）。 */
+  public void registerOffline(ChannelStatus status) {
+    adapters.remove(status.name());
+    offline.put(status.name(), status);
   }
 
-  /** 移除一个渠道的登记（运行中或失败态皆可）。 */
+  /** 移除一个渠道的登记（运行中或离线态皆可）。 */
   public void unregister(String name) {
     adapters.remove(name);
-    failed.remove(name);
+    offline.remove(name);
   }
 
   public Optional<InboundChannelAdapter> get(String name) {
     return Optional.ofNullable(adapters.get(name));
   }
 
-  /** 全部渠道实时状态：运行中的问适配器，未上线的返回登记的 ERROR。 */
+  /** 全部渠道实时状态：运行中的问适配器，未上线的返回登记的离线状态。 */
   public List<ChannelStatus> statusAll() {
     List<ChannelStatus> out = new ArrayList<>();
     for (InboundChannelAdapter adapter : adapters.values()) {
       out.add(adapter.status());
     }
-    out.addAll(failed.values());
+    out.addAll(offline.values());
     out.sort(java.util.Comparator.comparing(ChannelStatus::name));
     return out;
   }

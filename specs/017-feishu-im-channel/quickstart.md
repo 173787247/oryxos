@@ -63,10 +63,12 @@ unset FEISHU_APP_SECRET && 重启   # → status 显示 ERROR：点名 app_secre
 
 ### V6 契约可扩展性（US4 / SC-007）
 ```bash
-mvn -q test -pl oryxos-core -Dtest=InboundMessageServiceContractTest   # 测试桩档全绿
-mvn -q verify                                                          # 全量门禁
-git diff --stat <契约建立提交> -- oryxos-core/                          # 期望：空（桩渠道零 core 修改）
+mvn test -pl oryxos-core -am -Dtest=StubInboundContractTest              # 测试桩档（9 断言）
+mvn test -pl oryxos-channel-feishu -am -Dtest=FeishuChannelContractTest  # 飞书档（同 9 断言）
+git diff --stat <契约建立提交(3b6012f)> -- oryxos-core/src/main/          # 桩渠道零 core main 修改
 ```
+
+**2026-08-25 验证结果**：两档契约测试各 9 项全绿；桩渠道全部实现位于 `oryxos-core/src/test`（`StubChannelAdapter` + `StubInboundContractTest`），契约建立提交（3b6012f）之后 `oryxos-core/src/main` 仅有契约自身的两处修正（校验异常统一为 400 语义、registry 离线状态改名），无任何「为接入桩渠道而改 core」的 diff——SC-007 达成。
 
 ### V7 非文本与超长（FR-009）
 私聊发一张图片 → 收到「当前仅支持文本提问」；构造超长回答（让 Agent 输出长文）→ 分段送达内容不丢。

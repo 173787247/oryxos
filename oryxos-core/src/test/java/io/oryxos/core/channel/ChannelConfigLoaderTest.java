@@ -74,8 +74,8 @@ class ChannelConfigLoaderTest {
     assertEquals(System.getenv("PATH"), resolved.appId()); // 存在的环境变量被解析
     assertTrue(resolved.appSecret().contains("${")); // 缺失的保留字面量
 
-    IllegalStateException e =
-        assertThrows(IllegalStateException.class, resolved::validateCredentialsResolved);
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, resolved::validateCredentialsResolved);
     assertTrue(e.getMessage().contains("ops-feishu"));
     assertTrue(e.getMessage().contains("app_secret"));
   }
