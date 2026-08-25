@@ -43,6 +43,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private static final String BOT_OPEN_ID_FIELD = "open_id";
   private static final int HTTP_OK = 200;
   private static final long READY_TIMEOUT_MS = 15_000;
+  private static final long READY_PROBE_TIMEOUT_MS = 50;
 
   private final ChannelConfig config; // resolved 口径（凭证为真实值，仅存活内存）
   private final ProfileRegistry profileRegistry;
@@ -144,12 +145,28 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     state = ChannelStatus.State.DISCONNECTED;
   }
 
+  /**
+   * 实时状态：以 {@code awaitReady} 主动探测连接就绪（SDK 内部 readyFuture 重连中被重置、就绪后完成）， 不依赖 onReconnected
+   * 回调——真机验证发现快速重连路径（如对端 Connection reset 后立即重连）不触发该回调， 仅靠回调会把活连接误报为 DISCONNECTED。探测超时取
+   * 50ms，状态查询不阻塞。
+   */
   @Override
   public ChannelStatus status() {
     if (state == ChannelStatus.State.ERROR) {
       return ChannelStatus.error(config.name(), TYPE, config.agent(), lastError);
     }
-    return ChannelStatus.ok(config.name(), TYPE, config.agent(), state);
+    com.lark.oapi.ws.Client ws = wsClient;
+    if (ws == null) {
+      return ChannelStatus.ok(
+          config.name(), TYPE, config.agent(), ChannelStatus.State.DISCONNECTED);
+    }
+    try {
+      ws.awaitReady(READY_PROBE_TIMEOUT_MS);
+      return ChannelStatus.ok(config.name(), TYPE, config.agent(), ChannelStatus.State.CONNECTED);
+    } catch (Exception e) {
+      return ChannelStatus.ok(
+          config.name(), TYPE, config.agent(), ChannelStatus.State.DISCONNECTED);
+    }
   }
 
   @Override
