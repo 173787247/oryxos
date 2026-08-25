@@ -10,18 +10,20 @@
         <version>0.1.3-RELEASE</version>
     </parent>
 
-    <artifactId>oryxos-core</artifactId>
-    <name>OryxOS Core</name>
-    <description>Core interfaces and models</description>
+    <artifactId>oryxos-channel-feishu</artifactId>
+    <name>OryxOS Channel Feishu</name>
+    <description>Feishu inbound IM channel: long-connection event subscription and reply</description>
 
     <dependencies>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-core</artifactId>
         </dependency>
+        <!-- 飞书官方 SDK：长连接事件订阅 + im/v1 消息 API（okhttp 已 vendored，无 netty） -->
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
+            <groupId>com.larksuite.oapi</groupId>
+            <artifactId>oapi-sdk</artifactId>
+            <version>${oapi-sdk.version}</version>
         </dependency>
         <dependency>
             <groupId>com.github.spotbugs</groupId>
@@ -33,23 +35,14 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 017：入站渠道契约测试基类（B1~B10）来自 core test-jar，飞书档继承复用 -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-core</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
-
-    <build>
-        <plugins>
-            <!-- 017：发布 test-jar，供渠道模块继承入站渠道契约测试基类（飞书档复用同一套 B1~B10 断言） -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>test-jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 
 </project>

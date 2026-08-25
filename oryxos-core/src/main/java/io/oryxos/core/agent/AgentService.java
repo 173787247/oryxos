@@ -31,7 +31,7 @@ import java.util.concurrent.locks.ReentrantLock;
     justification = "profileRegistry 是 Spring 注入的单例注册表，三种触发源共享同一引用正是意图（29 节起可运行时增删，必须同一份）。")
 public class AgentService {
 
-  private static final String STATELESS_EXECUTION_ID_PREFIX = "invoke-exec:";
+  private static final String STATELESS_EXECUTION_TAG = "invoke-exec";
 
   /** 会话 id → 该会话的串行锁。会话数是有限的（channel:user:profile 三元组），增长有界，可接受。 */
   private final ConcurrentMap<String, Lock> sessionLocks = new ConcurrentHashMap<>();
@@ -91,12 +91,21 @@ public class AgentService {
    * <p>单次请求内的 ReAct 多轮仍完整执行；审计沿用 Session 标识关联到本次执行，请求结束后临时消息丢弃。
    */
   public String processStateless(String agentName, String userMessage) {
+    return processStateless(
+        agentName, userMessage, STATELESS_EXECUTION_TAG + ":" + UUID.randomUUID());
+  }
+
+  /**
+   * 无状态调用（带完整临时会话标识）：{@code statelessSessionId} 由调用方生成并同时用于 {@code agent_executions} 关联，使审计三表可按同一
+   * id 串联、触发渠道可辨（017 FR-014：群聊问答传 "feishu-group:&lt;uuid&gt;" 形态， 审计可按 {@code session_id LIKE
+   * 'feishu%'} 查询）。仍不创建持久会话。
+   */
+  public String processStateless(String agentName, String userMessage, String statelessSessionId) {
     Profile profile =
         profileRegistry
             .get(agentName)
             .orElseThrow(() -> new IllegalStateException("Agent 不存在: " + agentName));
-    Session session =
-        new Session(STATELESS_EXECUTION_ID_PREFIX + UUID.randomUUID(), profile.name());
+    Session session = new Session(statelessSessionId, profile.name());
     ProfileContext.set(profile);
     try {
       String reply = reActLoop.run(session, userMessage, profile);

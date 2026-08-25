@@ -25,6 +25,7 @@
         <picocli.version>4.7.6</picocli.version>
         <sqlite-jdbc.version>3.53.2.1</sqlite-jdbc.version>
         <pdfbox.version>3.0.5</pdfbox.version>
+        <oapi-sdk.version>2.8.5</oapi-sdk.version>
 
         <!-- Infrastructure libraries -->
         <jackson-bom.version>2.21.5</jackson-bom.version>
@@ -59,6 +60,7 @@
         <module>oryxos-knowledge</module>
         <module>oryxos-tool</module>
         <module>oryxos-channel-cli</module>
+        <module>oryxos-channel-feishu</module>
         <module>oryxos-web</module>
         <module>oryxos-storage</module>
         <module>oryxos-cli</module>
@@ -105,6 +107,11 @@
             <dependency>
                 <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-channel-cli</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-feishu</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

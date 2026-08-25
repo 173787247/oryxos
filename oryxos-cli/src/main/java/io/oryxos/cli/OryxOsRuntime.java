@@ -810,6 +810,70 @@ public class OryxOsRuntime {
     return new CliChannel(agentService, sessionManager);
   }
 
+  // ── 017：入站 IM 渠道（飞书长连接）────────────────────────────────────────
+
+  @Bean
+  io.oryxos.core.channel.ChannelConfigLoader channelConfigLoader() {
+    return new io.oryxos.core.channel.ChannelConfigLoader(oryxosRoot().resolve("channels.yaml"));
+  }
+
+  @Bean
+  io.oryxos.core.channel.MessageDeduplicator messageDeduplicator() {
+    return new io.oryxos.core.channel.MessageDeduplicator();
+  }
+
+  @Bean
+  io.oryxos.core.channel.InboundChannelRegistry inboundChannelRegistry() {
+    return new io.oryxos.core.channel.InboundChannelRegistry();
+  }
+
+  @Bean
+  io.oryxos.core.channel.InboundMessageService inboundMessageService(
+      AgentService agentService,
+      SessionManager sessionManager,
+      ProfileRegistry profileRegistry,
+      AgentExecutionService agentExecutionService,
+      io.oryxos.core.channel.MessageDeduplicator messageDeduplicator) {
+    return new io.oryxos.core.channel.InboundMessageService(
+        agentService,
+        sessionManager,
+        profileRegistry,
+        agentExecutionService,
+        messageDeduplicator,
+        java.time.Duration.ofSeconds(15)); // 「处理中」提示阈值（Edge Case：先行告知）
+  }
+
+  /** 渠道出站守卫：渠道自建 HTTP 不被沙箱自动拦截，经此显式复用 http 域名白名单（宪法 VI / 017 R7）。 */
+  @Bean
+  io.oryxos.core.channel.OutboundGuard channelOutboundGuard(WhitelistSandbox sandbox) {
+    return url ->
+        sandbox.enforce(
+            new io.oryxos.tool.sandbox.SandboxAction(
+                io.oryxos.tool.sandbox.ActionType.HTTP_REQUEST, url));
+  }
+
+  /**
+   * 渠道管理：落盘 + 断旧建新即生效（无需重启，复刻 MCP admin 模式）。initMethod=startAll 启动恢复全部渠道， 单条失败登记 ERROR
+   * 点名原因不阻断启动；destroyMethod=stopAll 关闭时断开长连接。
+   */
+  @Bean(initMethod = "startAll", destroyMethod = "stopAll")
+  io.oryxos.core.channel.ChannelAdminService channelAdminService(
+      io.oryxos.core.channel.ChannelConfigLoader channelConfigLoader,
+      io.oryxos.core.channel.InboundChannelRegistry inboundChannelRegistry,
+      ProfileRegistry profileRegistry,
+      io.oryxos.core.channel.InboundMessageService inboundMessageService,
+      io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+    return new io.oryxos.core.channel.ChannelAdminService(
+        channelConfigLoader,
+        inboundChannelRegistry,
+        profileRegistry,
+        Map.of(
+            io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
+            resolved ->
+                new io.oryxos.channel.feishu.FeishuChannelAdapter(
+                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
+  }
+
   /**
    * 定时任务的调度线程池（25 节）。setDaemon(true)：chat 是一次性命令，跑完对话进程应正常退出——非 daemon 的调度线程会挂住 JVM 不退出（spec Edge
    * Case）；serve/gateway 常驻时靠主线程 join 保活，daemon 调度线程照跑。

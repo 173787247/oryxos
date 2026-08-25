@@ -24,7 +24,7 @@ OryxOS 是用 Java 实现的面向企业场景的 **Distributed AI Agent OS**。
 
 ---
 
-## 模块结构（10 个）
+## 模块结构（11 个）
 
 ```
 oryxos/
@@ -42,6 +42,9 @@ oryxos/
 ├── oryxos-tool          # 能力四：内置 Tool（文件/Shell/HTTP）、MCP Client、
 │                        #   ToolRegistry、SandboxChecker
 ├── oryxos-channel-cli   # CLI Channel：oryxos chat 实现
+├── oryxos-channel-feishu # 飞书 IM 入站渠道（017）：oapi-sdk 长连接收 im.message.receive_v1、
+│                        #   FeishuEventNormalizer（@ 判定/剥离）、FeishuMessageSender（分段+沙箱）
+│                        #   （入站渠道契约与共享编排在 oryxos-core/channel/，依赖倒置）
 ├── oryxos-web           # 能力五：WebServer、ApiController、GlobalExceptionHandler、
 │                        #   OpenAPI
 ├── oryxos-storage       # 持久化：SQLite、SessionRepository、
