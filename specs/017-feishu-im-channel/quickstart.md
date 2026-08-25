@@ -84,3 +84,19 @@ git diff --stat <契约建立提交(3b6012f)> -- oryxos-core/src/main/          
 | V5 | 变更即生效，无重启 |
 | V6 | 契约测试两档全绿；桩渠道 core 零 diff |
 | V7 | 能力说明回复；分段完整送达 |
+
+---
+
+## 真机验证记录（2026-08-25，飞书自建应用 + kb-tester Agent）
+
+| 场景 | 结果 | 证据 |
+|------|------|------|
+| V1 私聊闭环 | ✅ | 两轮问答承接上下文；`sessions` 落 `feishu:<open_id>:kb-tester`；`agent_executions` 2 条 success（8.6s/9.5s）；`llm_calls` 2 条关联 |
+| V2 群聊 @ 独立问答 | ✅ | 两次 @ 各自独立 `feishu-group:<uuid>` 执行（互不共享会话 id）；引用原消息回复；非 @ 消息零响应零留痕；`sessions` 零新增 |
+| V3 去重/解耦 | ✅（半真机） | 群聊 18.2s 执行 > 15s 阈值，「处理中」提示真机命中（B8）；飞书重推不可人工触发，去重由契约测试 B1 钉死 |
+| V4 三类配置错误 | ✅ | Agent 不存在 / 凭证未解析 / name 非法均 REST 400 点名、无一落盘、在线渠道不受影响 |
+| V5 免重启热更 | ✅ | PUT 停用→wss 断开（DISABLED）→PUT 启用→wss 重连（CONNECTED），进程未重启；落盘保持 ${} 占位、权限 rw------- |
+| V6 契约可扩展性 | ✅ | 见上节（两档契约测试 18 项全绿 + 桩渠道零 core diff） |
+| V7 非文本 | ✅ | 私聊发图片收到「当前仅支持文本提问」；无执行记录 |
+
+**真机发现并修复**：飞书侧 Connection reset 后 SDK 走快速重连路径不触发 onReconnected 回调，status 误报 DISCONNECTED——已改为 `awaitReady` 主动探测（commit 5ac554f）。
