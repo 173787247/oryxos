@@ -17,6 +17,15 @@ public final class WorkspaceMutationGuard {
   private static final String KNOWLEDGE = "knowledge";
   private static final String AGENT_MD = "agent.md";
 
+  /** {@code agents/<name>/<kind|AGENT.md>}：相对 agents 下标再 +2。 */
+  private static final int REL_AFTER_AGENT_NAME = 2;
+
+  /** {@code agents/<name>/skills|knowledge/<leaf>}：相对 agents 下标再 +3。 */
+  private static final int REL_BIND_LEAF = 3;
+
+  /** 共享树段前若是 {@code agents/<name>/}，向前看 2 段对齐 agents。 */
+  private static final int LOOKBACK_TO_AGENTS = 2;
+
   private WorkspaceMutationGuard() {}
 
   /**
@@ -53,11 +62,12 @@ public final class WorkspaceMutationGuard {
     }
     List<String> segs = lowerSegments(path);
     int agents = indexOf(segs, AGENTS);
-    if (agents < 0 || agents + 2 >= segs.size()) {
+    int fileIdx = agents + REL_AFTER_AGENT_NAME;
+    if (agents < 0 || fileIdx >= segs.size()) {
       return;
     }
     // agents/<name>/AGENT.md 恰好三段（相对 agents）
-    if (agents + 2 == segs.size() - 1 && AGENT_MD.equals(segs.get(agents + 2))) {
+    if (fileIdx == segs.size() - 1 && AGENT_MD.equals(segs.get(fileIdx))) {
       throw new IllegalArgumentException(
           "拒绝直接改写 AGENT.md，请通过 Agent 管理 / lifecycle.update: " + path);
     }
@@ -76,15 +86,16 @@ public final class WorkspaceMutationGuard {
     }
     List<String> segs = lowerSegments(path);
     int agents = indexOf(segs, AGENTS);
-    if (agents < 0 || agents + 2 >= segs.size()) {
+    int kindIdx = agents + REL_AFTER_AGENT_NAME;
+    if (agents < 0 || kindIdx >= segs.size()) {
       return;
     }
-    String kind = segs.get(agents + 2);
+    String kind = segs.get(kindIdx);
     if (!SKILLS.equals(kind) && !KNOWLEDGE.equals(kind)) {
       return;
     }
     // agents/<name>/skills|knowledge 之后还有段 → 会占叶子槽
-    if (agents + 2 < segs.size() - 1) {
+    if (kindIdx < segs.size() - 1) {
       throw new IllegalArgumentException("拒绝在 Skill/Knowledge 绑定位建目录（请用 bind 入口）: " + path);
     }
   }
@@ -105,10 +116,11 @@ public final class WorkspaceMutationGuard {
   /** agents/name/skills|knowledge/leaf：恰好 bind 叶子（无更深子路径）。 */
   private static boolean isAgentBindLeaf(List<String> segs) {
     int agents = indexOf(segs, AGENTS);
-    if (agents < 0 || agents + 3 != segs.size() - 1) {
+    int leafIdx = agents + REL_BIND_LEAF;
+    if (agents < 0 || leafIdx != segs.size() - 1) {
       return false;
     }
-    String kind = segs.get(agents + 2);
+    String kind = segs.get(agents + REL_AFTER_AGENT_NAME);
     return SKILLS.equals(kind) || KNOWLEDGE.equals(kind);
   }
 
@@ -119,7 +131,7 @@ public final class WorkspaceMutationGuard {
       return false;
     }
     // 若是 agents/<name>/skills|knowledge，则交给 underAgentBindTree
-    if (i >= 2 && AGENTS.equals(segs.get(i - 2))) {
+    if (i >= LOOKBACK_TO_AGENTS && AGENTS.equals(segs.get(i - LOOKBACK_TO_AGENTS))) {
       return false;
     }
     return true;
@@ -128,10 +140,11 @@ public final class WorkspaceMutationGuard {
   /** agents/name/skills|knowledge/... */
   private static boolean underAgentBindTree(List<String> segs, String kind) {
     int agents = indexOf(segs, AGENTS);
-    if (agents < 0 || agents + 2 >= segs.size()) {
+    int kindIdx = agents + REL_AFTER_AGENT_NAME;
+    if (agents < 0 || kindIdx >= segs.size()) {
       return false;
     }
-    return kind.equals(segs.get(agents + 2));
+    return kind.equals(segs.get(kindIdx));
   }
 
   private static int indexOf(List<String> segs, String name) {
