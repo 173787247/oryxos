@@ -57,16 +57,17 @@ class SandboxWhitelistControllerTest {
   private final SandboxWhitelistController controller = new SandboxWhitelistController(whitelist);
 
   @Test
-  @DisplayName("查询返回三类白名单")
-  void listReturnsAllThreeCategories() {
+  @DisplayName("查询返回四类白名单")
+  void listReturnsAllFourCategories() {
     whitelist.add(SandboxWhitelist.Category.HTTP, "*.example.com");
 
     ApiResponse<Map<String, List<String>>> response = controller.list();
 
     Map<String, List<String>> data = response.getData();
-    assertEquals(3, data.size());
+    assertEquals(4, data.size());
     assertTrue(data.containsKey("file"));
     assertTrue(data.containsKey("shell"));
+    assertTrue(data.containsKey("smtp"));
     assertEquals(List.of("*.example.com"), data.get("http"));
   }
 

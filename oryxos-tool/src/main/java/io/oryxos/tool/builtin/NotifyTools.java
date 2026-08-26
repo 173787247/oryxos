@@ -73,8 +73,7 @@ public class NotifyTools implements OryxTool {
     if (registered.isEmpty()) {
       return "把一条消息推送到指定通知渠道。channel 传渠道名；当前无已注册渠道——去管理台「Notify 渠道」里新建。";
     }
-    String names =
-        registered.stream().map(NotifyTools::describe).collect(Collectors.joining(", "));
+    String names = registered.stream().map(NotifyTools::describe).collect(Collectors.joining(", "));
     return "把一条消息推送到指定通知渠道。channel 传渠道名，当前可用：" + names;
   }
 
