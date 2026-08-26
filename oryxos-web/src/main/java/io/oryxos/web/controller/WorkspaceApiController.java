@@ -1,6 +1,7 @@
 package io.oryxos.web.controller;
 
 import io.oryxos.core.agent.AgentLifecycleService;
+import io.oryxos.core.fs.AdminConfigFileGuard;
 import io.oryxos.core.fs.RealPathBoundary;
 import io.oryxos.core.fs.WorkspaceMutationGuard;
 import io.oryxos.core.memory.MemoryMdGuard;
@@ -140,6 +141,7 @@ public class WorkspaceApiController {
     }
     // 先词法拦直写；再投影真实路径后复检——notes.md→MEMORY.md 软链只在投影后能看见
     MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
     WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
     Path target = resolveWithinRoot(path);
     MemoryMdGuard.rejectMutation(target);

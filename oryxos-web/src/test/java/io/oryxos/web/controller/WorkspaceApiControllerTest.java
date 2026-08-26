@@ -162,6 +162,27 @@ class WorkspaceApiControllerTest {
   }
 
   @Test
+  @DisplayName("工作区写入口禁止直写 channels.yaml / mcp_servers.yaml")
+  void writeAdminConfigFilesIsRejected() throws Exception {
+    Path channels = Files.writeString(oryxosRoot.resolve("channels.yaml"), "channels: []\n");
+    Path mcp = Files.writeString(oryxosRoot.resolve("mcp_servers.yaml"), "servers: []\n");
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"path\":\"channels.yaml\",\"content\":\"channels: [{hijack: true}]\\n\"}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"path\":\"mcp_servers.yaml\",\"content\":\"servers: [{hijack: true}]\\n\"}"))
+        .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertEquals("channels: []\n", Files.readString(channels));
+    org.junit.jupiter.api.Assertions.assertEquals("servers: []\n", Files.readString(mcp));
+  }
+
+  @Test
   @DisplayName("工作区写入口禁止写 Agent skills 绑定视图")
   void writeThroughAgentSkillsIsRejected() throws Exception {
     mvc.perform(

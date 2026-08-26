@@ -1,5 +1,6 @@
 package io.oryxos.tool.builtin;
 
+import io.oryxos.core.fs.AdminConfigFileGuard;
 import io.oryxos.core.fs.WorkspaceMutationGuard;
 import io.oryxos.core.memory.MemoryMdGuard;
 import io.oryxos.tool.sandbox.ActionType;
@@ -303,6 +304,7 @@ public class HttpTools {
       @ToolParam(description = "要下载的 URL") String url,
       @ToolParam(description = "保存到的本地文件路径") String path) {
     MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
     WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
     WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path)); // 先校验落盘路径
