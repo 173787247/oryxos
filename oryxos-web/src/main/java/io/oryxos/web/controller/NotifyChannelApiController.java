@@ -9,6 +9,7 @@ import io.oryxos.web.controller.dto.NotifyChannelView;
 import io.oryxos.web.controller.dto.UpdateNotifyChannelRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>薄转发给 {@link NotifyChannelRegistry}。错误码沿用既有口径：名字冲突 / 定义非法 → 400 （{@code
  * IllegalArgumentException}）；不存在 → 404（{@code ResourceNotFoundException}）；统一 {@code ApiResponse}
- * 信封。type 必须是已装配的渠道实现之一（webhook/feishu/wecom/dingtalk）。
+ * 信封。type 必须是已装配的渠道实现之一（webhook/feishu/wecom/dingtalk/email）。
  */
 @SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
@@ -34,8 +35,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/notify-channels")
 public class NotifyChannelApiController {
 
+  private static final String TYPE_EMAIL = "email";
+
+  /** email 渠道 port 的合法上限（TCP 端口最大值）。 */
+  private static final int MAX_PORT = 65535;
+
   private static final Set<String> SUPPORTED_TYPES =
-      Set.of("webhook", "feishu", "wecom", "dingtalk");
+      Set.of("webhook", "feishu", "wecom", "dingtalk", TYPE_EMAIL);
 
   private final NotifyChannelRegistry registry;
 
@@ -52,9 +58,11 @@ public class NotifyChannelApiController {
     if (registry.exists(name)) {
       throw new IllegalArgumentException("通知渠道已存在: " + name); // → 400
     }
-    validate(req.type(), req.url());
+    Map<String, String> config = req.config();
+    String url = normalizeUrl(req.type(), req.url());
+    validate(req.type(), url, config);
     NotifyChannelDef saved =
-        registry.save(new NotifyChannelDef(name, req.type(), req.url(), req.description()));
+        registry.save(new NotifyChannelDef(name, req.type(), url, req.description(), config));
     return ApiResponse.ok(NotifyChannelView.from(saved));
   }
 
@@ -78,9 +86,11 @@ public class NotifyChannelApiController {
     if (!registry.exists(name)) {
       throw new ResourceNotFoundException("通知渠道不存在: " + name); // → 404
     }
-    validate(req.type(), req.url());
+    Map<String, String> config = req.config();
+    String url = normalizeUrl(req.type(), req.url());
+    validate(req.type(), url, config);
     NotifyChannelDef saved =
-        registry.save(new NotifyChannelDef(name, req.type(), req.url(), req.description()));
+        registry.save(new NotifyChannelDef(name, req.type(), url, req.description(), config));
     return ApiResponse.ok(NotifyChannelView.from(saved));
   }
 
@@ -93,12 +103,47 @@ public class NotifyChannelApiController {
     return ApiResponse.ok(null);
   }
 
-  private static void validate(String type, String url) {
+  private static void validate(String type, String url, Map<String, String> config) {
     if (type == null || !SUPPORTED_TYPES.contains(type)) {
       throw new IllegalArgumentException("不支持的渠道类型: " + type + "（支持: " + SUPPORTED_TYPES + "）");
     }
-    if (url == null || url.isBlank()) {
+    if (TYPE_EMAIL.equals(type)) {
+      validateEmail(config);
+    } else if (url == null || url.isBlank()) {
       throw new IllegalArgumentException("渠道 url 为空");
     }
+  }
+
+  private static void validateEmail(Map<String, String> config) {
+    if (config == null) {
+      throw new IllegalArgumentException("email 渠道缺少配置（需 host/port/from/to）");
+    }
+    requireConfig(config, "host");
+    requireConfig(config, "from");
+    requireConfig(config, "to");
+    String portRaw = config.get("port");
+    if (portRaw == null || portRaw.isBlank()) {
+      throw new IllegalArgumentException("email 渠道缺少配置键 port");
+    }
+    int port;
+    try {
+      port = Integer.parseInt(portRaw.strip());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("email 渠道 port 不是整数: " + portRaw);
+    }
+    if (port < 1 || port > MAX_PORT) {
+      throw new IllegalArgumentException("email 渠道 port 非法（须 1~" + MAX_PORT + "）: " + portRaw);
+    }
+  }
+
+  private static void requireConfig(Map<String, String> config, String key) {
+    String value = config.get(key);
+    if (value == null || value.isBlank()) {
+      throw new IllegalArgumentException("email 渠道缺少配置键 " + key);
+    }
+  }
+
+  private static String normalizeUrl(String type, String url) {
+    return TYPE_EMAIL.equals(type) ? "" : url;
   }
 }

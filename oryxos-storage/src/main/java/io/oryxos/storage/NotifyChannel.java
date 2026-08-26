@@ -21,6 +21,9 @@ public class NotifyChannel {
   @Column(nullable = false)
   private String url;
 
+  /** 类型相关的额外配置（JSON 文本，如 email 的 host/port/from/to/username/password/…）；null 视为空。 */
+  private String config;
+
   private String description;
 
   @Column(name = "created_at", nullable = false)
@@ -65,6 +68,14 @@ public class NotifyChannel {
 
   public void setUrl(String url) {
     this.url = url;
+  }
+
+  public String getConfig() {
+    return config;
+  }
+
+  public void setConfig(String config) {
+    this.config = config;
   }
 
   public String getDescription() {

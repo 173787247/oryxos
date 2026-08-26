@@ -760,7 +760,7 @@ async function deleteAgent(name) {
   } catch (e) { agents.value = { ...agents.value, error: e.message } }
 }
 
-// —— Notify 渠道管理（CRUD /api/v1/notify-channels）：命名的通知出口，type ∈ feishu/wecom/dingtalk/webhook ——
+// —— Notify 渠道管理（CRUD /api/v1/notify-channels）：命名的通知出口，type ∈ feishu/wecom/dingtalk/webhook/email ——
 const notifyChannels = ref({ loading: false, error: null, data: [] })
 async function loadNotifyChannels() {
   notifyChannels.value = { loading: true, error: null, data: [] }
@@ -775,7 +775,7 @@ async function loadNotifyChannels() {
 }
 
 // 新建/编辑表单：editing 存被编辑渠道的 name（此时 name 只读），null 表示新建
-const nc = reactive({ open: false, editing: null, name: '', type: 'feishu', url: '', description: '', busy: false, error: null })
+const nc = reactive({ open: false, editing: null, name: '', type: 'feishu', url: '', description: '', host: '', port: '', from: '', to: '', username: '', password: '', subject: '', encryption: '', busy: false, error: null })
 
 async function saveNotifyChannel() {
   nc.busy = true; nc.error = null
@@ -783,9 +783,11 @@ async function saveNotifyChannel() {
     const url = nc.editing
       ? `/api/v1/notify-channels/${encodeURIComponent(nc.editing)}`
       : '/api/v1/notify-channels'
-    const payload = nc.editing
-      ? { type: nc.type, url: nc.url, description: nc.description }
-      : { name: nc.name, type: nc.type, url: nc.url, description: nc.description }
+    const config = nc.type === 'email' ? buildEmailConfig() : undefined
+    let payload = nc.type === 'email'
+      ? { type: nc.type, url: '', config, description: nc.description }
+      : { type: nc.type, url: nc.url, description: nc.description }
+    if (!nc.editing) payload = { name: nc.name, ...payload }
     const res = await fetch(url, {
       method: nc.editing ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -803,12 +805,25 @@ function editNotifyChannel(row) {
   nc.type = row.type || 'feishu'
   nc.url = row.url || ''
   nc.description = row.description || ''
+  const c = row.config || {}
+  nc.host = c.host || ''; nc.port = c.port || ''; nc.from = c.from || ''; nc.to = c.to || ''
+  nc.username = c.username || ''; nc.password = c.password || ''; nc.subject = c.subject || ''; nc.encryption = c.encryption || ''
   nc.error = null
   nc.open = true
 }
 
+function buildEmailConfig() {
+  const config = {}
+  for (const k of ['host', 'port', 'from', 'to', 'username', 'password', 'subject', 'encryption']) {
+    if (nc[k]) config[k] = nc[k]
+  }
+  return config
+}
+
 function cancelNc() {
-  nc.open = false; nc.editing = null; nc.name = ''; nc.type = 'feishu'; nc.url = ''; nc.description = ''; nc.error = null
+  nc.open = false; nc.editing = null; nc.name = ''; nc.type = 'feishu'; nc.url = ''; nc.description = ''
+  nc.host = ''; nc.port = ''; nc.from = ''; nc.to = ''; nc.username = ''; nc.password = ''; nc.subject = ''; nc.encryption = ''
+  nc.error = null
 }
 
 async function deleteNotifyChannel(name) {
@@ -1100,27 +1115,28 @@ async function submitEnable() {
   } catch (e) { mcpEnable.error = e.message } finally { mcpEnable.busy = false }
 }
 
-// —— Sandbox 白名单管理（CRUD /api/v1/sandbox/whitelist）：三类 file/shell/http 的白名单条目 ——
+// —— Sandbox 白名单管理（CRUD /api/v1/sandbox/whitelist）：四类 file/shell/http/smtp 的白名单条目 ——
 const WL_CATS = [
   { key: 'file', label: '文件路径', ph: '允许访问的路径，如 /data 或 /tmp/*' },
   { key: 'shell', label: '可执行文件', ph: '允许执行的可执行文件，如 python3（授予本机代码执行权限）' },
   { key: 'http', label: 'HTTP 域名', ph: '允许访问的域名，如 *.example.com' },
+  { key: 'smtp', label: 'SMTP 端点', ph: '允许发信的邮件服务器，如 mail.example.com:25' },
 ]
-const wl = ref({ loading: false, error: null, file: [], shell: [], http: [] })
+const wl = ref({ loading: false, error: null, file: [], shell: [], http: [], smtp: [] })
 async function loadWhitelist() {
-  wl.value = { loading: true, error: null, file: [], shell: [], http: [] }
+  wl.value = { loading: true, error: null, file: [], shell: [], http: [], smtp: [] }
   try {
     const res = await fetch('/api/v1/sandbox/whitelist')
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
     const d = body.data || {}
-    wl.value = { loading: false, error: null, file: d.file || [], shell: d.shell || [], http: d.http || [] }
+    wl.value = { loading: false, error: null, file: d.file || [], shell: d.shell || [], http: d.http || [], smtp: d.smtp || [] }
   } catch (e) {
-    wl.value = { loading: false, error: e.message, file: [], shell: [], http: [] }
+    wl.value = { loading: false, error: e.message, file: [], shell: [], http: [], smtp: [] }
   }
 }
 
-// 新增白名单表单：category ∈ file/shell/http，value 为一条白名单条目
+// 新增白名单表单：category ∈ file/shell/http/smtp，value 为一条白名单条目
 const wlForm = reactive({ open: false, category: 'file', value: '', busy: false, error: null })
 const wlPlaceholder = computed(() => WL_CATS.find((c) => c.key === wlForm.category)?.ph || '')
 
@@ -2057,7 +2073,7 @@ const outputRows = computed(() =>
             </div>
           </div>
 
-          <!-- Sandbox 白名单：三类 file/shell/http 的 CRUD（新增走弹框 / 逐行删除） -->
+          <!-- Sandbox 白名单：四类 file/shell/http/smtp 的 CRUD（新增走弹框 / 逐行删除） -->
           <div v-else-if="active === 'whitelist'">
             <div class="toolbar">
               <button class="btn btn-primary" @click="wlForm.open = true">+ 新增白名单</button>
@@ -2071,9 +2087,10 @@ const outputRows = computed(() =>
                     <option value="file">文件路径</option>
                     <option value="shell">Shell 命令</option>
                     <option value="http">HTTP 域名</option>
+                    <option value="smtp">SMTP 端点</option>
                   </select>
                   <input v-model="wlForm.value" class="gen-input" :placeholder="wlPlaceholder" />
-                  <p class="empty">选择类别并填写一条白名单条目：文件路径 / 可执行文件 / HTTP 域名（支持通配，如 *.example.com）。</p>
+                  <p class="empty">选择类别并填写一条白名单条目：文件路径 / 可执行文件 / HTTP 域名 / SMTP 端点（域名支持通配，如 *.example.com）。</p>
                   <p v-if="wlForm.error" class="error">{{ wlForm.error }}</p>
                 </div>
                 <div class="modal-foot">
@@ -2502,15 +2519,31 @@ const outputRows = computed(() =>
                     <option value="wecom">wecom</option>
                     <option value="dingtalk">dingtalk</option>
                     <option value="webhook">webhook</option>
+                    <option value="email">email</option>
                   </select>
-                  <input v-model="nc.url" class="gen-input" placeholder="Webhook URL" />
+                  <input v-if="nc.type !== 'email'" v-model="nc.url" class="gen-input" placeholder="Webhook URL" />
+                  <template v-if="nc.type === 'email'">
+                    <input v-model="nc.host" class="gen-input" placeholder="SMTP host（如 smtp.example.com）" />
+                    <input v-model="nc.port" class="gen-input" placeholder="端口（465/587/25）" />
+                    <input v-model="nc.from" class="gen-input" placeholder="发件人（from）" />
+                    <input v-model="nc.to" class="gen-input" placeholder="收件人（to，逗号分隔）" />
+                    <input v-model="nc.username" class="gen-input" placeholder="用户名（可选）" />
+                    <input v-model="nc.password" class="gen-input" type="password" placeholder="密码（建议填 ${SMTP_PASSWORD}，无认证留空）" />
+                    <input v-model="nc.subject" class="gen-input" placeholder="主题（可选）" />
+                    <select v-model="nc.encryption" class="gen-input">
+                      <option value="">加密方式（自动按端口推断）</option>
+                      <option value="ssl">ssl</option>
+                      <option value="starttls">starttls</option>
+                      <option value="none">none</option>
+                    </select>
+                  </template>
                   <input v-model="nc.description" class="gen-input" placeholder="描述（可选）" />
-                  <p class="empty">{{ nc.editing ? '编辑现有渠道，渠道名不可改。' : 'type 支持 feishu / wecom / dingtalk / webhook；URL 为对应的 Webhook 地址。' }}</p>
+                  <p class="empty">{{ nc.editing ? '编辑现有渠道，渠道名不可改。' : 'type 支持 feishu / wecom / dingtalk / webhook / email；email 填 SMTP 多字段（密码建议 ${SMTP_PASSWORD} 环境变量占位），其余填 Webhook URL。' }}</p>
                   <p v-if="nc.error" class="error">{{ nc.error }}</p>
                 </div>
                 <div class="modal-foot">
                   <button class="btn" @click="cancelNc">取消</button>
-                  <button class="btn btn-primary" :disabled="nc.busy || !nc.name || !nc.url" @click="saveNotifyChannel">{{ nc.editing ? '保存修改' : '创建' }}</button>
+                  <button class="btn btn-primary" :disabled="nc.busy || !nc.name || (nc.type === 'email' ? !(nc.host && nc.port && nc.from && nc.to) : !nc.url)" @click="saveNotifyChannel">{{ nc.editing ? '保存修改' : '创建' }}</button>
                 </div>
               </div>
             </div>
@@ -2523,7 +2556,7 @@ const outputRows = computed(() =>
                 <tr v-for="c in notifyChannels.data" :key="c.name">
                   <td class="mono">{{ c.name }}</td>
                   <td>{{ c.type }}</td>
-                  <td class="mono">{{ c.url }}</td>
+                  <td class="mono">{{ c.type === 'email' ? (c.config ? c.config.host + ':' + c.config.port : '—') : c.url }}</td>
                   <td>{{ c.description || '—' }}</td>
                   <td class="ops">
                     <button class="btn" @click="editNotifyChannel(c)">编辑</button>

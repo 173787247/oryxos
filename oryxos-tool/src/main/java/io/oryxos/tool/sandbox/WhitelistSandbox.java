@@ -17,17 +17,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 核心阶段唯一的 {@link Sandbox} 实现：应用层白名单校验（宪法 VI 第一档）。按 {@link ActionType} 路由到文件路径 / 可执行文件 / HTTP
- * 域名三类校验，任一不过抛 {@link SandboxViolationException}、动作零发生。
+ * 核心阶段唯一的 {@link Sandbox} 实现：应用层白名单校验（宪法 VI 第一档）。按 {@link ActionType} 路由到文件路径 / 可执行文件 / HTTP 域名 /
+ * SMTP 端点四类校验，任一不过抛 {@link SandboxViolationException}、动作零发生。
  *
- * <p>三块白名单初始来自配置（{@code file.allowed_paths} / {@code shell.allowed_commands} / {@code
- * http.allowed_domains}）。空列表天然 deny-all（{@code anyMatch} 对空流恒 false），配置缺失绝不退化为放行。
+ * <p>四块白名单初始来自配置（{@code file.allowed_paths} / {@code shell.allowed_commands} / {@code
+ * http.allowed_domains} / {@code smtp.allowed_endpoints}）。空列表天然 deny-all（{@code anyMatch} 对空流恒
+ * false），配置缺失绝不退化为放行。
  *
  * <p>同时实现 {@link SandboxWhitelist}：管理员可经 Web 端点运行时查询 / 增删白名单。存储用并发集合 （{@link CopyOnWriteArrayList}
  * / {@link ConcurrentHashMap#newKeySet()}）——校验读路径无锁（热路径）， 管理写路径极少发生、拷贝开销可接受；非异步编程模型，符合宪法 VII。每次改动落
  * INFO 日志留痕。
  *
- * <p>三个 {@code check*} 与 {@code matchesDomain} 均 {@code private}——对外只暴露 {@code enforce} 与管理三方法。 若把
+ * <p>四个 {@code check*} 与 {@code matchesDomain} 均 {@code private}——对外只暴露 {@code enforce} 与管理三方法。 若把
  * check* public 暴露到 {@code Sandbox} 接口上，接口就被这一档实现带偏了。
  */
 // final：构造器会因非法配置抛异常（normalizeRoot/requireNonBlank），禁止子类化以杜绝 finalizer attack（CT_CONSTRUCTOR_THROW）
@@ -57,6 +58,7 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
   private final Set<String> allowedCommands = ConcurrentHashMap.newKeySet();
   private final CopyOnWriteArrayList<String> allowedDomainPatterns = new CopyOnWriteArrayList<>();
+  private final CopyOnWriteArrayList<String> allowedSmtpEndpoints = new CopyOnWriteArrayList<>();
 
   // 持久化后端（31 节）：非空则 add/remove 写穿落库、构造时从库恢复；为 null 时纯内存（单测 / 无库场景）。
   private final SandboxWhitelistStore store;
@@ -97,8 +99,10 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
       allowedRoots.addIfAbsent(normalizeRoot(value));
     } else if (category == Category.SHELL) {
       allowedCommands.add(requireNonBlank(value));
-    } else {
+    } else if (category == Category.HTTP) {
       allowedDomainPatterns.addIfAbsent(value);
+    } else if (category == Category.SMTP) {
+      allowedSmtpEndpoints.addIfAbsent(value);
     }
   }
 
@@ -137,6 +141,9 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
         break;
       case HTTP_REQUEST:
         checkHttpWrite(action.target());
+        break;
+      case SMTP_SEND:
+        checkSmtpEndpoint(action.target());
         break;
       default:
         // 安全默认：未来若新增未覆盖的动作类型，deny 而非静默放行（宪法 VI）
@@ -230,6 +237,37 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
               + host
               + "。这是安全策略（防数据外发），请勿反复重试；确需向该地址发送数据，请在管理台「SandBox 列表」把该域名加入 http 白名单后再试。");
     }
+  }
+
+  /**
+   * SMTP 发信（非 HTTP 出站）：过端点白名单——按 host[:port] 精确放行，端口不被忽略（区别于 {@link #checkHttpWrite} 只校验域名）。
+   * 白名单条目形如 {@code host}（任意端口）或 {@code host:port}（指定端口），域名部分支持 {@code *.} 通配。
+   */
+  private void checkSmtpEndpoint(String hostPort) {
+    int colon = hostPort == null ? -1 : hostPort.lastIndexOf(':');
+    String host = colon < 0 ? hostPort : hostPort.substring(0, colon);
+    String port = colon < 0 ? null : hostPort.substring(colon + 1);
+    if (host == null || host.isBlank()) {
+      throw new SandboxViolationException("SMTP 目标缺少主机名，拒绝: " + hostPort);
+    }
+    boolean allowed = allowedSmtpEndpoints.stream().anyMatch(p -> matchesSmtp(p, host, port));
+    if (!allowed) {
+      throw new SandboxViolationException(
+          "SMTP 目标不在出网白名单: "
+              + hostPort
+              + "。这是安全策略（防数据外发），请勿反复重试；确需向该邮件服务器发信，请在管理台「SandBox 列表」把该 smtp 端点（host[:port]）加入 smtp 白名单后再试。");
+    }
+  }
+
+  /** 端点匹配：域名部分复用 {@link #matchesDomain}（大小写不敏感 + {@code *.} 通配）；带端口的条目还需端口相等。 */
+  private boolean matchesSmtp(String pattern, String host, String targetPort) {
+    int colon = pattern.lastIndexOf(':');
+    String patternHost = colon < 0 ? pattern : pattern.substring(0, colon);
+    String patternPort = colon < 0 ? null : pattern.substring(colon + 1);
+    if (!matchesDomain(host, patternHost)) {
+      return false;
+    }
+    return patternPort == null || patternPort.equals(targetPort);
   }
 
   /** SSRF 兜底：拒绝主机解析到回环/任意本地/链路本地(含云元数据 169.254.169.254)/站点内网/组播/CGNAT，及 localhost、*.internal。 */
@@ -386,7 +424,10 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     if (category == Category.SHELL) {
       return List.copyOf(allowedCommands);
     }
-    return List.copyOf(allowedDomainPatterns);
+    if (category == Category.HTTP) {
+      return List.copyOf(allowedDomainPatterns);
+    }
+    return List.copyOf(allowedSmtpEndpoints);
   }
 
   @Override
@@ -412,9 +453,12 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     } else if (category == Category.SHELL) {
       canonical = entry;
       changed = allowedCommands.add(canonical);
-    } else {
+    } else if (category == Category.HTTP) {
       canonical = entry;
       changed = allowedDomainPatterns.addIfAbsent(entry);
+    } else {
+      canonical = entry;
+      changed = allowedSmtpEndpoints.addIfAbsent(entry);
     }
     // 写穿：只有内存确有变更才落库（幂等，避免重复写；启动播种重复调用不会重复插入）
     if (changed && store != null) {
@@ -443,9 +487,12 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     } else if (category == Category.SHELL) {
       canonical = entry;
       changed = allowedCommands.remove(entry);
-    } else {
+    } else if (category == Category.HTTP) {
       canonical = entry;
       changed = allowedDomainPatterns.remove(entry);
+    } else {
+      canonical = entry;
+      changed = allowedSmtpEndpoints.remove(entry);
     }
     if (changed && store != null) {
       store.remove(category, canonical);
