@@ -192,12 +192,12 @@ class WorkspaceApiControllerTest {
   }
 
   @Test
-  @DisplayName("工作区写入口禁止直接或经归档 Agent 软连接修改共享 Skill")
+  @DisplayName("工作区写入口禁止直接或经归档路径段修改共享 Skill")
   void writeThroughSharedSkillPathsIsRejected() throws Exception {
     Path shared = Files.createDirectories(oryxosRoot.resolve("skills/report"));
     Path skillFile = Files.writeString(shared.resolve("SKILL.md"), "original");
-    Path archivedLinks = Files.createDirectories(oryxosRoot.resolve("archive/ops-old/skills"));
-    Files.createSymbolicLink(archivedLinks.resolve("report"), Path.of("../../../skills/report"));
+    // 不建软链：路径段守卫已拒 skills/**；归档侧同名 skills 段亦拒（免 Windows 建链权限）
+    Files.createDirectories(oryxosRoot.resolve("archive/ops-old/skills"));
 
     mvc.perform(
             post("/api/v1/workspace/file")
@@ -211,6 +211,25 @@ class WorkspaceApiControllerTest {
                     "{\"path\":\"archive/ops-old/skills/report/SKILL.md\",\"content\":\"bad\"}"))
         .andExpect(status().isBadRequest());
     org.junit.jupiter.api.Assertions.assertEquals("original", Files.readString(skillFile));
+  }
+
+  @Test
+  @DisplayName("工作区写入口禁止 Knowledge 绑定视图与共享实体")
+  void writeThroughKnowledgePathsIsRejected() throws Exception {
+    Path shared = Files.createDirectories(oryxosRoot.resolve("knowledge/ops"));
+    Path doc = Files.writeString(shared.resolve("doc.md"), "original");
+
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"knowledge/ops/doc.md\",\"content\":\"bad\"}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"agents/demo/knowledge/ops/doc.md\",\"content\":\"bad\"}"))
+        .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertEquals("original", Files.readString(doc));
   }
 
   @Test

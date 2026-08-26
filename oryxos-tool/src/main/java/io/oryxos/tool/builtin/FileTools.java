@@ -1,5 +1,6 @@
 package io.oryxos.tool.builtin;
 
+import io.oryxos.core.fs.WorkspaceMutationGuard;
 import io.oryxos.core.memory.MemoryMdGuard;
 import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.Sandbox;
@@ -61,6 +62,8 @@ public class FileTools {
       @ToolParam(description = "要写入的文件路径") String path,
       @ToolParam(description = "要写入的内容") String content) {
     MemoryMdGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
       Path file = Path.of(path);
@@ -104,6 +107,8 @@ public class FileTools {
       @ToolParam(description = "要被替换的原文本（必须在文件中唯一出现）") String oldString,
       @ToolParam(description = "替换后的新文本") String newString) {
     MemoryMdGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     Path file = Path.of(path);
     if (!Files.isRegularFile(file)) {
@@ -240,6 +245,7 @@ public class FileTools {
   @Tool(name = "make_dir", description = "创建目录（含父目录，幂等）")
   public String makeDir(@ToolParam(description = "要创建的目录路径") String path) {
     MemoryMdGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectBindSlotCreate(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
       Files.createDirectories(Path.of(path));
@@ -256,6 +262,8 @@ public class FileTools {
       @ToolParam(description = "文件路径") String path,
       @ToolParam(description = "要追加的内容") String content) {
     MemoryMdGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
       Path file = Path.of(path);
@@ -274,6 +282,7 @@ public class FileTools {
   @Tool(name = "delete_file", description = "删除一个文件（拒绝删除目录）")
   public String deleteFile(@ToolParam(description = "要删除的文件路径") String path) {
     MemoryMdGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectBindLinkDetach(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     Path file = Path.of(path);
     // NOFOLLOW_LINKS：只拦真实目录；指向目录的 symlink（如 Agent Skill 绑定）应删链接本身，不跟随目标
@@ -294,6 +303,9 @@ public class FileTools {
       @ToolParam(description = "源路径") String from, @ToolParam(description = "目标路径") String to) {
     MemoryMdGuard.rejectMutation(from);
     MemoryMdGuard.rejectMutation(to);
+    WorkspaceMutationGuard.rejectBindLinkDetach(from);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(to);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(to);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
     Path src = Path.of(from);
@@ -326,6 +338,8 @@ public class FileTools {
   public String copyFile(
       @ToolParam(description = "源路径") String from, @ToolParam(description = "目标路径") String to) {
     MemoryMdGuard.rejectMutation(to);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(to);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(to);
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
     Path src = Path.of(from);
