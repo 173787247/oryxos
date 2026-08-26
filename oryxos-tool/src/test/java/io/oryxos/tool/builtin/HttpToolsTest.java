@@ -304,6 +304,55 @@ class HttpToolsTest {
   }
 
   @Test
+  @DisplayName("http_request 跨源 302 不得把裸 Api-Key 带到下一跳")
+  void httpRequestCrossOriginRedirectStripsBareApiKey() throws IOException {
+    HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    List<String> sinkApiKeys = new ArrayList<>();
+    try {
+      sink.createContext(
+          "/",
+          exchange -> {
+            String apiKey = exchange.getRequestHeaders().getFirst("Api-Key");
+            if (apiKey != null) {
+              sinkApiKeys.add(apiKey);
+            }
+            byte[] response = "ok".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+          });
+      String sinkUrl = "http://127.0.0.1:" + sink.getAddress().getPort() + "/sink";
+      entry.createContext(
+          "/",
+          exchange -> {
+            exchange.getResponseHeaders().add("Location", sinkUrl);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+          });
+      entry.start();
+      sink.start();
+
+      Sandbox whitelist =
+          new WhitelistSandbox(
+              new FileSandboxProperties(List.of()),
+              new ShellSandboxProperties(List.of()),
+              new HttpSandboxProperties(List.of("localhost", "127.0.0.1")));
+      HttpTools guarded = new HttpTools(whitelist, RestClient.create());
+      String start = "http://localhost:" + entry.getAddress().getPort() + "/";
+
+      String body =
+          guarded.httpRequest("POST", start, "Api-Key: bare-secret\nX-Trace-Id: keep-me", "{}");
+
+      assertEquals("ok", body);
+      assertTrue(sinkApiKeys.isEmpty(), "跨源重定向不得转发裸 Api-Key");
+    } finally {
+      entry.stop(0);
+      sink.stop(0);
+    }
+  }
+
+  @Test
   @DisplayName("http_request 跨源 302 不得把 POST body 带到下一跳（改 GET）")
   void httpRequest302DoesNotReplayPostBody() throws IOException {
     HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
