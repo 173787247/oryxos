@@ -159,7 +159,10 @@ public class McpConfigLoader {
     }
     Map<String, String> out = new LinkedHashMap<>();
     for (Map.Entry<String, Object> entry : ((Map<String, Object>) value).entrySet()) {
-      out.put(entry.getKey(), String.valueOf(entry.getValue()));
+      if (entry.getValue() == null) {
+        continue;
+      }
+      out.put(entry.getKey(), asString(entry.getValue()));
     }
     return out;
   }
@@ -180,7 +183,15 @@ public class McpConfigLoader {
   }
 
   private static String asString(Object value) {
-    return value == null ? null : String.valueOf(value);
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof String text) {
+      return text;
+    }
+    // YAML 1.1：裸 yes/on/null 会变成 Boolean/null；String.valueOf(true)→"true" 会静默改名（对齐 #198）
+    throw new IllegalArgumentException(
+        "期望 YAML 字符串（yes/on/null 等请加引号），实际是 " + value.getClass().getSimpleName() + ": " + value);
   }
 
   private static String sanitize(String value) {

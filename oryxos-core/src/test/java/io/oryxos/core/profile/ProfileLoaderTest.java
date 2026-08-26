@@ -359,4 +359,48 @@ class ProfileLoaderTest {
 
     assertTrue(exception.getMessage().contains("name"));
   }
+
+  @Test
+  void scheduleKeyYamlBooleanWordRejected() throws IOException {
+    write(
+        "bool-schedule-key.yaml",
+        """
+        name: bool-schedule-key
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: on
+            name: morning
+            cron: "0 0 8 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bool-schedule-key.yaml")));
+
+    assertTrue(
+        exception.getMessage().contains("字符串") || exception.getMessage().contains("Boolean"));
+  }
+
+  @Test
+  void scheduleKeyQuotedYesOk() throws IOException {
+    write(
+        "quoted-yes-key.yaml",
+        """
+        name: quoted-yes-key
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: "yes"
+            name: yes-job
+            cron: "0 0 8 * * *"
+            message: hi
+        """);
+
+    Profile profile = loader().parse(profilesDir.resolve("quoted-yes-key.yaml"));
+    assertEquals("yes", profile.schedules().get(0).key());
+  }
 }
