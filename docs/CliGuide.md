@@ -69,6 +69,9 @@ oryxos chat --profile weather      # ⑤ 开聊
 | `oryxos provider list` | 轻 | 列出实例声明的 Provider |
 | `oryxos tool list` | 轻 | 列出可用工具（20 节起为实时清单） |
 | `oryxos session list` | 轻 | 列出会话概览 |
+| `oryxos apikey add <name>` | 轻 | 生成 REST API Key（明文仅显示一次） |
+| `oryxos apikey list` | 轻 | 列出 API Key（前缀/状态/最近使用，无明文） |
+| `oryxos apikey revoke <name>` | 轻 | 吊销 API Key（即时生效） |
 
 **轻/重的区别**：轻命令直接读写文件或只读查库，**不启动 Spring**、秒级返回（实测约 0.35s）；重命令要调模型、跑引擎，才付出 2~4 秒的完整运行时启动代价。判断标准就一条：这个命令要不要调模型/跑引擎。
 
@@ -152,6 +155,27 @@ oryxos session list    # 会话概览：session_id / profile / status / last_act
 ```
 
 `session list` 直连当前目录的 `oryxos.db` 只读查询；库还没创建时提示"暂无会话"。
+
+---
+
+### 4.7 apikey 三件——REST API Key 管理（018）
+
+`oryxos.web.apikey.enabled=true` 时 `/api/v1/**` 启用机器调用认证（豁免 `/api/v1/health`、`/api/v1/auth/*`、OPTIONS 预检；`/admin/**` 不受影响）。Key 由这组命令管理：
+
+```bash
+oryxos apikey add ci-bot     # 生成 Key；明文只显示这一次，库中仅存 SHA-256 哈希
+oryxos apikey list           # NAME / PREFIX / STATUS / CREATED_AT / LAST_USED_AT（无明文）
+oryxos apikey revoke ci-bot  # 吊销，下一次请求即 401；其它 Key 不受影响
+```
+
+调用方任选一种请求头携带：
+
+```bash
+curl -H "Authorization: Bearer oryx_..." http://localhost:8080/api/v1/profiles
+curl -H "X-API-Key: oryx_..." http://localhost:8080/api/v1/profiles
+```
+
+注意：`add` 重名会报错不覆盖；`revoke` 已吊销的 Key 幂等提示；明文丢了只能吊销重发（无法找回）。建议与管理台认证（`oryxos.web.auth.enabled`）同时开启，否则管理台数据页无凭据可用（启动时会告警提示）。
 
 ---
 

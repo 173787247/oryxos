@@ -49,6 +49,8 @@ import io.oryxos.provider.ProvidersProperties;
 import io.oryxos.provider.SpringAiProviderServiceImpl;
 import io.oryxos.provider.ToolSchemaAdapter;
 import io.oryxos.storage.AgentExecutionRepository;
+import io.oryxos.storage.ApiKeyRepository;
+import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.AuditSchemaUpgrade;
 import io.oryxos.storage.JpaAgentExecutionStore;
 import io.oryxos.storage.JpaLlmCallAuditor;
@@ -792,6 +794,12 @@ public class OryxOsRuntime {
       @org.springframework.beans.factory.annotation.Value("${oryxos.web.auth.session-ttl:12h}")
           java.time.Duration sessionTtl) {
     return new WebSessionService(repository, sessionTtl);
+  }
+
+  /** 018-rest-api-key：REST API Key 生成/校验/吊销（只存 SHA-256 哈希，明文仅生成时返回一次）。 */
+  @Bean
+  ApiKeyService apiKeyService(ApiKeyRepository repository) {
+    return new ApiKeyService(repository);
   }
 
   @Bean

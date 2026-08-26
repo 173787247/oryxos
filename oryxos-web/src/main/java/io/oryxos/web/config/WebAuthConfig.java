@@ -11,5 +11,5 @@ import org.springframework.context.annotation.Configuration;
  * scanBasePackages="io.oryxos"} 运行时发现本类即可。
  */
 @Configuration
-@EnableConfigurationProperties(WebAuthProperties.class)
+@EnableConfigurationProperties({WebAuthProperties.class, WebApiKeyProperties.class})
 public class WebAuthConfig {}
