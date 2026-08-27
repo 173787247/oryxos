@@ -223,9 +223,9 @@
   <h1>OryxOS 演进路线图</h1>
   <p class="lede">从「单机可信的 Agent Harness」演进为「企业级分布式 Agent OS」，五个版本主题依次递进，每一步都以可演示的 Demo 验收。</p>
   <div class="meta">
-    <span>当前版本 <b>v0.1.2</b></span>
+    <span>当前版本 <b>v0.2</b>（补齐公式已交付）</span>
     <span>目标 <b>Apache 孵化</b></span>
-    <span>制定于 <b>2026-08</b></span>
+    <span>制定于 <b>2026-08</b> · 更新于 <b>2026-08-27</b></span>
   </div>
 
   <h2>演进方式：六条原则</h2>
@@ -277,8 +277,8 @@
     <div class="demo"><b>已验收</b>：单 JAR 启动，REST + 管理台同端口，Agent 丢目录即上线。</div>
   </div>
 
-  <div class="phase">
-    <div class="phase-head"><span class="ver">v0.2</span><h3>补齐公式 —— 让 Agent 有知识、有入口</h3><span class="when">2026 Q4</span></div>
+  <div class="phase shipped">
+    <div class="phase-head"><span class="ver">v0.2</span><h3>补齐公式 —— 让 Agent 有知识、有入口</h3><span class="when">已交付 · 2026-08</span></div>
     <p class="why">三块打单短板一次补齐：知识库是公式唯一缺角（Dify/RAGFlow 的核心卖点）；IM 入站是企业 Agent 的实际入口（OpenClaw 最大吸引力）；API 裸奔过不了企业安全评审。</p>
     <ul class="items">
       <li><span class="tag">知识库</span><span>导入/切分/检索 + <code>retrieve_knowledge</code> 工具 + frontmatter <code>knowledge:</code> 引用。向量层定义 <code>VectorStore</code> 接口，先用 sqlite-vec 落地（零新依赖），为 v0.4 换 pgvector 留缝</span></li>
@@ -286,7 +286,7 @@
       <li><span class="tag">流式</span><span>SSE 流式响应（<code>text/event-stream</code>），保持同步模型不变——虚拟线程内逐 token 写出，不引入 WebFlux</span></li>
       <li><span class="tag">认证</span><span><code>/api/v1</code> API Key 认证（RBAC 留到 v1.0，先把门锁上）；CORS 白名单收紧</span></li>
     </ul>
-    <div class="demo"><b>验收 Demo</b>：在飞书里 @Agent 提问，Agent 检索企业知识库流式回答；未带 API Key 的 REST 调用被拒。</div>
+    <div class="demo"><b>已验收</b>：四角全部落地——知识库（014 导入/检索 + 015 语义召回）、飞书长连接双向渠道（017 真机 V1~V7）、REST API Key 门禁（018，无 Key 401）、SSE 流式（019，REST 三端点 + CLI + 管理台打字机）。各特性验收报告见 <code>specs/01x-*/acceptance-report.md</code>；提前预支了 v0.3 的审计看板（016）。</div>
   </div>
 
   <div class="phase">
