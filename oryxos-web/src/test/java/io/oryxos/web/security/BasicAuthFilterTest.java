@@ -49,6 +49,9 @@ class BasicAuthFilterTest {
 
     @GetMapping("/admin/login")
     public void adminLogin() {}
+
+    @GetMapping("/admin/assets/index-test.js")
+    public void adminAsset() {}
   }
 
   @BeforeEach
@@ -236,6 +239,14 @@ class BasicAuthFilterTest {
   void loginPath_passesThrough() throws Exception {
     properties.setEnabled(true);
     mvc.perform(get("/admin/login")).andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("/admin/assets/**_未登录放行（登录页渲染依赖SPA静态资源，018走查修复）")
+  void assetPath_passesThrough() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(get("/admin/assets/index-test.js")).andExpect(status().isOk());
+    verify(userService, never()).verify(anyString(), anyString());
   }
 
   @Test
