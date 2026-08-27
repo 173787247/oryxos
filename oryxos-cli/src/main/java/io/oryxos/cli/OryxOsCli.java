@@ -36,7 +36,8 @@ import picocli.CommandLine.IVersionProvider;
       ToolListCommand.class,
       SessionListCommand.class,
       io.oryxos.cli.command.KnowledgeCommand.class,
-      UserCommand.class
+      UserCommand.class,
+      io.oryxos.cli.command.ApiKeyCommand.class
     })
 public class OryxOsCli implements Runnable {
 

@@ -6,7 +6,7 @@ OryxOS 内置**可选**的管理台 HTTP Basic Auth（`/admin/**`）。默认关
 
 ## 工作机制
 
-- **范围**:仅 `/admin/**` 受保护。`/api/v1/**`（REST 端点,含 `/api/v1/health`）保持开放——机器到机器的 API 认证（API Key）是后续独立 feature。
+- **范围**:仅 `/admin/**` 受保护。`/api/v1/**` 的机器调用认证由独立的 [REST API Key](#rest-api-key-认证) 承担,两个开关相互独立。
 - **账号**:存 `web_users` SQLite 表。密码 BCrypt 哈希（经 Spring `DelegatingPasswordEncoder` 带 `{bcrypt}` 前缀）——**绝不存明文**,不落配置/日志/git 历史。
 - **实时**:账号变更即时生效。每请求重读 DB——无进程内缓存,新账号无需重启即可用。
 - **启动校验**:开启 auth 但无 enabled 账号时,启动被阻断,清晰报错指向 `oryxos user add`。
@@ -78,6 +78,32 @@ curl http://localhost:8080/api/v1/health
 - `list` **绝不打印密码或哈希**。
 - `disable` 保留行但禁止登录（返 401）。`delete` 永久删除。
 - 密码须 ≥8 字符;用户名须 ≤64 字符且无空格。
+
+## REST API Key 认证
+
+`/api/v1/**` 的机器调用认证（018-rest-api-key）,与上面的管理台认证独立开关:
+
+```yaml
+oryxos:
+  web:
+    apikey:
+      enabled: true   # 默认 false——现状不变
+```
+
+- **开启前**先生成 Key:`oryxos apikey add <name>`——明文 `oryx_...` **只显示这一次**,库中仅存 SHA-256 哈希。
+- **调用方**任选一种请求头:`Authorization: Bearer <key>` 或 `X-API-Key: <key>`,两者等效。
+- **豁免**:`/api/v1/health`（探活）、`/api/v1/auth/*`（管理台登录子树）、OPTIONS 预检;`/admin/**` 完全不受影响。
+- **管理台互认**:带有效管理台 session 的请求视同通过认证——双开时管理台数据页照常可用。建议两个开关同时开启,只开 apikey 会在启动日志告警（浏览器既无 session 也无 Key）。
+- **生命周期**:`oryxos apikey list` 盘点（无明文）;`oryxos apikey revoke <name>` 吊销即时生效,其它 Key 不受影响。Key 无自动过期,丢失只能吊销重发。
+
+```bash
+# 无 Key → 401（统一响应,不泄露失败原因）
+curl -i http://localhost:8080/api/v1/profiles
+# 带 Key → 200
+curl -H "Authorization: Bearer oryx_..." http://localhost:8080/api/v1/profiles
+# 探活始终开放
+curl http://localhost:8080/api/v1/health
+```
 
 ## 设计说明
 

@@ -128,3 +128,11 @@ oryxos:
   #   auth:
   #     enabled: true
   #     realm: OryxOS
+  # REST API Key 认证（018-rest-api-key）。默认关=现状不变；
+  # 开启后 /api/v1/** 需请求头带 Key（`Authorization: Bearer <key>` 或 `X-API-Key: <key>`），
+  # 豁免 /api/v1/health（探活）、/api/v1/auth/*（管理台登录）与 OPTIONS 预检；/admin/** 不受影响。
+  # 开启前先跑 `oryxos apikey add <name>` 生成 Key（明文仅显示一次）；
+  # 建议与上面的 auth 同时开启——否则管理台数据页无凭据可用（启动会告警）。
+  # web:
+  #   apikey:
+  #     enabled: true

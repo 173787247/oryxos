@@ -70,6 +70,13 @@ public class BasicAuthFilter extends OncePerRequestFilter {
   /** 登录页路径前缀（放行）。 */
   private static final String LOGIN_PATH = "/admin/login";
 
+  /**
+   * SPA 静态资源前缀（放行）：登录页与 SPA 共用一个 shell（{@code index.html} + content-hash 命名的 JS/CSS bundle），
+   * 未登录渲染登录表单同样要加载 {@code /admin/assets/**}——拦下它登录页白屏，任何人都登不进去（018 SC-006 浏览器走查发现的缺陷）。bundle
+   * 是公开前端代码不含数据，数据面由 {@code /api/v1/**} 各自的认证把守。
+   */
+  private static final String ASSETS_PATH = "/admin/assets/";
+
   /** Basic Auth 校验结果（无头/解码失败不计失败次数）。 */
   private enum BasicOutcome {
     NONE,
@@ -111,8 +118,8 @@ public class BasicAuthFilter extends OncePerRequestFilter {
       filterChain.doFilter(request, response);
       return;
     }
-    // 登录页路径放行（FR-017）
-    if (isLoginPath(request.getRequestURI())) {
+    // 登录页路径与 SPA 静态资源放行（FR-017：未登录也要能渲染登录页）
+    if (isLoginPath(request.getRequestURI()) || isAssetPath(request.getRequestURI())) {
       filterChain.doFilter(request, response);
       return;
     }
@@ -137,6 +144,10 @@ public class BasicAuthFilter extends OncePerRequestFilter {
 
   private boolean isLoginPath(String uri) {
     return uri != null && uri.startsWith(LOGIN_PATH);
+  }
+
+  private static boolean isAssetPath(String uri) {
+    return uri != null && uri.startsWith(ASSETS_PATH);
   }
 
   private boolean authenticatedBySession(HttpServletRequest request) {

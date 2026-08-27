@@ -6,7 +6,7 @@ OryxOS ships with an **opt-in** HTTP Basic Auth for the management console (`/ad
 
 ## How it works
 
-- **Scope**: only `/admin/**` is protected. `/api/v1/**` (REST endpoints, including `/api/v1/health`) stays open — machine-to-machine API auth (API Key) is a separate, future feature.
+- **Scope**: only `/admin/**` is protected. Machine-to-machine auth for `/api/v1/**` is handled by the separate [REST API Key](#rest-api-key-authentication) switch — the two toggles are independent.
 - **Accounts**: stored in the `web_users` SQLite table. Passwords are BCrypt-hashed (with a `{bcrypt}` prefix via Spring's `DelegatingPasswordEncoder`) — **never stored in plaintext**, never written to config, logs, or git history.
 - **Realtime**: account changes take effect immediately. Each request re-reads the database — no in-process cache, no server restart needed for a new account to work.
 - **Startup guard**: if you enable auth but no enabled account exists, startup is blocked with a clear error pointing at `oryxos user add`.
@@ -78,6 +78,32 @@ See the [`oryxos user` CLI reference](./cli.md#user-management) for `add`, `list
 - `list` **never prints passwords or hashes**.
 - `disable` keeps the row but blocks login (returns 401). `delete` removes it permanently.
 - Passwords must be ≥ 8 characters; usernames must be ≤ 64 characters with no whitespace.
+
+## REST API Key authentication
+
+Machine-to-machine auth for `/api/v1/**` (018-rest-api-key), toggled independently from console auth above:
+
+```yaml
+oryxos:
+  web:
+    apikey:
+      enabled: true   # default false — current behavior unchanged
+```
+
+- **Before enabling**, create a key with `oryxos apikey add <name>` — the `oryx_...` plaintext is **shown exactly once**; only its SHA-256 hash is stored.
+- **Callers** pick either header: `Authorization: Bearer <key>` or `X-API-Key: <key>` — both are equivalent.
+- **Exemptions**: `/api/v1/health` (probes), `/api/v1/auth/*` (console login subtree), and OPTIONS preflight; `/admin/**` is entirely unaffected.
+- **Console interop**: requests carrying a valid console session pass as authenticated — with both switches on, admin data pages keep working. Enabling only apikey logs a startup warning (the browser has neither session nor key).
+- **Lifecycle**: `oryxos apikey list` for inventory (no plaintext); `oryxos apikey revoke <name>` takes effect on the next request and leaves other keys untouched. Keys never expire automatically; a lost key can only be revoked and reissued.
+
+```bash
+# No key → 401 (uniform response, no failure-reason leak)
+curl -i http://localhost:8080/api/v1/profiles
+# With key → 200
+curl -H "Authorization: Bearer oryx_..." http://localhost:8080/api/v1/profiles
+# Probes stay open
+curl http://localhost:8080/api/v1/health
+```
 
 ## Design notes
 

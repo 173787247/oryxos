@@ -241,3 +241,17 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_kchunk_kb ON knowledge_chunks (kb_name, generation);
 CREATE INDEX IF NOT EXISTS idx_kchunk_doc ON knowledge_chunks (document_id);
+
+-- api_keys：REST API 机器调用凭证（018-rest-api-key）
+-- 只存 SHA-256 哈希绝不存明文（宪法 VI）；key_prefix = 明文头部片段（oryx_ + 前 8 位随机），供盘点/日志对账
+-- revoked_at 非空即失效（吊销即时生效，无缓存窗口）；key_hash UNIQUE 自带隐式索引，校验按此列查找
+-- 新表，CREATE TABLE IF NOT EXISTS，非 ALTER，存量库无迁移风险
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(64) NOT NULL UNIQUE,
+    key_prefix VARCHAR(16) NOT NULL,
+    key_hash VARCHAR(64) NOT NULL UNIQUE,
+    created_at TIMESTAMP NOT NULL,
+    last_used_at TIMESTAMP,
+    revoked_at TIMESTAMP
+);
