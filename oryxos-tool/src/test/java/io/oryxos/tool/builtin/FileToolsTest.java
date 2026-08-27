@@ -205,6 +205,27 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("文件工具拒绝经软链改写 MEMORY.md（notes.md → MEMORY.md）")
+  void fileToolsRejectSymlinkToMemoryMd() throws IOException {
+    Path memory = dir.resolve("agents/demo/MEMORY.md");
+    Files.createDirectories(memory.getParent());
+    Files.writeString(memory, "## 核心记忆\n- keep\n## 归档记忆\n");
+    Path alias = dir.resolve("agents/demo/notes.md");
+    try {
+      Files.createSymbolicLink(alias, memory.getFileName());
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "当前环境无法创建软链: " + e.getMessage());
+    }
+
+    assertThrows(IllegalArgumentException.class, () -> tools.writeFile(alias.toString(), "hijack"));
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.appendFile(alias.toString(), "hijack\n"));
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.editFile(alias.toString(), "keep", "hijack"));
+    assertEquals("## 核心记忆\n- keep\n## 归档记忆\n", Files.readString(memory), "拒绝后内容不得变");
+  }
+
+  @Test
   @DisplayName("文件工具拒绝经 MEMORY.md 子路径建目录（防 DoS save_memory）")
   void fileToolsRejectMemoryMdAncestorPath() throws IOException {
     Path agentDir = dir.resolve("agents/fresh");
