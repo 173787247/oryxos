@@ -89,5 +89,5 @@ oryxos:
 ## 4. 兼容性承诺
 
 - `/api/v1` 全部 17 个既有子树的响应格式、语义零变更；本 feature 只加认证门，不改端点。
-- 012-web-auth 的 `/admin/**` filter、`/api/v1/auth/*` 端点、`web_users`/`web_sessions` 表零改动（实现落定：`ApiKeyAuthFilter` 与 `BasicAuthFilter` 同包，package-private 的 `SESSION_COOKIE` 常量直接可见，连可见性调整都无需做）。
+- 012-web-auth 的 `/admin/**` filter、`/api/v1/auth/*` 端点、`web_users`/`web_sessions` 表零改动（实现落定：`ApiKeyAuthFilter` 与 `BasicAuthFilter` 同包，package-private 的 `SESSION_COOKIE` 常量直接可见，连可见性调整都无需做）。例外说明：018 的 SC-006 浏览器走查暴露了一个与 018 无关的存量缺陷（`auth.enabled=true` 时登录页静态资源 `/admin/assets/**` 被 401、登录页白屏），已作为独立 bug fix 修复 `BasicAuthFilter`（放行静态资源前缀），详见 acceptance-report.md。
 - OpenAPI 文档（springdoc）路径不在 `/api/v1` 下，不受影响。
