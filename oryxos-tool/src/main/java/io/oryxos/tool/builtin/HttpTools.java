@@ -217,7 +217,8 @@ public class HttpTools {
 
   /**
    * 去掉跨源重定向不应转发的头（Authorization / Proxy-Authorization / Cookie / Cookie2 / X-API-Key /
-   * Api-Key）。同浏览器对跨站重定向的凭证剥离习惯。
+   * Private-Token / JOB-TOKEN / X-Auth-Token / Api-Key）。同浏览器对跨站重定向的凭证剥离习惯；名单控在常见 API 凭证头，避免误伤泛化的 {@code
+   * *Token*}。
    */
   static String stripSensitiveHeaders(String headers) {
     if (headers == null || headers.isBlank()) {
@@ -244,7 +245,7 @@ public class HttpTools {
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
       justification =
-          "HTTP header names are ASCII tokens; Locale.ROOT lowercasing is the correct case-fold for Authorization/Cookie/X-API-Key/Api-Key matching.")
+          "HTTP header names are ASCII tokens; Locale.ROOT lowercasing is the correct case-fold for Authorization/Cookie/X-API-Key/Private-Token matching.")
   private static boolean isSensitiveHeaderName(String name) {
     String n = name.toLowerCase(Locale.ROOT);
     return "authorization".equals(n)
@@ -252,7 +253,10 @@ public class HttpTools {
         || "cookie".equals(n)
         || "cookie2".equals(n)
         || "x-api-key".equals(n)
-        || "api-key".equals(n);
+        || "api-key".equals(n)
+        || "private-token".equals(n)
+        || "job-token".equals(n)
+        || "x-auth-token".equals(n);
   }
 
   @Tool(name = "http_get", description = "发起一个 HTTP GET 请求，返回响应体")

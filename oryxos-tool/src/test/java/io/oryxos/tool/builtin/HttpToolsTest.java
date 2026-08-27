@@ -1,6 +1,7 @@
 package io.oryxos.tool.builtin;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -270,6 +271,85 @@ class HttpToolsTest {
       assertEquals("ok", body);
       assertEquals(1, sinkHits.get());
       assertTrue(sinkAuth.isEmpty(), "跨源重定向不得转发 Authorization");
+      assertEquals(List.of("keep-me"), sinkTrace, "非敏感自定义头仍可转发");
+    } finally {
+      entry.stop(0);
+      sink.stop(0);
+    }
+  }
+
+  @Test
+  @DisplayName("stripSensitiveHeaders 剥离 Private-Token / JOB-TOKEN / X-Auth-Token，保留非凭证头")
+  void stripSensitiveHeadersDropsVendorApiTokens() {
+    String kept =
+        HttpTools.stripSensitiveHeaders(
+            """
+            Private-Token: glpat-secret
+            JOB-TOKEN: ci-job-secret
+            X-Auth-Token: session-secret
+            X-Trace-Id: keep-me
+            Accept: application/json
+            """);
+
+    assertTrue(kept.contains("X-Trace-Id:keep-me"), kept);
+    assertTrue(kept.contains("Accept:application/json"), kept);
+    assertFalse(kept.toLowerCase().contains("private-token"), kept);
+    assertFalse(kept.toLowerCase().contains("job-token"), kept);
+    assertFalse(kept.toLowerCase().contains("x-auth-token"), kept);
+  }
+
+  @Test
+  @DisplayName("http_request 跨源 302 不得把 Private-Token 带到下一跳（白名单内主机亦然）")
+  void httpRequestCrossOriginRedirectStripsPrivateToken() throws IOException {
+    HttpServer entry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    AtomicInteger sinkHits = new AtomicInteger();
+    List<String> sinkTokens = new ArrayList<>();
+    List<String> sinkTrace = new ArrayList<>();
+    try {
+      sink.createContext(
+          "/",
+          exchange -> {
+            sinkHits.incrementAndGet();
+            String token = exchange.getRequestHeaders().getFirst("Private-Token");
+            if (token != null) {
+              sinkTokens.add(token);
+            }
+            String trace = exchange.getRequestHeaders().getFirst("X-Trace-Id");
+            if (trace != null) {
+              sinkTrace.add(trace);
+            }
+            byte[] response = "ok".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+          });
+      String sinkUrl = "http://127.0.0.1:" + sink.getAddress().getPort() + "/sink";
+      entry.createContext(
+          "/",
+          exchange -> {
+            exchange.getResponseHeaders().add("Location", sinkUrl);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+          });
+      entry.start();
+      sink.start();
+
+      Sandbox whitelist =
+          new WhitelistSandbox(
+              new FileSandboxProperties(List.of()),
+              new ShellSandboxProperties(List.of()),
+              new HttpSandboxProperties(List.of("localhost", "127.0.0.1")));
+      HttpTools guarded = new HttpTools(whitelist, RestClient.create());
+      String start = "http://localhost:" + entry.getAddress().getPort() + "/";
+
+      String body =
+          guarded.httpRequest(
+              "POST", start, "Private-Token: glpat-secret\nX-Trace-Id: keep-me", "{\"x\":1}");
+
+      assertEquals("ok", body);
+      assertEquals(1, sinkHits.get());
+      assertTrue(sinkTokens.isEmpty(), "跨源重定向不得转发 Private-Token");
       assertEquals(List.of("keep-me"), sinkTrace, "非敏感自定义头仍可转发");
     } finally {
       entry.stop(0);
