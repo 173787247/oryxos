@@ -303,19 +303,24 @@ class WhitelistSandboxTest {
             "http://[::ffff:169.254.169.254]/x", // IPv4-mapped 云元数据
             "http://[64:ff9b::a9fe:a9fe]/x", // NAT64 well-known → 169.254.169.254
             "http://[64:ff9b::100.64.1.1]/x", // NAT64 → CGNAT
+            "http://[2002:a9fe:a9fe::1]/x", // 6to4 → 169.254.169.254
+            "http://[::a9fe:a9fe]/x", // IPv4-compatible → 169.254.169.254
             "http://localhost/x"
           }) {
         assertThrows(
             SandboxViolationException.class,
-            () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, url)));
+            () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, url)),
+            () -> "should block: " + url);
       }
     }
 
     @Test
-    @DisplayName("NAT64 嵌入公网 IPv4 仍放行")
-    void nat64PublicIpv4Allowed() {
+    @DisplayName("NAT64 / 6to4 嵌入公网 IPv4 仍放行")
+    void embeddedPublicIpv4Allowed() {
       assertDoesNotThrow(
           () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[64:ff9b::8.8.8.8]/x")));
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[2002:808:808::1]/x")));
     }
   }
 

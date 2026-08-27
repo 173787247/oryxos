@@ -267,12 +267,16 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /**
-   * 对解析结果做 SSRF 分类。IPv4-mapped（{@code ::ffff:0:0/96}）与 NAT64 知名前缀（{@code 64:ff9b::/96}）先展开末 32 位
-   * IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定——否则 {@code [64:ff9b::169.254.169.254]} 会以「公网 IPv6」放行。
+   * 对解析结果做 SSRF 分类。IPv4-mapped（{@code ::ffff:0:0/96}）、NAT64 知名前缀（{@code 64:ff9b::/96}）、6to4（{@code
+   * 2002::/16}）与已弃用的 IPv4-compatible（{@code ::/96}）先展开嵌入 IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定——否则 {@code
+   * [2002:a9fe:a9fe::1]}（≡169.254.169.254）会以「公网 IPv6」放行。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
     InetAddress effective = unwrapEmbeddedIpv4(addr);
-    return effective.isLoopbackAddress()
+    // addr 侧保留原生 IPv6 回环/未指定（避免 ::1 被误展开成 0.0.0.1 后漏拦）
+    return addr.isLoopbackAddress()
+        || addr.isAnyLocalAddress()
+        || effective.isLoopbackAddress()
         || effective.isAnyLocalAddress()
         || effective.isLinkLocalAddress()
         || effective.isSiteLocalAddress()
@@ -282,24 +286,28 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /**
-   * 若为 IPv4-mapped 或 NAT64 well-known prefix，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped 字面量直接解成 {@link
-   * java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与 NAT64。
+   * 若为 IPv4-mapped / NAT64 / 6to4 / IPv4-compatible，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped 字面量直接解成 {@link
+   * java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与隧道前缀。
    */
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
-    if (!isEmbeddedIpv4Candidate(b)) {
+    if (b.length != IPV6_ADDRESS_LENGTH) {
+      return addr;
+    }
+    byte[] ipv4;
+    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
+      ipv4 = new byte[] {b[12], b[13], b[14], b[15]};
+    } else if (isSixToFourPrefix(b)) {
+      // RFC 3056：2002:V4ADDR::/48 —— IPv4 在字节 2–5
+      ipv4 = new byte[] {b[2], b[3], b[4], b[5]};
+    } else {
       return addr;
     }
     try {
-      return InetAddress.getByAddress(new byte[] {b[12], b[13], b[14], b[15]});
+      return InetAddress.getByAddress(ipv4);
     } catch (UnknownHostException e) {
       return addr; // 4 字节形式不会失败；保底不改变判定输入
     }
-  }
-
-  /** 16 字节且带 IPv4-mapped 或 NAT64 知名前缀时，才做末 32 位展开。 */
-  private static boolean isEmbeddedIpv4Candidate(byte[] b) {
-    return b.length == IPV6_ADDRESS_LENGTH && (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b));
   }
 
   /** {@code ::ffff:0:0/96}——前 10 字节为 0，第 11–12 字节为 {@code 0xff}。 */
@@ -326,6 +334,31 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
         && b[9] == 0
         && b[10] == 0
         && b[11] == 0;
+  }
+
+  /** 6to4 {@code 2002::/16}（RFC 3056）。 */
+  private static boolean isSixToFourPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x20 && (b[1] & 0xFF) == 0x02;
+  }
+
+  /**
+   * 已弃用的 IPv4-compatible {@code ::/96}（RFC 4291），排除 {@code ::ffff:0:0/96} mapped，以及原生 {@code
+   * ::}/{@code ::1}（否则会展开成 0.0.0.0/0.0.0.1 漏拦）。
+   */
+  private static boolean isIpv4CompatiblePrefix(byte[] b) {
+    for (int i = 0; i < IPV4_MAPPED_ZERO_PREFIX_LENGTH; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
+    }
+    if (b[10] != 0 || b[11] != 0) {
+      return false;
+    }
+    // :: 与 ::1
+    if (b[12] == 0 && b[13] == 0 && b[14] == 0 && (b[15] == 0 || b[15] == 1)) {
+      return false;
+    }
+    return true;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(

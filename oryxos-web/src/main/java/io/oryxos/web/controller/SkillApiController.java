@@ -227,12 +227,14 @@ public class SkillApiController {
   }
 
   /**
-   * IPv4-mapped（{@code ::ffff:0:0/96}）与 NAT64 知名前缀（{@code 64:ff9b::/96}）先展开末 32 位 IPv4，再套用内网/元数据判定；
-   * 与 {@code WhitelistSandbox} 读路径 SSRF 兜底对齐。
+   * IPv4-mapped / NAT64 / 6to4 / IPv4-compatible 先展开嵌入 IPv4，再套用内网/元数据判定；与 {@code WhitelistSandbox}
+   * 读路径 SSRF 兜底对齐。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
     InetAddress effective = unwrapEmbeddedIpv4(addr);
-    return effective.isLoopbackAddress()
+    return addr.isLoopbackAddress()
+        || addr.isAnyLocalAddress()
+        || effective.isLoopbackAddress()
         || effective.isAnyLocalAddress()
         || effective.isLinkLocalAddress()
         || effective.isSiteLocalAddress()
@@ -243,19 +245,22 @@ public class SkillApiController {
 
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
-    if (!isEmbeddedIpv4Candidate(b)) {
+    if (b.length != IPV6_ADDRESS_LENGTH) {
+      return addr;
+    }
+    byte[] ipv4;
+    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
+      ipv4 = new byte[] {b[12], b[13], b[14], b[15]};
+    } else if (isSixToFourPrefix(b)) {
+      ipv4 = new byte[] {b[2], b[3], b[4], b[5]};
+    } else {
       return addr;
     }
     try {
-      return InetAddress.getByAddress(new byte[] {b[12], b[13], b[14], b[15]});
+      return InetAddress.getByAddress(ipv4);
     } catch (UnknownHostException e) {
       return addr;
     }
-  }
-
-  /** 16 字节且带 IPv4-mapped 或 NAT64 知名前缀时，才做末 32 位展开。 */
-  private static boolean isEmbeddedIpv4Candidate(byte[] b) {
-    return b.length == IPV6_ADDRESS_LENGTH && (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b));
   }
 
   private static boolean isIpv4MappedPrefix(byte[] b) {
@@ -280,6 +285,25 @@ public class SkillApiController {
         && b[9] == 0
         && b[10] == 0
         && b[11] == 0;
+  }
+
+  private static boolean isSixToFourPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x20 && (b[1] & 0xFF) == 0x02;
+  }
+
+  private static boolean isIpv4CompatiblePrefix(byte[] b) {
+    for (int i = 0; i < IPV4_MAPPED_ZERO_PREFIX_LENGTH; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
+    }
+    if (b[10] != 0 || b[11] != 0) {
+      return false;
+    }
+    if (b[12] == 0 && b[13] == 0 && b[14] == 0 && (b[15] == 0 || b[15] == 1)) {
+      return false;
+    }
+    return true;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
