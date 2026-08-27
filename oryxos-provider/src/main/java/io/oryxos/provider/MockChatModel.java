@@ -50,6 +50,29 @@ public class MockChatModel implements ChatModel {
             .build());
   }
 
+  /**
+   * 流式形态（019 R7）：终局文本轮按固定粒度切段逐 chunk 流出（无 key 可验「多 token + 拼接一致」）； 工具调用轮单 chunk 原样发出（工具轮 content
+   * 为空，与真实 provider 的常规形态一致，R3）。
+   */
+  @Override
+  public reactor.core.publisher.Flux<ChatResponse> stream(Prompt prompt) {
+    ChatResponse full = call(prompt);
+    AssistantMessage output = full.getResult().getOutput();
+    String text = output.getText();
+    if (!output.getToolCalls().isEmpty() || text == null || text.isEmpty()) {
+      return reactor.core.publisher.Flux.just(full);
+    }
+    java.util.List<ChatResponse> chunks = new java.util.ArrayList<>();
+    for (int i = 0; i < text.length(); i += STREAM_CHUNK_CHARS) {
+      String piece = text.substring(i, Math.min(text.length(), i + STREAM_CHUNK_CHARS));
+      chunks.add(single(new AssistantMessage(piece)));
+    }
+    return reactor.core.publisher.Flux.fromIterable(chunks);
+  }
+
+  /** 流式切段粒度（字符）：足够小以产生多个 token 事件，足够大避免测试噪音。 */
+  private static final int STREAM_CHUNK_CHARS = 4;
+
   private static ChatResponse single(AssistantMessage message) {
     return new ChatResponse(List.of(new Generation(message)));
   }

@@ -480,6 +480,29 @@ Appends the user message to the session history and runs the ReAct Loop. Blocks 
 { "reply": "当前磁盘使用情况：/dev/sda1 使用率 42%，其余挂载点均低于 30%。" }
 ```
 
+### SSE streaming
+
+Three message endpoints (this one, [stateless invoke](#stateless-invoke), and [send a message to the console session](#send-a-message-to-the-console-session)) support streaming: send `Accept: text/event-stream` to switch the response to an SSE event stream; without it the one-shot JSON above is returned unchanged.
+
+```bash
+curl -N -H "Accept: text/event-stream" -H "Content-Type: application/json" \
+  -d '{"content":"introduce yourself"}' \
+  http://localhost:8080/api/v1/sessions/<id>/messages
+```
+
+Event types (`data:` is single-line JSON):
+
+| event | data payload | Meaning |
+| --- | --- | --- |
+| `token` | `{"delta":"…"}` | Reply text increment (typewriter) |
+| `tool_start` | `{"name":"shell"}` | Tool call started |
+| `tool_end` | `{"name":"shell","success":true}` | Tool call finished |
+| `done` | `{"reply":"full reply"}` | Terminal event (exactly one of done/error) |
+| `error` | `{"code":500,"message":"…"}` | Terminal event for mid-stream failures |
+| `: ping` | — (SSE comment line) | Heartbeat every `oryxos.web.sse.heartbeat-seconds` (default 15s); parsers should ignore it |
+
+Semantic promises: concatenated `token` deltas equal `done.reply`; pre-stream failures (404/401/400) still return JSON status codes; if the client disconnects mid-stream the server completes the round anyway — history and audit rows are written as usual (no refund on disconnect); streaming and non-streaming write identical `llm_calls`/`tool_invocations` audit records. Full contract: `specs/019-sse-streaming/contracts/sse-protocol.md` in the repository.
+
 ### List sessions
 
 **GET** `/api/v1/sessions?status=active`

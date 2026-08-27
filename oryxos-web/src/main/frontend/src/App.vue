@@ -1170,7 +1170,7 @@ const renderedMd = computed(() =>
     : ''
 )
 // 会话：每个 Agent 一个固定 session，直接作为对话展示（不再是会话列表）
-const chat = reactive({ sessionId: null, messages: [], loading: false, error: null, input: '', sending: false })
+const chat = reactive({ sessionId: null, messages: [], loading: false, error: null, input: '', sending: false, stream: '', toolHint: null })
 const chatScrollEl = ref(null) // 会话列表滚动容器：回复/重载后自动滚到底部（最新一条）
 
 const CHAT_SEND_MODE_KEY = 'oryxos.admin.chatSendMode'
@@ -1448,6 +1448,8 @@ function resetChat() {
   chat.error = null
   chat.input = ''
   chat.sending = false
+  chat.stream = ''
+  chat.toolHint = null
 }
 
 // 会话列表按需滚到底部：刷新前仍在底部附近才继续跟随，用户上翻历史时保留阅读位置。
@@ -1474,20 +1476,57 @@ async function loadChat() {
   scrollChatToBottom(shouldScroll)
 }
 
+// 019：解析 SSE 行协议（event/data 对，注释行心跳忽略）——EventSource 不支持 POST，手工读 ReadableStream
+async function readSse(res, onEvent) {
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let idx
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, idx); buf = buf.slice(idx + 2)
+      let event = 'message', data = ''
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data += line.slice(5).trim()
+        // 以 ":" 开头的注释行（心跳）直接忽略
+      }
+      if (data) onEvent(event, JSON.parse(data))
+    }
+  }
+}
+
 async function sendChat() {
   if (chat.sending || !chat.input.trim()) return
-  chat.sending = true; chat.error = null
+  chat.sending = true; chat.error = null; chat.stream = ''; chat.toolHint = null
   try {
     const name = agentDetail.value.name
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}/session/messages`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify({ content: chat.input }),
     })
-    const body = await res.json()
-    if (body.code !== 0) throw new Error(body.message || '发送失败')
+    const type = res.headers.get('Content-Type') || ''
+    if (!type.includes('text/event-stream')) {
+      // 流开始前的失败（404/400/401）或非流式兜底：沿用原 JSON 路径
+      const body = await res.json()
+      if (body.code !== 0) throw new Error(body.message || '发送失败')
+    } else {
+      let failed = null
+      await readSse(res, (event, data) => {
+        if (event === 'token') { chat.stream += data.delta; scrollChatToBottom(true) }
+        else if (event === 'tool_start') chat.toolHint = data.name
+        else if (event === 'tool_end') chat.toolHint = null
+        else if (event === 'error') failed = data.message || '处理失败'
+      })
+      if (failed) throw new Error(failed)
+    }
     chat.input = ''
     await loadChat()
-  } catch (e) { chat.error = e.message } finally { chat.sending = false }
+  } catch (e) { chat.error = e.message } finally { chat.sending = false; chat.stream = ''; chat.toolHint = null }
 }
 
 // —— Tab 5：记忆 —— 这个 Agent 自己的长期记忆（只读）
@@ -2342,7 +2381,7 @@ const outputRows = computed(() =>
                 <p v-if="chat.loading && !chat.messages.length" class="empty">加载中…</p>
                 <p v-else-if="chat.error" class="error">出错：{{ chat.error }}</p>
                 <template v-else>
-                  <p v-if="!chat.messages.length" class="empty">（还没有对话，在下面发一条消息开始）</p>
+                  <p v-if="!chat.messages.length && !chat.sending" class="empty">（还没有对话，在下面发一条消息开始）</p>
                   <div v-else class="chat" ref="chatScrollEl">
                     <div v-for="(t, i) in chatTurns" :key="i" class="turn">
                       <!-- 用户提问 -->
@@ -2366,6 +2405,17 @@ const outputRows = computed(() =>
                       <div v-if="t.answer" class="msg assistant answer">
                         <div class="msg-role">{{ roleLabel('assistant') }}</div>
                         <pre class="msg-body">{{ t.answer.content || '（空）' }}</pre>
+                      </div>
+                    </div>
+                    <!-- 019：流式进行中的打字机气泡与工具状态（done 后由 loadChat 的正式历史替换） -->
+                    <div v-if="chat.sending && (chat.stream || chat.toolHint)" class="turn">
+                      <div v-if="chat.toolHint" class="msg tool">
+                        <div class="msg-role">{{ roleLabel('tool') }}<span class="mono tool-name"> · {{ chat.toolHint }}</span></div>
+                        <pre class="msg-body">调用中…</pre>
+                      </div>
+                      <div v-if="chat.stream" class="msg assistant answer">
+                        <div class="msg-role">{{ roleLabel('assistant') }}</div>
+                        <pre class="msg-body">{{ chat.stream }}</pre>
                       </div>
                     </div>
                   </div>

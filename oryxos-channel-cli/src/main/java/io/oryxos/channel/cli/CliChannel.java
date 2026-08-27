@@ -1,6 +1,7 @@
 package io.oryxos.channel.cli;
 
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.agent.StreamListener;
 import io.oryxos.core.session.Session;
 import io.oryxos.core.session.SessionManager;
 import java.io.BufferedReader;
@@ -48,8 +49,51 @@ public class CliChannel {
       if (line.isBlank()) {
         continue;
       }
-      String reply = agentService.process(session, line);
-      out.println(reply);
+      TypewriterListener listener = new TypewriterListener(out);
+      String reply = agentService.process(session, line, listener);
+      if (listener.printedAny()) {
+        out.println(); // 打字机流结束补换行
+      } else {
+        out.println(reply); // 无任何 token 流出（如迭代耗尽占位文本）时回落整段输出
+      }
+    }
+  }
+
+  /**
+   * 终端打字机（019 FR-015/R8）：token 直打 stdout 并 flush，工具调用期间单行状态提示。 Provider
+   * 无流式能力时引擎降级为整段一次回调——终端表现为一次性输出，无需特判。
+   */
+  static final class TypewriterListener implements StreamListener {
+
+    private final PrintStream out;
+    private boolean printedAny;
+
+    TypewriterListener(PrintStream out) {
+      this.out = out;
+    }
+
+    @Override
+    public void onToken(String delta) {
+      out.print(delta);
+      out.flush();
+      printedAny = true;
+    }
+
+    @Override
+    public void onToolStart(String toolName) {
+      if (printedAny) {
+        out.println();
+      }
+      out.printf("[调用工具 %s …]%n", toolName);
+    }
+
+    @Override
+    public void onToolEnd(String toolName, boolean success) {
+      out.printf("[工具 %s %s]%n", toolName, success ? "完成" : "失败");
+    }
+
+    boolean printedAny() {
+      return printedAny;
     }
   }
 

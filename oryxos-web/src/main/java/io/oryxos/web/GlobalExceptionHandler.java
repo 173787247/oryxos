@@ -38,7 +38,10 @@ public class GlobalExceptionHandler {
   })
   public ResponseEntity<ApiResponse<Void>> handleBadRequest(RuntimeException ex) {
     LOG.warn("Bad request: {}", sanitize(ex.getMessage()));
+    // 显式 JSON content-type（019 FR-009）：客户端 Accept 只有 text/event-stream 时（SSE 流式调用的
+    // 流前失败）内容协商会失败并把原异常重新抛出——预设具体 content-type 跳过协商，错误 JSON 任何 Accept 都可达。
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
   }
 
@@ -54,7 +57,9 @@ public class GlobalExceptionHandler {
   @ExceptionHandler({SessionNotFoundException.class, ResourceNotFoundException.class})
   public ResponseEntity<ApiResponse<Void>> handleResourceNotFound(RuntimeException ex) {
     LOG.warn("Resource not found: {}", sanitize(ex.getMessage()));
+    // 显式 JSON content-type：同 handleBadRequest——SSE 流前失败（FR-009）需在 Accept: text/event-stream 下可达
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
   }
 
@@ -62,7 +67,9 @@ public class GlobalExceptionHandler {
   @ExceptionHandler({IllegalStateException.class, ProviderUnavailableException.class})
   public ResponseEntity<ApiResponse<Void>> handleUnavailable(RuntimeException ex) {
     LOG.error("Service unavailable: {}", sanitize(ex.getMessage()));
+    // 显式 JSON content-type：同 handleBadRequest——SSE 流前失败（FR-009）需在 Accept: text/event-stream 下可达
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE.value(), ex.getMessage()));
   }
 

@@ -12,6 +12,9 @@ import io.oryxos.web.controller.dto.SessionStatsView;
 import io.oryxos.web.controller.dto.SessionSummaryView;
 import io.oryxos.web.controller.dto.SessionView;
 import io.oryxos.web.error.SessionNotFoundException;
+import io.oryxos.web.sse.SseStreamSupport;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -50,6 +53,14 @@ public class SessionApiController {
   private final AgentService agentService;
   private final SessionManager sessionManager;
 
+  /** SSE 编排（019）：默认实例保 telescoping 构造与测试直构可用，运行时由 @Autowired setter 覆盖为容器单例。 */
+  private SseStreamSupport sseStreamSupport = SseStreamSupport.defaultSupport();
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public void setSseStreamSupport(SseStreamSupport sseStreamSupport) {
+    this.sseStreamSupport = sseStreamSupport;
+  }
+
   public SessionApiController(AgentService agentService, SessionManager sessionManager) {
     this.agentService = agentService;
     this.sessionManager = sessionManager;
@@ -66,13 +77,24 @@ public class SessionApiController {
     return ApiResponse.ok(Map.of("sessionId", session.sessionId()));
   }
 
-  /** 发消息：触发一次完整 ReAct（与 oryxos chat 同一入口）。 */
+  /**
+   * 发消息：触发一次完整 ReAct（与 oryxos chat 同一入口）。019：Accept 含 text/event-stream 时走 SSE 流式 （校验前置于流开始，失败仍返
+   * JSON 状态码，FR-009）；否则一次性 JSON 路径零改动（FR-001 回归零破坏）。
+   */
   @PostMapping("/{id}/messages")
   public ApiResponse<MessageResponse> send(
-      @PathVariable String id, @RequestBody MessageRequest req) {
+      @PathVariable String id,
+      @RequestBody MessageRequest req,
+      HttpServletRequest request,
+      HttpServletResponse response) {
     String content = requireContent(req);
     Session session =
         sessionManager.get(id).orElseThrow(() -> new SessionNotFoundException(id)); // → 404
+    if (SseStreamSupport.wantsEventStream(request)) {
+      sseStreamSupport.stream(
+          response, listener -> agentService.process(session, content, listener));
+      return null; // 响应已由 SSE 流写出并提交
+    }
     String reply = agentService.process(session, content); // 同一编排入口；审计在 process 内
     return ApiResponse.ok(new MessageResponse(reply));
   }

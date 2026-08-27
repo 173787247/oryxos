@@ -86,28 +86,116 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       ChatResponse response = model.call(prompt);
       result = toProviderResponse(response);
     } catch (RuntimeException e) {
-      // 失败也留痕（宪法 V）：先落审计再上抛——只记成功不记失败，一次真实事故就没有痕迹。
-      // 审计自身再失败也不许反客为主：上抛的必须是模型调用的真实异常（排障首先看到的是「LLM 调 400」
-      // 而非「审计存储抖动」），审计异常挂 suppressed + ERROR 日志独立告警。
-      try {
-        audit.record(
-            sessionId,
-            profile.name(),
-            providerName,
-            profile.provider().model(),
-            null,
-            null,
-            false,
-            e.getMessage(),
-            System.currentTimeMillis() - startedAt);
-      } catch (RuntimeException auditFailure) {
-        LOG.error("LLM 调用失败的审计落库也失败（主异常照常上抛）: provider={}", sanitize(providerName), auditFailure);
-        e.addSuppressed(auditFailure);
-      }
+      recordFailure(sessionId, profile, providerName, e, startedAt);
       throw e;
     }
-    // 成功审计 fail-open：调用已成功、token 已消耗，审计存储抖动不应让调用方丢掉这次完整回答
-    // （宪法 V 约束的是实现上不许省审计，不是拿审计故障牺牲用户请求）；失败走 ERROR 日志独立告警。
+    recordSuccess(sessionId, profile, providerName, result, startedAt);
+    return result;
+  }
+
+  /**
+   * 流式调用（019 R2）：{@code model.stream(prompt)} 经 {@code toIterable()} 在当前（虚拟）线程上同步迭代—— Flux/Reactor
+   * 类型不出本方法（宪法 VII 边界）。只回调 content 增量（R3）；tool-call 增量在本地聚合。
+   *
+   * <p>降级（FR-006）：模型无流式能力（{@code stream} 抛 {@link UnsupportedOperationException}）且尚无任何输出时，
+   * 回落到契约默认实现（整段 {@code chat} + 一次性回调，审计在 chat 内）。已有部分输出后失败 → 结果残缺， 失败先落账再上抛，绝不把残缺内容当完整返回。
+   */
+  @Override
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = {"CRLF_INJECTION_LOGS", "RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE"},
+      justification =
+          "CRLF：与 chat 同口径，日志里的 provider 名经 sanitize() 消去 CR/LF，taint 分析不跨方法追踪该消毒；"
+              + "RCN：Spring AI 的注解声称 chunk 各字段非空，但流式 chunk 的边界形态因 provider 而异，"
+              + "对 generation/output 的防御性判空是有意保留的（信注解不如信线上流量）")
+  public ProviderResponse chatStream(
+      String sessionId,
+      Profile profile,
+      ProviderRequest request,
+      java.util.function.Consumer<String> onToken) {
+    String providerName = profile.provider().name();
+    ProviderDef def =
+        registry.find(providerName).orElseThrow(() -> new ProviderNotFoundException(providerName));
+    ChatModel model = resolveModel(def);
+    Prompt prompt = buildPrompt(profile, request);
+    long startedAt = System.currentTimeMillis();
+    StringBuilder text = new StringBuilder();
+    ToolCallAggregator toolCalls = new ToolCallAggregator();
+    Usage usage = null;
+    try {
+      for (ChatResponse chunk : model.stream(prompt).toIterable()) {
+        Generation generation = chunk.getResult();
+        if (generation != null && generation.getOutput() != null) {
+          String delta = generation.getOutput().getText();
+          if (delta != null && !delta.isEmpty()) {
+            text.append(delta);
+            onToken.accept(delta);
+          }
+          toolCalls.accept(generation.getOutput().getToolCalls());
+        }
+        Usage chunkUsage = extractUsage(chunk);
+        // 多数 provider 只在末尾 chunk 带真实 usage，中间是空/零值——只保留最后一个有效值
+        if (chunkUsage != null
+            && chunkUsage.totalTokens() != null
+            && chunkUsage.totalTokens() > 0) {
+          usage = chunkUsage;
+        }
+      }
+    } catch (UnsupportedOperationException e) {
+      if (text.isEmpty() && toolCalls.isEmpty()) {
+        // 模型无流式能力且零输出：安全降级整段路径（审计由 chat 负责，恰好一条）
+        return ProviderService.super.chatStream(sessionId, profile, request, onToken);
+      }
+      recordFailure(sessionId, profile, providerName, e, startedAt);
+      throw e;
+    } catch (RuntimeException e) {
+      // 流式中断（网络抖动/上游截断）：结果残缺不当完整返回（FR-006）——失败先落账再上抛（宪法 V）
+      recordFailure(sessionId, profile, providerName, e, startedAt);
+      throw e;
+    }
+    ProviderResponse result = new ProviderResponse(text.toString(), toolCalls.build(), usage);
+    recordSuccess(sessionId, profile, providerName, result, startedAt);
+    return result;
+  }
+
+  /**
+   * 失败审计（宪法 V）：先落账再上抛——只记成功不记失败，一次真实事故就没有痕迹。 审计自身再失败也不许反客为主：上抛的必须是模型调用的真实异常（排障首先看到的是「LLM 调
+   * 400」而非「审计存储抖动」），审计异常挂 suppressed + ERROR 日志独立告警。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "日志里的 provider 名经 sanitize() 消去 CR/LF，taint 分析不跨方法追踪该消毒")
+  private void recordFailure(
+      String sessionId, Profile profile, String providerName, RuntimeException e, long startedAt) {
+    try {
+      audit.record(
+          sessionId,
+          profile.name(),
+          providerName,
+          profile.provider().model(),
+          null,
+          null,
+          false,
+          e.getMessage(),
+          System.currentTimeMillis() - startedAt);
+    } catch (RuntimeException auditFailure) {
+      LOG.error("LLM 调用失败的审计落库也失败（主异常照常上抛）: provider={}", sanitize(providerName), auditFailure);
+      e.addSuppressed(auditFailure);
+    }
+  }
+
+  /**
+   * 成功审计 fail-open：调用已成功、token 已消耗，审计存储抖动不应让调用方丢掉这次完整回答 （宪法 V 约束的是实现上不许省审计，不是拿审计故障牺牲用户请求）；失败走 ERROR
+   * 日志独立告警。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "日志里的 provider 名经 sanitize() 消去 CR/LF，taint 分析不跨方法追踪该消毒")
+  private void recordSuccess(
+      String sessionId,
+      Profile profile,
+      String providerName,
+      ProviderResponse result,
+      long startedAt) {
     try {
       audit.record(
           sessionId,
@@ -122,7 +210,58 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     } catch (RuntimeException auditFailure) {
       LOG.error("成功 LLM 调用的审计落库失败（结果照常返回）: provider={}", sanitize(providerName), auditFailure);
     }
-    return result;
+  }
+
+  /**
+   * 流式 tool-call 聚合器（019 R2）：兼容两种 chunk 形态——「合并式」（一个 chunk 携带完整 tool call）与 「增量式」（同一 id 的 arguments
+   * 分片到达，或 id 只在首片、后续片 id 为空）。按 id 归组、arguments 顺序拼接。
+   */
+  private static final class ToolCallAggregator {
+
+    private final Map<String, PendingCall> byId = new java.util.LinkedHashMap<>();
+    private PendingCall current;
+
+    private static final class PendingCall {
+      private String name;
+      private final StringBuilder arguments = new StringBuilder();
+    }
+
+    @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+        value = "RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE",
+        justification = "Spring AI 注解声称 ToolCall 各字段非空，但流式 chunk 增量形态因 provider 而异，防御性判空有意保留")
+    void accept(List<AssistantMessage.ToolCall> calls) {
+      if (calls == null) {
+        return;
+      }
+      for (AssistantMessage.ToolCall call : calls) {
+        String id = call.id();
+        if (id != null && !id.isBlank()) {
+          current = byId.computeIfAbsent(id, k -> new PendingCall());
+        } else if (current == null) {
+          // 首片就无 id 的异常形态：给个合成 id 兜底（真实 provider 首片必带 id）
+          current = byId.computeIfAbsent("stream-call-" + byId.size(), k -> new PendingCall());
+        }
+        if (call.name() != null && !call.name().isBlank()) {
+          current.name = call.name();
+        }
+        if (call.arguments() != null) {
+          current.arguments.append(call.arguments());
+        }
+      }
+    }
+
+    boolean isEmpty() {
+      return byId.isEmpty();
+    }
+
+    List<ToolCallRequest> build() {
+      return byId.entrySet().stream()
+          .map(
+              e ->
+                  new ToolCallRequest(
+                      e.getKey(), e.getValue().name, e.getValue().arguments.toString()))
+          .toList();
+    }
   }
 
   /** 日志参数消毒：去掉换行，防日志伪造（CRLF injection）。 */
