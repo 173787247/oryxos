@@ -53,6 +53,17 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** {@code ::ffff:0:0/96} 前缀中必须为 0 的前缀字节数（随后两字节为 0xff）。 */
   private static final int IPV4_MAPPED_ZERO_PREFIX_LENGTH = 10;
 
+  /** IPv4-mapped / NAT64 / IPv4-compatible：嵌入 IPv4 起始下标（末 4 字节）。 */
+  private static final int EMBEDDED_IPV4_TAIL_OFFSET = 12;
+
+  /** 6to4：嵌入 IPv4 起始下标（字节 2–5）。 */
+  private static final int SIXTOFOUR_IPV4_OFFSET = 2;
+
+  private static final int IPV4_OCTET_COUNT = 4;
+
+  /** 原生 IPv6 {@code ::1} 的末字节。 */
+  private static final byte IPV6_LOOPBACK_SUFFIX = 1;
+
   // 具体类型 CopyOnWriteArrayList（而非 List 接口）：需要 addIfAbsent 的原子"不存在才加"语义
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
   private final Set<String> allowedCommands = ConcurrentHashMap.newKeySet();
@@ -296,10 +307,22 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
     byte[] ipv4;
     if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
-      ipv4 = new byte[] {b[12], b[13], b[14], b[15]};
+      ipv4 =
+          new byte[] {
+            b[EMBEDDED_IPV4_TAIL_OFFSET],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
+          };
     } else if (isSixToFourPrefix(b)) {
       // RFC 3056：2002:V4ADDR::/48 —— IPv4 在字节 2–5
-      ipv4 = new byte[] {b[2], b[3], b[4], b[5]};
+      ipv4 =
+          new byte[] {
+            b[SIXTOFOUR_IPV4_OFFSET],
+            b[SIXTOFOUR_IPV4_OFFSET + 1],
+            b[SIXTOFOUR_IPV4_OFFSET + 2],
+            b[SIXTOFOUR_IPV4_OFFSET + 3]
+          };
     } else {
       return addr;
     }
@@ -351,14 +374,22 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
         return false;
       }
     }
-    if (b[10] != 0 || b[11] != 0) {
+    if (b[IPV4_MAPPED_ZERO_PREFIX_LENGTH] != 0 || b[IPV4_MAPPED_ZERO_PREFIX_LENGTH + 1] != 0) {
       return false;
     }
-    // :: 与 ::1
-    if (b[12] == 0 && b[13] == 0 && b[14] == 0 && (b[15] == 0 || b[15] == 1)) {
-      return false;
+    return !isNativeIpv6UnspecifiedOrLoopbackTail(b);
+  }
+
+  /** 末 4 字节为 {@code 0.0.0.0}（{@code ::}）或 {@code 0.0.0.1}（{@code ::1}）。 */
+  private static boolean isNativeIpv6UnspecifiedOrLoopbackTail(byte[] b) {
+    int lastIndex = EMBEDDED_IPV4_TAIL_OFFSET + IPV4_OCTET_COUNT - 1;
+    for (int i = EMBEDDED_IPV4_TAIL_OFFSET; i < lastIndex; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
     }
-    return true;
+    byte last = b[lastIndex];
+    return last == 0 || last == IPV6_LOOPBACK_SUFFIX;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(

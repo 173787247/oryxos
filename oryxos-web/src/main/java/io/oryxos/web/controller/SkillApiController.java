@@ -71,6 +71,11 @@ public class SkillApiController {
   /** {@code ::ffff:0:0/96} 前缀中必须为 0 的前缀字节数（随后两字节为 0xff）。 */
   private static final int IPV4_MAPPED_ZERO_PREFIX_LENGTH = 10;
 
+  private static final int EMBEDDED_IPV4_TAIL_OFFSET = 12;
+  private static final int SIXTOFOUR_IPV4_OFFSET = 2;
+  private static final int IPV4_OCTET_COUNT = 4;
+  private static final byte IPV6_LOOPBACK_SUFFIX = 1;
+
   private final SkillService skills;
   private final SkillCatalog catalog;
   private final AgentSkillBindingService bindings;
@@ -250,9 +255,21 @@ public class SkillApiController {
     }
     byte[] ipv4;
     if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
-      ipv4 = new byte[] {b[12], b[13], b[14], b[15]};
+      ipv4 =
+          new byte[] {
+            b[EMBEDDED_IPV4_TAIL_OFFSET],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
+          };
     } else if (isSixToFourPrefix(b)) {
-      ipv4 = new byte[] {b[2], b[3], b[4], b[5]};
+      ipv4 =
+          new byte[] {
+            b[SIXTOFOUR_IPV4_OFFSET],
+            b[SIXTOFOUR_IPV4_OFFSET + 1],
+            b[SIXTOFOUR_IPV4_OFFSET + 2],
+            b[SIXTOFOUR_IPV4_OFFSET + 3]
+          };
     } else {
       return addr;
     }
@@ -297,13 +314,21 @@ public class SkillApiController {
         return false;
       }
     }
-    if (b[10] != 0 || b[11] != 0) {
+    if (b[IPV4_MAPPED_ZERO_PREFIX_LENGTH] != 0 || b[IPV4_MAPPED_ZERO_PREFIX_LENGTH + 1] != 0) {
       return false;
     }
-    if (b[12] == 0 && b[13] == 0 && b[14] == 0 && (b[15] == 0 || b[15] == 1)) {
-      return false;
+    return !isNativeIpv6UnspecifiedOrLoopbackTail(b);
+  }
+
+  private static boolean isNativeIpv6UnspecifiedOrLoopbackTail(byte[] b) {
+    int lastIndex = EMBEDDED_IPV4_TAIL_OFFSET + IPV4_OCTET_COUNT - 1;
+    for (int i = EMBEDDED_IPV4_TAIL_OFFSET; i < lastIndex; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
     }
-    return true;
+    byte last = b[lastIndex];
+    return last == 0 || last == IPV6_LOOPBACK_SUFFIX;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
