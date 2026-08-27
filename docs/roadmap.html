@@ -293,13 +293,13 @@
     <div class="phase-head"><span class="ver">v0.3</span><h3>治理面 —— 把「可审计」升级为「可治理」</h3><span class="when">2027 Q1</span></div>
     <p class="why">审计数据已落库一年，只写不查等于没有。这一版把差异化主张坐实：单机就能交付、且被后续分布式放大的治理能力。全部端到端可控，无外部依赖，适合放在分布式之前。</p>
     <ul class="items">
-      <li><span class="tag">HITL</span><span>危险动作挂起 → 飞书/企微审批卡片一键 approve/deny → 批了再执行（复用 v0.2 双向渠道）</span></li>
-      <li><span class="tag">审计</span><span>审计查询 API + 管理台审计页，trace ID 串联一次 ReAct 全链路，敏感字段脱敏</span></li>
-      <li><span class="tag">看板</span><span>成本/token 聚合看板（数据已在 <code>llm_calls</code>，只差聚合与 UI）；Actuator + Micrometer + Prometheus 端点</span></li>
-      <li><span class="tag">策略</span><span>Profile 级 Tool Policy（allow/deny）；密钥加密存储，预留 KMS/Vault 接口</span></li>
+      <li><span class="tag">策略</span><span>Tool Policy（020）：全局 + Agent 级工具 allow/deny，事先定义、配置即责任；覆盖内置与 MCP 工具，越权调用被拒且审计留痕</span></li>
+      <li><span class="tag">审计</span><span>trace ID 串联一次 ReAct 全链路 + 敏感字段脱敏（查询 API 与报表看板已由 016 预支交付）</span></li>
+      <li><span class="tag">看板</span><span>Actuator + Micrometer + Prometheus 端点（成本/token 聚合看板已由 016 预支交付）</span></li>
+      <li><span class="tag">密钥</span><span>密钥加密存储，预留 KMS/Vault 接口</span></li>
       <li><span class="tag">路由</span><span>Provider fallback / 失败切换（frontmatter <code>fallback</code> 字段），智能路由留到数据积累后</span></li>
     </ul>
-    <div class="demo"><b>验收 Demo</b>：Agent 要执行白名单外命令 → 飞书弹审批卡 → 批准后执行 → 管理台按 trace ID 查到完整链路与成本。</div>
+    <div class="demo"><b>验收 Demo</b>：给 Agent 配 Tool Policy → 模型试图调用越权工具被拒且留痕 → 管理台按 trace ID 查到完整链路与成本。</div>
   </div>
 
   <div class="phase">
@@ -347,6 +347,7 @@
     <tr><td><b>分布式不用 etcd</b></td><td>DB 抢锁 + 心跳</td><td>企业已有 DB 运维能力，零新增件；与「无状态实例」原则同构（采 VisionAndRoadmap 方向 A，废弃旧文档 Nacos/ETCD 方案）</td></tr>
     <tr><td><b>编排的边界</b></td><td>做 Flow 目录编排，不做可视化画布</td><td>与 Dify/n8n 保持互补而非对撞；md 声明式与「目录即 Agent」同一心智模型</td></tr>
     <tr><td><b>同步模型不动摇</b></td><td>SSE/并行工具都在虚拟线程内做</td><td>宪法七；异步框架带来的复杂度在 Agent 场景无收益</td></tr>
+    <tr><td><b>HITL 审批移出主线</b></td><td>v0.3 不做危险动作人工审批，治理走「事先定义」的 Tool Policy</td><td>企业 Agent 多为定时/群聊无人值守场景，发起人 ≠ 审批人、审批人常缺位；无 RBAC 时临时越权责任链断裂，审批疲劳沦为安全剧场。若未来有真实需求，须待 v1.0 RBAC/租户定型后再评估（2026-08-27 维护者裁决）</td></tr>
   </table>
   </div>
 
