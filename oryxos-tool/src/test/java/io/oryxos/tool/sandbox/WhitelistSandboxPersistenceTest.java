@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /** 31 节：store-backed WhitelistSandbox 的加载 / 写穿行为（宪法 VI 白名单持久化）。 */
@@ -103,6 +105,8 @@ class WhitelistSandboxPersistenceTest {
 
   @Test
   @DisplayName("悬空白名单链接恢复后可用原值刷新并删除")
+  // Windows 下先建 file-symlink 后造目录导致软链接类型不匹配、toRealPath 无法解析，依赖 POSIX 软链接语义——Linux CI 为唯一真相源。
+  @DisabledOnOs(OS.WINDOWS)
   void danglingFileRootCanBeRemovedAfterTargetAppears(@TempDir Path temp) throws Exception {
     Path target = temp.resolve("target");
     Path dangling = temp.resolve("dangling-root");
