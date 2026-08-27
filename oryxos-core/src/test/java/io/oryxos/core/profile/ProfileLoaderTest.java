@@ -110,6 +110,68 @@ class ProfileLoaderTest {
   }
 
   @Test
+  void 数字字段支持引号字符串并正确解析() throws IOException {
+    write(
+        "quoted-numbers.yaml",
+        """
+        name: quoted-numbers
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          temperature: "0.7"
+        settings:
+          max_iterations: "10"
+          max_history_turns: "15"
+        """);
+
+    Profile profile = loader().loadAll().get("quoted-numbers").orElseThrow();
+
+    assertEquals(0.7, profile.provider().temperature());
+    assertEquals(10, profile.settings().maxIterations());
+    assertEquals(15, profile.settings().maxHistoryTurns());
+  }
+
+  @Test
+  void 数字字段非法值报错点名() throws IOException {
+    write(
+        "bad-temp.yaml",
+        """
+        name: bad-temp
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          temperature: true
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-temp.yaml")));
+
+    assertTrue(ex.getMessage().contains("provider.temperature"));
+    assertTrue(ex.getMessage().contains("bad-temp"));
+
+    write(
+        "bad-iter.yaml",
+        """
+        name: bad-iter
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        settings:
+          max_iterations: not-a-number
+        """);
+
+    ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-iter.yaml")));
+
+    assertTrue(ex.getMessage().contains("settings.max_iterations"));
+    assertTrue(ex.getMessage().contains("not-a-number"));
+  }
+
+  @Test
   void 引用不存在的provider_报错信息包含该名字() throws IOException {
     write(
         "bad-provider.yaml",
