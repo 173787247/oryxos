@@ -31,12 +31,23 @@ public class ReActLoop {
   }
 
   public String run(Session session, String userMessage, Profile profile) {
+    return run(session, userMessage, profile, StreamListener.NOOP);
+  }
+
+  /**
+   * 带流式观察者的运行（019）：listener 为 {@link StreamListener#NOOP} 时行为与原路径完全一致（走 {@code chat}）；否则 LLM 调用走
+   * {@code chatStream} 逐段回调 token，工具执行前后回调 start/end。回调全部同步、 循环调度逻辑零变化（宪法 I 的定制点，宪法 VII 的同步模型不动摇）。
+   */
+  public String run(Session session, String userMessage, Profile profile, StreamListener listener) {
     session.appendUser(userMessage);
     // 最大轮数兜底（坑一）：模型可能反复要调工具永不收敛，转够强制退出
     for (int i = 0; i < profile.settings().maxIterations(); i++) {
       ProviderRequest prompt = promptBuilder.build(session, profile);
-      // sessionId 随调用传递：llm_calls 审计按 session 关联
-      ProviderResponse response = providerService.chat(session.sessionId(), profile, prompt);
+      // sessionId 随调用传递：llm_calls 审计按 session 关联；流式与否审计同口径（FR-012）
+      ProviderResponse response =
+          listener == StreamListener.NOOP
+              ? providerService.chat(session.sessionId(), profile, prompt)
+              : providerService.chatStream(session.sessionId(), profile, prompt, listener::onToken);
       // 先累积再判停（坑三）：每一轮都留痕，事后可审计、下一轮接得上
       session.appendAssistant(response);
       if (!response.hasToolCalls()) {
@@ -45,7 +56,9 @@ public class ReActLoop {
       for (ToolCallRequest call : response.toolCalls()) {
         // 执行权只在 ToolExecutor（宪法 I/II）；失败结果同样回填，模型下一轮自行决定
         // 传 profile.name() 作为 Agent 名：记忆类工具据此落到本 Agent 专属 MEMORY.md（30 节）
+        listener.onToolStart(call.name());
         ToolResult result = toolExecutor.execute(session.sessionId(), profile.name(), call);
+        listener.onToolEnd(call.name(), result.success());
         session.appendToolResult(call, result);
       }
     }

@@ -48,6 +48,11 @@ public class AgentService {
   }
 
   public String process(Session session, String userMessage) {
+    return process(session, userMessage, StreamListener.NOOP);
+  }
+
+  /** 带流式观察者的会话处理（019）：锁与 ProfileContext 语义不变，listener 只是透传给 ReActLoop。 */
+  public String process(Session session, String userMessage, StreamListener listener) {
     // 同一会话的读写整段互斥；sessionId 理论上永不为 null（来自 SessionManager），mock 场景兜底防 NPE
     String sessionKey =
         session.sessionId() == null ? profileNameOrFallback(session) : session.sessionId();
@@ -66,7 +71,11 @@ public class AgentService {
                           "Session 引用的 Profile 不存在: " + activeSession.profileName()));
       ProfileContext.set(profile); // 工具执行时靠它知道"当前是哪个 Agent"
       try {
-        String reply = reActLoop.run(activeSession, userMessage, profile);
+        // NOOP 走三参原入口：保持对 ReActLoop 的既有交互契约（现存测试按三参 stub/verify），语义与四参 NOOP 等价
+        String reply =
+            listener == StreamListener.NOOP
+                ? reActLoop.run(activeSession, userMessage, profile)
+                : reActLoop.run(activeSession, userMessage, profile, listener);
         // 达到最大迭代上限时 ReAct 返回占位文本（不抛异常），这里检测并转为异常，
         // 让 triggerAsync 把执行记成失败状态（否则前端显示"执行成功"——错误引导用户）
         boolean exhausted = ReActLoop.MAX_ITERATIONS_REPLY.equals(reply);
@@ -95,12 +104,24 @@ public class AgentService {
         agentName, userMessage, STATELESS_EXECUTION_TAG + ":" + UUID.randomUUID());
   }
 
+  /** 带流式观察者的无状态调用（019）：临时会话标识自动生成，其余语义同上。 */
+  public String processStateless(String agentName, String userMessage, StreamListener listener) {
+    return processStateless(
+        agentName, userMessage, STATELESS_EXECUTION_TAG + ":" + UUID.randomUUID(), listener);
+  }
+
   /**
    * 无状态调用（带完整临时会话标识）：{@code statelessSessionId} 由调用方生成并同时用于 {@code agent_executions} 关联，使审计三表可按同一
    * id 串联、触发渠道可辨（017 FR-014：群聊问答传 "feishu-group:&lt;uuid&gt;" 形态， 审计可按 {@code session_id LIKE
    * 'feishu%'} 查询）。仍不创建持久会话。
    */
   public String processStateless(String agentName, String userMessage, String statelessSessionId) {
+    return processStateless(agentName, userMessage, statelessSessionId, StreamListener.NOOP);
+  }
+
+  /** 无状态调用全参形态（019）：显式会话标识 + 流式观察者。 */
+  public String processStateless(
+      String agentName, String userMessage, String statelessSessionId, StreamListener listener) {
     Profile profile =
         profileRegistry
             .get(agentName)
@@ -108,7 +129,11 @@ public class AgentService {
     Session session = new Session(statelessSessionId, profile.name());
     ProfileContext.set(profile);
     try {
-      String reply = reActLoop.run(session, userMessage, profile);
+      // 同 process：NOOP 走三参原入口，保持既有交互契约
+      String reply =
+          listener == StreamListener.NOOP
+              ? reActLoop.run(session, userMessage, profile)
+              : reActLoop.run(session, userMessage, profile, listener);
       if (ReActLoop.MAX_ITERATIONS_REPLY.equals(reply)) {
         throw new AgentMaxIterationsExceededException(reply);
       }

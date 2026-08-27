@@ -136,3 +136,8 @@ oryxos:
   # web:
   #   apikey:
   #     enabled: true
+  # SSE 流式响应（019-sse-streaming）。消息端点带 Accept: text/event-stream 即流式返回，
+  # 无需开关；heartbeat-seconds 为静默期心跳间隔（SSE 注释行，防代理空闲断连），默认 15。
+  # web:
+  #   sse:
+  #     heartbeat-seconds: 15

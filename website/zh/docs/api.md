@@ -480,6 +480,29 @@ null
 { "reply": "当前磁盘使用情况：/dev/sda1 使用率 42%，其余挂载点均低于 30%。" }
 ```
 
+### SSE 流式响应
+
+三个消息端点（本端点、[无状态调用](#无状态调用)、[向控制台会话发消息](#向控制台会话发消息)）支持流式：请求头带 `Accept: text/event-stream` 即改为 SSE 事件流,不带则维持上述一次性 JSON。
+
+```bash
+curl -N -H "Accept: text/event-stream" -H "Content-Type: application/json" \
+  -d '{"content":"介绍一下你自己"}' \
+  http://localhost:8080/api/v1/sessions/<id>/messages
+```
+
+事件类型（`data:` 为单行 JSON）:
+
+| event | data 负载 | 说明 |
+| --- | --- | --- |
+| `token` | `{"delta":"…"}` | 回复文本增量（打字机） |
+| `tool_start` | `{"name":"shell"}` | 工具调用开始 |
+| `tool_end` | `{"name":"shell","success":true}` | 工具调用结束 |
+| `done` | `{"reply":"完整回复"}` | 终结事件（与 error 二选一,恰好一个） |
+| `error` | `{"code":500,"message":"…"}` | 流中失败的终结事件 |
+| `: ping` | —（SSE 注释行） | 心跳,间隔由 `oryxos.web.sse.heartbeat-seconds` 控制（默认 15s）,解析器应忽略 |
+
+语义承诺:`token` 按序拼接等于 `done.reply`;流开始前的失败（404/401/400）仍返 JSON 状态码;客户端中途断开后服务端照常完成本轮并落库、审计照写（断开不退款）;流式与非流式的 `llm_calls`/`tool_invocations` 审计口径完全一致。完整契约见仓库 `specs/019-sse-streaming/contracts/sse-protocol.md`。
+
 ### 列出会话
 
 **GET** `/api/v1/sessions?status=active`

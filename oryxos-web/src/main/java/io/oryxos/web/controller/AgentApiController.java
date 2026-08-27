@@ -31,6 +31,9 @@ import io.oryxos.web.controller.dto.TriggerResponse;
 import io.oryxos.web.controller.dto.UpdateAgentBasicRequest;
 import io.oryxos.web.controller.dto.UpdateAgentRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
+import io.oryxos.web.sse.SseStreamSupport;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,6 +81,14 @@ public class AgentApiController {
   private final AgentSkillBindingService skillBindings;
   private final SkillCatalog skillCatalog;
   private final KnowledgeBindingService knowledgeBindings;
+
+  /** SSE 编排（019）：默认实例保 telescoping 构造与测试直构可用，运行时由 @Autowired setter 覆盖为容器单例。 */
+  private SseStreamSupport sseStreamSupport = SseStreamSupport.defaultSupport();
+
+  @Autowired
+  public void setSseStreamSupport(SseStreamSupport sseStreamSupport) {
+    this.sseStreamSupport = sseStreamSupport;
+  }
 
   public AgentApiController(
       AgentLifecycleService lifecycle,
@@ -224,9 +235,13 @@ public class AgentApiController {
             lifecycle.updateBasicInfo(name, req.description(), req.provider(), req.model())));
   }
 
+  /** 019：Accept 含 text/event-stream 时 SSE 流式（校验前置，FR-009）；否则一次性 JSON 路径零改动。 */
   @PostMapping("/{name}/invoke")
   public ApiResponse<MessageResponse> invoke(
-      @PathVariable String name, @RequestBody MessageRequest req) {
+      @PathVariable String name,
+      @RequestBody MessageRequest req,
+      HttpServletRequest request,
+      HttpServletResponse response) {
     if (req == null || req.content() == null || req.content().isEmpty()) {
       throw new IllegalArgumentException("消息为空"); // → 400
     }
@@ -234,6 +249,12 @@ public class AgentApiController {
       throw new IllegalArgumentException("消息超过 32KB 上限"); // → 400
     }
     requireAgent(name);
+    if (SseStreamSupport.wantsEventStream(request)) {
+      String content = req.content();
+      sseStreamSupport.stream(
+          response, listener -> agentService.processStateless(name, content, listener));
+      return null; // 响应已由 SSE 流写出并提交
+    }
     String reply = agentService.processStateless(name, req.content());
     return ApiResponse.ok(new MessageResponse(reply));
   }
@@ -254,10 +275,16 @@ public class AgentApiController {
         new SessionView(session.sessionId(), session.profileName(), recent(session.messages())));
   }
 
-  /** 往固定管理台会话发一条消息，触发 ReAct（同 invoke 入口，但落在这个 Agent 的固定会话里，累积上下文）。 */
+  /**
+   * 往固定管理台会话发一条消息，触发 ReAct（同 invoke 入口，但落在这个 Agent 的固定会话里，累积上下文）。
+   * 019：管理台聊天页的流式载体端点（FR-013/R5），Accept 分流规则与 invoke 一致。
+   */
   @PostMapping("/{name}/session/messages")
   public ApiResponse<MessageResponse> consoleSend(
-      @PathVariable String name, @RequestBody MessageRequest req) {
+      @PathVariable String name,
+      @RequestBody MessageRequest req,
+      HttpServletRequest request,
+      HttpServletResponse response) {
     if (req == null || req.content() == null || req.content().isEmpty()) {
       throw new IllegalArgumentException("消息为空"); // → 400
     }
@@ -266,6 +293,12 @@ public class AgentApiController {
     }
     requireAgent(name);
     Session session = sessionManager.getOrCreate(CONSOLE_CHANNEL, CONSOLE_USER, name);
+    if (SseStreamSupport.wantsEventStream(request)) {
+      String content = req.content();
+      sseStreamSupport.stream(
+          response, listener -> agentService.process(session, content, listener));
+      return null; // 响应已由 SSE 流写出并提交
+    }
     return ApiResponse.ok(new MessageResponse(agentService.process(session, req.content())));
   }
 
