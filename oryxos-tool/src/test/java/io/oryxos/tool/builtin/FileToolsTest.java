@@ -271,6 +271,31 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("文件工具拒绝直写 channels.yaml / mcp_servers.yaml")
+  void fileToolsRejectAdminConfigFiles() throws IOException {
+    Path channels = dir.resolve("channels.yaml");
+    Path mcp = dir.resolve("mcp_servers.yaml");
+    Path other = dir.resolve("other.txt");
+    Files.writeString(channels, "channels: []\n");
+    Files.writeString(mcp, "servers: []\n");
+    Files.writeString(other, "x");
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.writeFile(channels.toString(), "hijack"));
+    assertThrows(IllegalArgumentException.class, () -> tools.editFile(mcp.toString(), "[]", "x"));
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.appendFile(channels.toString(), "x\n"));
+    assertThrows(IllegalArgumentException.class, () -> tools.deleteFile(channels.toString()));
+    assertThrows(IllegalArgumentException.class, () -> tools.makeDir(channels.toString()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.moveFile(channels.toString(), dir.resolve("x.yaml").toString()));
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.copyFile(other.toString(), mcp.toString()));
+    assertEquals("channels: []\n", Files.readString(channels));
+    assertEquals("servers: []\n", Files.readString(mcp));
+  }
+
+  @Test
   @DisplayName("write_file 落盘前复检 FILE_WRITE（防校验窗口内路径逃逸）")
   void writeFileRechecksPathBeforeWrite() {
     AtomicInteger fileWrites = new AtomicInteger();
