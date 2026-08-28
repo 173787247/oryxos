@@ -1,6 +1,7 @@
 package io.oryxos.web.controller;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -8,10 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.oryxos.core.fs.RealPathBoundary;
 import io.oryxos.web.GlobalExceptionHandler;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -119,6 +123,34 @@ class WorkspaceApiControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$..[?(@.name == 'escape')].type").value("link"))
         .andExpect(jsonPath("$..[?(@.name == 'escape')].children.length()").value(0));
+  }
+
+  @Test
+  @DisplayName("write 在 createDirectories 后复检路径，阻断父路径被换成外向软链")
+  void writeRechecksPathAfterCreateDirectories() throws Exception {
+    Assumptions.assumeTrue(
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "需要 POSIX 软链支持");
+    Path outside = Files.createDirectories(oryxosRoot.resolveSibling("outside-recheck"));
+    String rel = "agents/demo/hook/nested/file.txt";
+    Path hook = oryxosRoot.resolve("agents/demo/hook");
+    org.junit.jupiter.api.Assertions.assertFalse(Files.exists(hook));
+
+    // 模拟 TOCTOU：首次 resolve 时 hook 尚不存在，建目录前被换成外向软链
+    RealPathBoundary.requireWithin(oryxosRoot, oryxosRoot.resolve(rel).normalize());
+    Files.createSymbolicLink(hook, outside);
+    Files.createDirectories(oryxosRoot.resolve(rel).getParent());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RealPathBoundary.requireWithin(oryxosRoot, oryxosRoot.resolve(rel).normalize()));
+    org.junit.jupiter.api.Assertions.assertFalse(Files.exists(outside.resolve("nested/file.txt")));
+
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"" + rel + "\",\"content\":\"bad\"}"))
+        .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertFalse(Files.exists(outside.resolve("nested/file.txt")));
   }
 
   @Test

@@ -167,6 +167,8 @@ public class WorkspaceApiController {
       if (parent != null) {
         Files.createDirectories(parent);
       }
+      // 写前复检：与 write_file / download_file 同款——防首次校验到 writeString 间父路径被换成外向软链
+      target = resolveWithinRoot(path);
       Files.writeString(target, content);
     } catch (IOException e) {
       throw new UncheckedIOException("写入文件失败: " + path, e);
