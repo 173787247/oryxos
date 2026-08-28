@@ -122,7 +122,7 @@ public class ProfileLoader {
         toNotifyChannels(asList(map.get("notify_channels"))),
         toSchedules(asList(map.get("schedules")), source),
         asStringList(map.get("bootstrap")),
-        toSettings(asMap(map.get("settings"))));
+        toSettings(asMap(map.get("settings")), name));
   }
 
   private Profile.ProviderRef toProviderRef(Map<String, Object> map, String profileName) {
@@ -147,7 +147,8 @@ public class ProfileLoader {
               + knownProviders
               + "）");
     }
-    return new Profile.ProviderRef(providerName, model, asDouble(map.get("temperature")));
+    return new Profile.ProviderRef(
+        providerName, model, asDouble(map.get("temperature"), "provider.temperature", profileName));
   }
 
   private static Profile.Identity toIdentity(Map<String, Object> map) {
@@ -227,14 +228,22 @@ public class ProfileLoader {
     return schedules;
   }
 
-  private static Profile.Settings toSettings(Map<String, Object> map) {
+  private static Profile.Settings toSettings(Map<String, Object> map, String profileName) {
     if (map == null) {
       return Profile.Settings.defaults();
     }
     Profile.Settings defaults = Profile.Settings.defaults();
     return new Profile.Settings(
-        asInt(map.get("max_iterations"), defaults.maxIterations()),
-        asInt(map.get("max_history_turns"), defaults.maxHistoryTurns()));
+        asInt(
+            map.get("max_iterations"),
+            defaults.maxIterations(),
+            "settings.max_iterations",
+            profileName),
+        asInt(
+            map.get("max_history_turns"),
+            defaults.maxHistoryTurns(),
+            "settings.max_history_turns",
+            profileName));
   }
 
   /** 递归解析 ${ENV} 占位；环境变量缺失时保留原样并 WARN（凭证必填校验属全局层职责）。 */
@@ -296,12 +305,48 @@ public class ProfileLoader {
         "期望 YAML 字符串（yes/on/null 等请加引号），实际是 " + value.getClass().getSimpleName() + ": " + value);
   }
 
-  private static Double asDouble(Object value) {
-    return value instanceof Number number ? number.doubleValue() : null;
+  private static Double asDouble(Object value, String field, String profileName) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Number number) {
+      return number.doubleValue();
+    }
+    if (value instanceof String text) {
+      if (text.isBlank()) {
+        return null;
+      }
+      try {
+        return Double.parseDouble(text.strip());
+      } catch (NumberFormatException e) {
+        throw new ProfileValidationException(
+            "Profile " + profileName + " 的 " + field + " 必须是数字: " + text);
+      }
+    }
+    throw new ProfileValidationException(
+        "Profile " + profileName + " 的 " + field + " 必须是数字: " + value);
   }
 
-  private static int asInt(Object value, int defaultValue) {
-    return value instanceof Number number ? number.intValue() : defaultValue;
+  private static int asInt(Object value, int defaultValue, String field, String profileName) {
+    if (value == null) {
+      return defaultValue;
+    }
+    if (value instanceof Number number) {
+      return number.intValue();
+    }
+    if (value instanceof String text) {
+      if (text.isBlank()) {
+        return defaultValue;
+      }
+      try {
+        return Integer.parseInt(text.strip());
+      } catch (NumberFormatException e) {
+        throw new ProfileValidationException(
+            "Profile " + profileName + " 的 " + field + " 必须是整数: " + text);
+      }
+    }
+    throw new ProfileValidationException(
+        "Profile " + profileName + " 的 " + field + " 必须是整数: " + value);
   }
 
   @SuppressWarnings("unchecked")
