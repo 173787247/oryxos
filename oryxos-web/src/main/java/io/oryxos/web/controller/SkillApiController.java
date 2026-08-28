@@ -71,6 +71,11 @@ public class SkillApiController {
   /** {@code ::ffff:0:0/96} 前缀中必须为 0 的前缀字节数（随后两字节为 0xff）。 */
   private static final int IPV4_MAPPED_ZERO_PREFIX_LENGTH = 10;
 
+  private static final int EMBEDDED_IPV4_TAIL_OFFSET = 12;
+  private static final int SIXTOFOUR_IPV4_OFFSET = 2;
+  private static final int IPV4_OCTET_COUNT = 4;
+  private static final byte IPV6_LOOPBACK_SUFFIX = 1;
+
   private final SkillService skills;
   private final SkillCatalog catalog;
   private final AgentSkillBindingService bindings;
@@ -227,12 +232,14 @@ public class SkillApiController {
   }
 
   /**
-   * IPv4-mapped（{@code ::ffff:0:0/96}）与 NAT64 知名前缀（{@code 64:ff9b::/96}）先展开末 32 位 IPv4，再套用内网/元数据判定；
-   * 与 {@code WhitelistSandbox} 读路径 SSRF 兜底对齐。
+   * IPv4-mapped / NAT64 / 6to4 / IPv4-compatible 先展开嵌入 IPv4，再套用内网/元数据判定；与 {@code WhitelistSandbox}
+   * 读路径 SSRF 兜底对齐。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
     InetAddress effective = unwrapEmbeddedIpv4(addr);
-    return effective.isLoopbackAddress()
+    return addr.isLoopbackAddress()
+        || addr.isAnyLocalAddress()
+        || effective.isLoopbackAddress()
         || effective.isAnyLocalAddress()
         || effective.isLinkLocalAddress()
         || effective.isSiteLocalAddress()
@@ -243,19 +250,34 @@ public class SkillApiController {
 
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
-    if (!isEmbeddedIpv4Candidate(b)) {
+    if (b.length != IPV6_ADDRESS_LENGTH) {
+      return addr;
+    }
+    byte[] ipv4;
+    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
+      ipv4 =
+          new byte[] {
+            b[EMBEDDED_IPV4_TAIL_OFFSET],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
+            b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
+          };
+    } else if (isSixToFourPrefix(b)) {
+      ipv4 =
+          new byte[] {
+            b[SIXTOFOUR_IPV4_OFFSET],
+            b[SIXTOFOUR_IPV4_OFFSET + 1],
+            b[SIXTOFOUR_IPV4_OFFSET + 2],
+            b[SIXTOFOUR_IPV4_OFFSET + 3]
+          };
+    } else {
       return addr;
     }
     try {
-      return InetAddress.getByAddress(new byte[] {b[12], b[13], b[14], b[15]});
+      return InetAddress.getByAddress(ipv4);
     } catch (UnknownHostException e) {
       return addr;
     }
-  }
-
-  /** 16 字节且带 IPv4-mapped 或 NAT64 知名前缀时，才做末 32 位展开。 */
-  private static boolean isEmbeddedIpv4Candidate(byte[] b) {
-    return b.length == IPV6_ADDRESS_LENGTH && (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b));
   }
 
   private static boolean isIpv4MappedPrefix(byte[] b) {
@@ -280,6 +302,33 @@ public class SkillApiController {
         && b[9] == 0
         && b[10] == 0
         && b[11] == 0;
+  }
+
+  private static boolean isSixToFourPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x20 && (b[1] & 0xFF) == 0x02;
+  }
+
+  private static boolean isIpv4CompatiblePrefix(byte[] b) {
+    for (int i = 0; i < IPV4_MAPPED_ZERO_PREFIX_LENGTH; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
+    }
+    if (b[IPV4_MAPPED_ZERO_PREFIX_LENGTH] != 0 || b[IPV4_MAPPED_ZERO_PREFIX_LENGTH + 1] != 0) {
+      return false;
+    }
+    return !isNativeIpv6UnspecifiedOrLoopbackTail(b);
+  }
+
+  private static boolean isNativeIpv6UnspecifiedOrLoopbackTail(byte[] b) {
+    int lastIndex = EMBEDDED_IPV4_TAIL_OFFSET + IPV4_OCTET_COUNT - 1;
+    for (int i = EMBEDDED_IPV4_TAIL_OFFSET; i < lastIndex; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
+    }
+    byte last = b[lastIndex];
+    return last == 0 || last == IPV6_LOOPBACK_SUFFIX;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(

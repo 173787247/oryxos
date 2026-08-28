@@ -50,13 +50,15 @@ class SkillImportSsrfGuardTest {
   }
 
   @Test
-  @DisplayName("IPv4-mapped / NAT64 嵌入内网或元数据地址被拒绝")
-  void nat64AndMappedPrivateBlocked() {
+  @DisplayName("IPv4-mapped / NAT64 / 6to4 / compatible 嵌入内网或元数据地址被拒绝")
+  void embeddedPrivateBlocked() {
     for (String url :
         new String[] {
           "http://[::ffff:169.254.169.254]/latest/meta-data/",
           "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/",
-          "http://[64:ff9b::100.64.1.1]/x"
+          "http://[64:ff9b::100.64.1.1]/x",
+          "http://[2002:a9fe:a9fe::1]/latest/meta-data/",
+          "http://[::a9fe:a9fe]/x"
         }) {
       assertThrows(
           IllegalArgumentException.class,
@@ -65,9 +67,11 @@ class SkillImportSsrfGuardTest {
   }
 
   @Test
-  @DisplayName("NAT64 嵌入公网 IPv4 仍放行")
-  void nat64PublicIpv4Allowed() {
+  @DisplayName("NAT64 / 6to4 嵌入公网 IPv4 仍放行")
+  void embeddedPublicIpv4Allowed() {
     assertDoesNotThrow(
         () -> SkillApiController.guardPublicHost(URI.create("http://[64:ff9b::8.8.8.8]/x")));
+    assertDoesNotThrow(
+        () -> SkillApiController.guardPublicHost(URI.create("http://[2002:808:808::1]/x")));
   }
 }
