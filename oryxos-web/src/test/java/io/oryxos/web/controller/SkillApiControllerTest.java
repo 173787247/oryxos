@@ -153,7 +153,9 @@ class SkillApiControllerTest {
         .andExpect(jsonPath("$.data.name").value("s1"))
         .andExpect(
             jsonPath("$.data.archivedPath")
-                .value(org.hamcrest.Matchers.startsWith("archive/skills/s1-")));
+                .value(
+                    org.hamcrest.Matchers.startsWith(
+                        Path.of("archive", "skills", "s1-").toString())));
     mvc.perform(get("/api/v1/skills/s1")).andExpect(status().isNotFound());
   }
 

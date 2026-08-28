@@ -56,7 +56,9 @@ class KnowledgeToolsTest {
     assertEquals("disk.md", first.get("path").asText());
     assertEquals("3", first.get("position").asText());
     assertEquals("[ops-manual] disk.md #3", first.get("citation").asText());
-    assertTrue(first.get("file").asText().endsWith("ops-manual/disk.md"), "本地命中给出可跟读绝对路径（FR-017）");
+    assertTrue(
+        first.get("file").asText().endsWith(Path.of("ops-manual", "disk.md").toString()),
+        "本地命中给出可跟读绝对路径（FR-017）");
     assertFalse(json.get("zero_result").asBoolean());
     assertFalse(json.get("degraded").asBoolean());
     assertTrue(json.has("duration_ms"));

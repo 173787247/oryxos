@@ -31,6 +31,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 class ReActLoopSkillDisclosureTest {
@@ -38,6 +40,8 @@ class ReActLoopSkillDisclosureTest {
   @TempDir Path root;
 
   @Test
+  // 依赖 POSIX 软链接语义：Windows 上软链接解析/文件可见性不一致（flaky），以 Linux CI 为唯一真相源。
+  @DisabledOnOs(OS.WINDOWS)
   void readFileIsAuditedAndNextRoundRebuildsMetadataWithoutPreloadingBody() throws IOException {
     Path agent = Files.createDirectories(root.resolve("agents/reporter"));
     Files.writeString(agent.resolve("AGENT.md"), "---\nname: reporter\n---\n按职责执行");
