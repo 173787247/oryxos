@@ -747,6 +747,30 @@ The `value` is a **query parameter**; a blank value returns `400`.
 
 ---
 
+## Tool policy
+
+The platform administrator's governance layer (020): global + per-agent tool allow/deny, separate from the author-owned `tools:` list in `AGENT.md`. Policy is subtraction-only — the effective tool set is always ⊆ the declared set; it is orthogonal to the sandbox whitelist (policy decides *whether an agent may use a tool*, the sandbox decides *what resources a tool may touch*). Zero rules = current behavior unchanged; rule changes take effect immediately (hot reload).
+
+Three rule types: `GLOBAL_DENY` (all agents, no agentName), `AGENT_EXEMPT` (lifts the global deny for one agent), `AGENT_DENY` (tightens one agent — exemptions cannot save it). `pattern` is an exact tool name or an MCP server wildcard (`github-mcp:*`, matched by the tool's registered ownership). Three guards: denied tools never enter the model's tool list (before), the executor rejects by the latest policy at execution time (during, catches hallucinated calls), and `tool_invocations.blocked_by='policy'` marks the audit row (after, filterable).
+
+### Get policy and effective tool sets
+
+**GET** `/api/v1/tool-policy` — returns `rules` plus each agent's `declared` / `effective` / `removed` (with the matched-rule reason).
+
+### Create a rule
+
+**POST** `/api/v1/tool-policy/rules` — `{ "ruleType": "AGENT_EXEMPT", "agentName": "ops-agent", "pattern": "shell" }`. `GLOBAL_DENY` must not carry `agentName`, the other two must (`400` otherwise); duplicates return `409`; unknown tool names save with an `unknownTarget: true` warning flag.
+
+### Delete a rule
+
+**DELETE** `/api/v1/tool-policy/rules/{id}` — `404` if absent; takes effect immediately.
+
+### Audit filter
+
+**GET** `/api/v1/audit/tool?blockedBy=policy` — only tool calls rejected by policy.
+
+---
+
 ## Workspace file browser
 
 A read-only directory tree plus per-file read/write over the workspace (`agents/` and `archive/`). All paths are relative to the workspace root; a path that escapes the root (path traversal) returns `400`.

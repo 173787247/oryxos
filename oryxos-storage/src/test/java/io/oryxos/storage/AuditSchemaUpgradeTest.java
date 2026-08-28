@@ -26,7 +26,7 @@ class AuditSchemaUpgradeTest {
 
     try (Connection connection = dataSource.getConnection()) {
       assertThat(columns(connection, "llm_calls")).contains("cost_micros", "profile_name");
-      assertThat(columns(connection, "tool_invocations")).contains("profile_name");
+      assertThat(columns(connection, "tool_invocations")).contains("profile_name", "blocked_by");
     }
     assertThat(indexNames(dataSource, "llm_calls")).contains("idx_llm_calls_profile");
     assertThat(indexNames(dataSource, "tool_invocations")).contains("idx_tool_invocations_profile");

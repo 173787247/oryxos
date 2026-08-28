@@ -16,4 +16,22 @@ public interface ToolInvocationAuditor {
       boolean success,
       String errorMessage,
       long durationMs);
+
+  /**
+   * 带拦截来源标记的写入（020）：{@code blockedBy} 标记调用被哪道闸拦下（当前仅 {@code "policy"}=工具策略拒绝），
+   * 供审计按类筛选（FR-006）；未被拦截的调用传 null。默认实现丢弃标记委托旧签名（旧实现/测试桩零破坏）—— 要落列的实现方（JPA）须覆写本方法。
+   */
+  default void record(
+      String sessionId,
+      String profileName,
+      String toolName,
+      String inputJson,
+      String resultJson,
+      boolean success,
+      String errorMessage,
+      String blockedBy,
+      long durationMs) {
+    record(
+        sessionId, profileName, toolName, inputJson, resultJson, success, errorMessage, durationMs);
+  }
 }

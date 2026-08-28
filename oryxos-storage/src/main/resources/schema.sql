@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     profile_name VARCHAR(255),
     success BOOLEAN NOT NULL,
     error_message TEXT,
+    blocked_by VARCHAR(16),
     duration_ms INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
@@ -254,4 +255,19 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at TIMESTAMP NOT NULL,
     last_used_at TIMESTAMP,
     revoked_at TIMESTAMP
+);
+
+-- tool_policy_rules：工具策略（020-tool-policy）——平台管理员的治理层，独立于 AGENT.md 的 tools: 声明。
+-- rule_type：GLOBAL_DENY（全局禁用，agent_name 为空）/ AGENT_EXEMPT（指定 Agent 豁免全局 deny）/
+--            AGENT_DENY（指定 Agent 额外收紧）。pattern 为工具精确名或 MCP server 通配（server:*）。
+-- created_by 记录规则来源（管理台账号 / API 调用方），满足「配置即责任」最低追溯口径。
+-- 新表，CREATE TABLE IF NOT EXISTS，非 ALTER，存量库无迁移风险。
+CREATE TABLE IF NOT EXISTS tool_policy_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_type VARCHAR(16) NOT NULL,
+    agent_name VARCHAR(255),
+    pattern VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    created_by VARCHAR(255),
+    UNIQUE (rule_type, agent_name, pattern)
 );

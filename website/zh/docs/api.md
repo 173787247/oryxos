@@ -751,6 +751,41 @@ Sandbox 白名单分三类——`FILE`（允许路径）、`SHELL`（允许命�
 
 ---
 
+## 工具策略
+
+平台管理员的治理层（020）:全局 + Agent 级工具 allow/deny,与 `AGENT.md` 的 `tools:`（作者自选集）分离。策略只做减法——有效工具集恒 ⊆ 声明集;与沙箱白名单正交（策略管"能不能用这个工具",沙箱管"工具能碰什么资源"）。零规则 = 现状零破坏;规则增删即刻热更新生效。
+
+规则三类:`GLOBAL_DENY`（全局禁用,不带 agentName）、`AGENT_EXEMPT`（指定 Agent 豁免全局禁用）、`AGENT_DENY`（指定 Agent 定向收紧,例外救不回）。`pattern` 为工具精确名或 MCP server 通配（`github-mcp:*`,按工具注册归属判定）。三道保险:被禁工具不进模型清单（事前）、执行层按最新策略拒绝（事中,防幻觉调用）、`tool_invocations.blocked_by='policy'` 留痕（事后可筛）。
+
+### 查询策略与有效工具集
+
+**GET** `/api/v1/tool-policy`
+
+```json
+// data —— rules + 每个 Agent 的有效工具集（removed 附命中规则原因）
+{
+  "rules": [ { "id": 1, "ruleType": "GLOBAL_DENY", "agentName": null, "pattern": "shell",
+               "createdAt": "…", "createdBy": "admin", "unknownTarget": false } ],
+  "effective": [ { "agentName": "kb-tester", "declared": ["shell", "read_file"],
+                   "effective": ["read_file"],
+                   "removed": [ { "toolName": "shell", "reason": "命中全局禁用规则（#1 shell）" } ] } ]
+}
+```
+
+### 新增规则
+
+**POST** `/api/v1/tool-policy/rules` — `{ "ruleType": "AGENT_EXEMPT", "agentName": "ops-agent", "pattern": "shell" }`。`GLOBAL_DENY` 不得带 `agentName`,另两类必须带（否则 `400`）;重复规则 `409`;未知工具名保存成功但返回 `unknownTarget: true` 告警标记。
+
+### 删除规则
+
+**DELETE** `/api/v1/tool-policy/rules/{id}` — 不存在 `404`;删除即刻生效。
+
+### 审计筛选
+
+**GET** `/api/v1/audit/tool?blockedBy=policy` — 只看被策略拒绝的调用记录。
+
+---
+
 ## 工作区文件浏览
 
 工作区（`agents/` 与 `archive/`）的只读目录树，加上按文件读 / 写。所有路径相对工作区根目录；越界路径（路径穿越）返回 `400`。
