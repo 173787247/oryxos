@@ -110,6 +110,39 @@ class HttpToolsTest {
   }
 
   @Test
+  @DisplayName("http_request 拒绝 schema 外方法 TRACE")
+  void httpRequestRejectsTrace() {
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class, () -> tools.httpRequest("TRACE", url(), null, null));
+
+    assertTrue(ex.getMessage().contains("TRACE"));
+    assertTrue(ex.getMessage().contains("GET/POST/PUT/PATCH/DELETE"));
+    assertEquals(0, receivedBodies.size(), "非法方法不得发出请求");
+  }
+
+  @Test
+  @DisplayName("http_request 拒绝 HEAD/OPTIONS 等 Spring 枚举但文档未列出的方法")
+  void httpRequestRejectsHeadAndOptions() {
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.httpRequest("HEAD", url(), null, null));
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.httpRequest("OPTIONS", url(), null, null));
+    assertEquals(0, receivedBodies.size());
+  }
+
+  @Test
+  @DisplayName("http_request 拒绝未知 method")
+  void httpRequestRejectsUnknownMethod() {
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class, () -> tools.httpRequest("FOOBAR", url(), null, null));
+
+    assertTrue(ex.getMessage().contains("FOOBAR"));
+    assertEquals(0, receivedBodies.size());
+  }
+
+  @Test
   @DisplayName("http_get_命中白名单外域名应被拦下")
   void httpGetOutsideWhitelistIsBlocked() {
     Sandbox denying = mock(Sandbox.class);
