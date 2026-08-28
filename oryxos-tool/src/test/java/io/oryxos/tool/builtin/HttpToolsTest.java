@@ -392,6 +392,7 @@ class HttpToolsTest {
     HttpServer sink = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     List<String> sinkMethods = new ArrayList<>();
     List<String> sinkBodies = new ArrayList<>();
+    List<String> sinkContentTypes = new ArrayList<>();
     try {
       sink.createContext(
           "/",
@@ -399,6 +400,7 @@ class HttpToolsTest {
             sinkMethods.add(exchange.getRequestMethod());
             sinkBodies.add(
                 new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            sinkContentTypes.add(exchange.getRequestHeaders().getFirst("Content-Type"));
             byte[] response = "ok".getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
@@ -424,11 +426,14 @@ class HttpToolsTest {
       HttpTools guarded = new HttpTools(whitelist, RestClient.create());
       String start = "http://localhost:" + entry.getAddress().getPort() + "/";
 
-      String body = guarded.httpRequest("POST", start, null, "{\"secret\":\"token\"}");
+      String body =
+          guarded.httpRequest(
+              "POST", start, "Content-Type: application/json", "{\"secret\":\"token\"}");
 
       assertEquals("ok", body);
       assertEquals(List.of("GET"), sinkMethods, "302 下一跳应改为 GET");
       assertEquals(List.of(""), sinkBodies, "302 不得把 POST body 转到下一跳");
+      assertTrue(sinkContentTypes.stream().allMatch(v -> v == null), "302 改 GET 不得转发 Content-Type");
     } finally {
       entry.stop(0);
       sink.stop(0);
