@@ -116,12 +116,12 @@ public class ProfileLoader {
         asString(map.get("description")),
         toIdentity(asMap(map.get("identity"))),
         provider,
-        asStringList(map.get("tools")),
-        asStringList(map.get("mcp_servers")),
-        asStringList(map.get("channels")),
-        toNotifyChannels(asList(map.get("notify_channels"))),
-        toSchedules(asList(map.get("schedules")), source),
-        asStringList(map.get("bootstrap")),
+        asStringList(map.get("tools"), "tools", name),
+        asStringList(map.get("mcp_servers"), "mcp_servers", name),
+        asStringList(map.get("channels"), "channels", name),
+        toNotifyChannels(requireListOrNull(map.get("notify_channels"), "notify_channels", name)),
+        toSchedules(requireListOrNull(map.get("schedules"), "schedules", name), source),
+        asStringList(map.get("bootstrap"), "bootstrap", name),
         toSettings(asMap(map.get("settings")), name));
   }
 
@@ -354,13 +354,21 @@ public class ProfileLoader {
     return value instanceof Map ? (Map<String, Object>) value : null;
   }
 
+  /** 列表字段：缺省（null）→ 空列表语义由调用方处理；显式写成标量/映射则报错，避免「写了却静默变空」。 */
   @SuppressWarnings("unchecked")
-  private static List<Object> asList(Object value) {
-    return value instanceof List ? (List<Object>) value : null;
+  private static List<Object> requireListOrNull(Object value, String field, String profileName) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof List<?> list) {
+      return (List<Object>) list;
+    }
+    throw new ProfileValidationException(
+        "Profile " + profileName + " 的 " + field + " 必须是列表: " + value);
   }
 
-  private static List<String> asStringList(Object value) {
-    List<Object> list = asList(value);
+  private static List<String> asStringList(Object value, String field, String profileName) {
+    List<Object> list = requireListOrNull(value, field, profileName);
     if (list == null) {
       return List.of();
     }
