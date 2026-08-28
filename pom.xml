@@ -30,7 +30,7 @@
         <!-- Infrastructure libraries -->
         <jackson-bom.version>2.21.5</jackson-bom.version>
         <log4j2.version>2.25.5</log4j2.version>
-        <tomcat.version>10.1.57</tomcat.version>
+        <tomcat.version>10.1.59</tomcat.version>
         <logstash-logback.version>7.4</logstash-logback.version>
         <springdoc.version>2.6.0</springdoc.version>
 
