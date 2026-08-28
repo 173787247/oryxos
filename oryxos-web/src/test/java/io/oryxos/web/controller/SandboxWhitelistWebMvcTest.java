@@ -69,14 +69,15 @@ class SandboxWhitelistWebMvcTest {
   }
 
   @Test
-  @DisplayName("GET 返回三类白名单_200")
+  @DisplayName("GET 返回四类白名单_200")
   void getReturnsAllCategories() throws Exception {
     mvc.perform(get("/api/v1/sandbox/whitelist"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.code").value(0))
         .andExpect(jsonPath("$.data.file").isArray())
         .andExpect(jsonPath("$.data.shell").isArray())
-        .andExpect(jsonPath("$.data.http").isArray());
+        .andExpect(jsonPath("$.data.http").isArray())
+        .andExpect(jsonPath("$.data.smtp").isArray());
   }
 
   @Test

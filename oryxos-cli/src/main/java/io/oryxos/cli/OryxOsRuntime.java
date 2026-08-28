@@ -90,6 +90,7 @@ import io.oryxos.tool.interaction.UserInteraction;
 import io.oryxos.tool.mcp.McpClientService;
 import io.oryxos.tool.mcp.McpConfigLoader;
 import io.oryxos.tool.notify.DingTalkNotifyAdapter;
+import io.oryxos.tool.notify.EmailNotifyAdapter;
 import io.oryxos.tool.notify.FeishuNotifyAdapter;
 import io.oryxos.tool.notify.NotifyChannelAdapter;
 import io.oryxos.tool.notify.NotifyPoster;
@@ -99,6 +100,7 @@ import io.oryxos.tool.sandbox.FileSandboxProperties;
 import io.oryxos.tool.sandbox.HttpSandboxProperties;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
+import io.oryxos.tool.sandbox.SmtpSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
 import io.oryxos.tool.web.DuckDuckGoSearchProvider;
 import java.net.http.HttpClient;
@@ -141,7 +143,8 @@ import org.springframework.web.context.WebApplicationContext;
   ProvidersProperties.class,
   FileSandboxProperties.class,
   ShellSandboxProperties.class,
-  HttpSandboxProperties.class
+  HttpSandboxProperties.class,
+  SmtpSandboxProperties.class
 })
 public class OryxOsRuntime {
 
@@ -513,7 +516,8 @@ public class OryxOsRuntime {
       SandboxWhitelistStore whitelistStore,
       FileSandboxProperties fileProps,
       ShellSandboxProperties shellProps,
-      HttpSandboxProperties httpProps) {
+      HttpSandboxProperties httpProps,
+      SmtpSandboxProperties smtpProps) {
     // 24 节：真正的白名单校验（宪法 VI 第一档）。空列表 = deny-all。
     // 返回具体类型（而非 Sandbox 接口）：同一实例既是校验墙 Sandbox 又是可管理白名单 SandboxWhitelist，
     // 具体类型让 Spring 同时按两个接口装配（工具注 Sandbox，Web 管理端点注 SandboxWhitelist）。
@@ -524,6 +528,7 @@ public class OryxOsRuntime {
     nullToEmpty(fileProps.allowedPaths()).forEach(p -> whitelist.add(Category.FILE, p));
     nullToEmpty(shellProps.allowedCommands()).forEach(c -> whitelist.add(Category.SHELL, c));
     nullToEmpty(httpProps.allowedDomains()).forEach(d -> whitelist.add(Category.HTTP, d));
+    nullToEmpty(smtpProps.allowedEndpoints()).forEach(e -> whitelist.add(Category.SMTP, e));
     // 工作区根永远是 Agent 的家：随 oryxos.root 自动纳入文件白名单（幂等 + 落库）。
     whitelist.add(Category.FILE, oryxosRootProp);
     return whitelist;
@@ -719,7 +724,8 @@ public class OryxOsRuntime {
             "webhook", new WebhookNotifyAdapter(notifyPoster),
             "wecom", new WeComNotifyAdapter(notifyPoster),
             "feishu", new FeishuNotifyAdapter(notifyPoster),
-            "dingtalk", new DingTalkNotifyAdapter(notifyPoster));
+            "dingtalk", new DingTalkNotifyAdapter(notifyPoster),
+            "email", new EmailNotifyAdapter(sandbox));
     registry.register(new NotifyTools(notifyAdapters, sandbox, notifyChannelRegistry));
     // 记忆工具：save_memory / recall_memory（补齐 20 节预留的两工具面），只认门面对后端无感
     registry.registerAnnotated(new MemoryTools(memoryService));

@@ -332,11 +332,12 @@ ActionType     = FILE_READ | FILE_WRITE | SHELL_COMMAND | HTTP_REQUEST
 
 接口签名里不出现"白名单""容器镜像""VM 配置"这类某一档实现特有的词——用最重的 microVM 实现去反向套这个签名，也应该能干净套入，这是校验接口是否中立的办法。
 
-**`WhitelistSandbox`（核心阶段唯一实现）。** 配置在 `application.yaml`（`file.allowed_paths`、`shell.allowed_commands`、`http.allowed_domains`），内部按 `ActionType` 路由到三个私有校验方法：
+**`WhitelistSandbox`（核心阶段唯一实现）。** 配置在 `application.yaml`（`file.allowed_paths`、`shell.allowed_commands`、`http.allowed_domains`、`smtp.allowed_endpoints`），内部按 `ActionType` 路由到四个私有校验方法：
 
 - `checkFilePath`（路径标准化后比对白名单，需处理 `../` 路径穿越）
 - `checkShellCommand`（精确比对可执行文件白名单；解释器仅在管理员显式列入时允许，并授予宿主机进程权限）
 - `checkHttpUrl`（解析 host 后做通配符匹配）
+- `checkSmtpEndpoint`（按 `host:port` 精确放行 SMTP 端点，端口缺省=任意）
 
 任意校验失败抛 `SandboxViolationException`，Tool 执行终止；异常信息直接复用 `ToolExecutor` 已有的失败审计路径写入 `tool_invocations`（`success=false`、`error_message`），不需要为 Sandbox 单独新增审计逻辑。
 
@@ -372,7 +373,9 @@ NotifyChannelAdapter.send(NotifyTarget target, String content)
 NotifyTarget = { channelType: String, config: Map<String, String> }
 ```
 
-**`WebhookNotifyAdapter`（核心阶段唯一实现）。** 用通用 HTTP webhook 承接所有场景——企业微信、飞书、钉钉的群机器人都提供 webhook 地址，核心阶段不用逐家接它们的专用 API（签名算法、AccessToken 刷新这些认证细节核心阶段不做），直接把 `content` 包成对方 webhook 约定的 JSON 格式发一次 POST。发送前一样要过 `Sandbox.enforce(new SandboxAction(HTTP_REQUEST, url))` 域名白名单校验，跟 `http_post` 共享同一份 `http.allowed_domains` 配置，不新增 Sandbox 逻辑。
+**`WebhookNotifyAdapter`（核心阶段 HTTP 类实现）。** 用通用 HTTP webhook 承接 HTTP 类场景——企业微信、飞书、钉钉的群机器人都提供 webhook 地址，核心阶段不用逐家接它们的专用 API（签名算法、AccessToken 刷新这些认证细节核心阶段不做），直接把 `content` 包成对方 webhook 约定的 JSON 格式发一次 POST。发送前一样要过 `Sandbox.enforce(new SandboxAction(HTTP_REQUEST, url))` 域名白名单校验，跟 `http_post` 共享同一份 `http.allowed_domains` 配置，不新增 Sandbox 逻辑。
+
+**`EmailNotifyAdapter`（扩展阶段 SMTP 专用实现）。** email 类型渠道不走 webhook，而是经 jakarta.mail 直连 SMTP 发送。其 `config` 多字段承载 `host`/`port`/`from`/`to`/`username`/`password`/`subject`/`encryption`（凭证可用 `${ENV_VAR}` 占位符在发送时从环境变量解析，不明文落库）；出站端点走独立的 `smtp.allowed_endpoints`（`host:port`）白名单，与 HTTP 域名白名单分离。
 
 **`NotifyTools`（内置 Tool，归 `oryxos-tool`）：**
 
@@ -380,7 +383,7 @@ NotifyTarget = { channelType: String, config: Map<String, String> }
 @Tool notify(content: String, channel: String = 默认渠道)
 ```
 
-`channel` 参数是通知渠道的全局注册名。通知渠道通过 Web 管理台或 `/api/v1/notify-channels` 做 CRUD，持久化在 SQLite 的 `notify_channels` 表；每项包含 `name`、`type`、`url` 和可选的 `description`。Agent 在 `AGENT.md` 正文中用自然语言按名引用渠道，LLM 调用时传 `channel` 和 `content`，`NotifyTools` 再从注册表解析适配器和 URL。具体 webhook 地址不进入对话，增加或修改渠道也无需改 Agent；`AGENT.md` frontmatter 不包含 `notify_channels` 字段。
+`channel` 参数是通知渠道的全局注册名。通知渠道通过 Web 管理台或 `/api/v1/notify-channels` 做 CRUD，持久化在 SQLite 的 `notify_channels` 表；每项包含 `name`、`type`、`url` 和可选的 `description`，以及承载类型相关多字段的 `config`（webhook/feishu 等 HTTP 类继续用 `url`，email 用 `config` 的 host/port/from/to 等）。Agent 在 `AGENT.md` 正文中用自然语言按名引用渠道，LLM 调用时传 `channel` 和 `content`，`NotifyTools` 再从注册表解析适配器和 URL。具体 webhook 地址不进入对话，增加或修改渠道也无需改 Agent；`AGENT.md` frontmatter 不包含 `notify_channels` 字段。
 
 ![NotifyTools 设计：接口先行，核心阶段只实现 WebhookNotifyAdapter，扩展阶段新增专用渠道 Adapter](../website/public/images/docs-notify.svg)
 

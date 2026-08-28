@@ -116,6 +116,7 @@ Map<String, ChatModel> providerMap = Map.of(
 - 文件操作：路径白名单（`file.allowed_paths`）
 - Shell：可执行文件精确白名单（`shell.allowed_commands`）；参数以 argv 直传，不解释 Shell 语法。将解释器列入白名单是管理员对本机代码执行权限的显式授予，不构成隔离
 - HTTP：域名通配符白名单（`http.allowed_domains`）
+- SMTP：端点白名单（`smtp.allowed_endpoints`，按 `host:port` 精确放行，端口缺省=任意，空=deny-all）
 
 文件目标存在时必须用 `toRealPath()` 校验真实路径仍位于白名单根；新建路径校验最近存在父目录的真实路径。Agent Skill 绑定只允许指向 `.oryxos/skills/` 的相对软连接，拒绝绝对链接和越界链接。
 
@@ -291,7 +292,7 @@ interface OryxTool {
 | `http_post` | `HttpTools` | POST 请求，域名通配符白名单 |
 | `save_memory` | `MemoryTools` | 追加到长期记忆（core/archival 分区显式指定） |
 | `recall_memory` | `MemoryTools` | 检索归档记忆；配置全局 `embedding.*` 后为语义+关键词+时间三路加权融合（015），未配置保持关键词行为 |
-| `notify` | `NotifyTools` | 推送到 Profile 的 `notify_channels`，核心阶段走 `WebhookNotifyAdapter` |
+| `notify` | `NotifyTools` | 推送到全局注册表按名引用的通知渠道；webhook/feishu/wecom/dingtalk 走 `WebhookNotifyAdapter`，email 走 `EmailNotifyAdapter`（`config` 多字段 + SMTP 端点白名单） |
 
 ### Plugin Tool 三档
 
