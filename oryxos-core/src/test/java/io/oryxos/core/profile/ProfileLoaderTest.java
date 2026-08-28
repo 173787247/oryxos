@@ -172,6 +172,51 @@ class ProfileLoaderTest {
   }
 
   @Test
+  void 列表字段写成标量时报错点名() throws IOException {
+    write(
+        "scalar-tools.yaml",
+        """
+        name: scalar-tools
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        tools: http_get
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("scalar-tools.yaml")));
+
+    assertTrue(ex.getMessage().contains("tools"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("必须是列表"), ex.getMessage());
+  }
+
+  @Test
+  void 列表字段写成映射时报错点名() throws IOException {
+    write(
+        "map-schedules.yaml",
+        """
+        name: map-schedules
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          morning:
+            cron: "0 0 8 * * *"
+            message: hi
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("map-schedules.yaml")));
+
+    assertTrue(ex.getMessage().contains("schedules"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("必须是列表"), ex.getMessage());
+  }
+
+  @Test
   void 引用不存在的provider_报错信息包含该名字() throws IOException {
     write(
         "bad-provider.yaml",
