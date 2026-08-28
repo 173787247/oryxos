@@ -96,7 +96,7 @@ public class NotifyTools implements OryxTool {
           "type": "object",
           "properties": {
             "content": {"type": "string", "description": "要推送的内容"},
-            "channel": {"type": "string", "description": "渠道名（全局 Notify 注册表中的 name）；缺省或 default 用注册表第一个渠道"},
+            "channel": {"type": "string", "description": "渠道名（优先全局 Notify 注册表 name）；未命中时兼容 Profile 内联 notify_channels，仅按 type 匹配（如 webhook/feishu）；缺省或 default 用注册表第一个渠道"},
             "format": {"type": "string", "description": "消息格式：text（默认）；企微 markdown；钉钉 markdown/actionCard；飞书 post/markdown/interactive/card；未知值由对应 Adapter 拒绝"}
           },
           "required": ["content"]
@@ -143,7 +143,12 @@ public class NotifyTools implements OryxTool {
     }
     Profile.NotifyChannel resolved = resolveChannel(channels, channel);
     if (resolved == null) {
-      return ToolResult.error("notify_channels 中不存在类型为 " + channel + " 的渠道（不回退默认，避免消息发错地方）", false);
+      return ToolResult.error(
+          "未找到通知渠道「"
+              + channel
+              + "」：全局注册表无此渠道名；Profile 内联 notify_channels 也无匹配的 type"
+              + "（legacy 仅按 type，如 webhook/feishu；不回退默认，避免消息发错地方）",
+          false);
     }
     NotifyChannelAdapter adapter = adapters.get(resolved.type());
     if (adapter == null) {

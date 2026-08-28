@@ -269,8 +269,25 @@ class NotifyToolsTest {
     ToolResult result = notify("hello", "dingtalk");
 
     assertFalse(result.success());
-    assertTrue(result.errorMessage().contains("dingtalk"), "点名未命中的类型");
+    assertTrue(result.errorMessage().contains("dingtalk"), "点名未命中的渠道");
+    assertTrue(
+        result.errorMessage().contains("渠道名") || result.errorMessage().contains("type"),
+        "报错应区分注册表渠道名与 legacy type: " + result.errorMessage());
+    assertFalse(
+        result.errorMessage().contains("不存在类型为"),
+        "不应再暗示 channel 参数本身就是类型: " + result.errorMessage());
     verify(adapter, never()).send(any(), any()); // 不回退默认渠道——回退会把消息发错地方
+  }
+
+  @Test
+  @DisplayName("inputSchema 写明优先渠道名，legacy 仅按 type")
+  void inputSchemaDescribesNameFirstThenLegacyType() {
+    String schema = notifyTools.getInputSchema();
+
+    assertTrue(schema.contains("渠道名"), schema);
+    assertTrue(schema.contains("注册表"), schema);
+    assertTrue(schema.contains("按 type"), "应写明 legacy 按 type: " + schema);
+    assertFalse(schema.contains("渠道类型"), "channel 字段不应再被描述成渠道类型: " + schema);
   }
 
   @Test
