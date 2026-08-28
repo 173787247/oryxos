@@ -119,6 +119,21 @@ class WorkspaceWatcherTest {
   }
 
   @Test
+  @DisplayName("子目录 agent.md 大小写不同仍触发登记/注销（与 Workspace 写入口一致）")
+  void dispatch_agentFileWrongCase_stillRegisters() throws IOException {
+    Path dir = writeAgent("demo", "name: demo\nprovider:\n  name: deepseek\n  model: m");
+    // 模拟 WatchService 上报 agent.md（大小写敏感比较会漏；FS 上常与 AGENT.md 同一文件）
+    Path wrongCase = dir.resolve("agent.md");
+    try (WatchService ws = agentsDir.getFileSystem().newWatchService()) {
+      watcher.dispatch(ws, dir, wrongCase, ENTRY_MODIFY);
+      assertTrue(registry.exists("demo"), "agent.md 事件须刷新登记");
+
+      watcher.dispatch(ws, dir, wrongCase, ENTRY_DELETE);
+      assertFalse(registry.exists("demo"), "agent.md 删除事件须注销");
+    }
+  }
+
+  @Test
   @DisplayName("issue #61：新建 Agent 目录（AGENT.md 已就位）在根事件中即登记并补挂监听")
   void dispatch_newAgentDirAtRoot_registersAndWatches() throws IOException {
     Path dir = writeAgent("demo", "name: demo\nprovider:\n  name: deepseek\n  model: m");

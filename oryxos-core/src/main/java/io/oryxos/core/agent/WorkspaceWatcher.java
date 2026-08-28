@@ -112,6 +112,10 @@ public class WorkspaceWatcher {
   //  - 根目录事件：只认直接子目录的新增（补挂监听 + 试登记）与删除（注销）；
   //  - 子 Agent 目录事件：只认 AGENT.md 的增/改（登记或刷新）与删（注销）。
   /** 把一个目录事件翻成对某个 Agent 的登记/刷新/注销。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "AGENT.md is an ASCII reserved filename; equalsIgnoreCase matches case-insensitive filesystems.")
   void dispatch(WatchService watchService, Path dir, Path changed, WatchEvent.Kind<?> kind) {
     if (agentsDir.equals(dir)) {
       if (kind == ENTRY_CREATE && Files.isDirectory(changed)) {
@@ -123,7 +127,8 @@ public class WorkspaceWatcher {
       // 根目录层的 MODIFY 不处理：AGENT.md 变更由子目录自己的 watch 捕获
       return;
     }
-    if (!AGENT_FILE.equals(String.valueOf(changed.getFileName()))) {
+    // 大小写不敏感：macOS/Windows 上编辑器或 WatchService 可能上报 agent.md，须与 Workspace 写入口一致
+    if (!AGENT_FILE.equalsIgnoreCase(String.valueOf(changed.getFileName()))) {
       return; // 子目录里只有 AGENT.md 的变更牵动注册
     }
     if (kind == ENTRY_DELETE) {
