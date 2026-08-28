@@ -156,6 +156,7 @@ public class HttpTools {
           hopMethod = HttpMethod.GET;
           hopBody = null;
           hopJsonBody = false;
+          hopHeaders = stripBodyHeaders(hopHeaders);
         }
         current = next;
         continue;
@@ -241,6 +242,38 @@ public class HttpTools {
       kept.append(name).append(':').append(line.substring(colon + 1).strip());
     }
     return kept.toString();
+  }
+
+  /** 301/302/303 改 GET 时去掉与请求体相关的头，避免无 body 仍带 Content-Type/Content-Length。 */
+  static String stripBodyHeaders(String headers) {
+    if (headers == null || headers.isBlank()) {
+      return headers;
+    }
+    StringBuilder kept = new StringBuilder();
+    for (String line : HEADER_LINE_SEP.split(headers)) {
+      int colon = line.indexOf(':');
+      if (colon <= 0) {
+        continue;
+      }
+      String name = line.substring(0, colon).strip();
+      if (isBodyHeaderName(name)) {
+        continue;
+      }
+      if (kept.length() > 0) {
+        kept.append('\n');
+      }
+      kept.append(name).append(':').append(line.substring(colon + 1).strip());
+    }
+    return kept.toString();
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "HTTP header names are ASCII tokens; Locale.ROOT lowercasing is the correct case-fold for body-related header matching.")
+  private static boolean isBodyHeaderName(String name) {
+    String n = name.toLowerCase(Locale.ROOT);
+    return "content-type".equals(n) || "content-length".equals(n) || "transfer-encoding".equals(n);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
