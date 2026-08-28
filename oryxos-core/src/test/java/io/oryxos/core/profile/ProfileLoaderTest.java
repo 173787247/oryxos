@@ -465,4 +465,53 @@ class ProfileLoaderTest {
     Profile profile = loader().parse(profilesDir.resolve("quoted-yes-key.yaml"));
     assertEquals("yes", profile.schedules().get(0).key());
   }
+
+  @Test
+  void 定时配置缺少cron时报错点名() throws IOException {
+    write(
+        "missing-cron.yaml",
+        """
+        name: missing-cron
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: morning
+            name: Morning digest
+            message: run now
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("missing-cron.yaml")));
+
+    assertTrue(ex.getMessage().contains("morning"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
+  }
+
+  @Test
+  void 定时配置cron为空字符串时报错点名() throws IOException {
+    write(
+        "blank-cron.yaml",
+        """
+        name: blank-cron
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: evening
+            name: Evening digest
+            cron: ""
+            message: run now
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("blank-cron.yaml")));
+
+    assertTrue(ex.getMessage().contains("evening"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
+  }
 }

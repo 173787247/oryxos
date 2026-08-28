@@ -217,11 +217,15 @@ public class ProfileLoader {
       if (!keys.add(key)) {
         throw new ProfileValidationException("Profile 定时配置 key 重复: " + key + " (" + source + ")");
       }
+      String cron = asString(entry.get("cron"));
+      if (cron == null || cron.isBlank()) {
+        throw new ProfileValidationException("Profile 定时配置 " + key + " 缺少 cron: " + source);
+      }
       schedules.add(
           new Profile.ScheduleConfig(
               key,
               name,
-              asString(entry.get("cron")),
+              cron.strip(),
               asString(entry.get("zone")),
               asString(entry.get("message"))));
     }
