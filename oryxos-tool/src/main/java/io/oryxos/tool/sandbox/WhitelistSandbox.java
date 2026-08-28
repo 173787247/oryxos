@@ -65,6 +65,8 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** 原生 IPv6 {@code ::1} 的末字节。 */
   private static final byte IPV6_LOOPBACK_SUFFIX = 1;
 
+  private static final byte[] NO_EMBEDDED_IPV4 = new byte[0];
+
   // 具体类型 CopyOnWriteArrayList（而非 List 接口）：需要 addIfAbsent 的原子"不存在才加"语义
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
   private final Set<String> allowedCommands = ConcurrentHashMap.newKeySet();
@@ -317,8 +319,8 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
 
   /**
    * 对解析结果做 SSRF 分类。IPv4-mapped（{@code ::ffff:0:0/96}）、NAT64 知名前缀（{@code 64:ff9b::/96}）、6to4（{@code
-   * 2002::/16}）与已弃用的 IPv4-compatible（{@code ::/96}）先展开嵌入 IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定——否则 {@code
-   * [2002:a9fe:a9fe::1]}（≡169.254.169.254）会以「公网 IPv6」放行。
+   * 2002::/16}）、Teredo（{@code 2001:0000::/32}）与已弃用的 IPv4-compatible（{@code ::/96}）先展开嵌入
+   * IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
     InetAddress effective = unwrapEmbeddedIpv4(addr);
@@ -335,33 +337,16 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /**
-   * 若为 IPv4-mapped / NAT64 / 6to4 / IPv4-compatible，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped 字面量直接解成 {@link
-   * java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与隧道前缀。
+   * 若为 IPv4-mapped / NAT64 / 6to4 / Teredo / IPv4-compatible，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped
+   * 字面量直接解成 {@link java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与隧道前缀。
    */
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
     if (b.length != IPV6_ADDRESS_LENGTH) {
       return addr;
     }
-    byte[] ipv4;
-    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
-      ipv4 =
-          new byte[] {
-            b[EMBEDDED_IPV4_TAIL_OFFSET],
-            b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
-            b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
-            b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
-          };
-    } else if (isSixToFourPrefix(b)) {
-      // RFC 3056：2002:V4ADDR::/48 —— IPv4 在字节 2–5
-      ipv4 =
-          new byte[] {
-            b[SIXTOFOUR_IPV4_OFFSET],
-            b[SIXTOFOUR_IPV4_OFFSET + 1],
-            b[SIXTOFOUR_IPV4_OFFSET + 2],
-            b[SIXTOFOUR_IPV4_OFFSET + 3]
-          };
-    } else {
+    byte[] ipv4 = extractEmbeddedIpv4(b);
+    if (ipv4.length == 0) {
       return addr;
     }
     try {
@@ -369,6 +354,34 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     } catch (UnknownHostException e) {
       return addr; // 4 字节形式不会失败；保底不改变判定输入
     }
+  }
+
+  private static byte[] extractEmbeddedIpv4(byte[] b) {
+    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
+      return new byte[] {
+        b[EMBEDDED_IPV4_TAIL_OFFSET],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
+      };
+    }
+    if (isSixToFourPrefix(b)) {
+      return new byte[] {
+        b[SIXTOFOUR_IPV4_OFFSET],
+        b[SIXTOFOUR_IPV4_OFFSET + 1],
+        b[SIXTOFOUR_IPV4_OFFSET + 2],
+        b[SIXTOFOUR_IPV4_OFFSET + 3]
+      };
+    }
+    if (isTeredoPrefix(b)) {
+      return new byte[] {
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 1] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 2] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 3] & 0xFF)
+      };
+    }
+    return NO_EMBEDDED_IPV4;
   }
 
   /** {@code ::ffff:0:0/96}——前 10 字节为 0，第 11–12 字节为 {@code 0xff}。 */
@@ -379,6 +392,14 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
       }
     }
     return (b[10] & 0xFF) == 0xFF && (b[11] & 0xFF) == 0xFF;
+  }
+
+  /** Teredo {@code 2001:0000::/32}（RFC 4380）。 */
+  private static boolean isTeredoPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x20
+        && (b[1] & 0xFF) == 0x01
+        && (b[2] & 0xFF) == 0x00
+        && (b[3] & 0xFF) == 0x00;
   }
 
   /** NAT64 知名前缀 {@code 64:ff9b::/96}（RFC 6052）。 */

@@ -305,6 +305,7 @@ class WhitelistSandboxTest {
             "http://[64:ff9b::100.64.1.1]/x", // NAT64 → CGNAT
             "http://[2002:a9fe:a9fe::1]/x", // 6to4 → 169.254.169.254
             "http://[::a9fe:a9fe]/x", // IPv4-compatible → 169.254.169.254
+            "http://[2001::5601:5601]/x", // Teredo → 169.254.169.254
             "http://localhost/x"
           }) {
         assertThrows(
@@ -321,6 +322,13 @@ class WhitelistSandboxTest {
           () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[64:ff9b::8.8.8.8]/x")));
       assertDoesNotThrow(
           () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[2002:808:808::1]/x")));
+    }
+
+    @Test
+    @DisplayName("Teredo 嵌入公网 IPv4 仍放行")
+    void teredoPublicIpv4Allowed() {
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[2001::f7f7:f7f7]/x")));
     }
   }
 

@@ -58,7 +58,8 @@ class SkillImportSsrfGuardTest {
           "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/",
           "http://[64:ff9b::100.64.1.1]/x",
           "http://[2002:a9fe:a9fe::1]/latest/meta-data/",
-          "http://[::a9fe:a9fe]/x"
+          "http://[::a9fe:a9fe]/x",
+          "http://[2001::5601:5601]/latest/meta-data/"
         }) {
       assertThrows(
           IllegalArgumentException.class,
@@ -73,5 +74,12 @@ class SkillImportSsrfGuardTest {
         () -> SkillApiController.guardPublicHost(URI.create("http://[64:ff9b::8.8.8.8]/x")));
     assertDoesNotThrow(
         () -> SkillApiController.guardPublicHost(URI.create("http://[2002:808:808::1]/x")));
+  }
+
+  @Test
+  @DisplayName("Teredo 嵌入公网 IPv4 仍放行")
+  void teredoPublicIpv4Allowed() {
+    assertDoesNotThrow(
+        () -> SkillApiController.guardPublicHost(URI.create("http://[2001::f7f7:f7f7]/x")));
   }
 }
