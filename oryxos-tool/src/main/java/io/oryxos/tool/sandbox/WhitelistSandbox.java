@@ -319,7 +319,8 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
 
   /**
    * 对解析结果做 SSRF 分类。IPv4-mapped（{@code ::ffff:0:0/96}）、NAT64 知名前缀（{@code 64:ff9b::/96}）、6to4（{@code
-   * 2002::/16}）、Teredo（{@code 2001:0000::/32}）与已弃用的 IPv4-compatible（{@code ::/96}）先展开嵌入 IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定。
+   * 2002::/16}）、Teredo（{@code 2001:0000::/32}）与已弃用的 IPv4-compatible（{@code ::/96}）先展开嵌入
+   * IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
     InetAddress effective = unwrapEmbeddedIpv4(addr);
@@ -336,8 +337,8 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /**
-   * 若为 IPv4-mapped / NAT64 / 6to4 / Teredo / IPv4-compatible，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped 字面量直接解成 {@link
-   * java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与隧道前缀。
+   * 若为 IPv4-mapped / NAT64 / 6to4 / Teredo / IPv4-compatible，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped
+   * 字面量直接解成 {@link java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与隧道前缀。
    */
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
