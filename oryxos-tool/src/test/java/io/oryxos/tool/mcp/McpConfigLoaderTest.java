@@ -77,7 +77,8 @@ class McpConfigLoaderTest {
             command: echo
         """);
     IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+        assertThrows(
+            IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
     assertTrue(e.getMessage().contains("字符串") || e.getMessage().contains("Boolean"));
 
     write(
