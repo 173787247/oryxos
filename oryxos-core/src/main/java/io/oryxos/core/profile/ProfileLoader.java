@@ -172,7 +172,7 @@ public class ProfileLoader {
       Map<String, String> config = new LinkedHashMap<>();
       for (Map.Entry<String, Object> kv : entry.entrySet()) {
         if (!"type".equals(kv.getKey()) && kv.getValue() != null) {
-          config.put(kv.getKey(), String.valueOf(kv.getValue()));
+          config.put(kv.getKey(), asString(kv.getValue()));
         }
       }
       channels.add(new Profile.NotifyChannel(type, config));
@@ -285,7 +285,15 @@ public class ProfileLoader {
   }
 
   private static String asString(Object value) {
-    return value == null ? null : String.valueOf(value);
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof String text) {
+      return text;
+    }
+    // YAML 1.1：裸 yes/on/null 会变成 Boolean/null；String.valueOf(true)→"true" 会静默改名（对齐 #198）
+    throw new ProfileValidationException(
+        "期望 YAML 字符串（yes/on/null 等请加引号），实际是 " + value.getClass().getSimpleName() + ": " + value);
   }
 
   private static Double asDouble(Object value) {
@@ -311,7 +319,11 @@ public class ProfileLoader {
     if (list == null) {
       return List.of();
     }
-    return list.stream().map(String::valueOf).toList();
+    List<String> out = new ArrayList<>();
+    for (Object item : list) {
+      out.add(asString(item));
+    }
+    return out;
   }
 
   /** 日志参数消毒：去掉换行，防日志伪造（CRLF injection）。 */
