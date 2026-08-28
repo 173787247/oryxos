@@ -234,8 +234,8 @@ public class SkillApiController {
   }
 
   /**
-   * IPv4-mapped / NAT64 / 6to4 / Teredo / IPv4-compatible 先展开嵌入 IPv4，再套用内网/元数据判定；与 {@code WhitelistSandbox}
-   * 读路径 SSRF 兜底对齐。
+   * IPv4-mapped / NAT64 / 6to4 / Teredo / IPv4-compatible 先展开嵌入 IPv4，再套用内网/元数据判定；与 {@code
+   * WhitelistSandbox} 读路径 SSRF 兜底对齐。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
     InetAddress effective = unwrapEmbeddedIpv4(addr);
