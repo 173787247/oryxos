@@ -139,6 +139,29 @@ class WorkspaceApiControllerTest {
   }
 
   @Test
+  @DisplayName("工作区写入口禁止经软链改写 MEMORY.md（notes.md → MEMORY.md）")
+  void writeViaSymlinkToMemoryMdIsRejected() throws Exception {
+    Path agentDir = Files.createDirectories(oryxosRoot.resolve("agents/demo"));
+    Path memory = agentDir.resolve("MEMORY.md");
+    Files.writeString(memory, "## 核心记忆\n- keep\n## 归档记忆\n");
+    Path alias = agentDir.resolve("notes.md");
+    try {
+      Files.createSymbolicLink(alias, memory.getFileName());
+    } catch (IOException | UnsupportedOperationException e) {
+      org.junit.jupiter.api.Assumptions.assumeTrue(false, "当前环境无法创建软链: " + e.getMessage());
+    }
+
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"path\":\"agents/demo/notes.md\",\"content\":\"## 核心记忆\\n## 归档记忆\\n- hijack\"}"))
+        .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertEquals(
+        "## 核心记忆\n- keep\n## 归档记忆\n", Files.readString(memory));
+  }
+
+  @Test
   @DisplayName("工作区写入口禁止写 Agent skills 绑定视图")
   void writeThroughAgentSkillsIsRejected() throws Exception {
     mvc.perform(

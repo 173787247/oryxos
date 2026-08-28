@@ -138,9 +138,11 @@ public class WorkspaceApiController {
     if (path == null || path.isBlank()) {
       throw new IllegalArgumentException("path 为空"); // → 400
     }
+    // 先词法拦直写；再投影真实路径后复检——notes.md→MEMORY.md 软链只在投影后能看见
     MemoryMdGuard.rejectMutation(path);
     WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
     Path target = resolveWithinRoot(path);
+    MemoryMdGuard.rejectMutation(target);
     if (isAgentSkillsPath(target)) {
       throw new IllegalArgumentException("Agent skills/ 是绑定视图，禁止从工作区入口写入");
     }
