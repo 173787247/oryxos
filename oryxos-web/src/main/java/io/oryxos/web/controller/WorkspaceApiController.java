@@ -2,6 +2,7 @@ package io.oryxos.web.controller;
 
 import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.fs.RealPathBoundary;
+import io.oryxos.core.fs.WorkspaceMutationGuard;
 import io.oryxos.core.memory.MemoryMdGuard;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.FileNode;
@@ -47,6 +48,7 @@ public class WorkspaceApiController {
   private static final String AGENT_FILE = "AGENT.md";
   private static final String AGENTS_DIR = "agents";
   private static final String SKILLS_DIR = "skills";
+  private static final String KNOWLEDGE_DIR = "knowledge";
   private static final String PARENT_PATH_SEGMENT = "..";
 
   /** 相对 {@code agents/}：{@code <name>/AGENT.md} 与 {@code <name>/skills/...} 的最小段数。 */
@@ -137,12 +139,19 @@ public class WorkspaceApiController {
       throw new IllegalArgumentException("path 为空"); // → 400
     }
     MemoryMdGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
     Path target = resolveWithinRoot(path);
     if (isAgentSkillsPath(target)) {
       throw new IllegalArgumentException("Agent skills/ 是绑定视图，禁止从工作区入口写入");
     }
+    if (isAgentKnowledgePath(target)) {
+      throw new IllegalArgumentException("Agent knowledge/ 是绑定视图，禁止从工作区入口写入");
+    }
     if (RealPathBoundary.isWithin(oryxosRoot.resolve(SKILLS_DIR), target)) {
       throw new IllegalArgumentException("共享 Skill 实体只能通过 Skill 管理入口更新");
+    }
+    if (RealPathBoundary.isWithin(oryxosRoot.resolve(KNOWLEDGE_DIR), target)) {
+      throw new IllegalArgumentException("共享 Knowledge 实体只能通过 Knowledge 管理入口更新");
     }
     String content = req.content() == null ? "" : req.content();
     Path agentDir = agentDirOfAgentFile(target);
@@ -195,6 +204,18 @@ public class WorkspaceApiController {
     return relative != null
         && relative.getNameCount() >= AGENT_CHILD_SEGMENTS
         && SKILLS_DIR.equalsIgnoreCase(relative.getName(1).toString());
+  }
+
+  /** {@code agents/<name>/knowledge/**}（大小写不敏感），与 skills 绑定视图同款禁写。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "knowledge is an ASCII reserved path segment; equalsIgnoreCase matches case-insensitive filesystems.")
+  private boolean isAgentKnowledgePath(Path target) {
+    Path relative = relativeUnderAgents(target);
+    return relative != null
+        && relative.getNameCount() >= AGENT_CHILD_SEGMENTS
+        && KNOWLEDGE_DIR.equalsIgnoreCase(relative.getName(1).toString());
   }
 
   /** 相对真实 {@code agents/} 的路径；越出该目录或含 {@code ..} 则 null。 */

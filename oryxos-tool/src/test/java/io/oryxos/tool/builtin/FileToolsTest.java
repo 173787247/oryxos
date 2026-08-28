@@ -181,6 +181,39 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("文件工具拒绝 Skill/Knowledge 内容写与 AGENT.md 直写")
+  void fileToolsRejectSkillKnowledgeAndAgentMd() throws IOException {
+    Path other = dir.resolve("other.txt");
+    Files.writeString(other, "x");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.writeFile(dir.resolve("skills/report/SKILL.md").toString(), "bad"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.writeFile(dir.resolve("agents/demo/skills/report/SKILL.md").toString(), "bad"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.writeFile(dir.resolve("knowledge/ops/doc.md").toString(), "bad"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.writeFile(dir.resolve("agents/demo/AGENT.md").toString(), "bogus"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> tools.makeDir(dir.resolve("agents/demo/skills/report").toString()));
+    Path link = dir.resolve("agents/demo/skills/report");
+    Files.createDirectories(link.getParent());
+    Path body = dir.resolve("skills/report");
+    Files.createDirectories(body);
+    try {
+      Files.createSymbolicLink(link, Path.of("../../../skills/report"));
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "本机无法创建符号链接，跳过: " + e.getMessage());
+    }
+    assertThrows(IllegalArgumentException.class, () -> tools.deleteFile(link.toString()));
+    assertTrue(Files.exists(link), "绑定叶子不得被 delete_file 拆除");
+  }
+
+  @Test
   @DisplayName("文件工具拒绝直接改写 MEMORY.md（须走 save_memory）")
   void fileToolsRejectDirectMemoryMdMutation() throws IOException {
     Path memory = dir.resolve("agents/demo/MEMORY.md");
