@@ -25,6 +25,9 @@ import org.yaml.snakeyaml.Yaml;
  * <p><b>raw 与 resolved 两套读法，不能混用</b>：{@link #load} 解析占位符拿真实凭证，只给要发起真实连接的 {@code McpClientService}
  * 用；{@link #loadRaw} 保留字面量 {@code ${VAR}} 不解析，给管理台 CRUD（列表展示 / 改配置再 {@link
  * #save}）用——否则改一次配置就会把解析出的明文 token 写回磁盘，凭证泄露进文件（宪法：敏感配置走环境变量，不落盘明文）。
+ *
+ * <p>结构非法（YAML 解析失败 / 顶层 servers 非列表 / 条目非对象）抛 {@link IllegalArgumentException} 点名报错， 不静默按零 server
+ * 处理——与 {@code ChannelConfigLoader} 同口径。
  */
 public class McpConfigLoader {
 
@@ -68,26 +71,30 @@ public class McpConfigLoader {
     try (Reader reader = Files.newBufferedReader(configFile)) {
       root = new Yaml().load(reader);
     } catch (IOException | RuntimeException e) {
-      LOG.warn("mcp_servers.yaml 解析失败，按零 server 处理: {}", sanitize(e.getMessage()));
-      return List.of();
+      throw new IllegalArgumentException("mcp_servers.yaml 解析失败: " + sanitize(e.getMessage()), e);
     }
     Object servers = root == null ? null : root.get("servers");
-    if (!(servers instanceof List)) {
+    if (servers == null) {
       return List.of();
+    }
+    if (!(servers instanceof List)) {
+      throw new IllegalArgumentException("mcp_servers.yaml 顶层 servers 必须是列表");
     }
     List<McpServerConfig> configs = new ArrayList<>();
     for (Object item : (List<Object>) servers) {
-      if (item instanceof Map) {
-        Map<String, Object> entry = (Map<String, Object>) item;
-        configs.add(
-            new McpServerConfig(
-                asString(entry.get("name")),
-                asString(entry.get("transport")),
-                asString(entry.get("command")),
-                asStringMap(entry.get("env")),
-                asString(entry.get("url")),
-                asStringMap(entry.get("headers"))));
+      if (!(item instanceof Map)) {
+        throw new IllegalArgumentException(
+            "mcp_servers.yaml 存在非对象条目: " + sanitize(String.valueOf(item)));
       }
+      Map<String, Object> entry = (Map<String, Object>) item;
+      configs.add(
+          new McpServerConfig(
+              asString(entry.get("name")),
+              asString(entry.get("transport")),
+              asString(entry.get("command")),
+              asStringMap(entry.get("env")),
+              asString(entry.get("url")),
+              asStringMap(entry.get("headers"))));
     }
     return configs;
   }
