@@ -76,6 +76,8 @@ public class SkillApiController {
   private static final int IPV4_OCTET_COUNT = 4;
   private static final byte IPV6_LOOPBACK_SUFFIX = 1;
 
+  private static final byte[] NO_EMBEDDED_IPV4 = new byte[0];
+
   private final SkillService skills;
   private final SkillCatalog catalog;
   private final AgentSkillBindingService bindings;
@@ -232,7 +234,7 @@ public class SkillApiController {
   }
 
   /**
-   * IPv4-mapped / NAT64 / 6to4 / IPv4-compatible 先展开嵌入 IPv4，再套用内网/元数据判定；与 {@code WhitelistSandbox}
+   * IPv4-mapped / NAT64 / 6to4 / Teredo / IPv4-compatible 先展开嵌入 IPv4，再套用内网/元数据判定；与 {@code WhitelistSandbox}
    * 读路径 SSRF 兜底对齐。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
@@ -253,24 +255,8 @@ public class SkillApiController {
     if (b.length != IPV6_ADDRESS_LENGTH) {
       return addr;
     }
-    byte[] ipv4;
-    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
-      ipv4 =
-          new byte[] {
-            b[EMBEDDED_IPV4_TAIL_OFFSET],
-            b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
-            b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
-            b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
-          };
-    } else if (isSixToFourPrefix(b)) {
-      ipv4 =
-          new byte[] {
-            b[SIXTOFOUR_IPV4_OFFSET],
-            b[SIXTOFOUR_IPV4_OFFSET + 1],
-            b[SIXTOFOUR_IPV4_OFFSET + 2],
-            b[SIXTOFOUR_IPV4_OFFSET + 3]
-          };
-    } else {
+    byte[] ipv4 = extractEmbeddedIpv4(b);
+    if (ipv4.length == 0) {
       return addr;
     }
     try {
@@ -278,6 +264,34 @@ public class SkillApiController {
     } catch (UnknownHostException e) {
       return addr;
     }
+  }
+
+  private static byte[] extractEmbeddedIpv4(byte[] b) {
+    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
+      return new byte[] {
+        b[EMBEDDED_IPV4_TAIL_OFFSET],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
+      };
+    }
+    if (isSixToFourPrefix(b)) {
+      return new byte[] {
+        b[SIXTOFOUR_IPV4_OFFSET],
+        b[SIXTOFOUR_IPV4_OFFSET + 1],
+        b[SIXTOFOUR_IPV4_OFFSET + 2],
+        b[SIXTOFOUR_IPV4_OFFSET + 3]
+      };
+    }
+    if (isTeredoPrefix(b)) {
+      return new byte[] {
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 1] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 2] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 3] & 0xFF)
+      };
+    }
+    return NO_EMBEDDED_IPV4;
   }
 
   private static boolean isIpv4MappedPrefix(byte[] b) {
@@ -329,6 +343,14 @@ public class SkillApiController {
     }
     byte last = b[lastIndex];
     return last == 0 || last == IPV6_LOOPBACK_SUFFIX;
+  }
+
+  /** Teredo {@code 2001:0000::/32}（RFC 4380）。 */
+  private static boolean isTeredoPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x20
+        && (b[1] & 0xFF) == 0x01
+        && (b[2] & 0xFF) == 0x00
+        && (b[3] & 0xFF) == 0x00;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
