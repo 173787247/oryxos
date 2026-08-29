@@ -29,6 +29,8 @@
 
         <!-- Infrastructure libraries -->
         <jackson-bom.version>2.21.5</jackson-bom.version>
+        <httpclient5.version>5.6.4</httpclient5.version>
+        <httpcore5.version>5.4.3</httpcore5.version>
         <log4j2.version>2.25.5</log4j2.version>
         <tomcat.version>10.1.59</tomcat.version>
         <logstash-logback.version>7.4</logstash-logback.version>
