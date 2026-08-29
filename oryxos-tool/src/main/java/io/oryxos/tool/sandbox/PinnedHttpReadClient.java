@@ -65,6 +65,10 @@ public final class PinnedHttpReadClient implements AutoCloseable {
     return new PinnedHttpReadClient(connectionManager, httpClient, restClient);
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP",
+      justification =
+          "RestClient is an immutable request facade after build; the wrapper deliberately shares it while retaining and closing the underlying HTTP client lifecycle.")
   public RestClient restClient() {
     return restClient;
   }
