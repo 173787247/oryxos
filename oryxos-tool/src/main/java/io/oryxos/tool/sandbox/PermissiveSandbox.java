@@ -1,12 +1,14 @@
 package io.oryxos.tool.sandbox;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * 24 节 WhitelistSandbox 就位前的临时装配：放行一切，但每次放行都记 WARN 留痕—— 绝不静默裸奔，日志里看得见"这套环境还没开白名单"。生产不可用，Demo 验证专用。
  */
-public class PermissiveSandbox implements Sandbox {
+public class PermissiveSandbox implements Sandbox, ResolvedHttpReadGuard {
 
   private static final Logger LOG = LoggerFactory.getLogger(PermissiveSandbox.class);
 
@@ -21,5 +23,14 @@ public class PermissiveSandbox implements Sandbox {
         "Sandbox 白名单未启用（24 节接入），放行 {} -> {}",
         action.type(),
         target.replace('\r', '_').replace('\n', '_'));
+  }
+
+  @Override
+  public InetAddress[] resolveHttpReadHost(String host) {
+    try {
+      return InetAddress.getAllByName(host);
+    } catch (UnknownHostException e) {
+      throw new SandboxViolationException("无法解析主机: " + host);
+    }
   }
 }

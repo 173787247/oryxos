@@ -42,6 +42,11 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
         </dependency>
+        <!-- HTTP_READ 连接层 DNS 绑定：版本由 Boot BOM 管理 -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+        </dependency>
         <!-- 邮件通知渠道（EmailNotifyAdapter）出站 SMTP——版本由 Boot BOM 管理（Angus Mail + jakarta.mail-api） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

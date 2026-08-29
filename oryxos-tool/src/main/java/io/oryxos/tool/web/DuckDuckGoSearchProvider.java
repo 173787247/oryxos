@@ -3,15 +3,14 @@ package io.oryxos.tool.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.tool.sandbox.ActionType;
+import io.oryxos.tool.sandbox.PinnedHttpReadClient;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -29,9 +28,6 @@ public class DuckDuckGoSearchProvider implements SearchProvider {
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
   private static final Duration READ_TIMEOUT = Duration.ofSeconds(20);
 
-  /** 禁自动重定向的专用客户端；不沿用注入 RestClient 的跟随策略。 */
-  private final RestClient hopClient;
-
   private final String endpoint;
   private final Sandbox sandbox;
 
@@ -43,26 +39,23 @@ public class DuckDuckGoSearchProvider implements SearchProvider {
     Objects.requireNonNull(restClient, "restClient 不能为空"); // 保留签名，供 Spring 装配
     this.sandbox = Objects.requireNonNull(sandbox, "sandbox 不能为空");
     this.endpoint = Objects.requireNonNull(endpoint, "endpoint 不能为空");
-    JdkClientHttpRequestFactory hopFactory =
-        new JdkClientHttpRequestFactory(
-            HttpClient.newBuilder()
-                .connectTimeout(CONNECT_TIMEOUT)
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build());
-    hopFactory.setReadTimeout(READ_TIMEOUT);
-    this.hopClient = RestClient.builder().requestFactory(hopFactory).build();
   }
 
   @Override
   public List<SearchResult> search(String query) {
     // 伪目标 web_search:query 只做工具层标签；真实出网 URL 必须再过 HTTP_READ / SSRF
     sandbox.enforce(new SandboxAction(ActionType.HTTP_READ, endpoint));
-    ResponseEntity<String> resp =
-        hopClient
-            .get()
-            .uri(endpoint + "?q={q}&format=json&no_html=1", query)
-            .retrieve()
-            .toEntity(String.class);
+    ResponseEntity<String> resp;
+    try (PinnedHttpReadClient client =
+        PinnedHttpReadClient.open(sandbox, CONNECT_TIMEOUT, READ_TIMEOUT)) {
+      resp =
+          client
+              .restClient()
+              .get()
+              .uri(endpoint + "?q={q}&format=json&no_html=1", query)
+              .retrieve()
+              .toEntity(String.class);
+    }
     if (resp.getStatusCode().is3xxRedirection()) {
       throw new IllegalStateException("搜索端点返回重定向，拒绝跟随: " + endpoint);
     }

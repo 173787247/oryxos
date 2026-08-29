@@ -4,27 +4,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
 
 import com.sun.net.httpserver.HttpServer;
 import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.FileSandboxProperties;
 import io.oryxos.tool.sandbox.HttpSandboxProperties;
 import io.oryxos.tool.sandbox.PermissiveSandbox;
+import io.oryxos.tool.sandbox.ResolvedHttpReadGuard;
 import io.oryxos.tool.sandbox.Sandbox;
+import io.oryxos.tool.sandbox.SandboxAction;
 import io.oryxos.tool.sandbox.SandboxViolationException;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +36,29 @@ import org.springframework.web.client.RestClient;
 
 /** 课件《第20节》验收 harness：HttpToolsTest——课件正文两用例即模板。 */
 class HttpToolsTest {
+
+  private static final class TestResolvedSandbox implements Sandbox, ResolvedHttpReadGuard {
+
+    private final Consumer<SandboxAction> enforcer;
+
+    private TestResolvedSandbox(Consumer<SandboxAction> enforcer) {
+      this.enforcer = enforcer;
+    }
+
+    @Override
+    public void enforce(SandboxAction action) {
+      enforcer.accept(action);
+    }
+
+    @Override
+    public InetAddress[] resolveHttpReadHost(String host) {
+      try {
+        return InetAddress.getAllByName(host);
+      } catch (UnknownHostException e) {
+        throw new SandboxViolationException("无法解析主机: " + host);
+      }
+    }
+  }
 
   private HttpServer server;
   private final List<String> receivedBodies = new ArrayList<>();
@@ -111,6 +136,17 @@ class HttpToolsTest {
   }
 
   @Test
+  @DisplayName("只实现旧 Sandbox 契约时仍可使用 HTTP_REQUEST 写路径")
+  void writeOnlyUsageDoesNotRequireResolvedReadGuard() {
+    Sandbox legacy = action -> {};
+    HttpTools writeOnly = new HttpTools(legacy, RestClient.create());
+
+    String result = writeOnly.httpPost(url(), "{\"city\":\"beijing\"}");
+
+    assertTrue(result.contains("晴"));
+  }
+
+  @Test
   @DisplayName("http_request 拒绝 schema 外方法 TRACE")
   void httpRequestRejectsTrace() {
     IllegalArgumentException ex =
@@ -146,8 +182,11 @@ class HttpToolsTest {
   @Test
   @DisplayName("http_get_命中白名单外域名应被拦下")
   void httpGetOutsideWhitelistIsBlocked() {
-    Sandbox denying = mock(Sandbox.class);
-    doThrow(new SandboxViolationException("域名不在白名单")).when(denying).enforce(any());
+    Sandbox denying =
+        new TestResolvedSandbox(
+            action -> {
+              throw new SandboxViolationException("域名不在白名单");
+            });
     HttpTools guarded = new HttpTools(denying, RestClient.create());
 
     assertThrows(RuntimeException.class, () -> guarded.httpGet(url())); // 课件断言形态
@@ -577,16 +616,17 @@ class HttpToolsTest {
     Path nested = dir.resolve("nested");
     Path target = nested.resolve("payload.bin");
     Sandbox sandbox =
-        action -> {
-          if (action.type() == ActionType.FILE_WRITE) {
-            int n = fileWrites.incrementAndGet();
-            if (n >= 2) {
-              // 复检必须在 createDirectories 之后：此时父目录应已存在
-              assertTrue(Files.isDirectory(nested), "写前复检应发生在 createDirectories 之后");
-              throw new SandboxViolationException("复检拒绝: " + action.target());
-            }
-          }
-        };
+        new TestResolvedSandbox(
+            action -> {
+              if (action.type() == ActionType.FILE_WRITE) {
+                int n = fileWrites.incrementAndGet();
+                if (n >= 2) {
+                  // 复检必须在 createDirectories 之后：此时父目录应已存在
+                  assertTrue(Files.isDirectory(nested), "写前复检应发生在 createDirectories 之后");
+                  throw new SandboxViolationException("复检拒绝: " + action.target());
+                }
+              }
+            });
     HttpTools guarded = new HttpTools(sandbox, RestClient.create());
 
     assertThrows(

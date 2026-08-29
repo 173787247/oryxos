@@ -28,11 +28,11 @@ import org.slf4j.LoggerFactory;
  * / {@link ConcurrentHashMap#newKeySet()}）——校验读路径无锁（热路径）， 管理写路径极少发生、拷贝开销可接受；非异步编程模型，符合宪法 VII。每次改动落
  * INFO 日志留痕。
  *
- * <p>四个 {@code check*} 与 {@code matchesDomain} 均 {@code private}——对外只暴露 {@code enforce} 与管理三方法。 若把
- * check* public 暴露到 {@code Sandbox} 接口上，接口就被这一档实现带偏了。
+ * <p>四个 {@code check*} 与 {@code matchesDomain} 均 {@code private}。连接层仅通过 {@link
+ * ResolvedHttpReadGuard} 取得当次已校验的 HTTP_READ 地址集；通用 {@link Sandbox} 接口仍保持 {@code enforce(void)} 契约。
  */
 // final：构造器会因非法配置抛异常（normalizeRoot/requireNonBlank），禁止子类化以杜绝 finalizer attack（CT_CONSTRUCTOR_THROW）
-public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
+public final class WhitelistSandbox implements Sandbox, SandboxWhitelist, ResolvedHttpReadGuard {
 
   private static final Logger LOG = LoggerFactory.getLogger(WhitelistSandbox.class);
 
@@ -215,7 +215,7 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     if (host == null || host.isBlank()) {
       throw new SandboxViolationException("读请求缺少主机名，拒绝: " + url);
     }
-    assertNotInternalHost(host);
+    resolveHttpReadHost(host);
   }
 
   /**
@@ -288,7 +288,8 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
       value = "IMPROPER_UNICODE",
       justification =
           "IDN.toASCII canonicalizes the complete DNS host before security checks; no substring is transformed independently.")
-  private static void assertNotInternalHost(String host) {
+  @Override
+  public InetAddress[] resolveHttpReadHost(String host) {
     String asciiHost;
     try {
       asciiHost = IDN.toASCII(host);
@@ -315,6 +316,7 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
             "拒绝访问内网 / 保留地址（SSRF 防护）: " + host + " → " + addr.getHostAddress() + "。这是安全策略，请勿重试。");
       }
     }
+    return addresses.clone();
   }
 
   /**
