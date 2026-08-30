@@ -22,8 +22,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * REST API Key 认证过滤器（018-rest-api-key）。
  *
- * <p>仅拦 {@code /api/v1/**}（由 {@code ApiKeyFilterConfig} 的 {@code FilterRegistrationBean} 限定 URL
- * 模式）；与 012 的 {@code BasicAuthFilter}（只拦 {@code /admin/*}）URL 模式互不重叠，两扇门各管各的（FR-002）。
+ * <p>拦 {@code /api/v1/**} 与 {@code /api/v2/**}（由 {@code ApiKeyFilterConfig} 的 {@code
+ * FilterRegistrationBean} 限定 URL 模式，{@code PROTECTED_URL_PATTERNS} 是唯一登记处）；与 012 的 {@code
+ * BasicAuthFilter}（只拦 {@code /admin/*}）URL 模式互不重叠，两扇门各管各的（FR-002）。
  *
  * <p>豁免（filter 内判定，契约见 specs/018 contracts/auth-contract.md §1）：
  *
