@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -260,17 +261,42 @@ public class KnowledgeIndexService {
     return units;
   }
 
-  /** 重建/对账用：列出库内全部受支持文档；不支持、空、超限的跳过并告警（Edge Cases）。 */
+  /**
+   * 重建/对账用：列出库内全部受支持文档；软链、真实路径越界、不支持、空、超限的跳过并告警（Edge Cases）。
+   *
+   * <p>软链一律不跟随：库内的链接文件可能指向库外（channels.yaml、oryxos.db 等），跟随扫描会把外部敏感内容 切分、向量化入库再被检索命中；{@code
+   * Files.walk} 本身不带 {@code FOLLOW_LINKS}（目录链不深入），这里再以 NOFOLLOW 拦掉叶子链接， 并对真实路径做库内边界复检（防祖先目录被换成软链等
+   * TOCTOU），与工作区文件入口同一套判定口径。
+   */
   List<Path> listSupportedFiles(Path kbDir) {
     try (Stream<Path> walk = Files.walk(kbDir)) {
-      return walk.filter(Files::isRegularFile)
+      return walk.filter(this::isContentRegularFile)
           .filter(file -> !KnowledgeManifest.FILE.equals(String.valueOf(file.getFileName())))
+          .filter(file -> withinKb(kbDir, file))
           .filter(this::scannable)
           .sorted()
           .toList();
     } catch (IOException e) {
       throw new UncheckedIOException("扫描知识库目录失败: " + kbDir, e);
     }
+  }
+
+  /** 知识库内容只收真实普通文件：文件/目录软链一律拒绝（带告警），其余按 NOFOLLOW 普通文件判定。 */
+  private boolean isContentRegularFile(Path file) {
+    if (Files.isSymbolicLink(file)) {
+      LOG.warn("跳过软链接（知识库内容不跟随软链）: {}", sanitize(String.valueOf(file)));
+      return false;
+    }
+    return Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS);
+  }
+
+  /** 词法在库内不代表真实在库内：真实路径越界（软链逃逸 / 祖先目录被换）的文件跳过并告警，绝不索引。 */
+  private boolean withinKb(Path kbDir, Path file) {
+    if (RealPathBoundary.isWithin(kbDir, file)) {
+      return true;
+    }
+    LOG.warn("跳过真实路径越出知识库的文件（疑似软链逃逸）: {}", sanitize(String.valueOf(file)));
+    return false;
   }
 
   private boolean scannable(Path file) {

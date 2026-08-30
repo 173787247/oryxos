@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -171,6 +172,77 @@ class KnowledgeBackendContractTest {
   }
 
   @Test
+  void reconcileSkipsFileSymlinkPointingOutsideKb() throws IOException {
+    // 库内文件软链指向库外敏感文件（模拟 channels.yaml / oryxos.db 泄露通道）：
+    // 对账扫描不得跟随，外部内容不得进索引、不可被检索
+    Path outside = Files.createDirectories(root.resolveSibling("outside-kb"));
+    Files.writeString(outside.resolve("secret.md"), "# 外部机密\n\n凭证 SUPERSECRET-TOKEN 内容。");
+    assumeSymlink(root.resolve("ops").resolve("escape.md"), Path.of("../../outside-kb/secret.md"));
+
+    indexService.reconcile("ops");
+    runBackground();
+
+    assertTrue(
+        backend.status("ops").stream().noneMatch(s -> s.relPath().contains("escape")),
+        "软链文件不得登记为文档");
+    assertTrue(
+        retrieve("SUPERSECRET", 5, "ops").stream()
+            .noneMatch(h -> h.content().contains("SUPERSECRET")),
+        "库外凭证内容不得被检索命中");
+    assertFalse(retrieve("磁盘告警", 5, "ops").isEmpty(), "库内真实文档照常对账索引，不受跳过影响");
+  }
+
+  @Test
+  void rebuildSucceedsAndSkipsSymlinkContent() throws IOException {
+    indexReady();
+    Path outside = Files.createDirectories(root.resolveSibling("outside-rebuild"));
+    Files.writeString(outside.resolve("secret.md"), "# 外部机密\n\nREBUILDSECRET 凭证内容。");
+    assumeSymlink(
+        root.resolve("ops").resolve("escape.md"), Path.of("../../outside-rebuild/secret.md"));
+
+    backend.rebuild("ops"); // 软链跳过而非解析失败：重建整体成功，新代不含泄露内容
+
+    assertTrue(
+        backend.status("ops").stream().noneMatch(s -> s.relPath().contains("escape")),
+        "软链文件不得进入新代");
+    assertTrue(
+        retrieve("REBUILDSECRET", 5, "ops").stream()
+            .noneMatch(h -> h.content().contains("REBUILDSECRET")),
+        "库外凭证内容不得被检索命中");
+    assertFalse(retrieve("磁盘告警", 5, "ops").isEmpty(), "库内真实文档重建后照常服务");
+  }
+
+  @Test
+  void directorySymlinkOutsideIsNotTraversed() throws IOException {
+    Path outside = Files.createDirectories(root.resolveSibling("outside-dir"));
+    Files.writeString(outside.resolve("dirsecret.md"), "# 目录外机密\n\nLINKDIRSECRET 内容。");
+    assumeSymlink(root.resolve("ops").resolve("linkdir"), Path.of("../../outside-dir"));
+
+    indexService.reconcile("ops");
+    runBackground();
+
+    assertTrue(
+        backend.status("ops").stream().noneMatch(s -> s.relPath().contains("linkdir")),
+        "目录软链不得被深入遍历");
+    assertTrue(
+        retrieve("LINKDIRSECRET", 5, "ops").stream()
+            .noneMatch(h -> h.content().contains("LINKDIRSECRET")),
+        "目录软链后的库外内容不得被检索命中");
+  }
+
+  @Test
+  void importDocumentRejectsSymlinkEscapingKb() throws IOException {
+    Path outside = Files.createDirectories(root.resolveSibling("outside-import"));
+    Files.writeString(outside.resolve("secret.md"), "# 外部机密\n\nIMPORTSECRET 内容。");
+    assumeSymlink(
+        root.resolve("ops").resolve("escape.md"), Path.of("../../outside-import/secret.md"));
+
+    // 单文件导入走 RealPathBoundary：真实路径越界即拒绝，不登记半完成状态
+    assertThrows(IllegalArgumentException.class, () -> backend.importDocument("ops", "escape.md"));
+    assertTrue(backend.status("ops").isEmpty());
+  }
+
+  @Test
   void multiKbRetrievalAggregatesToGlobalTopK() {
     indexReady();
     createKb("faq", "产品FAQ");
@@ -234,6 +306,15 @@ class KnowledgeBackendContractTest {
       Files.writeString(root.resolve(kb).resolve(relPath), content);
     } catch (IOException e) {
       throw new RuntimeException(e);
+    }
+  }
+
+  /** 建软链；无软链权限的环境（Windows 非管理员）整条用例跳过，Linux CI 正常执行。 */
+  private void assumeSymlink(Path link, Path target) {
+    try {
+      Files.createSymbolicLink(link, target);
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "当前环境无法创建软链: " + e.getMessage());
     }
   }
 
