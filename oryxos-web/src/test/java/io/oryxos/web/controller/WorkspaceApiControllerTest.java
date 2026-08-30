@@ -260,6 +260,47 @@ class WorkspaceApiControllerTest {
   }
 
   @Test
+  @DisplayName("file/download 禁止读取 channels.yaml / mcp_servers.yaml / oryxos.db 原文")
+  void readReservedFilesIsRejected() throws Exception {
+    Files.writeString(oryxosRoot.resolve("channels.yaml"), "channels: [{token: SECRET-CHANNEL}]\n");
+    Files.writeString(
+        oryxosRoot.resolve("mcp_servers.yaml"), "servers: [{env: {KEY: SECRET-MCP}}]\n");
+    Files.writeString(oryxosRoot.resolve("oryxos.db"), "fake sqlite bytes SECRET-DB");
+    Files.writeString(oryxosRoot.resolve("oryxos.db-wal"), "fake wal bytes SECRET-WAL");
+
+    mvc.perform(get("/api/v1/workspace/file").param("path", "channels.yaml"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value(400));
+    mvc.perform(get("/api/v1/workspace/file").param("path", "mcp_servers.yaml"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/file").param("path", "oryxos.db"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/file").param("path", "oryxos.db-wal"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/download").param("path", "channels.yaml"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/download").param("path", "oryxos.db"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  @DisplayName("file/download 禁止经软链别名读 channels.yaml（投影后复检）")
+  void readViaSymlinkAliasToAdminConfigIsRejected() throws Exception {
+    Files.writeString(oryxosRoot.resolve("channels.yaml"), "token: SECRET-CHANNEL\n");
+    Path alias = oryxosRoot.resolve("agents/demo/alias.yaml");
+    try {
+      Files.createSymbolicLink(alias, Path.of("../../channels.yaml"));
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "当前环境无法创建软链: " + e.getMessage());
+    }
+
+    mvc.perform(get("/api/v1/workspace/file").param("path", "agents/demo/alias.yaml"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/download").param("path", "agents/demo/alias.yaml"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   @DisplayName("工作区写入口禁止写 Agent skills 绑定视图")
   void writeThroughAgentSkillsIsRejected() throws Exception {
     mvc.perform(

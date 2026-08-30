@@ -86,13 +86,19 @@ public class WorkspaceApiController {
   /** 读文件文本；防目录穿越：越界 → 400，不存在 → 404。 */
   @GetMapping("/file")
   public ApiResponse<String> file(@RequestParam String path) {
+    // 先词法拦保留文件原文（channels.yaml/mcp_servers.yaml 凭证、oryxos.db 全量数据）；
+    // 再投影真实路径后复检——alias.yaml→channels.yaml 软链只在投影后能看见
+    AdminConfigFileGuard.rejectRead(path);
     Path target = resolveWithinRoot(path);
+    AdminConfigFileGuard.rejectRead(target);
     if (!Files.isRegularFile(target)) {
       throw new ResourceNotFoundException("文件不存在: " + path); // → 404
     }
     try {
       // 读前复检：与 writeFile / tool 层 read_file 同款——防首次校验到 readString 间被换成外向软链
+      // 或换成仍在 root 内的保留文件
       target = resolveWithinRoot(path);
+      AdminConfigFileGuard.rejectRead(target);
       return ApiResponse.ok(Files.readString(target));
     } catch (IOException e) {
       throw new UncheckedIOException("读取文件失败: " + path, e);
@@ -106,12 +112,17 @@ public class WorkspaceApiController {
    */
   @GetMapping("/download")
   public ResponseEntity<Resource> download(@RequestParam String path) {
+    // 同 file：保留文件原文（凭证配置 / SQLite 库）禁止经附件流下载
+    AdminConfigFileGuard.rejectRead(path);
     Path target = resolveWithinRoot(path);
+    AdminConfigFileGuard.rejectRead(target);
     if (!Files.isRegularFile(target)) {
       throw new ResourceNotFoundException("文件不存在: " + path); // → 404
     }
     // 读前复检：与 file / writeFile 同款——防首次校验到打开附件间被换成外向软链
+    // 或换成仍在 root 内的保留文件
     target = resolveWithinRoot(path);
+    AdminConfigFileGuard.rejectRead(target);
     String filename = String.valueOf(target.getFileName());
     // 文件名可能含中文/空格：用 RFC 5987 编码进 Content-Disposition，避免乱码或截断
     String disposition =

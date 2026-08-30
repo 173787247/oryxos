@@ -308,6 +308,65 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("read_file 拒绝读取 channels.yaml / mcp_servers.yaml / oryxos.db 原文")
+  void readFileRejectsReservedFiles() throws IOException {
+    Path channels = dir.resolve("channels.yaml");
+    Path mcp = dir.resolve("mcp_servers.yaml");
+    Path db = dir.resolve("oryxos.db");
+    Path wal = dir.resolve("oryxos.db-wal");
+    Files.writeString(channels, "token: SECRET-CHANNEL\n");
+    Files.writeString(mcp, "KEY: SECRET-MCP\n");
+    Files.writeString(db, "fake sqlite bytes SECRET-DB");
+    Files.writeString(wal, "fake wal bytes SECRET-WAL");
+
+    assertThrows(IllegalArgumentException.class, () -> tools.readFile(channels.toString()));
+    assertThrows(IllegalArgumentException.class, () -> tools.readFile(mcp.toString()));
+    assertThrows(IllegalArgumentException.class, () -> tools.readFile(db.toString()));
+    assertThrows(IllegalArgumentException.class, () -> tools.readFile(wal.toString()));
+  }
+
+  @Test
+  @DisplayName("read_file 拒绝经软链别名读 channels.yaml")
+  void readFileRejectsSymlinkAliasToReserved() throws IOException {
+    Path channels = dir.resolve("channels.yaml");
+    Files.writeString(channels, "token: SECRET-CHANNEL\n");
+    Path alias = dir.resolve("alias.yaml");
+    try {
+      Files.createSymbolicLink(alias, channels.getFileName());
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "当前环境无法创建软链: " + e.getMessage());
+    }
+
+    assertThrows(IllegalArgumentException.class, () -> tools.readFile(alias.toString()));
+  }
+
+  @Test
+  @DisplayName("copy_file 拒绝把保留文件复制成普通文件（防复制即泄露）")
+  void copyFileRejectsReservedSource() throws IOException {
+    Path channels = dir.resolve("channels.yaml");
+    Files.writeString(channels, "token: SECRET-CHANNEL\n");
+    Path leak = dir.resolve("leak.txt");
+
+    assertThrows(
+        IllegalArgumentException.class, () -> tools.copyFile(channels.toString(), leak.toString()));
+    assertFalse(Files.exists(leak), "拒绝后不得留下泄露副本");
+  }
+
+  @Test
+  @DisplayName("grep 跳过保留文件：凭证内容不进结果，普通文件照常命中并给出跳过提示")
+  void grepSkipsReservedFiles() throws IOException {
+    Files.writeString(dir.resolve("channels.yaml"), "token: SECRET-CHANNEL\n");
+    Files.writeString(dir.resolve("a.txt"), "normal needle line\n");
+
+    String result = tools.grep("SECRET|needle", dir.toString());
+
+    assertTrue(result.contains("a.txt:1:normal needle line"), result);
+    assertFalse(result.contains("SECRET-CHANNEL"), "保留文件内容不得出现在搜索结果: " + result);
+    assertFalse(result.contains("channels.yaml"), "保留文件名不得出现在命中行: " + result);
+    assertTrue(result.contains("已跳过"), "应提示跳过了保留文件: " + result);
+  }
+
+  @Test
   @DisplayName("write_file 落盘前复检 FILE_WRITE（防校验窗口内路径逃逸）")
   void writeFileRechecksPathBeforeWrite() {
     AtomicInteger fileWrites = new AtomicInteger();
