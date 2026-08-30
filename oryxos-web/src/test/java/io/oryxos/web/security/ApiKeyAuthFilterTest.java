@@ -32,9 +32,10 @@ import org.springframework.web.bind.annotation.ResponseBody;
 
 /**
  * 018 验收 harness：ApiKeyAuthFilterTest——路径裁决表钉死（contracts/auth-contract.md §1）。用 standalone MockMvc
- * + stub controller 映射 /api/v1/** 与 /api/v2/**（filter 放行后要有 handler），按注册模式 addFilter(filter,
- * "/api/v1/*", "/api/v2/*")。mock ApiKeyService/WebSessionService。守：flag 关放行、双请求头等效、401 统一响应不可区分、
- * 豁免（OPTIONS/health/auth 子树）、v2 调度子树无凭据 401、session 互认、多 Key 吊销互不影响。
+ * + stub controller 映射 /api/v1/**、/api/v2/** 与 /actuator/**（filter 放行后要有 handler），按注册模式
+ * addFilter(filter, "/api/v1/*", "/api/v2/*", "/actuator/*")。mock
+ * ApiKeyService/WebSessionService。守：flag 关放行、 双请求头等效、401 统一响应不可区分、豁免（OPTIONS/health/auth
+ * 子树/actuator health 探活子树）、v2 调度子树与 actuator 指标端点无凭据 401、session 互认、多 Key 吊销互不影响。
  */
 class ApiKeyAuthFilterTest {
 
@@ -77,6 +78,30 @@ class ApiKeyAuthFilterTest {
     public String v2Run() {
       return "triggered";
     }
+
+    @GetMapping("/actuator/prometheus")
+    @ResponseBody
+    public String prometheus() {
+      return "metrics";
+    }
+
+    @GetMapping("/actuator/metrics")
+    @ResponseBody
+    public String metrics() {
+      return "metrics";
+    }
+
+    @GetMapping("/actuator/health")
+    @ResponseBody
+    public String actuatorHealth() {
+      return "up";
+    }
+
+    @GetMapping("/actuator/health/liveness")
+    @ResponseBody
+    public String liveness() {
+      return "liveness";
+    }
   }
 
   @BeforeEach
@@ -88,7 +113,7 @@ class ApiKeyAuthFilterTest {
         new ApiKeyAuthFilter(apiKeyService, sessionService, properties, new ObjectMapper());
     mvc =
         MockMvcBuilders.standaloneSetup(new StubController())
-            .addFilter(filter, "/api/v1/*", "/api/v2/*")
+            .addFilter(filter, "/api/v1/*", "/api/v2/*", "/actuator/*")
             .build();
   }
 
@@ -220,6 +245,47 @@ class ApiKeyAuthFilterTest {
     properties.setEnabled(true);
     when(apiKeyService.verify(GOOD_KEY)).thenReturn(true);
     mvc.perform(get("/api/v2/schedules").header("X-API-Key", GOOD_KEY)).andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("/actuator/prometheus_无凭据_401（指标不匿名暴露）")
+  void actuatorPrometheusNoCredentials_401() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(get("/actuator/prometheus")).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("/actuator/metrics_无凭据_401")
+  void actuatorMetricsNoCredentials_401() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(get("/actuator/metrics")).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("/actuator/prometheus_有效Key_200（Prometheus 可带 Bearer/Key 抓取）")
+  void actuatorPrometheusWithKey_200() throws Exception {
+    properties.setEnabled(true);
+    when(apiKeyService.verify(GOOD_KEY)).thenReturn(true);
+    mvc.perform(get("/actuator/prometheus").header("X-API-Key", GOOD_KEY))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("/actuator/health_无凭据放行（探活豁免；详情由 show-details=when-authorized 限制）")
+  void actuatorHealth_exempt() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(get("/actuator/health"))
+        .andExpect(status().isOk())
+        .andExpect(content().string("up"));
+    verify(apiKeyService, never()).verify(anyString());
+  }
+
+  @Test
+  @DisplayName("/actuator/health/liveness_无凭据放行（探针组子路径豁免）")
+  void actuatorHealthLiveness_exempt() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
+    verify(apiKeyService, never()).verify(anyString());
   }
 
   @Test
