@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.oryxos.core.sandbox.SandboxWhitelist.Category;
 import io.oryxos.core.sandbox.SandboxWhitelistStore;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -87,6 +88,7 @@ class WhitelistSandboxPersistenceTest {
   @Test
   @DisplayName("恢复悬空软连接白名单不阻断启动且访问仍失败关闭")
   void constructorToleratesDanglingPersistedFileRoot(@TempDir Path temp) throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(temp);
     Path dangling = temp.resolve("dangling-root");
     Files.createSymbolicLink(dangling, temp.resolve("missing"));
     FakeStore store = new FakeStore();

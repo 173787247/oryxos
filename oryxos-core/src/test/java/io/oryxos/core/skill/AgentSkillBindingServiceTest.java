@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,6 +40,7 @@ class AgentSkillBindingServiceTest {
   @Test
   @DisplayName("bind 创建固定相对链接且幂等；unbind 只删链接")
   void bindAndUnbind() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     skill("report", "报告规范");
 
     AgentSkillBinding first = bindings.bind("ops", "report");
@@ -62,6 +64,7 @@ class AgentSkillBindingServiceTest {
   @Test
   @DisplayName("扫描分类 dangling、escaped、invalid-target、name-mismatch、stale-reference")
   void reconcileClassifiesAllIssueTypes() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     skill("good", "合法");
     skill("other", "另一个");
     Files.createDirectories(root.resolve("agents/ops/skills"));
@@ -88,6 +91,7 @@ class AgentSkillBindingServiceTest {
   @Test
   @DisplayName("绝对链接和普通文件不能伪装成绑定")
   void invalidBindingsNeverBecomeVisible() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     skill("good", "合法");
     Files.createDirectories(root.resolve("agents/ops/skills"));
     Files.createSymbolicLink(
@@ -109,6 +113,7 @@ class AgentSkillBindingServiceTest {
   @Test
   @DisplayName("replace 全量预校验，失败不改变现有绑定")
   void replacePrevalidatesBeforeMutation() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     skill("good", "合法");
     bindings.bind("ops", "good");
 
@@ -123,6 +128,7 @@ class AgentSkillBindingServiceTest {
   @Test
   @DisplayName("归档 Agent 的固定相对链接仍被计为结构化引用")
   void archivedReferencesAreProtected() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     skill("report", "报告");
     bindings.bind("ops", "report");
     Files.createDirectories(root.resolve("archive"));

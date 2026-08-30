@@ -1,5 +1,6 @@
 package io.oryxos.tool.sandbox;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,28 +25,28 @@ final class SandboxPathFixture {
 
   Path parentEscape() throws IOException {
     Path link = allowed.resolve("escape");
-    Files.createSymbolicLink(link, outside);
+    SymlinkAssumptions.createSymbolicLinkOrAssume(link, outside);
     return link;
   }
 
   Path dangling() throws IOException {
     Path link = allowed.resolve("dangling");
-    Files.createSymbolicLink(link, Path.of("missing"));
+    SymlinkAssumptions.createSymbolicLinkOrAssume(link, Path.of("missing"));
     return link;
   }
 
   Path multiHopEscape() throws IOException {
-    Files.createSymbolicLink(allowed.resolve("second"), outside);
+    SymlinkAssumptions.createSymbolicLinkOrAssume(allowed.resolve("second"), outside);
     Path first = allowed.resolve("first");
-    Files.createSymbolicLink(first, Path.of("second"));
+    SymlinkAssumptions.createSymbolicLinkOrAssume(first, Path.of("second"));
     return first;
   }
 
   Path[] cycle() throws IOException {
     Path one = allowed.resolve("one");
     Path two = allowed.resolve("two");
-    Files.createSymbolicLink(one, Path.of("two"));
-    Files.createSymbolicLink(two, Path.of("one"));
+    SymlinkAssumptions.createSymbolicLinkOrAssume(one, Path.of("two"));
+    SymlinkAssumptions.createSymbolicLinkOrAssume(two, Path.of("one"));
     return new Path[] {one, two};
   }
 }

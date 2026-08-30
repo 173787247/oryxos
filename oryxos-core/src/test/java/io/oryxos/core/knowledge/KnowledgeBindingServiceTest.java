@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,6 +31,7 @@ class KnowledgeBindingServiceTest {
 
   @Test
   void bindCreatesFixedRelativeLinkAndInspectReturnsMetadata() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     BoundKnowledgeDescriptor bound = service.bind("assistant", "ops");
 
     assertEquals("ops", bound.name());
@@ -51,6 +53,7 @@ class KnowledgeBindingServiceTest {
 
   @Test
   void unbindIsIdempotentAndRefusesUncontrolledEntries() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     service.bind("assistant", "ops");
     service.unbind("assistant", "ops");
     service.unbind("assistant", "ops"); // 幂等
@@ -62,6 +65,7 @@ class KnowledgeBindingServiceTest {
 
   @Test
   void replaceBindingsSwapsWholeSet() {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     service.bind("assistant", "ops");
 
     KnowledgeBindingInspection after = service.replaceBindings("assistant", List.of("faq"));
@@ -73,6 +77,7 @@ class KnowledgeBindingServiceTest {
 
   @Test
   void inspectClassifiesIllegalBindings() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     // 绝对链接 → ESCAPED
     KnowledgeWorkspaceFixture.rawBinding(
         root, "assistant", "abs", root.resolve("knowledge/ops").toAbsolutePath());
@@ -100,6 +105,7 @@ class KnowledgeBindingServiceTest {
 
   @Test
   void escapedRealTargetIsRejectedEvenWithLexicalCompliance() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     // knowledge/evil 目录本身是指向库根之外的软连接：词法合规但真实路径越界
     Path outside = Files.createDirectories(root.resolve("outside"));
     Files.writeString(
@@ -116,6 +122,7 @@ class KnowledgeBindingServiceTest {
 
   @Test
   void referencesAndDeleteProtection() {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     KnowledgeWorkspaceFixture.agent(root, "another");
     service.bind("assistant", "ops");
     service.bind("another", "ops");
@@ -135,6 +142,7 @@ class KnowledgeBindingServiceTest {
 
   @Test
   void reconcileAggregatesIssuesAcrossAgents() {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     KnowledgeWorkspaceFixture.agent(root, "another");
     KnowledgeWorkspaceFixture.rawBinding(
         root, "another", "gone", Path.of("..", "..", "..", "knowledge", "gone"));

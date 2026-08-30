@@ -14,6 +14,7 @@ import io.oryxos.core.knowledge.model.Citation;
 import io.oryxos.core.knowledge.model.KnowledgeCapabilities;
 import io.oryxos.core.knowledge.model.KnowledgeHit;
 import io.oryxos.core.knowledge.model.KnowledgeQuery;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,6 +40,8 @@ class StubRemoteBackendContractTest {
 
   @BeforeEach
   void setUp() throws IOException {
+    // setUp 经 bindings.bind 建固定相对软链；Windows 无建链权限时整类用例优雅跳过（Linux CI 照常）
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     Path kbRoot = Files.createDirectories(root.resolve("knowledge"));
     Path remote = Files.createDirectories(kbRoot.resolve("remote-kb"));
     Files.writeString(

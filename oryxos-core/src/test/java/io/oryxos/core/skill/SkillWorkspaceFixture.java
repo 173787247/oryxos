@@ -1,5 +1,6 @@
 package io.oryxos.core.skill;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,7 +32,7 @@ final class SkillWorkspaceFixture {
   Path bind(String agent, String skill) throws IOException {
     Path links = Files.createDirectories(root.resolve("agents").resolve(agent).resolve("skills"));
     Path link = links.resolve(skill);
-    Files.createSymbolicLink(link, Path.of("../../../skills").resolve(skill));
+    SymlinkAssumptions.createSymbolicLinkOrAssume(link, Path.of("../../../skills").resolve(skill));
     return link;
   }
 }

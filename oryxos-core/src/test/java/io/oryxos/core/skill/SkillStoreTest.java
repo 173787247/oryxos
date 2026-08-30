@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -16,6 +17,7 @@ class SkillStoreTest {
 
   @Test
   void writeAllRejectsIntermediateSymlinkEscape() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     Path outside = Files.createDirectories(root.resolveSibling("skill-store-outside"));
     Path skill = Files.createDirectories(root.resolve("skills/report"));
     Files.createSymbolicLink(skill.resolve("scripts"), outside);

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.knowledge.KnowledgeWorkspaceFixture;
 import io.oryxos.core.profile.Profile;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -34,6 +35,7 @@ class ContextLoaderKnowledgeTest {
 
   @Test
   void injectsOnlyMetadataAndGuidanceForBoundBases() {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     bindings.bind("assistant", "ops-manual");
 
     String context = loader.load(profile(List.of("retrieve_knowledge", "read_file")));
@@ -53,6 +55,7 @@ class ContextLoaderKnowledgeTest {
 
   @Test
   void noInjectionWhenToolNotDeclared() {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     bindings.bind("assistant", "ops-manual");
     String context = loader.load(profile(List.of("read_file")));
     assertFalse(context.contains("ops-manual"), "未声明检索工具的 Agent 不注入（注入了也无法使用）");
@@ -60,6 +63,7 @@ class ContextLoaderKnowledgeTest {
 
   @Test
   void brokenBindingIsSkippedWithoutFailingPromptAssembly() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     bindings.bind("assistant", "ops-manual");
     // 制造 dangling：目标库目录被移走
     Path kbDir = root.resolve("knowledge/ops-manual");

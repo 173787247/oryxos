@@ -1,5 +1,6 @@
 package io.oryxos.core.knowledge;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -58,7 +59,8 @@ public final class KnowledgeWorkspaceFixture {
       Path linksDir =
           Files.createDirectories(root.resolve("agents").resolve(agentName).resolve("knowledge"));
       Path link = linksDir.resolve(kbName);
-      Files.createSymbolicLink(link, Path.of("..", "..", "..", "knowledge", kbName));
+      SymlinkAssumptions.createSymbolicLinkOrAssume(
+          link, Path.of("..", "..", "..", "knowledge", kbName));
       return link;
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -71,7 +73,7 @@ public final class KnowledgeWorkspaceFixture {
       Path linksDir =
           Files.createDirectories(root.resolve("agents").resolve(agentName).resolve("knowledge"));
       Path link = linksDir.resolve(entryName);
-      Files.createSymbolicLink(link, target);
+      SymlinkAssumptions.createSymbolicLinkOrAssume(link, target);
       return link;
     } catch (IOException e) {
       throw new UncheckedIOException(e);

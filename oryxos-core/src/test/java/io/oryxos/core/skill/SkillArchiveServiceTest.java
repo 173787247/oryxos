@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -18,6 +19,7 @@ class SkillArchiveServiceTest {
 
   @Test
   void referencesBlockArchiveThenCompleteDirectoryIsMoved() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     SkillWorkspaceFixture fixture = new SkillWorkspaceFixture(root);
     fixture.agent("ops", "");
     fixture.skill("report", "报告");
