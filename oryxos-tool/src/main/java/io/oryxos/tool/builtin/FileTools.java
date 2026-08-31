@@ -52,14 +52,17 @@ public class FileTools {
 
   @Tool(name = "read_file", description = "读取指定路径的文本文件内容")
   public String readFile(@ToolParam(description = "要读取的文件路径") String path) {
+    // 保留文件原文（channels.yaml/mcp_servers.yaml 凭证、oryxos.db 数据）禁止经通用读入口吐出
+    AdminConfigFileGuard.rejectRead(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
     Path file = Path.of(path);
     if (!Files.isRegularFile(file)) {
       throw new IllegalArgumentException("文件不存在或不是普通文件: " + path);
     }
     try {
-      // 读前复检：与 write_file 同款——防首次校验到 readString 间路径被换成外向软链
+      // 读前复检：与 write_file 同款——防首次校验到 readString 间路径被换成外向软链或保留文件
       sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
+      AdminConfigFileGuard.rejectRead(path);
       return Files.readString(file);
     } catch (IOException e) {
       throw new UncheckedIOException("读取文件失败: " + path, e);
@@ -159,6 +162,7 @@ public class FileTools {
     }
     Pattern regex = Pattern.compile(pattern);
     List<String> matches = new ArrayList<>();
+    int skippedReserved = 0;
     try {
       // Skill 绑定等「目录软链」：walk 默认不跟随，需先解析到真实目录；嵌套文件软链仍靠 NOFOLLOW 跳过
       Path walkRoot = resolveDirectorySymlink(root);
@@ -168,6 +172,11 @@ public class FileTools {
             matches.add("...（已达 " + MAX_MATCHES + " 条上限，结果截断）");
             break;
           }
+          // 保留文件（凭证配置 / SQLite 库）不进搜索内容：跳过而非整次失败，与软链叶子同款过滤
+          if (AdminConfigFileGuard.isReservedRead(file)) {
+            skippedReserved++;
+            continue;
+          }
           // 纵深防御：每个实际读取的文件再过一次文件白名单（防根校验到读取间符号链接被替换）
           sandbox.enforce(new SandboxAction(ActionType.FILE_READ, file.toString()));
           appendMatches(file, regex, matches);
@@ -175,6 +184,9 @@ public class FileTools {
       }
     } catch (IOException e) {
       throw new UncheckedIOException("搜索失败: " + path, e);
+    }
+    if (skippedReserved > 0) {
+      matches.add("...（已跳过 " + skippedReserved + " 个系统保留文件，凭证配置与数据库不参与搜索）");
     }
     return matches.isEmpty() ? "（无匹配）" : String.join("\n", matches);
   }
@@ -368,6 +380,8 @@ public class FileTools {
   @Tool(name = "copy_file", description = "复制文件（源读 + 目标写，都过白名单，目标已存在则覆盖）")
   public String copyFile(
       @ToolParam(description = "源路径") String from, @ToolParam(description = "目标路径") String to) {
+    // 源是保留文件（凭证配置 / SQLite 库）时拒绝：复制成普通文件即绕过读侧守卫泄露原文
+    AdminConfigFileGuard.rejectRead(from);
     MemoryMdGuard.rejectMutation(to);
     AdminConfigFileGuard.rejectMutation(to);
     WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(to);
@@ -394,6 +408,7 @@ public class FileTools {
       // 变更前复检：与 write_file 同款——防校验到 copy 间路径被换成外向软链
       sandbox.enforce(new SandboxAction(ActionType.FILE_READ, from));
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
+      AdminConfigFileGuard.rejectRead(from);
       rejectReservedFileWrites(to);
       Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
       return "已复制: " + from + " -> " + to;
