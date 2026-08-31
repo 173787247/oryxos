@@ -3,6 +3,51 @@
 本文件记录 OryxOS 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.4-RELEASE] - 2026-08-31
+
+### Added
+- 本地知识库：解析/切分/向量化索引与双路召回检索（`feat(knowledge)`，#202/#205）。
+- 长期记忆语义召回：配置 `embedding.*` 后三路加权融合（015，#207）。
+- 飞书 IM 入站渠道（017，#235）。
+- 企业微信 AI 机器人长连接入站（#289/#290）；群回复引用原消息（#323）；断线自动重连（#319）。
+- 钉钉 Stream 入站渠道 Runtime 装配与部署文档（#328）。
+- REST API Key 认证：`/api/v1` 机器调用门禁（018，#249）。
+- SSE 流式响应：三端点打字机 + CLI/管理台消费面（019，#263）。
+- Tool Policy 工具策略：全局/Agent 级 allow/deny 治理层（020，#315）。
+- SMTP 邮件通知渠道与 SMTP 端点白名单（#246）。
+- 钉钉/飞书富文本与卡片通知格式（#248）；企业微信 Markdown 通知（#234）。
+
+### Fixed
+- API Key 过滤器覆盖 `/api/v2` 端点（#311）。
+- 知识库索引跳过软链并强制 realpath 边界（#313）。
+- 拦截对管理配置与 SQLite 库文件的读取（#312）。
+- Profile 加载时 realpath 复检与 fail-loud（#309）。
+- `make_dir` 绑定槽位防软链别名绕过（#64da84d）。
+- IM 厂商 notify/inbound 默认 `http.allowed_domains` 对齐（#321）。
+- 厂商 webhook 2xx 业务错误 fail-loud（#316/#317）。
+- 文件工具写前 mutation guard 复检、Skill/Knowledge/AGENT.md 写保护强化（#273/#297–#308 等）。
+- Profile YAML 严格校验：cron/ZoneId、列表字段类型、notify_channels/schedules 对象形态（#265–#267/#281–#296）。
+- MCP `mcp_servers.yaml` 畸形配置 fail-loud（#271）。
+- `WorkspaceWatcher` 对 `AGENT.md` 大小写不敏感（#243）。
+- 无触发足迹时归档记忆修复（#208）。
+- Windows 测试：路径分隔符与软链/POSIX 假设守卫（#262/#310）。
+- 管理台登录页静态资源 401 白屏（018 配套）。
+- 依赖升级：Tomcat 10.1.59、pdfbox、commons-lang3、springdoc/swagger-ui（#277/#287）。
+
+### Security
+- HTTP DNS rebinding：绑定已校验 DNS 解析结果（#278）。
+- SSRF：IPv6 Teredo/6to4/ISATAP/IPv4-compatible 嵌入地址展开后私网拦截（#253/#269/#279/#280）。
+- HTTP 重定向跨域剥离 `Authorization`/`Cookie`/`Api-Key`/`Private-Token`/`X-Access-Token`/`Deploy-Token` 等凭证（#241/#259/#291/#294）。
+- HTTP 302 重定向剥离 `Content-Type` 等 body 头（#275）。
+- 拒绝向 `channels.yaml`/`mcp_servers.yaml`/共享 Skill 实体直接写入（#237/#238/#239）。
+- `MEMORY.md` 软链别名变异拦截（#251）。
+- `http_request` 拒绝不支持的方法（#257）。
+
+### Docs
+- 路线图 v0.2/v0.3 交付状态与 HITL/Tool Policy 调整。
+- SMTP 与通知白名单文档同步。
+- README 版本徽章升级至 0.1.4。
+
 ## [0.1.3-RELEASE] - 2026-08-18
 
 ### Added
@@ -119,6 +164,7 @@
 - Web REST API（`/api/v1`）与 CLI 子命令（`init`/`chat`/`serve`/`gateway` 等）。
 - SQLite 持久化与 `tool_invocations` / `llm_calls` 审计表 Day-One 写入。
 
+[0.1.4-RELEASE]: https://github.com/oryx-labs/oryxos/compare/v0.1.3-RELEASE...v0.1.4-RELEASE
 [0.1.3-RELEASE]: https://github.com/oryx-labs/oryxos/compare/v0.1.2-RELEASE...v0.1.3-RELEASE
 [0.1.2-RELEASE]: https://github.com/oryx-labs/oryxos/compare/v0.1.1-RELEASE...v0.1.2-RELEASE
 [0.1.1-RELEASE]: https://github.com/oryx-labs/oryxos/compare/v0.1.0-RELEASE...v0.1.1-RELEASE
