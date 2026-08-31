@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.skill.AgentSkillBindingService;
 import io.oryxos.core.skill.SkillLoader;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -93,6 +94,7 @@ class ProgressiveDisclosureTest {
   @Test
   @DisplayName("绑定 Skill 每轮只注入 name/description/本地路径，不注入正文或未绑定 Skill")
   void boundSkillOnlyDisclosesMetadata() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(oryxosRoot);
     writeBody("按需使用 Skill");
     Path report = oryxosRoot.resolve("skills/report");
     Path hidden = oryxosRoot.resolve("skills/hidden");
@@ -121,6 +123,7 @@ class ProgressiveDisclosureTest {
   @Test
   @DisplayName("零绑定不输出 Skill 标题，多绑定按名称稳定排序并跳过坏链接")
   void zeroAndMultipleBindingsHaveStableMinimalCatalog() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(oryxosRoot);
     writeBody("正文");
     assertFalse(loader.load(profile()).contains("你可以按需使用以下 Skill"));
 

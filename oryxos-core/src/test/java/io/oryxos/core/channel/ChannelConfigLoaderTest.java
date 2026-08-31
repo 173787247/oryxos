@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
@@ -35,6 +36,7 @@ class ChannelConfigLoaderTest {
   @Test
   @DisplayName("loadRaw 保留 ${ENV} 字面量；save 回写后字面量原样落盘且权限收紧 rw-------")
   void rawKeepsPlaceholdersAndSaveRestrictsPermission() throws Exception {
+    SymlinkAssumptions.assumePosixSupported();
     write(
         """
         channels:

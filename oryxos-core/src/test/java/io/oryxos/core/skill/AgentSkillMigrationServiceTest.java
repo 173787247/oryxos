@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.core.agent.AgentMarkdown;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -18,6 +19,7 @@ class AgentSkillMigrationServiceTest {
 
   @Test
   void validLegacyFieldMigratesOnceAndPreservesOtherText() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     SkillWorkspaceFixture fixture = new SkillWorkspaceFixture(root);
     Path agent = fixture.agent("ops", "description: keep\nskills:\n  - report\n");
     fixture.skill("report", "报告");
@@ -35,6 +37,7 @@ class AgentSkillMigrationServiceTest {
 
   @Test
   void quotedLegacyFieldMigratesWithoutResidue() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     SkillWorkspaceFixture fixture = new SkillWorkspaceFixture(root);
     Path agent = fixture.agent("quoted", "\"skills\":\n- report\n");
     fixture.skill("report", "报告");
@@ -66,6 +69,7 @@ class AgentSkillMigrationServiceTest {
 
   @Test
   void migrationUnionsExistingLinksAndOneFailureDoesNotBlockOtherAgents() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     SkillWorkspaceFixture fixture = new SkillWorkspaceFixture(root);
     fixture.skill("existing", "已有");
     fixture.skill("legacy", "旧配置");

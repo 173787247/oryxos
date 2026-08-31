@@ -10,6 +10,7 @@ import ch.qos.logback.core.read.ListAppender;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.skill.AgentSkillBindingService;
 import io.oryxos.core.skill.SkillLoader;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -113,6 +114,7 @@ class ContextLoaderTest {
   @Test
   @DisplayName("绑定 Skill 只披露元数据，正文和未绑定项不注入")
   void boundSkillMetadataIsInjectedWithoutBody() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(oryxosRoot);
     writeAgentBody("agent-body");
     Path skill = oryxosRoot.resolve("skills/report-format");
     Files.createDirectories(skill);
@@ -147,6 +149,7 @@ class ContextLoaderTest {
   @Test
   @DisplayName("Skill 描述、解绑和链接修复在下一次 load 立即生效")
   void skillBindingChangesAreReadWithoutCache() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(oryxosRoot);
     writeAgentBody("agent-body");
     Path skill = Files.createDirectories(oryxosRoot.resolve("skills/report-format"));
     Path skillFile = skill.resolve("SKILL.md");

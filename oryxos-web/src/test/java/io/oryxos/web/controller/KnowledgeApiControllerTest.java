@@ -19,6 +19,7 @@ import io.oryxos.core.knowledge.KnowledgeServiceImpl;
 import io.oryxos.core.knowledge.model.KnowledgeCapabilities;
 import io.oryxos.core.knowledge.model.KnowledgeHit;
 import io.oryxos.core.knowledge.model.KnowledgeQuery;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import io.oryxos.knowledge.LocalKnowledgeBackend;
 import io.oryxos.knowledge.index.KnowledgeIndexService;
 import io.oryxos.knowledge.store.InMemoryChunkStore;
@@ -148,6 +149,7 @@ class KnowledgeApiControllerTest {
   @Test
   @DisplayName("删除被 Agent 引用的库 → 409 + 引用清单；解绑后可删（FR-011）")
   void deleteIsReferenceProtected() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     createBase("ops-manual", "运维手册");
     Files.writeString(
         Files.createDirectories(root.resolve("agents/ops")).resolve("AGENT.md"),

@@ -19,6 +19,7 @@ import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.SessionManager;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import io.oryxos.web.GlobalExceptionHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -70,6 +71,7 @@ class AgentKnowledgeBindingApiTest {
   @Test
   @DisplayName("bind → get 可见；unbind → 清空；replace 整体替换")
   void bindingCrudAndReplace() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     mvc.perform(put("/api/v1/agents/ops/knowledge/ops-manual"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.bindings[0].name").value("ops-manual"))
@@ -101,6 +103,7 @@ class AgentKnowledgeBindingApiTest {
   @Test
   @DisplayName("创建 Agent 携带 knowledgeBindings → 绑定同步建立（FR-018 路径一）")
   void createWithKnowledgeBindings() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     mvc.perform(
             post("/api/v1/agents")
                 .contentType(MediaType.APPLICATION_JSON)

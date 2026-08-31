@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +27,7 @@ class RealPathBoundaryTest {
 
   @Test
   void rejectsParentLinkEscapeDanglingAndCycle() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(temp);
     Path root = Files.createDirectories(temp.resolve("root"));
     Path outside = Files.createDirectories(temp.resolve("outside"));
     Files.createSymbolicLink(root.resolve("escape"), outside);
@@ -53,6 +55,7 @@ class RealPathBoundaryTest {
 
   @Test
   void rootMayItselfBeASymlink() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(temp);
     Path actual = Files.createDirectories(temp.resolve("actual"));
     Path linkedRoot = temp.resolve("linked-root");
     Files.createSymbolicLink(linkedRoot, actual);

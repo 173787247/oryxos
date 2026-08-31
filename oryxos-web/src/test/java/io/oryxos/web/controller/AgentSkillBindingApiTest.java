@@ -21,6 +21,7 @@ import io.oryxos.core.session.SessionManager;
 import io.oryxos.core.skill.AgentSkillBindingService;
 import io.oryxos.core.skill.SkillCatalogEntry;
 import io.oryxos.core.skill.SkillMetadataReader;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import io.oryxos.web.GlobalExceptionHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -76,6 +77,7 @@ class AgentSkillBindingApiTest {
 
   @Test
   void bindingCrudReplaceAndAgentViewUseLiveLinks() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     mvc.perform(put("/api/v1/agents/ops/skills/report"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.bindings[0].name").value("report"))

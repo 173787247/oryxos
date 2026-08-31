@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.oryxos.core.fs.RealPathBoundary;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import io.oryxos.web.GlobalExceptionHandler;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -104,6 +105,7 @@ class WorkspaceApiControllerTest {
   @Test
   @DisplayName("read/download/write 均拒绝经父软连接逃逸，tree 把链接作为叶节点")
   void symlinkEscapeIsRejectedAndTreeDoesNotFollow() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(oryxosRoot);
     Path outside = Files.createDirectories(oryxosRoot.resolveSibling("outside-workspace"));
     Files.writeString(outside.resolve("secret.txt"), "SECRET");
     Files.createSymbolicLink(oryxosRoot.resolve("agents/demo/escape"), outside);
@@ -356,6 +358,7 @@ class WorkspaceApiControllerTest {
   @Test
   @DisplayName("工作区读取悬空软连接返回 400 而非 500")
   void danglingLinkReturnsBadRequest() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(oryxosRoot);
     Files.createSymbolicLink(
         oryxosRoot.resolve("agents/demo/dangling"), Path.of("../../skills/missing"));
 

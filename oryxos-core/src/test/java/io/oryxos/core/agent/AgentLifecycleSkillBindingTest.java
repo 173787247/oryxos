@@ -21,6 +21,7 @@ import io.oryxos.core.skill.SkillCatalog;
 import io.oryxos.core.skill.SkillLoader;
 import io.oryxos.core.skill.SkillRegistry;
 import io.oryxos.core.skill.SkillStore;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -55,6 +56,7 @@ class AgentLifecycleSkillBindingTest {
 
   @Test
   void directCreateAndGeneratedSidecarNeverPersistLegacySkills() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     AgentLifecycleService service = service(bindings, new InstalledSkillCatalog(skillRegistry));
     service.create("direct", "直接创建", List.of("required"));
     assertTrue(Files.isSymbolicLink(root.resolve("agents/direct/skills/required")));
@@ -147,6 +149,7 @@ class AgentLifecycleSkillBindingTest {
 
   @Test
   void existingSaveRestoresFilesAndBindingsWhenBindingCommitFails() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     AgentLifecycleService initial = service(bindings, new InstalledSkillCatalog(skillRegistry));
     initial.create("existing", "旧描述", List.of("required"));
     Path markdown = root.resolve("agents/existing/AGENT.md");

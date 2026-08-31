@@ -3,6 +3,7 @@ package io.oryxos.tool.sandbox;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -67,6 +68,7 @@ class WhitelistSandboxTest {
     @Test
     @DisplayName("白名单内软连接指向外部时，读与不存在目标写均拒绝")
     void symlinkEscapeIsBlocked(@TempDir Path allowed) throws IOException {
+      SymlinkAssumptions.assumeSymlinksSupported(allowed);
       Path outside = Files.createTempDirectory("oryxos-sandbox-outside-");
       Files.writeString(outside.resolve("secret.txt"), "secret");
       Files.createSymbolicLink(allowed.resolve("escape"), outside);
@@ -89,6 +91,7 @@ class WhitelistSandboxTest {
     @Test
     @DisplayName("合法 Agent Skill 软连接指向同一白名单根时可读")
     void controlledSkillSymlinkIsAllowed(@TempDir Path allowed) throws IOException {
+      SymlinkAssumptions.assumeSymlinksSupported(allowed);
       Path shared = allowed.resolve("skills/report");
       Path local = allowed.resolve("agents/ops/skills");
       Files.createDirectories(shared);
@@ -129,6 +132,7 @@ class WhitelistSandboxTest {
     @Test
     @DisplayName("白名单按真实最小根判断，链接的 lexical 位置不能扩大授权")
     void symlinkUsesRealTargetRoot(@TempDir Path workspace) throws IOException {
+      SymlinkAssumptions.assumeSymlinksSupported(workspace);
       Path shared = Files.createDirectories(workspace.resolve("skills/report"));
       Path local = Files.createDirectories(workspace.resolve("agents/ops/skills"));
       Files.writeString(shared.resolve("SKILL.md"), "body");
