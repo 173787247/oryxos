@@ -10,6 +10,10 @@ import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +38,9 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
   private static final String CMD_AIBOT_MSG_CALLBACK = "aibot_msg_callback";
 
   private static final Duration START_TIMEOUT = Duration.ofSeconds(20);
+  private static final long RECONNECT_BASE_MS = 2_000L;
+  private static final long RECONNECT_MAX_MS = 60_000L;
+  private static final int RECONNECT_MAX_SHIFT = 5;
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -45,6 +52,10 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
   private volatile WeComEventNormalizer normalizer;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
   private volatile String lastError;
+  private volatile boolean running;
+  private volatile ScheduledExecutorService reconnectScheduler;
+  private volatile ScheduledFuture<?> reconnectFuture;
+  private int reconnectAttempt;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -83,28 +94,17 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
           "渠道 " + config.name() + " 绑定的 Agent " + config.agent() + " 不存在");
     }
     guard.check(OUTBOUND_URL);
+    running = true;
+    reconnectAttempt = 0;
+    cancelReconnectLocked();
     try {
-      normalizer = new WeComEventNormalizer(config.name());
-      WeComWsClient client =
-          new WeComWsClient(
-              config.appId(),
-              config.appSecret(),
-              WeComWsClient.DEFAULT_WS_URL,
-              this::handleFrame,
-              () -> {
-                if (state != ChannelStatus.State.ERROR) {
-                  state = ChannelStatus.State.DISCONNECTED;
-                }
-              });
-      sender =
-          new WeComMessageSender(
-              client::sendJson, guard, OUTBOUND_URL, WeComMessageSender.DEFAULT_CHUNK_SIZE);
-      client.connectAndSubscribe(START_TIMEOUT);
-      wsRef.set(client);
+      connectLocked();
       state = ChannelStatus.State.CONNECTED;
       lastError = null;
       LOG.info("企微渠道 {} 长连接已建立（Agent: {}）", sanitize(config.name()), sanitize(config.agent()));
     } catch (Exception e) {
+      running = false;
+      shutdownReconnectSchedulerLocked();
       state = ChannelStatus.State.ERROR;
       lastError = "长连接建立失败: " + sanitize(e.getMessage());
       throw new IllegalStateException("渠道 " + config.name() + " " + lastError, e);
@@ -113,6 +113,9 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
 
   @Override
   public synchronized void stop() {
+    running = false;
+    cancelReconnectLocked();
+    shutdownReconnectSchedulerLocked();
     WeComWsClient ws = wsRef.getAndSet(null);
     if (ws != null) {
       ws.closeQuietly();
@@ -139,7 +142,116 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
     if (active == null) {
       throw new IllegalStateException("渠道 " + config.name() + " 未启动，无法发送回复");
     }
-    active.send(chatId, text);
+    active.send(chatId, text, replyToMessageId);
+  }
+
+  /** 供单测校验退避间隔，不触网。 */
+  static long reconnectDelayMs(int attempt) {
+    int capped = Math.min(Math.max(attempt, 0), RECONNECT_MAX_SHIFT);
+    return Math.min(RECONNECT_BASE_MS * (1L << capped), RECONNECT_MAX_MS);
+  }
+
+  private void connectLocked() throws Exception {
+    normalizer = new WeComEventNormalizer(config.name());
+    WeComWsClient client =
+        new WeComWsClient(
+            config.appId(),
+            config.appSecret(),
+            WeComWsClient.DEFAULT_WS_URL,
+            this::handleFrame,
+            this::handleDisconnected);
+    sender =
+        new WeComMessageSender(
+            client::sendJson, guard, OUTBOUND_URL, WeComMessageSender.DEFAULT_CHUNK_SIZE);
+    client.connectAndSubscribe(START_TIMEOUT);
+    wsRef.set(client);
+  }
+
+  private void handleDisconnected() {
+    boolean shouldReconnect;
+    synchronized (this) {
+      if (!running || state == ChannelStatus.State.ERROR) {
+        return;
+      }
+      wsRef.set(null);
+      state = ChannelStatus.State.DISCONNECTED;
+      shouldReconnect = true;
+    }
+    if (shouldReconnect) {
+      LOG.warn("企微渠道 {} 长连接断开，将自动重连", sanitize(config.name()));
+      scheduleReconnect();
+    }
+  }
+
+  private void scheduleReconnect() {
+    synchronized (this) {
+      if (!running || reconnectFuture != null) {
+        return;
+      }
+      long delayMs = reconnectDelayMs(reconnectAttempt);
+      reconnectFuture =
+          reconnectScheduler().schedule(this::attemptReconnect, delayMs, TimeUnit.MILLISECONDS);
+    }
+  }
+
+  private void attemptReconnect() {
+    synchronized (this) {
+      reconnectFuture = null;
+      if (!running) {
+        return;
+      }
+      try {
+        connectLocked();
+        reconnectAttempt = 0;
+        state = ChannelStatus.State.CONNECTED;
+        lastError = null;
+        LOG.info("企微渠道 {} 长连接已恢复", sanitize(config.name()));
+      } catch (Exception e) {
+        reconnectAttempt++;
+        lastError = "长连接重连失败: " + sanitize(e.getMessage());
+        LOG.warn(
+            "企微渠道 {} 重连失败（第 {} 次）: {}",
+            sanitize(config.name()),
+            reconnectAttempt,
+            sanitize(lastError));
+        scheduleReconnect();
+      }
+    }
+  }
+
+  private ScheduledExecutorService reconnectScheduler() {
+    ScheduledExecutorService scheduler = reconnectScheduler;
+    if (scheduler == null) {
+      ScheduledThreadPoolExecutor pool =
+          new ScheduledThreadPoolExecutor(
+              1,
+              r -> {
+                Thread t = new Thread(r, "wecom-reconnect-" + sanitize(config.name()));
+                t.setDaemon(true);
+                return t;
+              });
+      pool.setRemoveOnCancelPolicy(true);
+      reconnectScheduler = pool;
+      return pool;
+    }
+    return scheduler;
+  }
+
+  private void cancelReconnectLocked() {
+    ScheduledFuture<?> pending = reconnectFuture;
+    if (pending != null) {
+      pending.cancel(false);
+      reconnectFuture = null;
+    }
+  }
+
+  private void shutdownReconnectSchedulerLocked() {
+    cancelReconnectLocked();
+    ScheduledExecutorService scheduler = reconnectScheduler;
+    if (scheduler != null) {
+      scheduler.shutdownNow();
+      reconnectScheduler = null;
+    }
   }
 
   private void handleFrame(JsonNode root) {

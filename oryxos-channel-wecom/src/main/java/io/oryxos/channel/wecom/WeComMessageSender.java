@@ -13,7 +13,8 @@ import java.util.function.Consumer;
 /**
  * 企微回复发送器：优先 {@code aibot_send_msg}（markdown）主动推送；出站前过 {@link OutboundGuard}。
  *
- * <p>智能机器人长连接要求会话内曾有用户消息后才能主动推送——入站编排路径天然满足。
+ * <p>智能机器人长连接要求会话内曾有用户消息后才能主动推送——入站编排路径天然满足。群聊 B4：{@code replyToMessageId} 非空时在 body 附带 {@code
+ * quote.msgid}，使回复与用户提问可对应。
  */
 public class WeComMessageSender {
 
@@ -42,6 +43,11 @@ public class WeComMessageSender {
   }
 
   public void send(String chatId, String text) {
+    send(chatId, text, null);
+  }
+
+  /** 发送 markdown 回复；群聊 {@code replyToMessageId} 非空时附带 {@code quote.msgid}（契约 B4）。 */
+  public void send(String chatId, String text, String replyToMessageId) {
     guard.check(outboundUrl);
     int chatType = chatTypes.getOrDefault(chatId, 0);
     for (String chunk : segment(text == null ? "" : text, chunkSize)) {
@@ -53,6 +59,9 @@ public class WeComMessageSender {
       body.put("chatid", chatId);
       if (chatType > 0) {
         body.put("chat_type", chatType);
+      }
+      if (replyToMessageId != null && !replyToMessageId.isBlank()) {
+        body.putObject("quote").put("msgid", replyToMessageId);
       }
       body.put("msgtype", "markdown");
       body.set("markdown", markdown);

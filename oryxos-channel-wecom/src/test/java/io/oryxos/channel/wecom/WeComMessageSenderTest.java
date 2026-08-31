@@ -34,6 +34,33 @@ class WeComMessageSenderTest {
   }
 
   @Test
+  @DisplayName("群聊回复带 quote.msgid 引用原消息")
+  void sendWithReplyToMessageIdIncludesQuote() {
+    List<ObjectNode> frames = new ArrayList<>();
+    WeComMessageSender sender =
+        new WeComMessageSender(frames::add, url -> {}, WeComChannelAdapter.OUTBOUND_URL, 100);
+    sender.rememberChatType("g1", 2);
+    sender.send("g1", "答", "msg-42");
+
+    assertEquals(1, frames.size());
+    var body = frames.get(0).path("body");
+    assertEquals("msg-42", body.path("quote").path("msgid").asText());
+    assertEquals(2, body.path("chat_type").asInt());
+  }
+
+  @Test
+  @DisplayName("私聊回复不带 quote")
+  void sendWithoutReplyToMessageIdOmitsQuote() {
+    List<ObjectNode> frames = new ArrayList<>();
+    WeComMessageSender sender =
+        new WeComMessageSender(frames::add, url -> {}, WeComChannelAdapter.OUTBOUND_URL, 100);
+    sender.send("u1", "答", null);
+
+    assertEquals(1, frames.size());
+    assertTrue(frames.get(0).path("body").path("quote").isMissingNode());
+  }
+
+  @Test
   @DisplayName("超长文本分段")
   void segmentsLongText() {
     List<ObjectNode> frames = new ArrayList<>();
