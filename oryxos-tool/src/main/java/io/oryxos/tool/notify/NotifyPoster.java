@@ -1,5 +1,6 @@
 package io.oryxos.tool.notify;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.tool.sandbox.ActionType;
@@ -87,7 +88,7 @@ public final class NotifyPoster {
     final JsonNode root;
     try {
       root = MAPPER.readTree(responseBody);
-    } catch (Exception ignored) {
+    } catch (JsonProcessingException ignored) {
       // 通用 webhook 可能返回非 JSON；不因此失败
       return;
     }
