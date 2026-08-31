@@ -23,6 +23,8 @@ public class DingTalkMessageSender {
 
   static final int DEFAULT_CHUNK_SIZE = 3500;
   static final String SESSION_WEBHOOK_PREFIX = "https://oapi.dingtalk.com";
+  private static final int HTTP_STATUS_OK_MIN = 200;
+  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -91,7 +93,8 @@ public class DingTalkMessageSender {
               .build();
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-      if (response.statusCode() < 200 || response.statusCode() >= 300) {
+      if (response.statusCode() < HTTP_STATUS_OK_MIN
+          || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
         throw new IllegalStateException(
             "钉钉 sessionWebhook 回复失败 HTTP " + response.statusCode() + ": " + response.body());
       }

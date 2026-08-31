@@ -38,6 +38,8 @@ final class DingTalkStreamClient implements WebSocket.Listener {
   private static final String TOPIC_PING = "ping";
   private static final String TOPIC_DISCONNECT = "disconnect";
   private static final String ACK_BOT_DATA = "{\"response\": null}";
+  private static final int HTTP_STATUS_OK_MIN = 200;
+  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final String clientId;
@@ -248,7 +250,8 @@ final class DingTalkStreamClient implements WebSocket.Listener {
             .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)))
             .build();
     HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+    if (response.statusCode() < HTTP_STATUS_OK_MIN
+        || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
       throw new IllegalStateException(
           "钉钉 Stream 注册失败 HTTP " + response.statusCode() + ": " + response.body());
     }
