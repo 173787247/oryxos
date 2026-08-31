@@ -35,6 +35,7 @@ class VendorNotifyAdapterTest {
   private HttpServer server;
   private final List<ReceivedRequest> received = new ArrayList<>();
   private volatile int responseStatus = 200;
+  private volatile String responseBody = "";
   private NotifyPoster poster;
 
   @BeforeEach
@@ -57,7 +58,14 @@ class VendorNotifyAdapterTest {
   private void record(HttpExchange exchange) throws IOException {
     String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
     received.add(new ReceivedRequest(exchange.getRequestURI().getQuery(), body));
-    exchange.sendResponseHeaders(responseStatus, -1);
+    byte[] payload = responseBody.getBytes(StandardCharsets.UTF_8);
+    if (!responseBody.isEmpty()) {
+      exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+    }
+    exchange.sendResponseHeaders(responseStatus, payload.length);
+    if (payload.length > 0) {
+      exchange.getResponseBody().write(payload);
+    }
     exchange.close();
   }
 
@@ -293,6 +301,64 @@ class VendorNotifyAdapterTest {
 
     assertThrows(
         RestClientResponseException.class, () -> new WeComNotifyAdapter(poster).send(target, "hi"));
+  }
+
+  @Test
+  @DisplayName("企微：HTTP 200 + errcode≠0 业务失败上抛")
+  void wecomBusinessErrorIn2xxBodyFailsLoud() {
+    responseBody = "{\"errcode\":93017,\"errmsg\":\"invalid webhook url\"}";
+    IllegalStateException ex =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                new WeComNotifyAdapter(poster)
+                    .send(new NotifyTarget("wecom", Map.of("url", url())), "hi"));
+    assertTrue(ex.getMessage().contains("errcode=93017"));
+    assertTrue(ex.getMessage().contains("invalid webhook url"));
+    assertEquals(1, received.size());
+  }
+
+  @Test
+  @DisplayName("飞书：HTTP 200 + code≠0 业务失败上抛")
+  void feishuBusinessErrorIn2xxBodyFailsLoud() {
+    responseBody = "{\"code\":19021,\"msg\":\"sign match fail\"}";
+    IllegalStateException ex =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                new FeishuNotifyAdapter(poster)
+                    .send(new NotifyTarget("feishu", Map.of("url", url())), "hi"));
+    assertTrue(ex.getMessage().contains("code=19021"));
+    assertTrue(ex.getMessage().contains("sign match fail"));
+  }
+
+  @Test
+  @DisplayName("钉钉：HTTP 200 + errcode≠0 业务失败上抛")
+  void dingTalkBusinessErrorIn2xxBodyFailsLoud() {
+    responseBody = "{\"errcode\":310000,\"errmsg\":\"关键词不匹配\"}";
+    IllegalStateException ex =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                new DingTalkNotifyAdapter(poster)
+                    .send(new NotifyTarget("dingtalk", Map.of("url", url())), "hi"));
+    assertTrue(ex.getMessage().contains("errcode=310000"));
+  }
+
+  @Test
+  @DisplayName("厂商 webhook：HTTP 200 + 业务码=0 视为成功")
+  void vendorBusinessCodeZeroSucceeds() {
+    responseBody = "{\"errcode\":0,\"errmsg\":\"ok\"}";
+    new WeComNotifyAdapter(poster).send(new NotifyTarget("wecom", Map.of("url", url())), "hi");
+    assertEquals(1, received.size());
+  }
+
+  @Test
+  @DisplayName("通用 webhook：无业务错误字段的 JSON 不误伤")
+  void genericWebhookJsonWithoutBusinessCodeSucceeds() {
+    responseBody = "{\"content\":\"accepted\"}";
+    new WebhookNotifyAdapter(poster).send(new NotifyTarget("webhook", Map.of("url", url())), "hi");
+    assertEquals(1, received.size());
   }
 
   @Test
