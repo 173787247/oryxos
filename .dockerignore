@@ -1,0 +1,40 @@
+# OryxOS 镜像构建上下文瘦身：镜像只需要的四样东西——
+# Dockerfile、docker/docker-entrypoint.sh、config/application.yml.example、oryxos-boot 胖 jar。
+# jar 由构建方原生构建（镜像内不跑 Maven），因此源码、其余模块产物全部排除。
+
+# 版本控制 / CI / 文档 / 站点：与镜像无关
+.git/
+.github/
+.gitignore
+.specify/
+.idea/
+.vscode/
+website/
+docs/
+specs/
+*.md
+LICENSE
+CHANGELOG.md
+
+# 运行期产物与本地环境（宿主机上的数据库、日志、发行包一律不进镜像）
+logs/
+dist/
+target/
+my-agent/
+oryxos.db
+oryxos.db-shm
+oryxos.db-wal
+bin/
+scripts/
+docker/mem0/
+docker-compose.yml
+
+# 源码与依赖清单：镜像只装 jar，不装源码
+oryxos-*/src/
+oryxos-*/node_modules/
+
+# 模块构建产物整体排除，再单独放回唯一需要的胖 jar。
+# 注意：必须用「oryxos-*/target/*」排除目录内容而非「oryxos-*/target/」排除目录本身，
+# 否则父目录被排除后，! 规则无法把 jar 重新包含进来。
+oryxos-*/target/*
+!oryxos-boot/target/oryxos-boot-*.jar

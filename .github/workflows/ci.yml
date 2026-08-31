@@ -76,3 +76,26 @@ jobs:
             target/dependency-check-report.html
             target/dependency-check-report.json
           if-no-files-found: ignore
+
+  docker-build:
+    name: Docker image build (no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # 只验证镜像可构建（Dockerfile + 上下文不腐烂），不推送；
+      # 测试与质量门禁已在 build job 覆盖，这里跳过以省时
+      - name: package (skip tests & quality plugins)
+        run: >-
+          mvn -B clean package -DskipTests
+          -Dspotless.check.skip=true
+          -Dcheckstyle.skip=true
+          -Dpmd.skip=true
+          -Dspotbugs.skip=true
+      - name: docker build
+        run: docker build -t oryxos:ci .
