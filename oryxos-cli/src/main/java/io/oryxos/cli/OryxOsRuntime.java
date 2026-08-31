@@ -924,6 +924,10 @@ public class OryxOsRuntime {
             io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
             resolved ->
                 new io.oryxos.channel.wecom.WeComChannelAdapter(
+                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
+            io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
+            resolved ->
+                new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
                     resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
   }
 

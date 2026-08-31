@@ -91,7 +91,8 @@ http:
     - "*.feishu.cn"             # 飞书 webhook + SDK（open.feishu.cn）
     - openws.work.weixin.qq.com # 企微智能机器人长连接入站
     - qyapi.weixin.qq.com       # 企微群机器人 webhook 通知
-    - oapi.dingtalk.com         # 钉钉自定义机器人 webhook 通知
+    - api.dingtalk.com          # 钉钉 Stream 网关（开连接）
+    - oapi.dingtalk.com         # 钉钉 webhook 通知 + sessionWebhook 回复
     - api.open-meteo.com        # 天气 Agent 免 key 天气源（31 节 Demo 一）
     - hn.algolia.com            # 科技日报 Agent 新闻源（31 节 Demo 二）
     - api.github.com            # GitHub 日报脚本子进程网络（31 节 Demo 三）
