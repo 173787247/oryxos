@@ -32,9 +32,9 @@ import org.springframework.web.bind.annotation.ResponseBody;
 
 /**
  * 018 验收 harness：ApiKeyAuthFilterTest——路径裁决表钉死（contracts/auth-contract.md §1）。用 standalone MockMvc
- * + stub controller 映射 /api/v1/**（filter 放行后要有 handler），按注册模式 addFilter(filter, "/api/v1/*")。mock
- * ApiKeyService/WebSessionService。守：flag 关放行、双请求头等效、401 统一响应不可区分、 豁免（OPTIONS/health/auth
- * 子树）、session 互认、多 Key 吊销互不影响。
+ * + stub controller 映射 /api/v1/** 与 /api/v2/**（filter 放行后要有 handler），按注册模式 addFilter(filter,
+ * "/api/v1/*", "/api/v2/*")。mock ApiKeyService/WebSessionService。守：flag 关放行、双请求头等效、401 统一响应不可区分、
+ * 豁免（OPTIONS/health/auth 子树）、v2 调度子树无凭据 401、session 互认、多 Key 吊销互不影响。
  */
 class ApiKeyAuthFilterTest {
 
@@ -65,6 +65,18 @@ class ApiKeyAuthFilterTest {
     public String login() {
       return "login";
     }
+
+    @GetMapping("/api/v2/schedules")
+    @ResponseBody
+    public String v2Schedules() {
+      return "v2";
+    }
+
+    @PostMapping("/api/v2/schedules/{id}/run")
+    @ResponseBody
+    public String v2Run() {
+      return "triggered";
+    }
   }
 
   @BeforeEach
@@ -76,7 +88,7 @@ class ApiKeyAuthFilterTest {
         new ApiKeyAuthFilter(apiKeyService, sessionService, properties, new ObjectMapper());
     mvc =
         MockMvcBuilders.standaloneSetup(new StubController())
-            .addFilter(filter, "/api/v1/*")
+            .addFilter(filter, "/api/v1/*", "/api/v2/*")
             .build();
   }
 
@@ -184,6 +196,30 @@ class ApiKeyAuthFilterTest {
     properties.setEnabled(true);
     mvc.perform(post("/api/v1/auth/login")).andExpect(status().isOk());
     verify(apiKeyService, never()).verify(anyString());
+  }
+
+  @Test
+  @DisplayName("enabled=true_/api/v2/schedules无凭据_401（v2调度子树在门禁内）")
+  void v2SchedulesNoCredentials_401() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(get("/api/v2/schedules")).andExpect(status().isUnauthorized());
+    verify(apiKeyService, never()).verify(anyString());
+  }
+
+  @Test
+  @DisplayName("enabled=true_POST/api/v2/schedules/{id}/run无凭据_401（禁止匿名触发Agent）")
+  void v2RunNoCredentials_401() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(post("/api/v2/schedules/sched-1/run")).andExpect(status().isUnauthorized());
+    verify(apiKeyService, never()).verify(anyString());
+  }
+
+  @Test
+  @DisplayName("enabled=true_/api/v2带正确Key_200")
+  void v2WithCorrectKey_200() throws Exception {
+    properties.setEnabled(true);
+    when(apiKeyService.verify(GOOD_KEY)).thenReturn(true);
+    mvc.perform(get("/api/v2/schedules").header("X-API-Key", GOOD_KEY)).andExpect(status().isOk());
   }
 
   @Test
