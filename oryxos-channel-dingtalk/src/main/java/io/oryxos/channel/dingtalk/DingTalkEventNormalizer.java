@@ -22,6 +22,7 @@ public class DingTalkEventNormalizer {
   private static final String CONVERSATION_SINGLE = "1";
   private static final String CONVERSATION_GROUP = "2";
   private static final String MSG_TEXT = "text";
+  private static final String FIELD_IN_AT_LIST = "isInAtList";
   private static final Pattern LEADING_AT = Pattern.compile("^@\\S+\\s*");
 
   private final String channelName;
@@ -52,7 +53,7 @@ public class DingTalkEventNormalizer {
       LOG.warn("钉钉未知 conversationType={}，已丢弃", sanitize(conversationType));
       return Optional.empty();
     }
-    if (group && !body.path("isInAtList").asBoolean(false)) {
+    if (group && !body.path(FIELD_IN_AT_LIST).asBoolean(false)) {
       LOG.debug("钉钉群消息未 @ 机器人，已丢弃");
       return Optional.empty();
     }
