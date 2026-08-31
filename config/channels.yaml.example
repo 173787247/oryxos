@@ -1,4 +1,4 @@
-# OryxOS 入站 IM 渠道配置示例（017 + 企微）
+# OryxOS 入站 IM 渠道配置示例（017 + 企微 + 钉钉）
 # 复制到 .oryxos/channels.yaml 后按需修改；文件权限会被收紧为 rw-------。
 # 凭证一律用 ${ENV_VAR} 占位从环境变量注入，禁止明文写入本文件。
 # 一个条目 = 一个平台应用/机器人 = 绑定一个 Agent。
@@ -15,5 +15,13 @@ channels:
   #   type: wecom
   #   app_id: ${WECOM_BOT_ID}             # BotID
   #   app_secret: ${WECOM_BOT_SECRET}     # 长连接 Secret
+  #   agent: ops-agent
+  #   enabled: true
+
+  # 钉钉机器人 Stream 长连接（见 docs/DingTalkChannelSetup.md）
+  # - name: ops-dingtalk
+  #   type: dingtalk
+  #   app_id: ${DINGTALK_CLIENT_ID}       # ClientId（应用凭证）
+  #   app_secret: ${DINGTALK_CLIENT_SECRET}
   #   agent: ops-agent
   #   enabled: true
