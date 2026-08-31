@@ -163,10 +163,8 @@ final class WeComWsClient implements WebSocket.Listener {
 
   @Override
   public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-    closed.set(true);
-    subscribed.set(false);
-    stopHeartbeat();
-    subscribeLatch.countDown();
+    markDisconnected();
+    socket.set(null);
     onDisconnected.run();
     return null;
   }
@@ -176,9 +174,17 @@ final class WeComWsClient implements WebSocket.Listener {
     LOG.warn("企微长连接错误: {}", sanitize(error == null ? null : error.getMessage()));
     if (!subscribed.get()) {
       subscribeError = error == null ? "unknown" : error.getMessage();
-      subscribeLatch.countDown();
     }
+    markDisconnected();
+    socket.set(null);
     onDisconnected.run();
+  }
+
+  private void markDisconnected() {
+    closed.set(true);
+    subscribed.set(false);
+    stopHeartbeat();
+    subscribeLatch.countDown();
   }
 
   private void handleText(String raw) {
