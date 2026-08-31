@@ -139,7 +139,7 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
     if (active == null) {
       throw new IllegalStateException("渠道 " + config.name() + " 未启动，无法发送回复");
     }
-    active.send(chatId, text);
+    active.send(chatId, text, replyToMessageId);
   }
 
   private void handleFrame(JsonNode root) {
