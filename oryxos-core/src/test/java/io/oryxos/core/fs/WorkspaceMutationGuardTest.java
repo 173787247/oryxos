@@ -144,6 +144,54 @@ class WorkspaceMutationGuardTest {
   }
 
   @Test
+  @DisplayName("经别名目录建目录投影到绑定槽时拒绝（父目录换链 TOCTOU）")
+  void rejectsMkdirViaSymlinkedAliasIntoBindSlot() throws IOException {
+    Files.createDirectories(temp.resolve("agents").resolve("demo").resolve("skills"));
+    Files.createDirectories(temp.resolve("output"));
+    Path linkedDir = temp.resolve("output").resolve("skills");
+    assumeCanSymlink(linkedDir, Path.of("../agents/demo/skills"));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> WorkspaceMutationGuard.rejectBindSlotCreate(linkedDir.resolve("report").toString()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> WorkspaceMutationGuard.rejectBindSlotCreate(linkedDir.resolve("report")));
+    // 别名只投影到 skills 父目录本身时仍放行（与词法口径一致：只禁占叶子槽）
+    assertDoesNotThrow(() -> WorkspaceMutationGuard.rejectBindSlotCreate(linkedDir));
+  }
+
+  @Test
+  @DisplayName("悬空软链叶子目标词法命中绑定树时也拒绝")
+  void rejectsDanglingSymlinkLeafIntoBindSlot() throws IOException {
+    Files.createDirectories(temp.resolve("output"));
+    Path link = temp.resolve("output").resolve("slot");
+    assumeCanSymlink(link, Path.of("../agents/demo/skills/report"));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> WorkspaceMutationGuard.rejectBindSlotCreate(link.toString()));
+    assertThrows(
+        IllegalArgumentException.class, () -> WorkspaceMutationGuard.rejectBindSlotCreate(link));
+  }
+
+  @Test
+  @DisplayName("指向普通文件/目录的软链放行（不误伤绑定槽守卫）")
+  void allowsOrdinarySymlinkTargetsForBindSlot() throws IOException {
+    Files.writeString(temp.resolve("notes.md"), "notes\n");
+    Path fileAlias = temp.resolve("alias.md");
+    assumeCanSymlink(fileAlias, Path.of("notes.md"));
+    Files.createDirectories(temp.resolve("plaindir"));
+    Files.createDirectories(temp.resolve("output"));
+    Path dirAlias = temp.resolve("output").resolve("plain");
+    assumeCanSymlink(dirAlias, Path.of("../plaindir"));
+
+    assertDoesNotThrow(() -> WorkspaceMutationGuard.rejectBindSlotCreate(fileAlias));
+    assertDoesNotThrow(() -> WorkspaceMutationGuard.rejectBindSlotCreate(fileAlias.toString()));
+    assertDoesNotThrow(() -> WorkspaceMutationGuard.rejectBindSlotCreate(dirAlias.resolve("sub")));
+  }
+
+  @Test
   @DisplayName("拒绝 delete/move 拆 bind 叶子")
   void rejectBindLinkDetach() {
     assertThrows(

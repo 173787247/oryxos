@@ -185,11 +185,31 @@ public final class WorkspaceMutationGuard {
   /**
    * 拒绝 {@code make_dir} 占用绑定槽（agents 下 skills/knowledge 叶子及其子路径）。建成真目录后 bind 无法落软链；允许只建 skills 或
    * knowledge 父目录本身。
+   *
+   * <p>除词法检查外，经 {@link RealPathBoundary} 复检并检查叶子软链目标，避免 {@code output/skills →
+   * agents/<name>/skills} 这类别名目录建目录后投影到绑定槽（与内容写 / AGENT.md 守卫同款三检）。
    */
+  public static void rejectBindSlotCreate(String path) {
+    if (path == null || path.isBlank()) {
+      return;
+    }
+    rejectBindSlotLexical(path);
+    rejectBindSlotResolved(Path.of(path));
+  }
+
+  /** 对已解析路径做词法 + 真实路径双重检查。 */
+  public static void rejectBindSlotCreate(Path path) {
+    if (path == null) {
+      return;
+    }
+    rejectBindSlotLexical(path.toString());
+    rejectBindSlotResolved(path);
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
       justification = "Reserved path segments are ASCII; Locale.ROOT fold is intentional.")
-  public static void rejectBindSlotCreate(String path) {
+  private static void rejectBindSlotLexical(String path) {
     if (path == null || path.isBlank()) {
       return;
     }
@@ -209,7 +229,43 @@ public final class WorkspaceMutationGuard {
     }
   }
 
-  /** 拒绝 {@code delete_file}/{@code move_file} 拆掉绑定叶子软链——须走 BindingService.unbind。 */
+  private static void rejectBindSlotResolved(Path path) {
+    rejectBindSlotSymlinkLeaf(path);
+    Path projected;
+    try {
+      projected = RealPathBoundary.project(path).projectedReal();
+    } catch (UncheckedIOException | IllegalArgumentException e) {
+      return;
+    }
+    rejectBindSlotLexical(projected.toString());
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "skills/knowledge segment names are ASCII; Locale.ROOT fold matches case-insensitive filesystems.")
+  private static void rejectBindSlotSymlinkLeaf(Path path) {
+    Path absolute = path.toAbsolutePath().normalize();
+    if (!Files.isSymbolicLink(absolute)) {
+      return;
+    }
+    try {
+      Path linkTarget = Files.readSymbolicLink(absolute);
+      rejectBindSlotLexical(linkTarget.toString());
+      Path parent = absolute.getParent();
+      if (parent != null) {
+        rejectBindSlotLexical(parent.resolve(linkTarget).normalize().toString());
+      }
+    } catch (IOException ignored) {
+      // 读链失败则保守放行词法已通过的路径
+    }
+  }
+
+  /**
+   * 拒绝 {@code delete_file}/{@code move_file} 拆掉绑定叶子软链——须走 BindingService.unbind。
+   *
+   * <p>保护对象是链接槽位本身（删除/移动作用于链接而非其目标），词法检查即为正确语义，不做真实路径投影。
+   */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
       justification = "Reserved path segments are ASCII; Locale.ROOT fold is intentional.")
