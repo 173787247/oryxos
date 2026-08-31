@@ -21,6 +21,7 @@ public final class AuditSchemaUpgrade {
 
   private static final String COST_MICROS_COLUMN = "cost_micros";
   private static final String PROFILE_NAME_COLUMN = "profile_name";
+  private static final String BLOCKED_BY_COLUMN = "blocked_by";
 
   private final DataSource dataSource;
 
@@ -67,6 +68,10 @@ public final class AuditSchemaUpgrade {
     if (!columns.contains(PROFILE_NAME_COLUMN)) {
       execute(connection, "ALTER TABLE tool_invocations ADD COLUMN profile_name VARCHAR(255)");
       log.info("tool_invocations 已补 profile_name 列（016 Agent 归属）");
+    }
+    if (!columns.contains(BLOCKED_BY_COLUMN)) {
+      execute(connection, "ALTER TABLE tool_invocations ADD COLUMN blocked_by VARCHAR(16)");
+      log.info("tool_invocations 已补 blocked_by 列（020 策略拒绝标记）");
     }
   }
 

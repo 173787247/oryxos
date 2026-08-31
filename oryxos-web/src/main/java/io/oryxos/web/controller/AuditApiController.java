@@ -98,9 +98,11 @@ public class AuditApiController {
   public ApiResponse<List<ToolInvocationView>> tool(
       @RequestParam(name = "from", required = false) String from,
       @RequestParam(name = "to", required = false) String to,
-      @RequestParam(name = "limit", defaultValue = "100") int limit) {
+      @RequestParam(name = "limit", defaultValue = "100") int limit,
+      @RequestParam(name = "blockedBy", required = false) String blockedBy) {
     Instant[] range = range(from, to);
-    return ApiResponse.ok(metricsService.toolList(range[0], range[1], cap(limit)));
+    // 020：blockedBy=policy 只看策略拒绝的调用（FR-006）
+    return ApiResponse.ok(metricsService.toolList(range[0], range[1], cap(limit), blockedBy));
   }
 
   private static Instant[] range(String from, String to) {

@@ -39,6 +39,10 @@ public class ToolInvocation {
   @Column(name = "error_message")
   private String errorMessage;
 
+  /** 拦截来源标记（020）：'policy' = 工具策略拒绝；未被拦截为 null。 */
+  @Column(name = "blocked_by")
+  private String blockedBy;
+
   @Column(name = "duration_ms", nullable = false)
   private long durationMs;
 
@@ -122,5 +126,13 @@ public class ToolInvocation {
 
   public Instant getCreatedAt() {
     return createdAt;
+  }
+
+  public String getBlockedBy() {
+    return blockedBy;
+  }
+
+  public void setBlockedBy(String blockedBy) {
+    this.blockedBy = blockedBy;
   }
 }

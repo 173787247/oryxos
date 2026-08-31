@@ -29,6 +29,29 @@ public class JpaToolInvocationAuditor implements ToolInvocationAuditor {
       boolean success,
       String errorMessage,
       long durationMs) {
+    record(
+        sessionId,
+        profileName,
+        toolName,
+        inputJson,
+        resultJson,
+        success,
+        errorMessage,
+        null,
+        durationMs);
+  }
+
+  @Override
+  public void record(
+      String sessionId,
+      String profileName,
+      String toolName,
+      String inputJson,
+      String resultJson,
+      boolean success,
+      String errorMessage,
+      String blockedBy,
+      long durationMs) {
     try {
       ToolInvocation record = new ToolInvocation();
       record.setSessionId(sessionId);
@@ -38,6 +61,7 @@ public class JpaToolInvocationAuditor implements ToolInvocationAuditor {
       record.setResultJson(resultJson);
       record.setSuccess(success);
       record.setErrorMessage(errorMessage);
+      record.setBlockedBy(blockedBy);
       record.setDurationMs(durationMs);
       repository.save(record);
     } catch (RuntimeException e) {

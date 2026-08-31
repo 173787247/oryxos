@@ -9,6 +9,7 @@ public record ToolInvocationView(
     String profileName,
     String toolName,
     boolean success,
+    String blockedBy,
     long durationMs,
     Instant createdAt) {
 
@@ -18,6 +19,7 @@ public record ToolInvocationView(
         t.getProfileName(),
         t.getToolName(),
         t.isSuccess(),
+        t.getBlockedBy(),
         t.getDurationMs(),
         t.getCreatedAt());
   }

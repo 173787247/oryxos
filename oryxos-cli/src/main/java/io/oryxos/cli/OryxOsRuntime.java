@@ -755,12 +755,43 @@ public class OryxOsRuntime {
     return toolRegistry.asMap();
   }
 
+  /**
+   * 020-tool-policy：工具策略（平台治理层）。ownerLookup 走 ToolRegistry 活视图——MCP server 增删后 {@code server:*}
+   * 通配即刻按新归属判定。
+   */
+  @Bean
+  io.oryxos.core.policy.ToolPolicyService toolPolicyService(
+      io.oryxos.storage.ToolPolicyRuleRepository repository, ToolRegistry toolRegistry) {
+    return new io.oryxos.storage.ToolPolicyServiceImpl(
+        repository, name -> toolRegistry.mcpToolOwners().get(name));
+  }
+
+  /**
+   * 020：策略加载期告警（未知目标规则 / 有效集全空，WARN 不阻断）。仅 SERVLET 模式（serve/gateway）跑—— CLI 管理命令用
+   * WebApplicationType.NONE，不受影响（镜像 018 ApiKeyStartupCheck 的条件口径）。
+   */
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication(
+      type =
+          org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type.SERVLET)
+  ToolPolicyStartupCheck toolPolicyStartupCheck(
+      io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      ProfileRegistry profileRegistry,
+      ToolRegistry toolRegistry) {
+    return new ToolPolicyStartupCheck(toolPolicyService, profileRegistry, toolRegistry);
+  }
+
   @Bean
   PromptBuilder promptBuilder(
-      ContextLoader contextLoader, Map<String, OryxTool> tools, MemoryService memoryService) {
+      ContextLoader contextLoader,
+      Map<String, OryxTool> tools,
+      MemoryService memoryService,
+      io.oryxos.core.policy.ToolPolicyService toolPolicyService) {
     // 22 节起：注入 MemoryService，长期记忆段由门面供给（会话历史段仍由 PromptBuilder 独立负责）
-    return new PromptBuilder(
-        contextLoader, tools, memoryService, java.time.Clock.systemDefaultZone());
+    PromptBuilder builder =
+        new PromptBuilder(contextLoader, tools, memoryService, java.time.Clock.systemDefaultZone());
+    builder.setToolPolicy(toolPolicyService); // 020：事前过滤——被 deny 工具不进模型清单
+    return builder;
   }
 
   @Bean
@@ -768,9 +799,13 @@ public class OryxOsRuntime {
       Map<String, OryxTool> tools,
       ToolRegistry toolRegistry,
       ProfileRegistry profileRegistry,
-      ToolInvocationAuditor auditor) {
+      ToolInvocationAuditor auditor,
+      io.oryxos.core.policy.ToolPolicyService toolPolicyService) {
     // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
-    return new ToolExecutor(tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor);
+    ToolExecutor executor =
+        new ToolExecutor(tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor);
+    executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
+    return executor;
   }
 
   @Bean

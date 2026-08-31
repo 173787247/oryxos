@@ -116,7 +116,13 @@ public class AuditMetricsService {
   }
 
   public List<ToolInvocationView> toolList(Instant from, Instant to, int limit) {
+    return toolList(from, to, limit, null);
+  }
+
+  /** 020：blockedBy 非空时只返回该拦截来源的记录（如 'policy'=策略拒绝，FR-006 可筛口径）。 */
+  public List<ToolInvocationView> toolList(Instant from, Instant to, int limit, String blockedBy) {
     return toolInvocationRepository.findByCreatedAtBetween(from, to).stream()
+        .filter(t -> blockedBy == null || blockedBy.equals(t.getBlockedBy()))
         .sorted(
             Comparator.comparing(
                 ToolInvocation::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))

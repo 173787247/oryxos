@@ -32,12 +32,27 @@ public class ToolExecutor {
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final Map<String, OryxTool> tools;
+
+  /** 审计的策略拒绝标记（tool_invocations.blocked_by，020 FR-006）。 */
+  private static final String POLICY_BLOCKED = "policy";
+
   private final Map<String, String> mcpToolOwners;
+
+  /** 020 工具策略（事中保险）。默认 ALLOW_ALL——旧构造/未装配策略时行为与现状一致。 */
+  private io.oryxos.core.policy.ToolPolicyService toolPolicy =
+      io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL;
+
   private final ProfileRegistry profileRegistry;
   private final ToolInvocationAuditor auditor;
 
   public ToolExecutor(Map<String, OryxTool> tools, ToolInvocationAuditor auditor) {
     this(tools, Map.of(), null, auditor);
+  }
+
+  /** 装配期注入（OryxOsRuntime）；测试直构不调用即保持 ALLOW_ALL（零策略零破坏）。 */
+  public void setToolPolicy(io.oryxos.core.policy.ToolPolicyService toolPolicy) {
+    this.toolPolicy =
+        toolPolicy == null ? io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL : toolPolicy;
   }
 
   /** 31 节：注入 MCP 工具归属表 + ProfileRegistry，用以按调用方 Agent 的 mcp_servers 声明做白名单校验。 */
@@ -64,6 +79,17 @@ public class ToolExecutor {
     String deniedReason = checkMcpAuthorization(agentName, call.name());
     if (deniedReason != null) {
       return fail(sessionId, agentName, call, deniedReason, startedAt);
+    }
+    // 020 事中保险：按执行瞬间的最新策略裁决（覆盖模型幻觉调用与热更新窗口——本轮 prompt 可见但已被禁）
+    var policyDecision = toolPolicy.check(agentName, call.name());
+    if (!policyDecision.allowed()) {
+      return fail(
+          sessionId,
+          agentName,
+          call,
+          "被平台策略禁止：" + policyDecision.reason(),
+          POLICY_BLOCKED,
+          startedAt);
     }
     JsonNode input;
     try {
@@ -132,17 +158,45 @@ public class ToolExecutor {
       ToolCallRequest call,
       String errorMessage,
       long startedAt) {
+    return fail(sessionId, agentName, call, errorMessage, null, startedAt);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "日志中的工具名已经 sanitize() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
+  private ToolResult fail(
+      String sessionId,
+      String agentName,
+      ToolCallRequest call,
+      String errorMessage,
+      String blockedBy,
+      long startedAt) {
     // 同成功路径：审计失败不掩盖工具的真实失败原因（否则循环看到的是审计异常而非工具错误）。
+    // blockedBy 为空走旧 8 参签名——保持对 auditor 的既有交互契约（现存测试按 8 参 stub/verify）。
     try {
-      auditor.record(
-          sessionId,
-          agentName,
-          call.name(),
-          call.argumentsJson(),
-          null,
-          false,
-          errorMessage,
-          System.currentTimeMillis() - startedAt);
+      long duration = System.currentTimeMillis() - startedAt;
+      if (blockedBy == null) {
+        auditor.record(
+            sessionId,
+            agentName,
+            call.name(),
+            call.argumentsJson(),
+            null,
+            false,
+            errorMessage,
+            duration);
+      } else {
+        auditor.record(
+            sessionId,
+            agentName,
+            call.name(),
+            call.argumentsJson(),
+            null,
+            false,
+            errorMessage,
+            blockedBy,
+            duration);
+      }
     } catch (RuntimeException auditFailure) {
       LOG.error("工具调用失败的审计落库也失败（失败结果照常返回）: tool={}", sanitize(call.name()), auditFailure);
     }

@@ -110,6 +110,11 @@ Map<String, ChatModel> providerMap = Map.of(
 
 `tool_invocations` 和 `llm_calls` 两张审计表**核心阶段就必须写入**（不需要查询接口，但写入不能省）。不得以"日志够了"为由跳过落库，可审计是 OryxOS 的核心差异化能力。
 
+> **工具治理层（020）**：沙箱白名单之上另有独立的 Tool Policy 减法层——全局/Agent 级工具 allow/deny
+> （`tool_policy_rules` 表，管理台可编辑热更新）。两者正交：策略管「这个 Agent 能不能用这个工具」，
+> 沙箱管「工具执行时能碰什么资源」，策略放行不豁免沙箱。被策略拒绝的调用照写 `tool_invocations`
+> 且带 `blocked_by='policy'` 标记。
+
 ### 原则六：不使用 Java SecurityManager；软连接必须校验真实路径
 
 `SecurityManager` 在 JDK 17 起废弃、JDK 21 已不可用。Sandbox 通过 `SandboxChecker` 的 Path / Pattern 白名单实现：

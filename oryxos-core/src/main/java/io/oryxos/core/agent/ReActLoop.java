@@ -23,6 +23,11 @@ public class ReActLoop {
   private final ProviderService providerService;
   private final ToolExecutor toolExecutor;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification =
+          "promptBuilder/toolExecutor 为 Spring 装配的共享单例（020 起带策略 setter 故为可变类），"
+              + "构造注入存同一引用正是意图（镜像既有 SuppressFBWarnings 模式）。")
   public ReActLoop(
       PromptBuilder promptBuilder, ProviderService providerService, ToolExecutor toolExecutor) {
     this.promptBuilder = promptBuilder;

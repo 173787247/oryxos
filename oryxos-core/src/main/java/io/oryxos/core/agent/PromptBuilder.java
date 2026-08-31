@@ -34,6 +34,16 @@ public class PromptBuilder {
   private final MemoryService memoryService;
   private final Clock clock;
 
+  /** 020 工具策略（事前保险）：被 deny 的工具不进模型清单。默认 ALLOW_ALL——旧构造/未装配策略时行为与现状一致。 */
+  private io.oryxos.core.policy.ToolPolicyService toolPolicy =
+      io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL;
+
+  /** 装配期注入（OryxOsRuntime）；测试直构不调用即保持 ALLOW_ALL。 */
+  public void setToolPolicy(io.oryxos.core.policy.ToolPolicyService toolPolicy) {
+    this.toolPolicy =
+        toolPolicy == null ? io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL : toolPolicy;
+  }
+
   public PromptBuilder(ContextLoader contextLoader, Map<String, OryxTool> tools) {
     this(contextLoader, tools, null, Clock.systemDefaultZone());
   }
@@ -76,7 +86,8 @@ public class PromptBuilder {
     List<OryxTool> resolved = new ArrayList<>();
     for (String name : profile.tools()) {
       OryxTool tool = tools.get(name);
-      if (tool != null) {
+      // 020 事前保险：策略拒绝的工具对模型不可见（每轮按当时策略求值，热更新下一轮生效）
+      if (tool != null && toolPolicy.check(profile.name(), name).allowed()) {
         resolved.add(tool);
       }
     }
