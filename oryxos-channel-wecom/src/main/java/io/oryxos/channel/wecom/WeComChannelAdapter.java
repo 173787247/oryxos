@@ -209,7 +209,11 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
       } catch (Exception e) {
         reconnectAttempt++;
         lastError = "长连接重连失败: " + sanitize(e.getMessage());
-        LOG.warn("企微渠道 {} 重连失败（第 {} 次）: {}", sanitize(config.name()), reconnectAttempt, lastError);
+        LOG.warn(
+            "企微渠道 {} 重连失败（第 {} 次）: {}",
+            sanitize(config.name()),
+            reconnectAttempt,
+            sanitize(lastError));
         scheduleReconnect();
       }
     }
@@ -222,7 +226,7 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
           new ScheduledThreadPoolExecutor(
               1,
               r -> {
-                Thread t = new Thread(r, "wecom-reconnect-" + config.name());
+                Thread t = new Thread(r, "wecom-reconnect-" + sanitize(config.name()));
                 t.setDaemon(true);
                 return t;
               });
