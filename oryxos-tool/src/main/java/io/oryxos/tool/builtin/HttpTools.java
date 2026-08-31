@@ -4,6 +4,7 @@ import io.oryxos.core.fs.AdminConfigFileGuard;
 import io.oryxos.core.fs.WorkspaceMutationGuard;
 import io.oryxos.core.memory.MemoryMdGuard;
 import io.oryxos.tool.sandbox.ActionType;
+import io.oryxos.tool.sandbox.PinnedHttpReadClient;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
@@ -69,20 +70,20 @@ public class HttpTools {
 
   private final Sandbox sandbox;
 
-  /** 读写共用：**禁自动重定向**，由本类手动逐跳跟随并每跳重过沙箱校验。不使用注入的 RestClient 默认跟随行为（否则写请求会在首跳过白名单后跟到任意 Location）。 */
-  private final RestClient hopClient;
+  /** HTTP_REQUEST 专用：保留域名白名单语义，不额外拒绝运营者显式批准的内网端点。 */
+  private final RestClient writeClient;
 
   public HttpTools(Sandbox sandbox, RestClient restClient) {
-    this.sandbox = sandbox;
+    this.sandbox = Objects.requireNonNull(sandbox, "sandbox 不能为空");
     Objects.requireNonNull(restClient, "restClient 不能为空"); // 保留构造签名，供 Spring 装配
-    JdkClientHttpRequestFactory hopFactory =
+    JdkClientHttpRequestFactory writeFactory =
         new JdkClientHttpRequestFactory(
             HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build());
-    hopFactory.setReadTimeout(READ_TIMEOUT);
-    this.hopClient = RestClient.builder().requestFactory(hopFactory).build();
+    writeFactory.setReadTimeout(READ_TIMEOUT);
+    this.writeClient = RestClient.builder().requestFactory(writeFactory).build();
   }
 
   /**
@@ -102,9 +103,13 @@ public class HttpTools {
     String hopHeaders = headers;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_READ, current)); // 每跳校验
-      RestClient.RequestBodySpec spec = hopClient.method(HttpMethod.GET).uri(current);
-      applyCustomHeaders(spec, hopHeaders);
-      ResponseEntity<T> resp = spec.retrieve().toEntity(type);
+      ResponseEntity<T> resp;
+      try (PinnedHttpReadClient client =
+          PinnedHttpReadClient.open(sandbox, CONNECT_TIMEOUT, READ_TIMEOUT)) {
+        RestClient.RequestBodySpec spec = client.restClient().method(HttpMethod.GET).uri(current);
+        applyCustomHeaders(spec, hopHeaders);
+        resp = spec.retrieve().toEntity(type);
+      }
       if (resp.getStatusCode().is3xxRedirection()) {
         String location = resp.getHeaders().getFirst("Location");
         if (location == null || location.isBlank()) {
@@ -132,7 +137,7 @@ public class HttpTools {
     boolean hopJsonBody = jsonBody;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, current)); // 每跳校验
-      RestClient.RequestBodySpec spec = hopClient.method(hopMethod).uri(current);
+      RestClient.RequestBodySpec spec = writeClient.method(hopMethod).uri(current);
       applyCustomHeaders(spec, hopHeaders);
       if (hopBody != null && !hopBody.isBlank()) {
         if (hopJsonBody) {
