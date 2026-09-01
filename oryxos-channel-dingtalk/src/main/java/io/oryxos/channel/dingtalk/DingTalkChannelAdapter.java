@@ -116,6 +116,8 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
     if (stream != null) {
       stream.closeQuietly();
     }
+    sender = null;
+    normalizer = null;
     state = ChannelStatus.State.DISCONNECTED;
   }
 
@@ -148,8 +150,7 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   }
 
   private void connectLocked() throws Exception {
-    normalizer = new DingTalkEventNormalizer(config.name());
-    sender = new DingTalkMessageSender(guard, DingTalkMessageSender.DEFAULT_CHUNK_SIZE);
+    ensureOutboundStack();
     DingTalkStreamClient client =
         new DingTalkStreamClient(
             config.appId(),
@@ -159,6 +160,16 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
             this::handleDisconnected);
     client.connect(START_TIMEOUT);
     streamRef.set(client);
+  }
+
+  /** 懒初始化出站组件；重连复用同一 {@link DingTalkMessageSender} 以保留 sessionWebhook 映射（#338 后续）。 */
+  private void ensureOutboundStack() {
+    if (normalizer == null) {
+      normalizer = new DingTalkEventNormalizer(config.name());
+    }
+    if (sender == null) {
+      sender = new DingTalkMessageSender(guard, DingTalkMessageSender.DEFAULT_CHUNK_SIZE);
+    }
   }
 
   private void handleDisconnected() {
