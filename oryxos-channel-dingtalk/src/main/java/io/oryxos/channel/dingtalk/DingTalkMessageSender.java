@@ -1,5 +1,7 @@
 package io.oryxos.channel.dingtalk;
 
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -27,6 +29,8 @@ public class DingTalkMessageSender {
   private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String[] BUSINESS_CODE_FIELDS = {"errcode", "StatusCode", "code"};
+  private static final String[] BUSINESS_MESSAGE_FIELDS = {"errmsg", "msg", "message"};
 
   private final HttpClient httpClient;
   private final OutboundGuard guard;
@@ -98,6 +102,7 @@ public class DingTalkMessageSender {
         throw new IllegalStateException(
             "钉钉 sessionWebhook 回复失败 HTTP " + response.statusCode() + ": " + response.body());
       }
+      rejectBusinessError(response.body(), webhook);
     } catch (RuntimeException e) {
       throw e;
     } catch (Exception e) {
@@ -114,5 +119,78 @@ public class DingTalkMessageSender {
       parts.add(text.substring(i, Math.min(text.length(), i + chunkSize)));
     }
     return parts;
+  }
+
+  /**
+   * HTTP 2xx 仍可能带业务错误码（对齐 {@code NotifyPoster} / 飞书 SDK 口径，#316）。
+   *
+   * <p>缺字段、非 JSON 或非数字 code 不判失败。
+   */
+  static void rejectBusinessError(String responseBody, String webhook) {
+    if (responseBody == null || responseBody.isBlank()) {
+      return;
+    }
+    final JsonNode root;
+    try {
+      root = MAPPER.readTree(responseBody);
+    } catch (JacksonException ignored) {
+      return;
+    }
+    if (root == null || !root.isObject()) {
+      return;
+    }
+    for (String field : BUSINESS_CODE_FIELDS) {
+      JsonNode codeNode = root.get(field);
+      if (codeNode == null || codeNode.isNull() || !codeNode.isValueNode()) {
+        continue;
+      }
+      Long code = asBusinessCode(codeNode);
+      if (code == null) {
+        continue;
+      }
+      if (code != 0L) {
+        throw new IllegalStateException(
+            "钉钉 sessionWebhook 业务失败 "
+                + field
+                + "="
+                + code
+                + messageSuffix(root)
+                + ": "
+                + sanitizeUrl(webhook));
+      }
+      return;
+    }
+  }
+
+  private static Long asBusinessCode(JsonNode node) {
+    if (node.isNumber()) {
+      return node.longValue();
+    }
+    if (node.isTextual()) {
+      String text = node.asText().strip();
+      if (text.isEmpty()) {
+        return null;
+      }
+      try {
+        return Long.parseLong(text);
+      } catch (NumberFormatException ignored) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private static String messageSuffix(JsonNode root) {
+    for (String field : BUSINESS_MESSAGE_FIELDS) {
+      JsonNode msg = root.get(field);
+      if (msg != null && msg.isTextual() && !msg.asText().isBlank()) {
+        return " (" + msg.asText().strip() + ")";
+      }
+    }
+    return "";
+  }
+
+  private static String sanitizeUrl(String url) {
+    return url == null ? "" : url.replace('\r', '_').replace('\n', '_');
   }
 }

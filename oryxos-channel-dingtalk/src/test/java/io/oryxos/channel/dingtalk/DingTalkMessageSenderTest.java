@@ -1,6 +1,7 @@
 package io.oryxos.channel.dingtalk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -74,6 +75,41 @@ class DingTalkMessageSenderTest {
 
     JsonNode body = MAPPER.readTree(bodies.get(0));
     assertEquals("staff-9", body.path("at").path("atUserIds").get(0).asText());
+  }
+
+  @Test
+  @DisplayName("HTTP 200 + errcode≠0 业务失败上抛")
+  void sendFailsOnBusinessErrcode() {
+    server.createContext(
+        "/bad",
+        exchange -> {
+          respond(exchange, 200, "{\"errcode\":310000,\"errmsg\":\"关键词不匹配\"}");
+        });
+    String webhookUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/bad";
+    DingTalkMessageSender sender =
+        new DingTalkMessageSender(target -> {}, DingTalkMessageSender.DEFAULT_CHUNK_SIZE);
+    sender.rememberSession("conv-bad", webhookUrl, null);
+
+    IllegalStateException ex =
+        assertThrows(IllegalStateException.class, () -> sender.send("conv-bad", "hi", null));
+    assertTrue(ex.getMessage().contains("errcode=310000"));
+  }
+
+  @Test
+  @DisplayName("HTTP 200 + errcode=0 视为成功")
+  void sendSucceedsOnBusinessErrcodeZero() {
+    server.createContext(
+        "/ok",
+        exchange -> {
+          bodies.add(readBody(exchange));
+          respond(exchange, 200, "{\"errcode\":0,\"errmsg\":\"ok\"}");
+        });
+    String webhookUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/ok";
+    DingTalkMessageSender sender =
+        new DingTalkMessageSender(target -> {}, DingTalkMessageSender.DEFAULT_CHUNK_SIZE);
+    sender.rememberSession("conv-ok", webhookUrl, null);
+    sender.send("conv-ok", "ok", null);
+    assertEquals(1, bodies.size());
   }
 
   private static String readBody(HttpExchange exchange) throws IOException {
