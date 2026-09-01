@@ -41,12 +41,12 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 **Independent Test**: quickstart V2/V3/V4——录入后 sqlite 直查只见 `enc:v1:`；LLM 调用/通知发送行为不变；手工改回明文重启即被迁移且幂等
 
-- [ ] T006 [US1] 修改 oryxos-storage/src/main/java/io/oryxos/storage/JpaProviderRegistry.java（依赖 T003）：构造注入 SecretCipher；save 时 `entity.setApiKey(cipher.encrypt(...))`、toDef 时 decrypt——单条解密失败捕获 SecretDecryptException 记 WARN（含 provider 名）并以 null apiKey 返回，不拖垮 list（FR-010）；**Registry 接口与 ProviderDef 零改动**（R2 红线）；检查既有直构点是否需要兼容旧构造（保留旧构造委托明文直通 NOOP cipher 以保全既有测试）
-- [ ] T007 [US1] 修改 oryxos-storage/src/main/java/io/oryxos/storage/JpaNotifyChannelRegistry.java（依赖 T003）：构造注入 SecretCipher；writeConfig 前对 SensitiveConfigKeys 命中的项逐值 encrypt、readConfig 后逐值 decrypt（单项失败 WARN 定位渠道+字段、该项以 null 值返回）；名录外项原样；旧构造兼容口径同 T006
-- [ ] T008 [US1] 新建 oryxos-storage/src/main/java/io/oryxos/storage/SecretMigration.java（依赖 T006/T007）：启动扫描 providers 与 notify_channels——明文敏感值（非空且 !isEncrypted）经注册表 save 路径加密回写并计数，日志「已加密 N 条凭证」；密文值试解密（守卫细化在 T012，本任务先落「记录解密失败清单」骨架）；幂等（前缀判别，重复启动/中断续跑安全）
-- [ ] T009 [US1] 修改 oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java（依赖 T008）：`@Bean SecretCipher`（MasterKeyResolver 用 `oryxosRoot()`）；两注册表 @Bean（L177/L848）注入 cipher；SecretMigration 在数据源就绪后启动执行（AuditSchemaUpgrade 同位）
-- [ ] T010 [P] [US1] 新建 oryxos-storage/src/test/java/io/oryxos/storage/SecretStorageTest.java（依赖 T006~T008，@DataJpaTest 走手工 schema.sql，镜像 LlmCallRepositoryTest 配置）：save 后库中列值为 `enc:v1:` 密文且 find 读出明文、notify config 仅敏感项加密普通项原样、预置明文行跑 SecretMigration 后变密文且日志计数、二次运行零迁移（幂等）、预置坏密文行 list 照常返回且该行凭证为 null
-- [ ] T011 [US1] 新建 oryxos-boot/src/test/java/io/oryxos/boot/SecretEncryptionE2ETest.java（依赖 T009；镜像 TraceE2ETest 的 mock provider + 临时工作区模式）：经 API 创建 Provider 与含 password 的 email 渠道 → 直查 SQLite 断言两处均为密文、无明文（SC-001）；mock 对话全链照常（SC-002 功能回归）；断言渠道查询接口此阶段仍返回明文 config（US3 前现状锚点，T017 收口为掩码）；手工 UPDATE 回明文重启上下文→ 迁移生效
+- [X] T006 [US1] 修改 oryxos-storage/src/main/java/io/oryxos/storage/JpaProviderRegistry.java（依赖 T003）：构造注入 SecretCipher；save 时 `entity.setApiKey(cipher.encrypt(...))`、toDef 时 decrypt——单条解密失败捕获 SecretDecryptException 记 WARN（含 provider 名）并以 null apiKey 返回，不拖垮 list（FR-010）；**Registry 接口与 ProviderDef 零改动**（R2 红线）；检查既有直构点是否需要兼容旧构造（保留旧构造委托明文直通 NOOP cipher 以保全既有测试）
+- [X] T007 [US1] 修改 oryxos-storage/src/main/java/io/oryxos/storage/JpaNotifyChannelRegistry.java（依赖 T003）：构造注入 SecretCipher；writeConfig 前对 SensitiveConfigKeys 命中的项逐值 encrypt、readConfig 后逐值 decrypt（单项失败 WARN 定位渠道+字段、该项以 null 值返回）；名录外项原样；旧构造兼容口径同 T006
+- [X] T008 [US1] 新建 oryxos-storage/src/main/java/io/oryxos/storage/SecretMigration.java（依赖 T006/T007）：启动扫描 providers 与 notify_channels——明文敏感值（非空且 !isEncrypted）经注册表 save 路径加密回写并计数，日志「已加密 N 条凭证」；密文值试解密（守卫细化在 T012，本任务先落「记录解密失败清单」骨架）；幂等（前缀判别，重复启动/中断续跑安全）
+- [X] T009 [US1] 修改 oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java（依赖 T008）：`@Bean SecretCipher`（MasterKeyResolver 用 `oryxosRoot()`）；两注册表 @Bean（L177/L848）注入 cipher；SecretMigration 在数据源就绪后启动执行（AuditSchemaUpgrade 同位）
+- [X] T010 [P] [US1] 新建 oryxos-storage/src/test/java/io/oryxos/storage/SecretStorageTest.java（依赖 T006~T008，@DataJpaTest 走手工 schema.sql，镜像 LlmCallRepositoryTest 配置）：save 后库中列值为 `enc:v1:` 密文且 find 读出明文、notify config 仅敏感项加密普通项原样、预置明文行跑 SecretMigration 后变密文且日志计数、二次运行零迁移（幂等）、预置坏密文行 list 照常返回且该行凭证为 null
+- [X] T011 [US1] 新建 oryxos-boot/src/test/java/io/oryxos/boot/SecretEncryptionE2ETest.java（依赖 T009；镜像 TraceE2ETest 的 mock provider + 临时工作区模式）：经 API 创建 Provider 与含 password 的 email 渠道 → 直查 SQLite 断言两处均为密文、无明文（SC-001）；mock 对话全链照常（SC-002 功能回归）；断言渠道查询接口此阶段仍返回明文 config（US3 前现状锚点，T017 收口为掩码）；手工 UPDATE 回明文重启上下文→ 迁移生效
 
 **Checkpoint**: quickstart V2/V3/V4 可走通——MVP 可交付（db 文件外流不再泄凭证）
 
@@ -58,8 +58,8 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 **Independent Test**: quickstart V1/V5/V6——全新工作区免配置启动；删钥匙拒启且报错含恢复路径；环境变量优先与非法格式报错
 
-- [ ] T012 [US2] 修改 oryxos-storage/src/main/java/io/oryxos/storage/SecretMigration.java（依赖 T008，同文件串行）：守卫定案——存在密文且**全部**解密失败 → 抛 IllegalStateException 拒启，文案「已有 N 条加密凭证无法解密。可能：主密钥丢失或被更换。恢复：找回原密钥；或经管理台删除并重新录入凭证」；**部分**失败 → 逐条 WARN（渠道/Provider 名 + 字段）继续启动（FR-010）；全新库（零凭证行）直接通过。**拒启断言落 storage 层**：oryxos-storage/src/test/java/io/oryxos/storage/SecretStorageTest.java 追加——预置密文行 + 换错钥 cipher 直调 SecretMigration → 断言抛 IllegalStateException 且文案含「无法解密」与两条恢复路径；部分坏行场景断言 WARN 不抛（@SpringBootTest 单上下文测不了启动失败，直调是可行且更精准的口径，SC-004）
-- [ ] T013 [P] [US2] 在 oryxos-boot/src/test/java/io/oryxos/boot/SecretEncryptionE2ETest.java 追加（依赖 T011/T012，同文件串行）：全新工作区零配置启动成功、无需任何密钥配置（SC-003）；master.key 已自动生成且权限 POSIX 0600、内容为合法 Base64 32 字节；密钥错误拒启由 T012 的 storage 层直调断言覆盖，真机拒启走 quickstart V5 走查；环境变量档与非法格式场景由 MasterKeyResolverTest 覆盖（E2E 进程内环境变量不可控，走 supplier 注入单测口径）
+- [X] T012 [US2] 修改 oryxos-storage/src/main/java/io/oryxos/storage/SecretMigration.java（依赖 T008，同文件串行）：守卫定案——存在密文且**全部**解密失败 → 抛 IllegalStateException 拒启，文案「已有 N 条加密凭证无法解密。可能：主密钥丢失或被更换。恢复：找回原密钥；或经管理台删除并重新录入凭证」；**部分**失败 → 逐条 WARN（渠道/Provider 名 + 字段）继续启动（FR-010）；全新库（零凭证行）直接通过。**拒启断言落 storage 层**：oryxos-storage/src/test/java/io/oryxos/storage/SecretStorageTest.java 追加——预置密文行 + 换错钥 cipher 直调 SecretMigration → 断言抛 IllegalStateException 且文案含「无法解密」与两条恢复路径；部分坏行场景断言 WARN 不抛（@SpringBootTest 单上下文测不了启动失败，直调是可行且更精准的口径，SC-004）
+- [X] T013 [P] [US2] 在 oryxos-boot/src/test/java/io/oryxos/boot/SecretEncryptionE2ETest.java 追加（依赖 T011/T012，同文件串行）：全新工作区零配置启动成功、无需任何密钥配置（SC-003）；master.key 已自动生成且权限 POSIX 0600、内容为合法 Base64 32 字节；密钥错误拒启由 T012 的 storage 层直调断言覆盖，真机拒启走 quickstart V5 走查；环境变量档与非法格式场景由 MasterKeyResolverTest 覆盖（E2E 进程内环境变量不可控，走 supplier 注入单测口径）
 
 **Checkpoint**: quickstart V1/V5/V6 可走通——US1+US2 独立可测
 
