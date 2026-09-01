@@ -379,7 +379,7 @@ null
 
 ## 通知渠道
 
-通知渠道动态管理，持久化在 SQLite（`notify_channels` 表）。`notify` 工具在 `AGENT.md` 正文里以自然语言**按名字**引用渠道（例如"发到 team-lark"），工具据此解析出已注册渠道的适配器和 URL。AGENT.md frontmatter 里没有 `notify_channels` 字段。
+通知渠道动态管理，持久化在 SQLite（`notify_channels` 表）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。`notify` 工具在 `AGENT.md` 正文里以自然语言**按名字**引用渠道（例如"发到 team-lark"），工具据此解析出已注册渠道的适配器和 URL。AGENT.md frontmatter 里没有 `notify_channels` 字段。
 
 `type` 取 `feishu` | `wecom` | `dingtalk` | `webhook`（各由一个适配器实现）。
 

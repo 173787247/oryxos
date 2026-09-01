@@ -152,7 +152,8 @@ CREATE TABLE IF NOT EXISTS notify_channels (
 -- providers：LLM Provider 动态注册表（31 节）——name → api_key + base_url + 描述；管理台可 CRUD、运行时按名动态建 ChatModel。
 -- 启动时仅把 config/application.yml 中数据库尚不存在且有效的 Provider 作为首次种子；
 -- 已有同名记录绝不从 YAML 覆盖，之后以本表为唯一运行时事实源。
--- 注意：api_key 明文落库（本地 gitignored 库）——这是"可动态管理"对宪法"凭证走环境变量"的核心阶段让步。
+-- api_key 密文落库（022，enc:v1: 前缀，AES-256-GCM）：主密钥两档（ORYXOS_MASTER_KEY 环境变量优先，
+-- 缺省 .oryxos/master.key 首启自动生成）——"核心阶段明文让步"已收回，详见部署文档「主密钥」节。
 CREATE TABLE IF NOT EXISTS providers (
     name VARCHAR(128) PRIMARY KEY,
     api_key TEXT,

@@ -379,7 +379,7 @@ null
 
 ## Notify channels
 
-Notify channels are managed dynamically and stored in SQLite (the `notify_channels` table). The `notify` tool references a channel **by name** in natural language inside an `AGENT.md` body (e.g. "发到 team-lark"); the tool resolves the registered channel to its adapter and URL. There is no `notify_channels` field in the AGENT.md frontmatter.
+Notify channels are managed dynamically and stored in SQLite (the `notify_channels` table). Password-like sensitive keys in `config` (`password/secret/token/api_key`, etc.) are stored encrypted (022, `enc:v1:` prefix); query endpoints echo them only as masks (`****` + last 4 chars), and submitting the mask unchanged (or blank) on edit keeps the original value — same interaction as the provider api-key. The `notify` tool references a channel **by name** in natural language inside an `AGENT.md` body (e.g. "发到 team-lark"); the tool resolves the registered channel to its adapter and URL. There is no `notify_channels` field in the AGENT.md frontmatter.
 
 `type` is one of `feishu` | `wecom` | `dingtalk` | `webhook` (each backed by an adapter).
 

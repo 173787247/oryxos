@@ -84,8 +84,8 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 **Purpose**: 文档、口径收回与全量验收
 
-- [ ] T018 [P] 文档同步：website/zh/docs/api.md 与 website/docs/api.md 通知渠道节补「敏感项掩码回显与未修改判定」语义；docs/CliGuide.md（或部署章节）新增「主密钥」小节——两档配置、`openssl rand -base64 32`、恢复路径、威胁边界如实（防 db 单独外流；文件档不防整机沦陷，生产用环境变量档，SC-007）
-- [ ] T019 [P] 口径收回：oryxos-storage/src/main/resources/schema.sql 的 providers 表注释（「api_key 明文落库…让步」）更新为「api_key 密文落库（022，enc:v1: 前缀，主密钥见部署文档）」；CLAUDE.md 配置加载规则小节补一句「落库凭证经主密钥加密（022）」
+- [X] T018 [P] 文档同步：website/zh/docs/api.md 与 website/docs/api.md 通知渠道节补「敏感项掩码回显与未修改判定」语义；docs/CliGuide.md（或部署章节）新增「主密钥」小节——两档配置、`openssl rand -base64 32`、恢复路径、威胁边界如实（防 db 单独外流；文件档不防整机沦陷，生产用环境变量档，SC-007）
+- [X] T019 [P] 口径收回：oryxos-storage/src/main/resources/schema.sql 的 providers 表注释（「api_key 明文落库…让步」）更新为「api_key 密文落库（022，enc:v1: 前缀，主密钥见部署文档）」；CLAUDE.md 配置加载规则小节补一句「落库凭证经主密钥加密（022）」
 - [ ] T020 按 quickstart.md 完整走查 V1~V7（真机 fat JAR + sqlite 直查 + 管理台浏览器复用缓存 Chromium）并记录到 specs/022-secret-encryption/acceptance-report.md（SC-001~SC-007 逐项对勾，镜像 018~021 报告形式）
 - [ ] T021 运行 `mvn verify` 全量质量门禁并清零新增告警（Spotless + P3C + Checkstyle + SpotBugs/FindSecBugs + OWASP——重点关注 crypto 相关 FindSecBugs 规则：STATIC_IV 等必须以「每次随机 IV」实现自然通过，不得靠 Suppress）
 
