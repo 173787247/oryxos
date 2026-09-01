@@ -118,8 +118,15 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
               .onReconnecting(() -> state = ChannelStatus.State.DISCONNECTED)
               .onReconnected(() -> state = ChannelStatus.State.CONNECTED)
               .build();
-      ws.start();
-      ws.awaitReady(READY_TIMEOUT_MS);
+      try {
+        ws.start();
+        ws.awaitReady(READY_TIMEOUT_MS);
+      } catch (Exception e) {
+        // start/awaitReady 失败的 ws.Client 不会交给 wsClient 字段，stop() 永远碰不到它；
+        // autoReconnect 已开启，不就地 close 会留下永久后台重连的幽灵连接 + 线程泄漏
+        closeQuietly(ws);
+        throw e;
+      }
       wsClient = ws;
       state = ChannelStatus.State.CONNECTED;
       lastError = null;
@@ -135,14 +142,19 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   public synchronized void stop() {
     com.lark.oapi.ws.Client ws = wsClient;
     if (ws != null) {
-      try {
-        ws.close();
-      } catch (RuntimeException e) {
-        LOG.warn("飞书渠道 {} 断开时异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
-      }
+      closeQuietly(ws);
       wsClient = null;
     }
     state = ChannelStatus.State.DISCONNECTED;
+  }
+
+  /** 关闭 WS 客户端，异常仅告警不上抛——断开路径的异常不影响调用方语义。 */
+  private void closeQuietly(com.lark.oapi.ws.Client ws) {
+    try {
+      ws.close();
+    } catch (RuntimeException e) {
+      LOG.warn("飞书渠道 {} 断开时异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
+    }
   }
 
   /**
