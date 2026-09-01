@@ -127,10 +127,18 @@ public class JpaNotifyChannelRegistry implements NotifyChannelRegistry {
           try {
             out.put(key, cipher.decrypt(value));
           } catch (SecretDecryptException ex) {
-            LOG.warn("通知渠道 {} 的 {} 密文无法解密（{}），本项按缺失处理", channelName, key, ex.getMessage());
+            LOG.warn(
+                "通知渠道 {} 的 {} 密文无法解密（{}），本项按缺失处理",
+                sanitize(channelName),
+                sanitize(key),
+                sanitize(ex.getMessage()));
           }
         });
     return out;
+  }
+
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 
   private String writeConfig(Map<String, String> config) {

@@ -88,8 +88,15 @@ public class JpaProviderRegistry implements ProviderRegistry {
     try {
       return cipher.decrypt(e.getApiKey());
     } catch (SecretDecryptException ex) {
-      LOG.warn("Provider {} 的 api_key 密文无法解密（{}），本条凭证按缺失处理", e.getName(), ex.getMessage());
+      LOG.warn(
+          "Provider {} 的 api_key 密文无法解密（{}），本条凭证按缺失处理",
+          sanitize(e.getName()),
+          sanitize(ex.getMessage()));
       return null;
     }
+  }
+
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }

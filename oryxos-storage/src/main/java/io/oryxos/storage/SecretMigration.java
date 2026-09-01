@@ -62,7 +62,7 @@ public final class SecretMigration {
               + " 条加密凭证无法解密。可能：主密钥丢失或被更换。恢复：找回原密钥（ORYXOS_MASTER_KEY 或 .oryxos/master.key）；"
               + "或经管理台删除并重新录入凭证");
     }
-    undecryptable.forEach(entry -> LOG.warn("凭证密文损坏（{}），该条按缺失处理，其余凭证不受影响", entry));
+    undecryptable.forEach(entry -> LOG.warn("凭证密文损坏（{}），该条按缺失处理，其余凭证不受影响", sanitize(entry)));
 
     int migrated = migratePlaintext();
     if (migrated > 0) {
@@ -100,7 +100,8 @@ public final class SecretMigration {
       return channelRepository.findAll();
     } catch (org.springframework.dao.DataAccessException e) {
       LOG.warn(
-          "notify_channels 尚未就绪（{}），本次启动跳过该表的凭证迁移，下次启动自愈", e.getMostSpecificCause().getMessage());
+          "notify_channels 尚未就绪（{}），本次启动跳过该表的凭证迁移，下次启动自愈",
+          sanitize(e.getMostSpecificCause().getMessage()));
       return List.of();
     }
   }
@@ -145,11 +146,15 @@ public final class SecretMigration {
 
   private boolean canDecrypt(String stored) {
     try {
-      cipher.decrypt(stored);
-      return true;
+      // 密文输入下 decrypt 恒返回非 null（null 仅当输入为 null）——用返回值参与判定
+      return cipher.decrypt(stored) != null;
     } catch (SecretDecryptException e) {
       return false;
     }
+  }
+
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 
   private Map<String, String> readConfig(String configJson) {
@@ -159,7 +164,7 @@ public final class SecretMigration {
     try {
       return mapper.readValue(configJson, new TypeReference<Map<String, String>>() {});
     } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-      LOG.warn("通知渠道 config 反序列化失败，跳过迁移该行: {}", e.getOriginalMessage());
+      LOG.warn("通知渠道 config 反序列化失败，跳过迁移该行: {}", sanitize(e.getOriginalMessage()));
       return Map.of();
     }
   }

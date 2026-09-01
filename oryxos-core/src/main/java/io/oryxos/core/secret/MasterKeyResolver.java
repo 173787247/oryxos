@@ -19,6 +19,9 @@ import org.slf4j.LoggerFactory;
  * <p>环境变量与文件同时存在且不一致：环境变量优先、文件忽略——不自动回退另一档（静默换钥匙是排障噩梦，R3）。 格式非法（长度/编码）启动即抛清晰异常。任何日志与异常 message
  * 不携带密钥值（FR-009）。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "CRLF_INJECTION_LOGS",
+    justification = "日志中唯一动态部分是 oryxos.root 派生的密钥文件路径（部署配置，非用户输入），密钥值从不入日志。")
 public final class MasterKeyResolver {
 
   private static final Logger LOG = LoggerFactory.getLogger(MasterKeyResolver.class);
