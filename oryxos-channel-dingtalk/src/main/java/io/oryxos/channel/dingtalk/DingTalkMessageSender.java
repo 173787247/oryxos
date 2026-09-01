@@ -27,6 +27,8 @@ public class DingTalkMessageSender {
   static final String SESSION_WEBHOOK_PREFIX = "https://oapi.dingtalk.com";
   static final String MSG_TYPE_MARKDOWN = "markdown";
   static final String DEFAULT_MARKDOWN_TITLE = "OryxOS";
+  private static final String MARKDOWN_HEADING_PREFIX = "#";
+  private static final int MARKDOWN_TITLE_MAX_LEN = 20;
   private static final int HTTP_STATUS_OK_MIN = 200;
   private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
@@ -136,11 +138,11 @@ public class DingTalkMessageSender {
       line = line.substring(0, newline);
     }
     line = line.strip();
-    if (line.startsWith("#")) {
+    if (line.startsWith(MARKDOWN_HEADING_PREFIX)) {
       line = line.replaceFirst("^#+\\s*", "");
     }
-    if (line.length() > 20) {
-      line = line.substring(0, 20);
+    if (line.length() > MARKDOWN_TITLE_MAX_LEN) {
+      line = line.substring(0, MARKDOWN_TITLE_MAX_LEN);
     }
     return line.isBlank() ? DEFAULT_MARKDOWN_TITLE : line;
   }
