@@ -1,5 +1,6 @@
 package io.oryxos.channel.feishu;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.lark.oapi.Client;
 import com.lark.oapi.service.im.v1.model.CreateMessageReq;
@@ -21,14 +22,21 @@ import org.slf4j.LoggerFactory;
  * <p>契约规则 A3 在此实现：发送前显式过 {@link OutboundGuard}（渠道自建出站不会被沙箱自动拦截，必须主动接线，R7）；
  * 超长文本按可配段长分段顺序发送不丢内容（FR-009，平台请求体上限 150KB，默认段长 4000 字符留足 JSON 转义余量）； 每段带随机 uuid 幂等（平台 1 小时内同 uuid
  * 至多成功一条）；replyToMessageId 非空走 reply 引用原消息（B4）。
+ *
+ * <p>出站使用富文本 {@code post} + {@code md} 标签承载 Agent Markdown（对齐企微/钉钉出站）。
  */
 public class FeishuMessageSender {
 
   private static final Logger LOG = LoggerFactory.getLogger(FeishuMessageSender.class);
 
   static final int DEFAULT_CHUNK_SIZE = 4000;
-  private static final String MSG_TYPE_TEXT = "text";
+  private static final String MSG_TYPE_POST = "post";
   private static final String RECEIVE_ID_TYPE_CHAT = "chat_id";
+  private static final String POST_LOCALE = "zh_cn";
+  private static final String MD_TAG = "md";
+  private static final String DEFAULT_POST_TITLE = "OryxOS";
+  private static final String MARKDOWN_HEADING_PREFIX = "#";
+  private static final int POST_TITLE_MAX_LEN = 20;
 
   private final Client client;
   private final OutboundGuard guard;
@@ -46,10 +54,10 @@ public class FeishuMessageSender {
   }
 
   /**
-   * 发送文本回复；超长自动分段顺序发送。
+   * 发送 Markdown 回复（post + md）；超长自动分段顺序发送。
    *
    * @param chatId 目标会话（私聊/群一致用 chat_id）
-   * @param text 回复正文
+   * @param text 回复正文（Agent Markdown 原文）
    * @param replyToMessageId 非空则引用该消息回复（群聊问答对应）
    */
   public void send(String chatId, String text, String replyToMessageId) {
@@ -80,8 +88,8 @@ public class FeishuMessageSender {
                     .createMessageReqBody(
                         CreateMessageReqBody.newBuilder()
                             .receiveId(chatId)
-                            .msgType(MSG_TYPE_TEXT)
-                            .content(textContent(chunk))
+                            .msgType(MSG_TYPE_POST)
+                            .content(postMarkdownContent(chunk))
                             .uuid(UUID.randomUUID().toString())
                             .build())
                     .build());
@@ -98,8 +106,8 @@ public class FeishuMessageSender {
                     .messageId(replyToMessageId)
                     .replyMessageReqBody(
                         ReplyMessageReqBody.newBuilder()
-                            .msgType(MSG_TYPE_TEXT)
-                            .content(textContent(chunk))
+                            .msgType(MSG_TYPE_POST)
+                            .content(postMarkdownContent(chunk))
                             .uuid(UUID.randomUUID().toString())
                             .build())
                     .build());
@@ -112,7 +120,49 @@ public class FeishuMessageSender {
     }
   }
 
-  /** 文本消息 content 的 JSON 编码：{"text":"..."}（gson 负责转义）。 */
+  /**
+   * 富文本 post content：zh_cn + md 标签承载 Markdown（官方推荐发 MD 的方式）。
+   *
+   * <p>结构：{@code {"zh_cn":{"title":"...","content":[[{"tag":"md","text":"..."}]]}}}
+   */
+  static String postMarkdownContent(String text) {
+    String body = text == null ? "" : text;
+    JsonObject md = new JsonObject();
+    md.addProperty("tag", MD_TAG);
+    md.addProperty("text", body);
+    JsonArray line = new JsonArray();
+    line.add(md);
+    JsonArray content = new JsonArray();
+    content.add(line);
+    JsonObject locale = new JsonObject();
+    locale.addProperty("title", postTitle(body));
+    locale.add("content", content);
+    JsonObject root = new JsonObject();
+    root.add(POST_LOCALE, locale);
+    return root.toString();
+  }
+
+  /** 会话列表透出标题：取首行摘要，过长截断。 */
+  static String postTitle(String content) {
+    if (content == null || content.isBlank()) {
+      return DEFAULT_POST_TITLE;
+    }
+    String line = content.stripLeading();
+    int newline = line.indexOf('\n');
+    if (newline >= 0) {
+      line = line.substring(0, newline);
+    }
+    line = line.strip();
+    if (line.startsWith(MARKDOWN_HEADING_PREFIX)) {
+      line = line.replaceFirst("^#+\\s*", "");
+    }
+    if (line.length() > POST_TITLE_MAX_LEN) {
+      line = line.substring(0, POST_TITLE_MAX_LEN);
+    }
+    return line.isBlank() ? DEFAULT_POST_TITLE : line;
+  }
+
+  /** 旧 text 编码（对照用）；出站已改用 {@link #postMarkdownContent}。 */
   static String textContent(String text) {
     JsonObject obj = new JsonObject();
     obj.addProperty("text", text);
