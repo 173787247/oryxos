@@ -1,9 +1,13 @@
 package io.oryxos.channel.dingtalk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -12,6 +16,7 @@ import java.net.http.WebSocket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -70,6 +75,49 @@ class DingTalkStreamClientTest {
 
     JsonNode ackJson = MAPPER.readTree(ack.get());
     assertEquals("abc-123", MAPPER.readTree(ackJson.path("data").asText()).path("opaque").asText());
+  }
+
+  @Test
+  @DisplayName("disconnect 帧主动 closeQuietly 并通知上层")
+  void disconnectTopicClosesSocketAndNotifies() throws Exception {
+    AtomicBoolean disconnected = new AtomicBoolean(false);
+    WebSocket ws = mock(WebSocket.class);
+    when(ws.sendClose(anyInt(), anyString())).thenReturn(CompletableFuture.completedFuture(ws));
+    DingTalkStreamClient client =
+        new DingTalkStreamClient(
+            "id", "secret", url -> {}, node -> {}, () -> disconnected.set(true));
+    seedOpenClient(client, ws);
+
+    String frame =
+        """
+        {
+          "type": "SYSTEM",
+          "headers": {
+            "topic": "disconnect",
+            "messageId": "disc-1"
+          },
+          "data": "{\\"reason\\":\\"server maintenance\\"}"
+        }
+        """;
+    client.dispatchFrameForTest(frame, ws);
+
+    assertFalse(client.isConnected());
+    assertTrue(disconnected.get());
+    verify(ws).sendClose(WebSocket.NORMAL_CLOSURE, "bye");
+  }
+
+  private static void seedOpenClient(DingTalkStreamClient client, WebSocket ws) throws Exception {
+    var socketField = DingTalkStreamClient.class.getDeclaredField("socket");
+    socketField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    AtomicReference<WebSocket> socketRef = (AtomicReference<WebSocket>) socketField.get(client);
+    socketRef.set(ws);
+    var connectedField = DingTalkStreamClient.class.getDeclaredField("connected");
+    connectedField.setAccessible(true);
+    ((AtomicBoolean) connectedField.get(client)).set(true);
+    var closedField = DingTalkStreamClient.class.getDeclaredField("closed");
+    closedField.setAccessible(true);
+    ((AtomicBoolean) closedField.get(client)).set(false);
   }
 
   private static WebSocket mockWebSocket(AtomicReference<String> ack) {
