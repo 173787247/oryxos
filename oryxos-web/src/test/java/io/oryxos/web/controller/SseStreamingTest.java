@@ -81,14 +81,21 @@ class SseStreamingTest {
 
     assertThat(result.getResponse().getContentType()).startsWith("text/event-stream");
     var events = parseEvents(result.getResponse().getContentAsString());
-    assertThat(events).extracting(e -> e[0]).containsExactly("token", "token", "token", "done");
+    // 021：流首新增 trace 事件（协议只增，测试适配属预期改动）
+    assertThat(events)
+        .extracting(e -> e[0])
+        .containsExactly("trace", "token", "token", "token", "done");
+    String traceId = events.get(0)[1].replaceAll(".*\"traceId\":\"(.*?)\".*", "$1");
+    assertThat(traceId).isNotBlank();
     String joined =
         events.stream()
             .filter(e -> e[0].equals("token"))
             .map(e -> e[1].replaceAll(".*\"delta\":\"(.*?)\".*", "$1"))
             .reduce("", String::concat);
     assertThat(joined).isEqualTo("你好，世界");
-    assertThat(events.get(events.size() - 1)[1]).contains("\"reply\":\"你好，世界\"");
+    assertThat(events.get(events.size() - 1)[1])
+        .contains("\"reply\":\"你好，世界\"")
+        .contains("\"traceId\":\"" + traceId + "\""); // done 同带同一 trace（021）
   }
 
   @Test
@@ -109,9 +116,9 @@ class SseStreamingTest {
 
     assertThat(events)
         .extracting(e -> e[0])
-        .containsExactly("tool_start", "tool_end", "token", "done");
-    assertThat(events.get(0)[1]).contains("\"name\":\"shell\"");
-    assertThat(events.get(1)[1]).contains("\"success\":true");
+        .containsExactly("trace", "tool_start", "tool_end", "token", "done");
+    assertThat(events.get(1)[1]).contains("\"name\":\"shell\"");
+    assertThat(events.get(2)[1]).contains("\"success\":true");
   }
 
   @Test
@@ -128,8 +135,8 @@ class SseStreamingTest {
     var events =
         parseEvents(performStream("{\"content\":\"hi\"}").getResponse().getContentAsString());
 
-    assertThat(events).extracting(e -> e[0]).containsExactly("token", "error");
-    assertThat(events.get(1)[1]).contains("provider call failed").doesNotContain("Exception:");
+    assertThat(events).extracting(e -> e[0]).containsExactly("trace", "token", "error");
+    assertThat(events.get(2)[1]).contains("provider call failed").doesNotContain("Exception:");
   }
 
   @Test
@@ -227,8 +234,8 @@ class SseStreamingTest {
                     .content("{\"content\":\"hi\"}"))
             .andReturn();
     var events = parseEvents(streamed.getResponse().getContentAsString());
-    assertThat(events).extracting(e -> e[0]).containsExactly("token", "done");
-    assertThat(events.get(1)[1]).contains("\"reply\":\"无状态回复\"");
+    assertThat(events).extracting(e -> e[0]).containsExactly("trace", "token", "done");
+    assertThat(events.get(2)[1]).contains("\"reply\":\"无状态回复\"");
   }
 
   private void stubProcessStreaming(String reply, String... deltas) {

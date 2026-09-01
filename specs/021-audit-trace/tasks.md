@@ -65,10 +65,10 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 **Independent Test**: quickstart V1/V3/V4/V5——三通道取到的 ID 查审计必命中；grep 日志命中本轮关键行
 
-- [ ] T012 [US2] REST 回传（依赖 T002）：oryxos-web/src/main/java/io/oryxos/web/controller/dto/MessageResponse.java 加 `traceId` 组件（旧单参构造保留委托 null 保兼容）；SessionApiController.send 与 AgentApiController.invoke/consoleSend 非流式路径——调用前 `TraceContext.openIfAbsent()` 拿 ID、finally close、响应带出（AgentService 检测已开启则沿用）
-- [ ] T013 [US2] SSE 回传（依赖 T012）：oryxos-web/src/main/java/io/oryxos/web/sse/SseStreamSupport.java——stream() 内建 writer 后先发 `event: trace`（`{"traceId":…}`，controller 已 open 的 ID）、`done` 负载加 `traceId` 字段（019 协议只增不改，旧客户端忽略未知事件）；oryxos-web/src/test/java/io/oryxos/web/controller/SseStreamingTest.java 追加首业务事件为 trace、done 带 traceId 的断言，并**更新既有事件序断言以容纳流首 trace 事件**（`containsExactly` 类断言需前插 trace——测试适配属预期改动，不是协议破坏）
-- [ ] T014 [US2] 执行历史回传（依赖 T001/T002）：oryxos-storage/src/main/java/io/oryxos/storage/AgentExecutionEntity.java 加 `traceId` 字段；触发链路（AgentExecutionService/triggerAsync 所在类，按实际文件）主线程生成 trace ID → 落执行记录 → **显式传入后台虚拟线程置入 TraceContext**（R4 唯一跨线程点）；oryxos-web/src/main/java/io/oryxos/web/controller/dto/AgentExecutionView.java 加 `traceId` 字段
-- [ ] T015 [P] [US2] 在 oryxos-boot/src/test/java/io/oryxos/boot/TraceE2ETest.java 追加（依赖 T011~T014，同文件串行）：REST 非流式响应 traceId 与审计一致；SSE 流 trace 事件 ID 与 done/审计一致；trigger 后执行记录 traceId 与该轮审计一致（后台线程传递正确）；MDC 日志验证——用 ListAppender 或日志文件断言本轮关键日志行携带同一 traceId（SC-004/SC-007）
+- [X] T012 [US2] REST 回传（依赖 T002）：oryxos-web/src/main/java/io/oryxos/web/controller/dto/MessageResponse.java 加 `traceId` 组件（旧单参构造保留委托 null 保兼容）；SessionApiController.send 与 AgentApiController.invoke/consoleSend 非流式路径——调用前 `TraceContext.openIfAbsent()` 拿 ID、finally close、响应带出（AgentService 检测已开启则沿用）
+- [X] T013 [US2] SSE 回传（依赖 T012）：oryxos-web/src/main/java/io/oryxos/web/sse/SseStreamSupport.java——stream() 内建 writer 后先发 `event: trace`（`{"traceId":…}`，controller 已 open 的 ID）、`done` 负载加 `traceId` 字段（019 协议只增不改，旧客户端忽略未知事件）；oryxos-web/src/test/java/io/oryxos/web/controller/SseStreamingTest.java 追加首业务事件为 trace、done 带 traceId 的断言，并**更新既有事件序断言以容纳流首 trace 事件**（`containsExactly` 类断言需前插 trace——测试适配属预期改动，不是协议破坏）
+- [X] T014 [US2] 执行历史回传（依赖 T001/T002）：oryxos-storage/src/main/java/io/oryxos/storage/AgentExecutionEntity.java 加 `traceId` 字段；触发链路（AgentExecutionService/triggerAsync 所在类，按实际文件）主线程生成 trace ID → 落执行记录 → **显式传入后台虚拟线程置入 TraceContext**（R4 唯一跨线程点）；oryxos-web/src/main/java/io/oryxos/web/controller/dto/AgentExecutionView.java 加 `traceId` 字段
+- [X] T015 [P] [US2] 在 oryxos-boot/src/test/java/io/oryxos/boot/TraceE2ETest.java 追加（依赖 T011~T014，同文件串行）：REST 非流式响应 traceId 与审计一致；SSE 流 trace 事件 ID 与 done/审计一致；trigger 后执行记录 traceId 与该轮审计一致（后台线程传递正确）；MDC 日志验证——用 ListAppender 或日志文件断言本轮关键日志行携带同一 traceId（SC-004/SC-007）
 
 **Checkpoint**: quickstart V3/V4/V5 可走通——US1+US2 独立可测
 

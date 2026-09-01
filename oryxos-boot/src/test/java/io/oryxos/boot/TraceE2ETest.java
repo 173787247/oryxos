@@ -164,7 +164,112 @@ class TraceE2ETest {
     }
   }
 
+  @Test
+  @Order(4)
+  void REST非流式响应traceId_与审计一致() {
+    long maxIdBefore = maxLlmId();
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    ResponseEntity<String> response =
+        rest.postForEntity(
+            "/api/v1/agents/agent-a/invoke",
+            new HttpEntity<>("{\"content\":\"REST回传场景\"}", headers),
+            String.class);
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+
+    JsonNode data = readJson(response.getBody()).get("data");
+    String returnedTrace = data.get("traceId").asText();
+    assertFalse(returnedTrace.isBlank(), "响应体必须带 traceId（SC-004）");
+    // 回传的 ID 与本轮审计落库同值——报障凭它可精准定位
+    assertTrue(
+        llmCallsAfter(maxIdBefore).stream().allMatch(c -> returnedTrace.equals(c.getTraceId())));
+    assertTrue(timeline(returnedTrace).get("found").asBoolean());
+  }
+
+  @Test
+  @Order(5)
+  void SSE流首trace事件_done同带_与审计一致() {
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.set("Accept", "text/event-stream");
+    ResponseEntity<String> response =
+        rest.postForEntity(
+            "/api/v1/agents/agent-a/invoke",
+            new HttpEntity<>("{\"content\":\"SSE回传场景\"}", headers),
+            String.class);
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+
+    String body = response.getBody();
+    assertNotNull(body);
+    int traceEventAt = body.indexOf("event: trace");
+    assertTrue(traceEventAt >= 0, "流内必须有 trace 事件");
+    assertTrue(traceEventAt < body.indexOf("event: done"), "trace 事件必须先于 done（首个业务事件）");
+    String traceId =
+        body.substring(traceEventAt).replaceAll("(?s).*?\"traceId\":\"([^\"]+)\".*", "$1");
+    assertTrue(
+        body.substring(body.indexOf("event: done")).contains("\"traceId\":\"" + traceId + "\""),
+        "done 负载同带同一 traceId");
+    assertTrue(timeline(traceId).get("found").asBoolean(), "用流内 ID 查审计必命中本轮");
+  }
+
+  @Test
+  @Order(6)
+  void 定时触发执行记录带traceId_后台线程传递正确_日志MDC同值() throws Exception {
+    var root =
+        (ch.qos.logback.classic.Logger)
+            org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+    var appender =
+        new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+    appender.start();
+    root.addAppender(appender);
+    try {
+      HttpHeaders headers = new HttpHeaders();
+      headers.setContentType(MediaType.APPLICATION_JSON);
+      ResponseEntity<String> triggered =
+          rest.postForEntity(
+              "/api/v1/agents/agent-a/trigger",
+              new HttpEntity<>("{\"content\":\"触发场景\"}", headers),
+              String.class);
+      assertEquals(HttpStatus.OK, triggered.getStatusCode());
+      long executionId = readJson(triggered.getBody()).get("data").get("executionId").asLong();
+
+      JsonNode execution = awaitExecutionDone(executionId);
+      String traceId = execution.get("traceId").asText();
+      assertFalse(traceId.isBlank(), "执行记录必须带 traceId（US2 场景 3）");
+
+      // 后台虚拟线程显式传递正确：该 trace 命中本轮完整审计链（R4 唯一跨线程点）
+      JsonNode data = timeline(traceId);
+      assertTrue(data.get("found").asBoolean());
+      assertEquals(2, data.get("summary").get("llmCalls").asInt());
+
+      // 日志与审计互查（SC-007）：后台执行的日志行 MDC 携带同一 traceId
+      assertTrue(
+          appender.list.stream()
+              .anyMatch(e -> traceId.equals(e.getMDCPropertyMap().get("traceId"))),
+          "本轮关键日志行应携带同一 traceId（MDC 贯穿）");
+    } finally {
+      root.detachAppender(appender);
+    }
+  }
+
   // —— helpers ——
+
+  private JsonNode awaitExecutionDone(long executionId) throws InterruptedException {
+    for (int i = 0; i < 100; i++) {
+      ResponseEntity<String> response =
+          rest.getForEntity("/api/v1/agents/agent-a/executions", String.class);
+      assertEquals(HttpStatus.OK, response.getStatusCode());
+      for (JsonNode row : readJson(response.getBody()).get("data")) {
+        if (row.get("id").asLong() == executionId
+            && !"RUNNING".equals(row.get("status").asText())) {
+          assertEquals("SUCCESS", row.get("status").asText());
+          return row;
+        }
+      }
+      Thread.sleep(100);
+    }
+    throw new AssertionError("后台执行 10 秒内未完成（executionId=" + executionId + "）");
+  }
 
   private long maxLlmId() {
     return llmCalls.findAll().stream().mapToLong(LlmCall::getId).max().orElse(0);

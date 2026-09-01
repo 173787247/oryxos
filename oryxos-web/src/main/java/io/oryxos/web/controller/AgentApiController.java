@@ -3,6 +3,7 @@ package io.oryxos.web.controller;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.agent.TraceContext;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.profile.ProfileRegistry;
@@ -249,14 +250,17 @@ public class AgentApiController {
       throw new IllegalArgumentException("消息超过 32KB 上限"); // → 400
     }
     requireAgent(name);
-    if (SseStreamSupport.wantsEventStream(request)) {
-      String content = req.content();
-      sseStreamSupport.stream(
-          response, listener -> agentService.processStateless(name, content, listener));
-      return null; // 响应已由 SSE 流写出并提交
+    // 021：controller 先 open 拿 ID 回传调用方；AgentService 兜底 openIfAbsent 复用同一 ID
+    try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
+      if (SseStreamSupport.wantsEventStream(request)) {
+        String content = req.content();
+        sseStreamSupport.stream(
+            response, listener -> agentService.processStateless(name, content, listener));
+        return null; // 响应已由 SSE 流写出并提交（trace 事件由 SseStreamSupport 发出）
+      }
+      String reply = agentService.processStateless(name, req.content());
+      return ApiResponse.ok(new MessageResponse(reply, traceScope.traceId()));
     }
-    String reply = agentService.processStateless(name, req.content());
-    return ApiResponse.ok(new MessageResponse(reply));
   }
 
   /** 这个 Agent 的专属长期记忆（30 节：记忆跟着 Agent 走）。 */
@@ -293,13 +297,17 @@ public class AgentApiController {
     }
     requireAgent(name);
     Session session = sessionManager.getOrCreate(CONSOLE_CHANNEL, CONSOLE_USER, name);
-    if (SseStreamSupport.wantsEventStream(request)) {
-      String content = req.content();
-      sseStreamSupport.stream(
-          response, listener -> agentService.process(session, content, listener));
-      return null; // 响应已由 SSE 流写出并提交
+    // 021：同 invoke——先 open 回传，流式路径由 SseStreamSupport 发 trace 事件
+    try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
+      if (SseStreamSupport.wantsEventStream(request)) {
+        String content = req.content();
+        sseStreamSupport.stream(
+            response, listener -> agentService.process(session, content, listener));
+        return null; // 响应已由 SSE 流写出并提交
+      }
+      return ApiResponse.ok(
+          new MessageResponse(agentService.process(session, req.content()), traceScope.traceId()));
     }
-    return ApiResponse.ok(new MessageResponse(agentService.process(session, req.content())));
   }
 
   /**

@@ -3,11 +3,13 @@ package io.oryxos.web.sse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.agent.StreamListener;
+import io.oryxos.core.agent.TraceContext;
 import io.oryxos.web.config.WebSseProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
 import org.springframework.http.MediaType;
@@ -51,10 +53,20 @@ public class SseStreamSupport {
    */
   public void stream(HttpServletResponse response, Function<StreamListener, String> action) {
     try (SseWriter writer = new SseWriter(response, properties.getHeartbeatSeconds())) {
+      // 021：流建立即回传本轮 trace ID（controller 已 open）——新事件类型只增不改，旧客户端忽略
+      String traceId = TraceContext.current();
+      if (traceId != null) {
+        writer.event("trace", json(Map.of("traceId", traceId)));
+      }
       StreamListener listener = new SseStreamListener(writer, objectMapper);
       try {
         String reply = action.apply(listener);
-        writer.event("done", json(Map.of("reply", reply == null ? "" : reply)));
+        Map<String, Object> done = new LinkedHashMap<>();
+        done.put("reply", reply == null ? "" : reply);
+        if (traceId != null) {
+          done.put("traceId", traceId); // done 同带（021）：断流场景客户端仍可从流首 trace 事件拿到
+        }
+        writer.event("done", json(done));
       } catch (RuntimeException e) {
         // 流已开始（HTTP 已 200），失败只能以 error 事件表达（FR-009 分层）；信息可读、不带堆栈
         writer.event("error", json(Map.of("code", 500, "message", safeMessage(e))));

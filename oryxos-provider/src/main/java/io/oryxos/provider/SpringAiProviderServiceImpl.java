@@ -210,6 +210,13 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     } catch (RuntimeException auditFailure) {
       LOG.error("成功 LLM 调用的审计落库失败（结果照常返回）: provider={}", sanitize(providerName), auditFailure);
     }
+    // 021 日志与审计互查（SC-007）：处理路径关键日志点——MDC 自动携带 traceId，不记 prompt 内容
+    LOG.info(
+        "LLM 调用完成: provider={} model={} totalTokens={} durationMs={}",
+        sanitize(providerName),
+        sanitize(profile.provider().model()),
+        result.usage() == null ? null : result.usage().totalTokens(),
+        System.currentTimeMillis() - startedAt);
   }
 
   /**
