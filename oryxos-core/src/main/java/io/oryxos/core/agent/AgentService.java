@@ -58,7 +58,9 @@ public class AgentService {
         session.sessionId() == null ? profileNameOrFallback(session) : session.sessionId();
     Lock lock = sessionLocks.computeIfAbsent(sessionKey, id -> new ReentrantLock());
     lock.lock();
-    try {
+    // 021：兜底开启 trace（controller 先开的场景复用同一 ID，owner=false 不清外层）；
+    // 全部触发源（CLI/定时/飞书/REST）经此收口，本轮所有审计落库与日志自动携带同一 traceId
+    try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
       // Controller / Channel 在进入本锁前已拿到 Session；等待锁期间它可能过期，因此必须在锁内重读。
       Session activeSession = sessionManager.get(sessionKey).orElse(session);
       List<Message> expectedMessages = activeSession.messages();
@@ -128,7 +130,8 @@ public class AgentService {
             .orElseThrow(() -> new IllegalStateException("Agent 不存在: " + agentName));
     Session session = new Session(statelessSessionId, profile.name());
     ProfileContext.set(profile);
-    try {
+    // 021：同 process——兜底开启 trace，已开启则复用
+    try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
       // 同 process：NOOP 走三参原入口，保持既有交互契约
       String reply =
           listener == StreamListener.NOOP

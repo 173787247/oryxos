@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.oryxos.core.agent.TraceContext;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,30 @@ class LlmCallRepositoryTest {
     LlmCall loaded = repository.findBySessionId("s-2").get(0);
     assertEquals(false, loaded.isSuccess());
     assertEquals("connect timeout", loaded.getErrorMessage()); // success/error_message 两列真实存在
+  }
+
+  @Test
+  void trace上下文开启_落库自动携带traceId_接口零改动() {
+    JpaLlmCallAuditor auditor = new JpaLlmCallAuditor(repository);
+    String traceId;
+    try (TraceContext.Scope scope = TraceContext.openIfAbsent()) {
+      traceId = scope.traceId();
+      // record 签名不变（R2 红线）：trace 由 Jpa 实现从环境自读
+      auditor.record("s-trace", "agent", "deepseek", "m", null, null, true, null, 10L);
+    }
+    LlmCall loaded = repository.findByTraceId(traceId).get(0);
+    assertEquals("s-trace", loaded.getSessionId());
+    assertEquals(traceId, loaded.getTraceId());
+  }
+
+  @Test
+  void trace上下文未开启_traceId为null且写入照常_旧行为等价() {
+    JpaLlmCallAuditor auditor = new JpaLlmCallAuditor(repository);
+    auditor.record("s-no-trace", "agent", "deepseek", "m", null, null, true, null, 10L);
+
+    LlmCall loaded = repository.findBySessionId("s-no-trace").get(0);
+    assertEquals(null, loaded.getTraceId()); // 未开启上下文=现状等价，可空列不阻断写入
+    assertTrue(loaded.isSuccess());
   }
 
   @Test

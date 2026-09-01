@@ -122,6 +122,12 @@ public class ToolExecutor {
       } catch (RuntimeException auditFailure) {
         LOG.error("工具调用审计落库失败（结果照常返回）: tool={}", sanitize(call.name()), auditFailure);
       }
+      // 021 日志与审计互查（SC-007）：处理路径关键日志点——MDC 自动携带 traceId，不记参数/结果（防敏感泄漏）
+      LOG.info(
+          "工具执行完成: tool={} success={} durationMs={}",
+          sanitize(call.name()),
+          result.success(),
+          System.currentTimeMillis() - startedAt);
       return result;
     } finally {
       ToolExecutionContext.clear();

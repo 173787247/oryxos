@@ -194,8 +194,11 @@ null
 
 ```json
 // data —— MessageResponse
-{ "reply": "最近 10 次提交覆盖了 ReAct Loop、Provider 抽象和 SQLite 持久化。" }
+{ "reply": "最近 10 次提交覆盖了 ReAct Loop、Provider 抽象和 SQLite 持久化。",
+  "traceId": "3f9c2b1a-…" }
 ```
+
+`traceId`（021）标识这一次消息处理的全链路，用于报障定位与审计回放（见「审计 Trace」节）。
 
 ### 查 Agent 记忆
 
@@ -783,6 +786,44 @@ Sandbox 白名单分三类——`FILE`（允许路径）、`SHELL`（允许命�
 ### 审计筛选
 
 **GET** `/api/v1/audit/tool?blockedBy=policy` — 只看被策略拒绝的调用记录。
+
+---
+
+## 审计 Trace
+
+一次消息处理（会话消息 / 无状态调用 / 定时触发 / 飞书入站）= 一个 trace ID（UUID），贯穿本轮全部审计记录、结构化日志（MDC `traceId` 字段）与回传通道——同一个值，凭它可在审计与日志间互查。默认开启零配置；升级前的旧审计行 trace 为空，既有查询不受影响。
+
+回传三通道（021，全部纯增量）:
+
+| 通道 | 形态 |
+|------|------|
+| REST 非流式 | `MessageResponse` 的 `traceId` 字段 |
+| SSE 流式 | 流建立后首个业务事件 `event: trace`（`data: {"traceId":"…"}`）；`done` 负载同带 `traceId` |
+| 执行历史 | `AgentExecutionView` 的 `traceId` 字段（`GET /agents/{name}/executions`） |
+
+### 单轮全链路时间线
+
+**GET** `/api/v1/audit/trace/{traceId}`
+
+```json
+// data —— TraceTimelineView
+{ "traceId": "3f9c2b1a-…", "found": true,
+  "steps": [
+    { "seq": 1, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 1200,
+      "at": "…", "promptTokens": 812, "completionTokens": 64, "totalTokens": 876, "costMicros": 120 },
+    { "seq": 2, "type": "TOOL", "name": "save_memory", "success": true, "durationMs": 15,
+      "at": "…", "inputSummary": "{\"content\":\"…\"}", "resultSummary": "OK", "blockedBy": null },
+    { "seq": 3, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 900, "at": "…", "totalTokens": 540 }
+  ],
+  "summary": { "steps": 3, "llmCalls": 2, "toolCalls": 1,
+               "totalTokens": 1416, "costMicros": 260, "totalDurationMs": 2115 } }
+```
+
+步骤按发生时间排序，失败与被策略拦截（`blockedBy: "policy"`）的步骤同样入链；未命中返回 `found: false` 空 `steps`（HTTP 200 不报错）。既有列表 `GET /audit/llm|tool` 的行视图增 `traceId` 字段（trace 维度入口）。管理台报表页提供 trace 查询框与时间线视图，明细行 traceId 可点查。
+
+### 展示层脱敏
+
+时间线里 TOOL 步的 `inputSummary`/`resultSummary`/`errorMessage` 为**截断（200 字符）+ 脱敏**后的展示值:API key 已知前缀（`sk-…`/`oryx_…`）、`Authorization` 凭证、URL 账密段、`password/secret/token/api_key` 类字段值 → `前4字符+****` 掩码。落库保持原文（排障现场完整，库访问=运维特权边界），规则内置不可配置；不含敏感形态的内容原样展示。
 
 ---
 

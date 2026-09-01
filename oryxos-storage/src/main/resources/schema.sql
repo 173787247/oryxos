@@ -10,14 +10,15 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     total_tokens INTEGER,
     cost_micros INTEGER,
     profile_name VARCHAR(255),
+    trace_id VARCHAR(64),
     success BOOLEAN NOT NULL,
     error_message TEXT,
     duration_ms INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls (session_id);
--- idx_llm_calls_profile (profile_name) 由 AuditSchemaUpgrade 创建：本脚本先于升级器执行，
--- 存量库此刻还没有 profile_name 列，在这里建索引会让整个应用启动失败（idx_memory_agent 教训）。
+-- idx_llm_calls_profile (profile_name) / idx_llm_calls_trace (trace_id) 由 AuditSchemaUpgrade 创建：
+-- 本脚本先于升级器执行，存量库此刻还没有这些列，在这里建索引会让整个应用启动失败（idx_memory_agent 教训）。
 
 -- tool_invocations：工具调用审计（宪法 V：Day One 落库，成功要记、失败也要记）
 CREATE TABLE IF NOT EXISTS tool_invocations (
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     input_json TEXT,
     result_json TEXT,
     profile_name VARCHAR(255),
+    trace_id VARCHAR(64),
     success BOOLEAN NOT NULL,
     error_message TEXT,
     blocked_by VARCHAR(16),
@@ -34,7 +36,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_session ON tool_invocations (session_id);
--- idx_tool_invocations_profile (profile_name) 由 AuditSchemaUpgrade 创建（同上）。
+-- idx_tool_invocations_profile (profile_name) / idx_tool_invocations_trace (trace_id) 由 AuditSchemaUpgrade 创建（同上）。
 
 -- sessions：会话元数据 + JSON 序列化的对话历史（18 节）
 -- session_id 由 SessionManager 按 channel:user:profile 唯一拼接（全库唯一拼接点，H4④）
@@ -91,6 +93,7 @@ CREATE TABLE IF NOT EXISTS agent_executions (
     agent_name VARCHAR(255) NOT NULL,
     source VARCHAR(32) NOT NULL,
     session_id VARCHAR(512),
+    trace_id VARCHAR(64),
     started_at TIMESTAMP NOT NULL,
     ended_at TIMESTAMP,
     success BOOLEAN,
@@ -98,6 +101,7 @@ CREATE TABLE IF NOT EXISTS agent_executions (
     duration_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_agent_executions_agent ON agent_executions (agent_name);
+-- idx_agent_executions_trace (trace_id) 由 AuditSchemaUpgrade 创建（同上，021）。
 
 -- memory_entries：长期记忆条目（SqliteMemoryStore 后端，22 节）
 -- scope=CORE 全量注入不截断；scope=ARCHIVAL 归档只带最近 N 条（查询 LIMIT，非删除）

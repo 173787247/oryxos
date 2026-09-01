@@ -22,6 +22,12 @@ public final class AuditSchemaUpgrade {
   private static final String COST_MICROS_COLUMN = "cost_micros";
   private static final String PROFILE_NAME_COLUMN = "profile_name";
   private static final String BLOCKED_BY_COLUMN = "blocked_by";
+  private static final String TRACE_ID_COLUMN = "trace_id";
+
+  /** 021：trace_id 落到审计三表（llm_calls / tool_invocations / agent_executions）。 */
+  private static final String[] TRACE_TABLES = {
+    "llm_calls", "tool_invocations", "agent_executions"
+  };
 
   private final DataSource dataSource;
 
@@ -40,6 +46,7 @@ public final class AuditSchemaUpgrade {
       ensureToolInvocationColumn(connection);
       ensurePricingTable(connection);
       ensureProfileIndexes(connection);
+      ensureTraceColumnsAndIndexes(connection);
     } catch (SQLException e) {
       throw new IllegalStateException("Failed to upgrade audit schema", e);
     }
@@ -72,6 +79,26 @@ public final class AuditSchemaUpgrade {
     if (!columns.contains(BLOCKED_BY_COLUMN)) {
       execute(connection, "ALTER TABLE tool_invocations ADD COLUMN blocked_by VARCHAR(16)");
       log.info("tool_invocations 已补 blocked_by 列（020 策略拒绝标记）");
+    }
+  }
+
+  /**
+   * 021：三表补 trace_id 可空列 + 建 trace 索引。索引必须在这里建而不是 schema.sql——存量库执行 schema.sql
+   * 时还没有该列，在脚本里建索引会让整个应用启动失败（idx_llm_calls_profile 同款教训）。表不存在时跳过（schema.sql 会全量建含新列）。
+   */
+  private static void ensureTraceColumnsAndIndexes(Connection connection) throws SQLException {
+    for (String table : TRACE_TABLES) {
+      Set<String> columns = columns(connection, table);
+      if (columns.isEmpty()) {
+        continue;
+      }
+      if (!columns.contains(TRACE_ID_COLUMN)) {
+        execute(connection, "ALTER TABLE " + table + " ADD COLUMN trace_id VARCHAR(64)");
+        log.info("{} 已补 trace_id 列（021 单轮全链路串联）", table);
+      }
+      execute(
+          connection,
+          "CREATE INDEX IF NOT EXISTS idx_" + table + "_trace ON " + table + " (trace_id)");
     }
   }
 
@@ -115,8 +142,8 @@ public final class AuditSchemaUpgrade {
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-      value = "SQL_INJECTION_JDBC",
-      justification = "sql 参数为内部硬编码的 ALTER/CREATE 语句常量，非用户输入，无注入风险。")
+      value = {"SQL_INJECTION_JDBC", "SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE"},
+      justification = "sql 参数为内部硬编码的 ALTER/CREATE 语句（表名来自 TRACE_TABLES 内部常量），非用户输入，无注入风险。")
   private static void execute(Connection connection, String sql) throws SQLException {
     try (Statement statement = connection.createStatement()) {
       statement.execute(sql);

@@ -9,7 +9,9 @@ import io.oryxos.web.controller.dto.LlmCallView;
 import io.oryxos.web.controller.dto.LlmSummaryView;
 import io.oryxos.web.controller.dto.ToolInvocationView;
 import io.oryxos.web.controller.dto.ToolSummaryView;
+import io.oryxos.web.controller.dto.TraceTimelineView;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -129,6 +131,92 @@ public class AuditMetricsService {
         .limit(limit)
         .map(ToolInvocationView::from)
         .toList();
+  }
+
+  /**
+   * 021 单轮全链路回放：按 trace 取两表记录，按 createdAt（完成时刻）合并排序为时间线 steps + 汇总。 TOOL 步摘要先截断 200
+   * 字符再脱敏（Redactor）；未命中返回 found=false 空时间线（200 不报错）。
+   */
+  public TraceTimelineView traceTimeline(String traceId) {
+    List<LlmCall> llmCalls = llmCallRepository.findByTraceId(traceId);
+    List<ToolInvocation> toolCalls = toolInvocationRepository.findByTraceId(traceId);
+    if (llmCalls.isEmpty() && toolCalls.isEmpty()) {
+      return new TraceTimelineView(
+          traceId, false, List.of(), new TraceTimelineView.SummaryView(0, 0, 0, 0L, null, 0L));
+    }
+
+    record Event(Instant at, Object row) {}
+    List<Event> events = new ArrayList<>();
+    llmCalls.forEach(c -> events.add(new Event(c.getCreatedAt(), c)));
+    toolCalls.forEach(t -> events.add(new Event(t.getCreatedAt(), t)));
+    events.sort(Comparator.comparing(Event::at, Comparator.nullsLast(Comparator.naturalOrder())));
+
+    List<TraceTimelineView.StepView> steps = new ArrayList<>(events.size());
+    for (int i = 0; i < events.size(); i++) {
+      Object row = events.get(i).row();
+      steps.add(
+          row instanceof LlmCall llm ? llmStep(i + 1, llm) : toolStep(i + 1, (ToolInvocation) row));
+    }
+
+    long totalTokens =
+        llmCalls.stream().mapToLong(c -> c.getTotalTokens() == null ? 0 : c.getTotalTokens()).sum();
+    long totalDurationMs =
+        llmCalls.stream().mapToLong(LlmCall::getDurationMs).sum()
+            + toolCalls.stream().mapToLong(ToolInvocation::getDurationMs).sum();
+    TraceTimelineView.SummaryView summary =
+        new TraceTimelineView.SummaryView(
+            steps.size(),
+            llmCalls.size(),
+            toolCalls.size(),
+            totalTokens,
+            sumCost(llmCalls),
+            totalDurationMs);
+    return new TraceTimelineView(traceId, true, steps, summary);
+  }
+
+  private static TraceTimelineView.StepView llmStep(int seq, LlmCall c) {
+    return new TraceTimelineView.StepView(
+        seq,
+        "LLM",
+        c.getModel(),
+        c.isSuccess(),
+        c.getDurationMs(),
+        c.getCreatedAt(),
+        c.getPromptTokens(),
+        c.getCompletionTokens(),
+        c.getTotalTokens(),
+        c.getCostMicros(),
+        null,
+        null,
+        summarize(c.getErrorMessage()),
+        null);
+  }
+
+  private static TraceTimelineView.StepView toolStep(int seq, ToolInvocation t) {
+    return new TraceTimelineView.StepView(
+        seq,
+        "TOOL",
+        t.getToolName(),
+        t.isSuccess(),
+        t.getDurationMs(),
+        t.getCreatedAt(),
+        null,
+        null,
+        null,
+        null,
+        summarize(t.getInputJson()),
+        summarize(t.getResultJson()),
+        summarize(t.getErrorMessage()),
+        t.getBlockedBy());
+  }
+
+  /** 展示层摘要：先截断 200 字符，再统一脱敏（Redactor，FR-007/FR-008）；落库原文不动。 */
+  private static String summarize(String value) {
+    if (value == null) {
+      return null;
+    }
+    String truncated = value.length() <= 200 ? value : value.substring(0, 200) + "…";
+    return Redactor.redact(truncated);
   }
 
   private List<AuditGroupView> llmGroup(Instant from, Instant to, Function<LlmCall, String> keyFn) {

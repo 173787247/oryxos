@@ -194,8 +194,11 @@ Runs a single-turn ReAct Loop without creating a persistent session.
 
 ```json
 // data — MessageResponse
-{ "reply": "The last 10 commits covered ReAct Loop, provider abstraction, and SQLite persistence." }
+{ "reply": "The last 10 commits covered ReAct Loop, provider abstraction, and SQLite persistence.",
+  "traceId": "3f9c2b1a-…" }
 ```
+
+`traceId` (021) identifies this single message-processing round end to end, for incident reports and audit replay (see the "Audit trace" section).
 
 ### Get an agent's memory
 
@@ -768,6 +771,44 @@ Three rule types: `GLOBAL_DENY` (all agents, no agentName), `AGENT_EXEMPT` (lift
 ### Audit filter
 
 **GET** `/api/v1/audit/tool?blockedBy=policy` — only tool calls rejected by policy.
+
+---
+
+## Audit trace
+
+One message-processing round (session message / stateless invoke / scheduled trigger / Feishu inbound) = one trace ID (UUID), shared across all audit records of that round, structured logs (MDC `traceId` field), and the return channels — the same value everywhere, so audit and logs are cross-searchable. Enabled by default with zero configuration; pre-upgrade audit rows have an empty trace and existing queries are unaffected.
+
+Three return channels (021, all purely additive):
+
+| Channel | Shape |
+|---------|-------|
+| REST non-streaming | `traceId` field on `MessageResponse` |
+| SSE streaming | first business event `event: trace` (`data: {"traceId":"…"}`) right after the stream opens; the `done` payload carries `traceId` too |
+| Execution history | `traceId` field on `AgentExecutionView` (`GET /agents/{name}/executions`) |
+
+### Single-round timeline
+
+**GET** `/api/v1/audit/trace/{traceId}`
+
+```json
+// data — TraceTimelineView
+{ "traceId": "3f9c2b1a-…", "found": true,
+  "steps": [
+    { "seq": 1, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 1200,
+      "at": "…", "promptTokens": 812, "completionTokens": 64, "totalTokens": 876, "costMicros": 120 },
+    { "seq": 2, "type": "TOOL", "name": "save_memory", "success": true, "durationMs": 15,
+      "at": "…", "inputSummary": "{\"content\":\"…\"}", "resultSummary": "OK", "blockedBy": null },
+    { "seq": 3, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 900, "at": "…", "totalTokens": 540 }
+  ],
+  "summary": { "steps": 3, "llmCalls": 2, "toolCalls": 1,
+               "totalTokens": 1416, "costMicros": 260, "totalDurationMs": 2115 } }
+```
+
+Steps are sorted by occurrence time; failed and policy-blocked steps (`blockedBy: "policy"`) are part of the chain. A miss returns `found: false` with empty `steps` (HTTP 200, not an error). The existing list views of `GET /audit/llm|tool` gain a `traceId` field (row-level trace entry point). The admin console report page offers a trace search box with a timeline view; detail rows show a clickable traceId.
+
+### Display-layer redaction
+
+On the timeline, a TOOL step's `inputSummary`/`resultSummary`/`errorMessage` are **truncated (200 chars) + redacted** display values: known API key prefixes (`sk-…`/`oryx_…`), `Authorization` credentials, URL userinfo, and `password/secret/token/api_key`-style field values are masked to `first 4 chars + ****`. Stored rows keep the original text (full forensic context; DB access = ops privilege boundary). Rules are built in and non-configurable; content without sensitive shapes is shown as-is.
 
 ---
 

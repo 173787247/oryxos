@@ -376,6 +376,24 @@ function clearReportFilter() {
 }
 // 明细表折叠：默认折叠，点击标题展开
 const reportExpand = reactive({ llm: false, tool: false })
+// —— Trace 时间线（021）：按 trace ID 回放单轮全链路（LLM+工具合并时间序 + 成本/耗时汇总）；
+// 明细行与执行历史的 traceId 可点击填入查询框。摘要为服务端截断+脱敏后的展示值。 ——
+const trace = reactive({ id: '', loading: false, error: null, result: null })
+async function loadTrace(id) {
+  const q = (id ?? trace.id ?? '').trim()
+  if (!q) return
+  trace.id = q
+  trace.loading = true
+  trace.error = null
+  trace.result = null
+  try {
+    const res = await fetch(`/api/v1/audit/trace/${encodeURIComponent(q)}`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '查询失败')
+    trace.result = body.data
+  } catch (e) { trace.error = e.message } finally { trace.loading = false }
+}
+function shortTrace(id) { return id ? id.slice(0, 8) : '—' }
 const filteredLlmList = computed(() => {
   if (!reportFilter.value) return report.llmList
   const { type, key } = reportFilter.value
@@ -1804,6 +1822,40 @@ const outputRows = computed(() =>
             <div class="md-toggle" style="margin-bottom:14px">
               <button v-for="r in ['7d','30d','all']" :key="r" :class="['md-seg', { on: report.range === r }]" @click="loadReport(r)">{{ r === '7d' ? '近 7 天' : r === '30d' ? '近 30 天' : '全部' }}</button>
             </div>
+            <!-- Trace 时间线（021）：按 trace ID 查单轮全链路——v0.3 Demo「触发 → 拿 traceId → 查完整链路与成本」 -->
+            <div style="display:flex;gap:8px;margin-bottom:14px">
+              <input class="mono" v-model="trace.id" placeholder="输入 trace ID 回放单轮全链路（响应/SSE/执行历史里都有）" style="flex:1" @keyup.enter="loadTrace()" />
+              <button class="btn btn-primary" @click="loadTrace()">查询链路</button>
+            </div>
+            <p v-if="trace.loading" class="empty">链路查询中…</p>
+            <p v-else-if="trace.error" class="error">出错：{{ trace.error }}</p>
+            <template v-else-if="trace.result">
+              <p v-if="!trace.result.found" class="empty">未找到 trace「{{ trace.result.traceId }}」的审计记录</p>
+              <template v-else>
+                <div class="sess-meta mono" style="margin-bottom:8px">
+                  步骤 {{ trace.result.summary.steps }} · LLM {{ trace.result.summary.llmCalls }} 次 · 工具 {{ trace.result.summary.toolCalls }} 次
+                  · token {{ trace.result.summary.totalTokens }} · 成本 {{ fmtCost(trace.result.summary.costMicros) }}
+                  · 总耗时 {{ fmtDuration(trace.result.summary.totalDurationMs) }}
+                </div>
+                <table style="margin-bottom:18px">
+                  <thead><tr><th>#</th><th>类型</th><th>名称</th><th>结果</th><th>耗时</th><th>时间</th><th>token / 摘要（已脱敏）</th></tr></thead>
+                  <tbody>
+                    <tr v-for="s in trace.result.steps" :key="s.seq">
+                      <td class="mono">{{ s.seq }}</td>
+                      <td><span class="tag">{{ s.type }}</span></td>
+                      <td class="mono">{{ s.name }}</td>
+                      <td><span :class="['tag', s.success ? 'ok' : 'off']">{{ s.success ? '成功' : (s.blockedBy === 'policy' ? '策略拦截' : '失败') }}</span></td>
+                      <td class="mono">{{ fmtDuration(s.durationMs) }}</td>
+                      <td class="mono">{{ fmtTime(s.at) }}</td>
+                      <td class="mono" style="max-width:380px;overflow-wrap:anywhere">
+                        <template v-if="s.type === 'LLM'">{{ s.totalTokens != null ? 'token ' + s.totalTokens : '—' }}{{ s.costMicros != null ? ' · ' + fmtCost(s.costMicros) : '' }}</template>
+                        <template v-else>{{ s.inputSummary || '' }}<span v-if="s.errorMessage" class="error"> · {{ s.errorMessage }}</span></template>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </template>
             <p v-if="report.loading" class="empty">加载中…</p>
             <p v-else-if="report.error" class="error">出错：{{ report.error }}</p>
             <template v-else>
@@ -1862,9 +1914,9 @@ const outputRows = computed(() =>
               </h3>
               <template v-if="reportExpand.llm">
                 <table>
-                  <thead><tr><th>时间</th><th>Agent</th><th>Provider</th><th>模型</th><th>输入</th><th>输出</th><th>总</th><th>成本</th><th>耗时</th><th>结果</th></tr></thead>
+                  <thead><tr><th>时间</th><th>Agent</th><th>Provider</th><th>模型</th><th>输入</th><th>输出</th><th>总</th><th>成本</th><th>耗时</th><th>结果</th><th>Trace</th></tr></thead>
                   <tbody>
-                    <tr v-if="!pagedLlmList.length"><td colspan="10" class="empty">（暂无数据）</td></tr>
+                    <tr v-if="!pagedLlmList.length"><td colspan="11" class="empty">（暂无数据）</td></tr>
                     <tr v-for="c in pagedLlmList" :key="c.id">
                       <td class="mono">{{ fmtTime(c.createdAt) }}</td>
                       <td>{{ c.profileName || '—' }}</td>
@@ -1876,6 +1928,7 @@ const outputRows = computed(() =>
                       <td class="mono">{{ fmtCost(c.costMicros) }}</td>
                       <td class="mono">{{ fmtDuration(c.durationMs) }}</td>
                       <td><span :class="['tag', c.success ? 'ok' : 'off']">{{ c.success ? '成功' : '失败' }}</span></td>
+                      <td class="mono"><a v-if="c.traceId" href="#" :title="c.traceId" @click.prevent="loadTrace(c.traceId)">{{ shortTrace(c.traceId) }}</a><template v-else>—</template></td>
                     </tr>
                   </tbody>
                 </table>
@@ -1897,15 +1950,16 @@ const outputRows = computed(() =>
               </h3>
               <template v-if="reportExpand.tool">
                 <table>
-                  <thead><tr><th>时间</th><th>Agent</th><th>工具</th><th>耗时</th><th>结果</th></tr></thead>
+                  <thead><tr><th>时间</th><th>Agent</th><th>工具</th><th>耗时</th><th>结果</th><th>Trace</th></tr></thead>
                   <tbody>
-                    <tr v-if="!pagedToolList.length"><td colspan="5" class="empty">（暂无数据）</td></tr>
+                    <tr v-if="!pagedToolList.length"><td colspan="6" class="empty">（暂无数据）</td></tr>
                     <tr v-for="t in pagedToolList" :key="t.id">
                       <td class="mono">{{ fmtTime(t.createdAt) }}</td>
                       <td>{{ t.profileName || '—' }}</td>
                       <td class="mono">{{ t.toolName }}</td>
                       <td class="mono">{{ fmtDuration(t.durationMs) }}</td>
                       <td><span :class="['tag', t.success ? 'ok' : 'off']">{{ t.success ? '成功' : '失败' }}</span></td>
+                      <td class="mono"><a v-if="t.traceId" href="#" :title="t.traceId" @click.prevent="loadTrace(t.traceId)">{{ shortTrace(t.traceId) }}</a><template v-else>—</template></td>
                     </tr>
                   </tbody>
                 </table>
@@ -2608,15 +2662,16 @@ const outputRows = computed(() =>
                 <p v-if="execHistory.loading" class="empty">加载中…</p>
                 <p v-else-if="execHistory.error" class="error">出错：{{ execHistory.error }}</p>
                 <table v-else>
-                  <thead><tr><th>状态</th><th>来源</th><th>开始时间</th><th>结束时间</th><th>时长</th><th>错误</th></tr></thead>
+                  <thead><tr><th>状态</th><th>来源</th><th>开始时间</th><th>结束时间</th><th>时长</th><th>Trace</th><th>错误</th></tr></thead>
                   <tbody>
-                    <tr v-if="!execHistory.data.length"><td colspan="6" class="empty">（还没有执行记录 · 点「立即触发」跑一次）</td></tr>
+                    <tr v-if="!execHistory.data.length"><td colspan="7" class="empty">（还没有执行记录 · 点「立即触发」跑一次）</td></tr>
                     <tr v-for="e in execHistory.data" :key="e.id">
                       <td><span :class="['exec-badge', e.status.toLowerCase()]">{{ execStatusLabel(e.status) }}</span></td>
                       <td>{{ e.source === 'schedule' ? '定时' : '手动' }}</td>
                       <td class="mono">{{ fmtTime(e.startedAt) }}</td>
                       <td class="mono">{{ fmtTime(e.endedAt) }}</td>
                       <td class="mono">{{ fmtDuration(e.durationMs) }}</td>
+                      <td class="mono" :title="e.traceId || ''">{{ shortTrace(e.traceId) }}</td>
                       <td class="error">{{ e.errorMessage || '' }}</td>
                     </tr>
                   </tbody>

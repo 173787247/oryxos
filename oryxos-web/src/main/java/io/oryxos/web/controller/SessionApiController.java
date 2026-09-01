@@ -1,6 +1,7 @@
 package io.oryxos.web.controller;
 
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.agent.TraceContext;
 import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
 import io.oryxos.core.session.SessionManager;
@@ -90,13 +91,16 @@ public class SessionApiController {
     String content = requireContent(req);
     Session session =
         sessionManager.get(id).orElseThrow(() -> new SessionNotFoundException(id)); // → 404
-    if (SseStreamSupport.wantsEventStream(request)) {
-      sseStreamSupport.stream(
-          response, listener -> agentService.process(session, content, listener));
-      return null; // 响应已由 SSE 流写出并提交
+    // 021：controller 先 open 拿 ID 回传调用方；AgentService 兜底 openIfAbsent 复用同一 ID
+    try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
+      if (SseStreamSupport.wantsEventStream(request)) {
+        sseStreamSupport.stream(
+            response, listener -> agentService.process(session, content, listener));
+        return null; // 响应已由 SSE 流写出并提交（trace 事件由 SseStreamSupport 发出）
+      }
+      String reply = agentService.process(session, content); // 同一编排入口；审计在 process 内
+      return ApiResponse.ok(new MessageResponse(reply, traceScope.traceId()));
     }
-    String reply = agentService.process(session, content); // 同一编排入口；审计在 process 内
-    return ApiResponse.ok(new MessageResponse(reply));
   }
 
   /** 列出会话摘要（最近 ≤100 条、按活跃倒序）；可选 {@code ?status=active} 过滤。三面同源里的"列表视图"。 */
