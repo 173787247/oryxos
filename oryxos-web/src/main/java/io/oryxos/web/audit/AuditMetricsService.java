@@ -210,12 +210,13 @@ public class AuditMetricsService {
         t.getBlockedBy());
   }
 
-  /** 展示层摘要：截断 200 字符（落库原文不动）。 */
+  /** 展示层摘要：先截断 200 字符，再统一脱敏（Redactor，FR-007/FR-008）；落库原文不动。 */
   private static String summarize(String value) {
     if (value == null) {
       return null;
     }
-    return value.length() <= 200 ? value : value.substring(0, 200) + "…";
+    String truncated = value.length() <= 200 ? value : value.substring(0, 200) + "…";
+    return Redactor.redact(truncated);
   }
 
   private List<AuditGroupView> llmGroup(Instant from, Instant to, Function<LlmCall, String> keyFn) {

@@ -80,11 +80,11 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 **Independent Test**: quickstart V7/V8——含敏感形态的参数在 API/管理台掩码、库中原文；报表页按 ID 查到时间线、明细行可点查
 
-- [ ] T016 [US3] 新建 oryxos-web/src/main/java/io/oryxos/web/audit/Redactor.java：静态 `String redact(String)`——四类内置形态（API key 已知前缀长随机串 / `Authorization` 凭证段 / URL userinfo / `password|passwd|secret|token|api_key|apikey|access_key` 字段值）命中值替换为 前4字符+`****`；未命中原样返回；规则内置不可配置（data-model 脱敏表）
-- [ ] T017 [P] [US3] 新建 oryxos-web/src/test/java/io/oryxos/web/audit/RedactorTest.java（依赖 T016）：四类形态各正例掩码、普通 JSON/中文文本/普通 URL 不误伤、混合文本只掩敏感段、null/空安全
-- [ ] T018 [US3] 修改 oryxos-web/src/main/java/io/oryxos/web/audit/AuditMetricsService.java（依赖 T007/T016，同文件串行）：traceTimeline 的 inputSummary/resultSummary/errorMessage 经 `Redactor.redact` 后返回（截断→脱敏顺序）；oryxos-web/src/test/java/io/oryxos/web/controller/TraceTimelineTest.java 追加：含敏感参数的步骤展示为掩码、库侧（mock repo 原值）不受影响
-- [ ] T019 [US3] 修改 oryxos-web/src/main/frontend/src/App.vue（依赖 T008/T009）：报表页顶部加 trace ID 查询框 + 时间线渲染（步骤序/类型徽标 LLM|TOOL/名称/成败/耗时；LLM 步 token 与成本、TOOL 步脱敏摘要与 blockedBy 标记；found=false 显示「未找到」）；LLM/工具明细表行显示 traceId 并可点击填入查询框；执行历史行显示 traceId
-- [ ] T020 [P] [US3] 在 oryxos-boot/src/test/java/io/oryxos/boot/TraceE2ETest.java 追加（依赖 T015/T018，同文件串行）：发送含 `"password":"p@ss123"` 与 `Bearer sk-…` 形态的消息（mock 把消息原文当 save_memory 参数）→ 时间线 API 返回掩码、`tool_invocations.input_json` 库中原文完整（SC-006 双向断言）
+- [X] T016 [US3] 新建 oryxos-web/src/main/java/io/oryxos/web/audit/Redactor.java：静态 `String redact(String)`——四类内置形态（API key 已知前缀长随机串 / `Authorization` 凭证段 / URL userinfo / `password|passwd|secret|token|api_key|apikey|access_key` 字段值）命中值替换为 前4字符+`****`；未命中原样返回；规则内置不可配置（data-model 脱敏表）
+- [X] T017 [P] [US3] 新建 oryxos-web/src/test/java/io/oryxos/web/audit/RedactorTest.java（依赖 T016）：四类形态各正例掩码、普通 JSON/中文文本/普通 URL 不误伤、混合文本只掩敏感段、null/空安全
+- [X] T018 [US3] 修改 oryxos-web/src/main/java/io/oryxos/web/audit/AuditMetricsService.java（依赖 T007/T016，同文件串行）：traceTimeline 的 inputSummary/resultSummary/errorMessage 经 `Redactor.redact` 后返回（截断→脱敏顺序）；oryxos-web/src/test/java/io/oryxos/web/controller/TraceTimelineTest.java 追加：含敏感参数的步骤展示为掩码、库侧（mock repo 原值）不受影响
+- [X] T019 [US3] 修改 oryxos-web/src/main/frontend/src/App.vue（依赖 T008/T009）：报表页顶部加 trace ID 查询框 + 时间线渲染（步骤序/类型徽标 LLM|TOOL/名称/成败/耗时；LLM 步 token 与成本、TOOL 步脱敏摘要与 blockedBy 标记；found=false 显示「未找到」）；LLM/工具明细表行显示 traceId 并可点击填入查询框；执行历史行显示 traceId
+- [X] T020 [P] [US3] 在 oryxos-boot/src/test/java/io/oryxos/boot/TraceE2ETest.java 追加（依赖 T015/T018，同文件串行）：发送含 `"password":"p@ss123"` 与 `Bearer sk-…` 形态的消息（mock 把消息原文当 save_memory 参数）→ 时间线 API 返回掩码、`tool_invocations.input_json` 库中原文完整（SC-006 双向断言）
 
 **Checkpoint**: 全部故事独立可测
 

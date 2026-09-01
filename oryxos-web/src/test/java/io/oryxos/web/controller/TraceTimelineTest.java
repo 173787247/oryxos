@@ -113,6 +113,20 @@ class TraceTimelineTest {
   }
 
   @Test
+  void 含敏感参数的步骤_展示掩码_库侧原值不动() {
+    ToolInvocation tool = toolCall(Instant.parse("2026-09-01T10:00:02Z"));
+    tool.setInputJson("{\"password\":\"p@ss123\",\"key\":\"sk-abcdefgh12345678\"}");
+    when(llmCallRepository.findByTraceId(TRACE)).thenReturn(List.of());
+    when(toolInvocationRepository.findByTraceId(TRACE)).thenReturn(List.of(tool));
+
+    String shown = service.traceTimeline(TRACE).steps().get(0).inputSummary();
+
+    assertThat(shown).contains("p@ss****").contains("sk-a****").doesNotContain("p@ss123");
+    // 展示层脱敏不回写实体（落库原文，Clarifications 裁决）
+    assertThat(tool.getInputJson()).contains("p@ss123").contains("sk-abcdefgh12345678");
+  }
+
+  @Test
   void 列表视图traceId字段在位() {
     LlmCall call = llmCall(1L, Instant.parse("2026-09-01T10:00:01Z"), 1, 1, 2, null);
     ToolInvocation tool = toolCall(Instant.parse("2026-09-01T10:00:02Z"));

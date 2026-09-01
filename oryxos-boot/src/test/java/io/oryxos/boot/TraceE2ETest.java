@@ -252,6 +252,38 @@ class TraceE2ETest {
     }
   }
 
+  @Test
+  @Order(7)
+  void 脱敏_展示层掩码_落库原文完整_双向断言() {
+    long maxIdBefore = maxLlmId();
+    // mock 会把消息原文作为 save_memory 的 content 参数 → 敏感形态进入 tool_invocations.input_json
+    invoke("agent-a", "配置 \"password\":\"p@ss123\" 与凭证 Bearer sk-abcdefgh12345678");
+    String traceId = llmCallsAfter(maxIdBefore).get(0).getTraceId();
+
+    // 展示层：时间线 TOOL 步摘要必须掩码（SC-006）
+    JsonNode data = timeline(traceId);
+    String inputSummary = null;
+    for (JsonNode step : data.get("steps")) {
+      if ("TOOL".equals(step.get("type").asText())) {
+        inputSummary = step.get("inputSummary").asText();
+      }
+    }
+    assertNotNull(inputSummary, "时间线应含 TOOL 步摘要");
+    assertTrue(inputSummary.contains("p@ss****"), "password 值应掩码: " + inputSummary);
+    assertTrue(inputSummary.contains("sk-a****"), "API key 应掩码: " + inputSummary);
+    assertFalse(inputSummary.contains("p@ss123"), "展示层不得出现原文口令");
+    assertFalse(inputSummary.contains("sk-abcdefgh12345678"), "展示层不得出现原文 key");
+
+    // 库侧：原文完整（排障现场，Clarifications 裁决）
+    var stored =
+        toolInvocations.findByTraceId(traceId).stream()
+            .filter(t -> "save_memory".equals(t.getToolName()))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(stored.getInputJson().contains("p@ss123"), "库中口令原文必须完整");
+    assertTrue(stored.getInputJson().contains("sk-abcdefgh12345678"), "库中 key 原文必须完整");
+  }
+
   // —— helpers ——
 
   private JsonNode awaitExecutionDone(long executionId) throws InterruptedException {
@@ -291,11 +323,11 @@ class TraceE2ETest {
   private String invoke(String agent, String content) {
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
+    // 消息可能含引号等 JSON 特殊字符（脱敏用例）——必须序列化而非手拼
+    String body = mapper.createObjectNode().put("content", content).toString();
     ResponseEntity<String> response =
         rest.postForEntity(
-            "/api/v1/agents/" + agent + "/invoke",
-            new HttpEntity<>("{\"content\":\"" + content + "\"}", headers),
-            String.class);
+            "/api/v1/agents/" + agent + "/invoke", new HttpEntity<>(body, headers), String.class);
     assertEquals(HttpStatus.OK, response.getStatusCode());
     return readJson(response.getBody()).get("data").get("reply").asText();
   }
