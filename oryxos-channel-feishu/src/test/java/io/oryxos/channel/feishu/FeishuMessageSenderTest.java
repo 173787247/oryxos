@@ -66,11 +66,15 @@ class FeishuMessageSenderTest {
   }
 
   @Test
-  @DisplayName("私聊直发走 create；超长文本逐段发送")
+  @DisplayName("私聊直发走 create；超长文本逐段发送；payload 为 post+md")
   void createPathWithChunks() throws Exception {
     sender.send("oc_1", "1234567890abc", null); // 10 字符上限 → 2 段
-    verify(client.im().message(), times(2)).create(any(CreateMessageReq.class));
+    ArgumentCaptor<CreateMessageReq> captor = ArgumentCaptor.forClass(CreateMessageReq.class);
+    verify(client.im().message(), times(2)).create(captor.capture());
     verify(client.im().message(), never()).reply(any(ReplyMessageReq.class));
+    CreateMessageReq first = captor.getAllValues().get(0);
+    assertEquals("post", first.getCreateMessageReqBody().getMsgType());
+    assertTrue(first.getCreateMessageReqBody().getContent().contains("\"tag\":\"md\""));
   }
 
   @Test
@@ -80,6 +84,7 @@ class FeishuMessageSenderTest {
     ArgumentCaptor<ReplyMessageReq> captor = ArgumentCaptor.forClass(ReplyMessageReq.class);
     verify(client.im().message()).reply(captor.capture());
     verify(client.im().message(), never()).create(any(CreateMessageReq.class));
+    assertEquals("post", captor.getValue().getReplyMessageReqBody().getMsgType());
   }
 
   @Test
@@ -95,7 +100,25 @@ class FeishuMessageSenderTest {
   }
 
   @Test
-  @DisplayName("textContent JSON 编码正确转义")
+  @DisplayName("postMarkdownContent 编码 md 标签并转义")
+  void postMarkdownContentEscapes() {
+    String json = FeishuMessageSender.postMarkdownContent("a\"b");
+    assertTrue(json.contains("\"tag\":\"md\""));
+    assertTrue(json.contains("a\\\"b") || json.contains("a\"b"));
+    assertTrue(json.contains("\"zh_cn\""));
+  }
+
+  @Test
+  @DisplayName("postTitle 取首行并截断")
+  void postTitleFromFirstLine() {
+    assertEquals("OryxOS", FeishuMessageSender.postTitle(""));
+    assertEquals("摘要", FeishuMessageSender.postTitle("## 摘要\n正文"));
+    String title = FeishuMessageSender.postTitle("这是一段很长的标题需要被截断到二十字以后的内容");
+    assertTrue(title.length() <= 20);
+  }
+
+  @Test
+  @DisplayName("textContent JSON 编码正确转义（对照）")
   void textContentEscapes() {
     assertEquals("{\"text\":\"a\\\"b\"}", FeishuMessageSender.textContent("a\"b"));
   }
