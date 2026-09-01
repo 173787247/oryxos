@@ -10,6 +10,10 @@ import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +21,7 @@ import org.slf4j.LoggerFactory;
 /**
  * 钉钉机器人入站适配器：一实例 = 一个应用的一条 Stream 长连接（对称飞书/企微）。
  *
- * <p>凭证映射：{@code app_id} = ClientId，{@code app_secret} = ClientSecret。
+ * <p>凭证映射：{@code app_id} = ClientId，{@code app_secret} = ClientSecret。断线后自动重连（对齐企微 #319）。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "UWF_FIELD_NOT_INITIALIZED_IN_CONSTRUCTOR",
@@ -29,6 +33,9 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   public static final String TYPE = "dingtalk";
 
   private static final Duration START_TIMEOUT = Duration.ofSeconds(20);
+  private static final long RECONNECT_BASE_MS = 2_000L;
+  private static final long RECONNECT_MAX_MS = 60_000L;
+  private static final int RECONNECT_MAX_SHIFT = 5;
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -40,6 +47,10 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   private volatile DingTalkEventNormalizer normalizer;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
   private volatile String lastError;
+  private volatile boolean running;
+  private volatile ScheduledExecutorService reconnectScheduler;
+  private volatile ScheduledFuture<?> reconnectFuture;
+  private int reconnectAttempt;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -79,26 +90,17 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
     }
     guard.check(DingTalkStreamClient.API_BASE_URL);
     guard.check(DingTalkMessageSender.SESSION_WEBHOOK_PREFIX);
+    running = true;
+    reconnectAttempt = 0;
+    cancelReconnectLocked();
     try {
-      normalizer = new DingTalkEventNormalizer(config.name());
-      sender = new DingTalkMessageSender(guard, DingTalkMessageSender.DEFAULT_CHUNK_SIZE);
-      DingTalkStreamClient client =
-          new DingTalkStreamClient(
-              config.appId(),
-              config.appSecret(),
-              guard,
-              this::handleBotMessage,
-              () -> {
-                if (state != ChannelStatus.State.ERROR) {
-                  state = ChannelStatus.State.DISCONNECTED;
-                }
-              });
-      client.connect(START_TIMEOUT);
-      streamRef.set(client);
+      connectLocked();
       state = ChannelStatus.State.CONNECTED;
       lastError = null;
       LOG.info("钉钉渠道 {} Stream 已建立（Agent: {}）", sanitize(config.name()), sanitize(config.agent()));
     } catch (Exception e) {
+      running = false;
+      shutdownReconnectSchedulerLocked();
       state = ChannelStatus.State.ERROR;
       lastError = "Stream 连接失败: " + sanitize(e.getMessage());
       throw new IllegalStateException("渠道 " + config.name() + " " + lastError, e);
@@ -107,6 +109,9 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
 
   @Override
   public synchronized void stop() {
+    running = false;
+    cancelReconnectLocked();
+    shutdownReconnectSchedulerLocked();
     DingTalkStreamClient stream = streamRef.getAndSet(null);
     if (stream != null) {
       stream.closeQuietly();
@@ -134,6 +139,113 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
       throw new IllegalStateException("渠道 " + config.name() + " 未启动，无法发送回复");
     }
     active.send(chatId, text, replyToMessageId);
+  }
+
+  /** 供单测校验退避间隔，不触网。 */
+  static long reconnectDelayMs(int attempt) {
+    int capped = Math.min(Math.max(attempt, 0), RECONNECT_MAX_SHIFT);
+    return Math.min(RECONNECT_BASE_MS * (1L << capped), RECONNECT_MAX_MS);
+  }
+
+  private void connectLocked() throws Exception {
+    normalizer = new DingTalkEventNormalizer(config.name());
+    sender = new DingTalkMessageSender(guard, DingTalkMessageSender.DEFAULT_CHUNK_SIZE);
+    DingTalkStreamClient client =
+        new DingTalkStreamClient(
+            config.appId(),
+            config.appSecret(),
+            guard,
+            this::handleBotMessage,
+            this::handleDisconnected);
+    client.connect(START_TIMEOUT);
+    streamRef.set(client);
+  }
+
+  private void handleDisconnected() {
+    boolean shouldReconnect;
+    synchronized (this) {
+      if (!running || state == ChannelStatus.State.ERROR) {
+        return;
+      }
+      streamRef.set(null);
+      state = ChannelStatus.State.DISCONNECTED;
+      shouldReconnect = true;
+    }
+    if (shouldReconnect) {
+      LOG.warn("钉钉渠道 {} Stream 断开，将自动重连", sanitize(config.name()));
+      scheduleReconnect();
+    }
+  }
+
+  private void scheduleReconnect() {
+    synchronized (this) {
+      if (!running || reconnectFuture != null) {
+        return;
+      }
+      long delayMs = reconnectDelayMs(reconnectAttempt);
+      reconnectFuture =
+          reconnectScheduler().schedule(this::attemptReconnect, delayMs, TimeUnit.MILLISECONDS);
+    }
+  }
+
+  private void attemptReconnect() {
+    synchronized (this) {
+      reconnectFuture = null;
+      if (!running) {
+        return;
+      }
+      try {
+        connectLocked();
+        reconnectAttempt = 0;
+        state = ChannelStatus.State.CONNECTED;
+        lastError = null;
+        LOG.info("钉钉渠道 {} Stream 已恢复", sanitize(config.name()));
+      } catch (Exception e) {
+        reconnectAttempt++;
+        lastError = "Stream 重连失败: " + sanitize(e.getMessage());
+        LOG.warn(
+            "钉钉渠道 {} 重连失败（第 {} 次）: {}",
+            sanitize(config.name()),
+            reconnectAttempt,
+            sanitize(lastError));
+        scheduleReconnect();
+      }
+    }
+  }
+
+  private ScheduledExecutorService reconnectScheduler() {
+    ScheduledExecutorService scheduler = reconnectScheduler;
+    if (scheduler == null) {
+      ScheduledThreadPoolExecutor pool =
+          new ScheduledThreadPoolExecutor(
+              1,
+              r -> {
+                Thread t = new Thread(r, "dingtalk-reconnect-" + sanitize(config.name()));
+                t.setDaemon(true);
+                return t;
+              });
+      pool.setRemoveOnCancelPolicy(true);
+      reconnectScheduler = pool;
+      return pool;
+    }
+    return scheduler;
+  }
+
+  private void cancelReconnectLocked() {
+    ScheduledFuture<?> pending = reconnectFuture;
+    if (pending != null) {
+      pending.cancel(false);
+      reconnectFuture = null;
+    }
+  }
+
+  private void shutdownReconnectSchedulerLocked() {
+    cancelReconnectLocked();
+    ScheduledExecutorService scheduler = reconnectScheduler;
+    if (scheduler != null) {
+      scheduler.shutdownNow();
+      reconnectScheduler = null;
+    }
   }
 
   private void handleBotMessage(JsonNode body) {
