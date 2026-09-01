@@ -50,6 +50,7 @@ class SecretEncryptionE2ETest {
   @Autowired private LlmProviderRepository providers;
   @Autowired private NotifyChannelRepository channels;
   @Autowired private SecretMigration secretMigration;
+  @Autowired private io.oryxos.core.secret.SecretCipher cipher;
 
   private static Path seedWorkspace() {
     try {
@@ -110,9 +111,14 @@ class SecretEncryptionE2ETest {
     assertTrue(storedConfig.contains(CIPHERTEXT_PREFIX));
     assertTrue(storedConfig.contains("smtp.example.com"), "普通项保持明文可读");
 
-    // US3 前现状锚点：渠道查询接口此阶段仍返回明文 config（T017 收口为掩码）
-    JsonNode channel = getJson("/api/v1/notify-channels/mail-e2e").get("data");
-    assertEquals("p@ss-e2e", channel.get("config").get("password").asText());
+    // US3（T017 收口）：渠道查询接口敏感项为掩码、全响应无明文（SC-005）
+    ResponseEntity<String> detail =
+        rest.getForEntity("/api/v1/notify-channels/mail-e2e", String.class);
+    assertEquals(HttpStatus.OK, detail.getStatusCode());
+    assertFalse(detail.getBody().contains("p@ss-e2e"), "查询响应不得含明文密码");
+    JsonNode channel = readJson(detail.getBody()).get("data");
+    assertEquals("****-e2e", channel.get("config").get("password").asText()); // ****+末4位
+    assertEquals("smtp.example.com", channel.get("config").get("host").asText()); // 普通项原样
   }
 
   @Test
@@ -165,7 +171,47 @@ class SecretEncryptionE2ETest {
     assertEquals(32, key.length, "密钥应为 Base64 的 32 字节");
   }
 
+  @Test
+  @Order(5)
+  void 掩码原样PUT_原值保留_新值PUT生效() throws Exception {
+    // 掩码原样提交 = 未修改：解密后仍为原密码（随机 IV 使密文字节每次不同，比对解密值才是正确口径）
+    put(
+        "/api/v1/notify-channels/mail-e2e",
+        "{\"type\":\"email\",\"url\":\"smtp://h\",\"config\":{\"host\":\"smtp.example.com\","
+            + "\"port\":\"465\",\"from\":\"a@b.c\",\"to\":\"ops@b.c\",\"password\":\"****-e2e\"}}");
+    assertEquals("p@ss-e2e", storedPassword(), "掩码提交后原密码必须保留");
+
+    // 新值提交 → 生效（读出为新明文，库中为新密文）
+    put(
+        "/api/v1/notify-channels/mail-e2e",
+        "{\"type\":\"email\",\"url\":\"smtp://h\",\"config\":{\"host\":\"smtp.example.com\","
+            + "\"port\":\"465\",\"from\":\"a@b.c\",\"to\":\"ops@b.c\",\"password\":\"new-p@ss-9\"}}");
+    String storedAfter = channels.findById("mail-e2e").orElseThrow().getConfig();
+    assertFalse(storedAfter.contains("new-p@ss-9"), "新密码同样密文落库");
+    JsonNode updated = getJson("/api/v1/notify-channels/mail-e2e").get("data");
+    assertEquals("****ss-9", updated.get("config").get("password").asText());
+  }
+
   // —— helpers ——
+
+  /** 直查库中 config JSON 的 password 密文并解密（断言"值"而非"密文字节"）。 */
+  private String storedPassword() throws IOException {
+    String configJson = channels.findById("mail-e2e").orElseThrow().getConfig();
+    return cipher.decrypt(mapper.readTree(configJson).get("password").asText());
+  }
+
+  private void put(String path, String body) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    ResponseEntity<String> response =
+        rest.exchange(
+            path,
+            org.springframework.http.HttpMethod.PUT,
+            new HttpEntity<>(body, headers),
+            String.class);
+    assertEquals(
+        HttpStatus.OK, response.getStatusCode(), "PUT " + path + " → " + response.getBody());
+  }
 
   private void post(String path, String body) {
     HttpHeaders headers = new HttpHeaders();

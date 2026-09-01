@@ -71,10 +71,10 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 **Independent Test**: quickstart V7——列表/详情接口敏感项为掩码；编辑不动密码保存后通知照常；新值保存生效
 
-- [ ] T014 [US3] 修改 oryxos-web/src/main/java/io/oryxos/web/controller/dto/NotifyChannelView.java：from 时对 config 中 SensitiveConfigKeys 命中项以 `ProviderView.mask`（`****`+末 4 位、幂等）替换值；新增静态 `maskConfig(Map)` 供 controller 未修改判定复用；javadoc 注明与 ProviderView 同口径
-- [ ] T015 [US3] 修改 oryxos-web/src/main/java/io/oryxos/web/controller/NotifyChannelApiController.java（依赖 T014）：更新路径对敏感项做未修改判定——提交值为空或等于原值掩码 → 沿用原值；否则取新值（加密由注册表收口，controller 不碰密文）；创建路径不变
-- [ ] T016 [P] [US3] 修改 oryxos-web/src/test/java/io/oryxos/web/controller/NotifyChannelApiControllerTest.java（依赖 T015）：列表/详情响应 password 为掩码且无明文、掩码原样提交后原值保留（mock registry 收到原 password）、新值提交生效、非敏感项（host/from）原样回显、Provider 掩码回归不受影响
-- [ ] T017 [US3] 在 oryxos-boot/src/test/java/io/oryxos/boot/SecretEncryptionE2ETest.java 追加（依赖 T013/T015，同文件串行）：`GET /api/v1/notify-channels` 全响应断言不含明文密码、掩码在位（SC-005）；掩码原样 PUT 后库中密文不变（未修改判定全链）；新密码 PUT 后读出为新值
+- [X] T014 [US3] 修改 oryxos-web/src/main/java/io/oryxos/web/controller/dto/NotifyChannelView.java：from 时对 config 中 SensitiveConfigKeys 命中项以 `ProviderView.mask`（`****`+末 4 位、幂等）替换值；新增静态 `maskConfig(Map)` 供 controller 未修改判定复用；javadoc 注明与 ProviderView 同口径
+- [X] T015 [US3] 修改 oryxos-web/src/main/java/io/oryxos/web/controller/NotifyChannelApiController.java（依赖 T014）：更新路径对敏感项做未修改判定——提交值为空或等于原值掩码 → 沿用原值；否则取新值（加密由注册表收口，controller 不碰密文）；创建路径不变
+- [X] T016 [P] [US3] 修改 oryxos-web/src/test/java/io/oryxos/web/controller/NotifyChannelApiControllerTest.java（依赖 T015）：列表/详情响应 password 为掩码且无明文、掩码原样提交后原值保留（mock registry 收到原 password）、新值提交生效、非敏感项（host/from）原样回显、Provider 掩码回归不受影响
+- [X] T017 [US3] 在 oryxos-boot/src/test/java/io/oryxos/boot/SecretEncryptionE2ETest.java 追加（依赖 T013/T015，同文件串行）：`GET /api/v1/notify-channels` 全响应断言不含明文密码、掩码在位（SC-005）；掩码原样 PUT 后库中密文不变（未修改判定全链）；新密码 PUT 后读出为新值
 
 **Checkpoint**: 全部故事独立可测
 
