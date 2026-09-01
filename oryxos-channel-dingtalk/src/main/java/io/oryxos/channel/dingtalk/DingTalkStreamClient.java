@@ -190,7 +190,7 @@ final class DingTalkStreamClient implements WebSocket.Listener {
     }
     if (TOPIC_DISCONNECT.equals(topic)) {
       LOG.info("钉钉 Stream 服务端请求断开: {}", sanitize(dataRaw));
-      markDisconnected();
+      closeQuietly();
       onDisconnected.run();
     }
   }
