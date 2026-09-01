@@ -8,11 +8,13 @@ import io.oryxos.web.controller.dto.LlmCallView;
 import io.oryxos.web.controller.dto.LlmSummaryView;
 import io.oryxos.web.controller.dto.ToolInvocationView;
 import io.oryxos.web.controller.dto.ToolSummaryView;
+import io.oryxos.web.controller.dto.TraceTimelineView;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -103,6 +105,12 @@ public class AuditApiController {
     Instant[] range = range(from, to);
     // 020：blockedBy=policy 只看策略拒绝的调用（FR-006）
     return ApiResponse.ok(metricsService.toolList(range[0], range[1], cap(limit), blockedBy));
+  }
+
+  /** 021：单轮全链路时间线——未命中 200 + found=false（契约 §3，不报 404）。 */
+  @GetMapping("/trace/{traceId}")
+  public ApiResponse<TraceTimelineView> trace(@PathVariable("traceId") String traceId) {
+    return ApiResponse.ok(metricsService.traceTimeline(traceId));
   }
 
   private static Instant[] range(String from, String to) {

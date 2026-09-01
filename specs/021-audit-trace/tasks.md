@@ -49,11 +49,11 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 **Independent Test**: quickstart V1/V2——触发多轮调工具的处理 → 按 traceId 查时间线步数/顺序/汇总正确；两轮互不混串；旧数据既有查询照常
 
-- [ ] T007 [US1] 修改 oryxos-web/src/main/java/io/oryxos/web/audit/AuditMetricsService.java（依赖 T005）：新增 `traceTimeline(String traceId)`——两 repo `findByTraceId` 合并、按 createdAt 排序为 steps（type/name/success/durationMs/at；LLM 步 tokens/costMicros；TOOL 步 inputSummary/resultSummary/errorMessage/blockedBy——摘要先截断 200 字符，脱敏 T018 接入前暂原样）+ summary（steps/llmCalls/toolCalls/totalTokens/costMicros 合计/totalDurationMs=末步 at−首步 at+末步耗时）；未命中返回 found=false 空 steps
-- [ ] T008 [US1] 修改 oryxos-web/src/main/java/io/oryxos/web/controller/AuditApiController.java（依赖 T007）：`GET /api/v1/audit/trace/{traceId}` 返回 TraceTimelineView（契约见 trace-api.md §3；未命中 200 + found=false 不报错）；新建 oryxos-web/src/main/java/io/oryxos/web/controller/dto/TraceTimelineView.java（record，List 组件 copyOf 保不可变——020 SpotBugs 教训）
-- [ ] T009 [P] [US1] 修改列表视图加 trace 维度（依赖 T005）：oryxos-web/src/main/java/io/oryxos/web/controller/dto/LlmCallView.java 与 ToolInvocationView.java 各加 `traceId` 字段（from 方法同步）
-- [ ] T010 [P] [US1] 新建 oryxos-web/src/test/java/io/oryxos/web/controller/TraceTimelineTest.java（依赖 T007/T008）：mock 双 repo——合并排序正确（LLM/TOOL 交错时间序）、LLM 步含 tokens/cost、TOOL 步含摘要与 blockedBy、summary 各项合计正确、found=false 空时间线、列表视图 traceId 字段在位、**traceId 为 null 的旧行在列表视图正常返回**（FR-010 旧数据兼容断言）
-- [ ] T011 [US1] 新建 oryxos-boot/src/test/java/io/oryxos/boot/TraceE2ETest.java（依赖 T004/T005/T008；镜像 ToolPolicyE2ETest 的 mock provider 模式）：invoke 一轮（mock 两 LLM+一工具）→ 从审计表取该轮 traceId → `GET /audit/trace/{id}` 步数=3、时间序正确、summary 合计正确（SC-002）；连续两轮各自 traceId 不同且互不混串；并发两 Agent 同时 invoke 审计无串号（SC-003，虚拟线程并发）
+- [X] T007 [US1] 修改 oryxos-web/src/main/java/io/oryxos/web/audit/AuditMetricsService.java（依赖 T005）：新增 `traceTimeline(String traceId)`——两 repo `findByTraceId` 合并、按 createdAt 排序为 steps（type/name/success/durationMs/at；LLM 步 tokens/costMicros；TOOL 步 inputSummary/resultSummary/errorMessage/blockedBy——摘要先截断 200 字符，脱敏 T018 接入前暂原样）+ summary（steps/llmCalls/toolCalls/totalTokens/costMicros 合计/totalDurationMs=末步 at−首步 at+末步耗时）；未命中返回 found=false 空 steps
+- [X] T008 [US1] 修改 oryxos-web/src/main/java/io/oryxos/web/controller/AuditApiController.java（依赖 T007）：`GET /api/v1/audit/trace/{traceId}` 返回 TraceTimelineView（契约见 trace-api.md §3；未命中 200 + found=false 不报错）；新建 oryxos-web/src/main/java/io/oryxos/web/controller/dto/TraceTimelineView.java（record，List 组件 copyOf 保不可变——020 SpotBugs 教训）
+- [X] T009 [P] [US1] 修改列表视图加 trace 维度（依赖 T005）：oryxos-web/src/main/java/io/oryxos/web/controller/dto/LlmCallView.java 与 ToolInvocationView.java 各加 `traceId` 字段（from 方法同步）
+- [X] T010 [P] [US1] 新建 oryxos-web/src/test/java/io/oryxos/web/controller/TraceTimelineTest.java（依赖 T007/T008）：mock 双 repo——合并排序正确（LLM/TOOL 交错时间序）、LLM 步含 tokens/cost、TOOL 步含摘要与 blockedBy、summary 各项合计正确、found=false 空时间线、列表视图 traceId 字段在位、**traceId 为 null 的旧行在列表视图正常返回**（FR-010 旧数据兼容断言）
+- [X] T011 [US1] 新建 oryxos-boot/src/test/java/io/oryxos/boot/TraceE2ETest.java（依赖 T004/T005/T008；镜像 ToolPolicyE2ETest 的 mock provider 模式）：invoke 一轮（mock 两 LLM+一工具）→ 从审计表取该轮 traceId → `GET /audit/trace/{id}` 步数=3、时间序正确、summary 合计正确（SC-002）；连续两轮各自 traceId 不同且互不混串；并发两 Agent 同时 invoke 审计无串号（SC-003，虚拟线程并发）
 
 **Checkpoint**: quickstart V1/V2 可走通——MVP 可交付
 

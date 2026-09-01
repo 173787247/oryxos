@@ -3,7 +3,7 @@ package io.oryxos.web.controller.dto;
 import io.oryxos.storage.LlmCall;
 import java.time.Instant;
 
-/** LLM 调用明细（下钻）。 */
+/** LLM 调用明细（下钻）；traceId（021）为行级 trace 维度入口，旧行为 null。 */
 public record LlmCallView(
     Long id,
     String profileName,
@@ -15,7 +15,8 @@ public record LlmCallView(
     Long costMicros,
     boolean success,
     long durationMs,
-    Instant createdAt) {
+    Instant createdAt,
+    String traceId) {
 
   public static LlmCallView from(LlmCall c) {
     return new LlmCallView(
@@ -29,6 +30,7 @@ public record LlmCallView(
         c.getCostMicros(),
         c.isSuccess(),
         c.getDurationMs(),
-        c.getCreatedAt());
+        c.getCreatedAt(),
+        c.getTraceId());
   }
 }
