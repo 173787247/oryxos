@@ -259,6 +259,71 @@ class KnowledgeBackendContractTest {
   }
 
   @Test
+  void deleteDuringIndexingLeavesNoOrphanChunks() {
+    // TOCTOU 窗口：embed 是秒级外部调用，进行中文档被删——落库前必须复检，否则孤儿片段仍可被召回（SC-006）
+    java.util.concurrent.atomic.AtomicBoolean deleted =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    embedderRef.set(
+        () ->
+            new TextEmbedder() {
+              @Override
+              public float[] embed(String text) {
+                if (deleted.compareAndSet(false, true)) {
+                  backend.deleteDocument("ops", "disk-alert.md"); // embed 进行中删除文档
+                }
+                return new float[16];
+              }
+
+              @Override
+              public String modelId() {
+                return "test/v1";
+              }
+
+              @Override
+              public int dimensions() {
+                return 16;
+              }
+            });
+
+    backend.importDocument("ops", "disk-alert.md");
+    runBackground();
+
+    assertTrue(backend.status("ops").isEmpty(), "索引期间被删的文档不得留下任何行（含 FAILED 复活）");
+    assertTrue(store.chunks("ops", 0).isEmpty(), "索引期间被删的文档不得留下孤儿片段");
+    assertTrue(retrieve("磁盘告警", 5, "ops").isEmpty(), "已删文档内容不得被检索命中");
+  }
+
+  @Test
+  void vectorRecallFailureDegradesWithReason() {
+    indexReady();
+    // embedder bean 在、embed 调用才失败（embedding API 宕机）：必须标注降级，不能静默吞成纯关键词结果
+    embedderRef.set(
+        () ->
+            new TextEmbedder() {
+              @Override
+              public float[] embed(String text) {
+                throw new IllegalStateException("embedding API 503");
+              }
+
+              @Override
+              public String modelId() {
+                return "test/v1";
+              }
+
+              @Override
+              public int dimensions() {
+                return 16;
+              }
+            });
+
+    List<KnowledgeHit> hits = retrieve("磁盘告警", 5, "ops");
+
+    assertFalse(hits.isEmpty(), "关键词路应继续服务");
+    assertTrue(hits.stream().allMatch(KnowledgeHit::degraded), "向量路失败必须逐条标注降级（FR-013）");
+    assertTrue(String.valueOf(hits.get(0).payload().get("degraded_reason")).contains("关键词"));
+  }
+
+  @Test
   void capabilitiesAreHonestAboutAdminPresence() {
     // 行为契约 7：能力声明与 admin() 有无一致（规避「契约谎言」）
     assertTrue(backend.capabilities().importDocs());

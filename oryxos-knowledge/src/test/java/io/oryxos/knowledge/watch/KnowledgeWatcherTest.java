@@ -116,6 +116,23 @@ class KnowledgeWatcherTest {
     assertTrue(store.allDocuments("ops").isEmpty());
   }
 
+  @Test
+  @DisplayName("库内新建嵌套子目录 → 递归补挂监听（WatchService 非递归，不补挂则嵌套文档改动永不投递）")
+  void nestedDirectoryCreateIsWatchedRecursively() throws IOException {
+    Path kb = knowledgeBase("ops", "运维手册");
+    Path nested = Files.createDirectories(kb.resolve("sub").resolve("deeper"));
+    java.nio.file.WatchService watchService = kbRoot.getFileSystem().newWatchService();
+    try {
+      watcher.dispatch(
+          watchService, kb, nested.getParent(), java.nio.file.StandardWatchEventKinds.ENTRY_CREATE);
+
+      assertTrue(watcher.watching(nested.getParent()), "新建子目录必须补挂监听");
+      assertTrue(watcher.watching(nested), "子目录自带的更深层目录也必须补挂");
+    } finally {
+      watchService.close();
+    }
+  }
+
   private Path knowledgeBase(String name, String description) throws IOException {
     Path dir = Files.createDirectories(kbRoot.resolve(name));
     Files.writeString(

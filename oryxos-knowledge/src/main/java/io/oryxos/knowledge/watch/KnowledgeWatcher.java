@@ -8,8 +8,10 @@ import io.oryxos.core.knowledge.KnowledgeBackendRegistry;
 import io.oryxos.core.knowledge.KnowledgeManifest;
 import io.oryxos.knowledge.index.KnowledgeIndexService;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
@@ -17,13 +19,15 @@ import java.nio.file.WatchService;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 // GitOps 录入路径（FR-010 / US4）：实时监听 .oryxos/knowledge/，库目录/文档的增改删收敛到
 // KnowledgeIndexService.reconcile（指纹去重，重复触发廉价幂等）。骨架照 WorkspaceWatcher 的
-// 「非递归补挂」：根目录盯子库目录增删，每个库目录各自盯文档变更；启动先全量对账（US4 场景 5：
-// 停机期间的目录变更由对账收敛）。基础设施守护线程，不把异步引进请求链路（不违反宪法七）。
+// 「补挂」思路：根目录盯子库目录增删，库目录树递归补挂（WatchService 本身非递归，嵌套子目录
+// 不补挂则其中文档的变更永不投递）；启动先全量对账（US4 场景 5：停机期间的目录变更由对账收敛）。
+// 基础设施守护线程，不把异步引进请求链路（不违反宪法七）。
 /** 实时监听 {@code .oryxos/knowledge/}，把知识库目录变更收敛到索引对账。 */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
@@ -56,7 +60,7 @@ public class KnowledgeWatcher {
       try (DirectoryStream<Path> children =
           Files.newDirectoryStream(knowledgeDir, Files::isDirectory)) {
         for (Path child : children) {
-          registerDir(watchService, child);
+          watchTreeQuietly(watchService, child); // 含既有嵌套子目录：WatchService 是浅的，必须逐层补挂
           reconcileQuietly(child); // 启动对账：停机期间的增改删在此收敛（FR-010）
         }
       }
@@ -102,20 +106,42 @@ public class KnowledgeWatcher {
   }
 
   // 把一个目录事件收敛到库级动作。包级可见供单测直接调（不依赖真实事件时序）。
-  //  - 根目录事件：子库目录新增（补挂监听 + 对账）与删除（清索引）；
-  //  - 库目录事件：任何文档/清单变更 → 整库对账（指纹去重使其廉价幂等，天然覆盖嵌套子目录文档）。
+  //  - 根目录事件：子库目录新增（递归补挂监听 + 对账）与删除（清索引）；
+  //  - 库目录事件：新建子目录递归补挂（WatchService 非递归，不补挂则嵌套文档改动永不投递），
+  //    任何文档/清单变更 → 整库对账（指纹去重使其廉价幂等）。
   /** 把一个目录事件收敛到库级对账/清理。 */
   void dispatch(WatchService watchService, Path dir, Path changed, WatchEvent.Kind<?> kind) {
     if (knowledgeDir.equals(dir)) {
-      if (kind == ENTRY_CREATE && Files.isDirectory(changed)) {
-        watchDirQuietly(watchService, changed);
+      if (kind == ENTRY_CREATE && Files.isDirectory(changed, LinkOption.NOFOLLOW_LINKS)) {
+        watchTreeQuietly(watchService, changed);
         reconcileQuietly(changed);
       } else if (kind == ENTRY_DELETE) {
         removeBase(changed);
       }
       return;
     }
+    if (kind == ENTRY_CREATE && Files.isDirectory(changed, LinkOption.NOFOLLOW_LINKS)) {
+      watchTreeQuietly(watchService, changed); // 嵌套子目录（可能自带更深层）：整棵补挂
+    }
     reconcileQuietly(dir); // 库目录内任何变更 → 整库对账
+  }
+
+  /** 递归补挂一棵目录树；目录软链不跟随（与索引侧 NOFOLLOW 口径一致），单层失败只告警。 */
+  private void watchTreeQuietly(WatchService watchService, Path root) {
+    try (Stream<Path> walk = Files.walk(root)) {
+      walk.filter(dir -> Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS))
+          .forEach(dir -> watchDirQuietly(watchService, dir));
+    } catch (IOException | UncheckedIOException e) {
+      LOG.warn(
+          "监听知识库目录树 {} 失败：{}",
+          sanitize(String.valueOf(root.getFileName())),
+          sanitize(e.getMessage()));
+    }
+  }
+
+  /** 单测探针：目录是否已挂监听（真实事件时序不可测，钉注册行为）。 */
+  boolean watching(Path dir) {
+    return watchedDirs.containsValue(dir);
   }
 
   private void watchDirQuietly(WatchService watchService, Path dir) {
