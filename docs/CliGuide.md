@@ -186,6 +186,12 @@ curl -H "X-API-Key: oryx_..." http://localhost:8080/api/v1/profiles
 
 ---
 
+### 4.9 审计 Trace（021）——报障定位与全链路回放
+
+每次消息处理生成唯一 trace ID：REST 响应体（`data.traceId`）、SSE 流首 `trace` 事件、执行历史行里都能拿到。用户报障时报上这个 ID，管理员在管理台「报表」页输入即可回放本轮完整链路（每次 LLM 调用与工具执行的时间序、耗时、token 与成本合计），或直接查 `GET /api/v1/audit/trace/{traceId}`；服务日志里同一 ID 经 MDC 贯穿，`grep <traceId>` 可与审计互查。时间线里的工具参数/结果摘要经内置规则脱敏（API key、口令类字段掩码），库中保留原文供特权排障。
+
+---
+
 ## 5. 配置与凭证
 
 **凭证只走环境变量，绝不明文写进任何文件**（宪法约束）：
