@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 钉钉机器人回复：经入站消息携带的 {@code sessionWebhook} POST 文本；出站前过 {@link OutboundGuard}。
+ * 钉钉机器人回复：经入站消息携带的 {@code sessionWebhook} POST markdown（对齐企微出站）；出站前过 {@link OutboundGuard}。
  *
  * <p>群聊 B4：{@code replyToMessageId} 非空时附带 {@code at.atUserIds} 引用提问者（会话内可对应）。
  */
@@ -25,6 +25,8 @@ public class DingTalkMessageSender {
 
   static final int DEFAULT_CHUNK_SIZE = 3500;
   static final String SESSION_WEBHOOK_PREFIX = "https://oapi.dingtalk.com";
+  static final String MSG_TYPE_MARKDOWN = "markdown";
+  static final String DEFAULT_MARKDOWN_TITLE = "OryxOS";
   private static final int HTTP_STATUS_OK_MIN = 200;
   private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
@@ -71,15 +73,17 @@ public class DingTalkMessageSender {
             ? groupAtUserIds.get(conversationId)
             : null;
     for (String chunk : segment(text == null ? "" : text, chunkSize)) {
-      postText(webhook, chunk, atUserId);
+      postMarkdown(webhook, chunk, atUserId);
     }
   }
 
-  private void postText(String webhook, String content, String atUserId) {
+  private void postMarkdown(String webhook, String content, String atUserId) {
     try {
       ObjectNode body = MAPPER.createObjectNode();
-      body.put("msgtype", "text");
-      body.putObject("text").put("content", content);
+      body.put("msgtype", MSG_TYPE_MARKDOWN);
+      ObjectNode markdown = body.putObject("markdown");
+      markdown.put("title", markdownTitle(content));
+      markdown.put("text", content);
       if (atUserId != null && !atUserId.isBlank()) {
         ObjectNode at = body.putObject("at");
         ArrayNode ids = MAPPER.createArrayNode();
@@ -119,6 +123,26 @@ public class DingTalkMessageSender {
       parts.add(text.substring(i, Math.min(text.length(), i + chunkSize)));
     }
     return parts;
+  }
+
+  /** 钉钉 markdown 必填 title：取首行摘要，过长截断；空内容用默认标题。 */
+  static String markdownTitle(String content) {
+    if (content == null || content.isBlank()) {
+      return DEFAULT_MARKDOWN_TITLE;
+    }
+    String line = content.stripLeading();
+    int newline = line.indexOf('\n');
+    if (newline >= 0) {
+      line = line.substring(0, newline);
+    }
+    line = line.strip();
+    if (line.startsWith("#")) {
+      line = line.replaceFirst("^#+\\s*", "");
+    }
+    if (line.length() > 20) {
+      line = line.substring(0, 20);
+    }
+    return line.isBlank() ? DEFAULT_MARKDOWN_TITLE : line;
   }
 
   /**
