@@ -36,6 +36,11 @@ public class KnowledgeWatcher {
   private final KnowledgeIndexService indexService;
   private final Executor watcherExecutor;
 
+  /**
+   * start() 创建、stop() 关闭（volatile：start 在启动线程写、stop 在 Spring 关闭线程读）。 start 失败时保持 null，stop 静默跳过。
+   */
+  private volatile WatchService watchService;
+
   /** {@link WatchKey} → 被监听目录（根目录或某个库目录），把事件解析回来源目录。 */
   private final Map<WatchKey, Path> watchedDirs = new ConcurrentHashMap<>();
 
@@ -64,7 +69,24 @@ public class KnowledgeWatcher {
       LOG.warn("KnowledgeWatcher 启动失败，知识库热加载不可用: {}", sanitize(e.getMessage()));
       return;
     }
+    this.watchService = watchService;
     watcherExecutor.execute(() -> loop(watchService));
+  }
+
+  /**
+   * 关闭 WatchService 令监听循环退出（take() 抛 ClosedWatchServiceException）。 必须在所属执行器的 SmartLifecycle
+   * 停止之前调用——执行器的 stop 回调要等「运行中任务数归零」 才触发（Spring 6.2 ExecutorLifecycleDelegate 语义），监听循环不退出就等满 30s
+   * 超时（#332）。 装配层以 ContextClosedEvent 监听器触发（该事件先于生命周期停机发布）。
+   */
+  public void stop() {
+    WatchService ws = watchService;
+    if (ws != null) {
+      try {
+        ws.close();
+      } catch (IOException e) {
+        LOG.warn("关闭 KnowledgeWatcher 失败: {}", sanitize(e.getMessage()));
+      }
+    }
   }
 
   private void registerDir(WatchService watchService, Path dir) throws IOException {
@@ -80,6 +102,8 @@ public class KnowledgeWatcher {
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
+      } catch (java.nio.file.ClosedWatchServiceException e) {
+        return; // stop() 关闭了服务：正常退出路径（#332）
       }
       Path dir = watchedDirs.get(key);
       if (dir != null) {

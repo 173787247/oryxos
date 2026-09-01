@@ -117,8 +117,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -324,6 +326,21 @@ public class OryxOsRuntime {
     executor.setDaemon(true); // chat 跑完进程要能退出；serve/gateway 常驻靠主线程保活
     executor.initialize();
     return executor;
+  }
+
+  /**
+   * #332：ContextClosedEvent 先于 SmartLifecycle 停机发布（AbstractApplicationContext.doClose 顺序）， 在此关闭两个
+   * WatchService → 监听循环退出 → 执行器「运行中任务数」归零 → 其 stop 回调即时触发， 生命周期停机不再等满 30s latch 超时。不关的话
+   * watchService.take() 无事件/中断/关闭三者不醒。
+   */
+  @Bean
+  ApplicationListener<ContextClosedEvent> watcherGracefulShutdown(
+      WorkspaceWatcher workspaceWatcher,
+      io.oryxos.knowledge.watch.KnowledgeWatcher knowledgeWatcher) {
+    return event -> {
+      workspaceWatcher.stop();
+      knowledgeWatcher.stop();
+    };
   }
 
   /** 30 节：实时监听 .oryxos/agents/——守护线程上跑监听循环，启动后的变更走同一段 register。 */
