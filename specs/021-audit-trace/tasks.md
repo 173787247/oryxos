@@ -96,8 +96,8 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 - [X] T021 [P] 文档同步：website/zh/docs/api.md 与 website/docs/api.md 补 trace 节（回传通道/时间线端点/脱敏承诺，对齐 contracts/trace-api.md）；docs/CliGuide.md 或部署文档提及「响应里的 traceId 用于报障定位」
 - [X] T022 [P] 更新 CLAUDE.md 审计相关段落：补 trace_id 列与「一次消息处理=一个 trace」口径一句话（SQLite 核心表小节）
-- [ ] T023 按 quickstart.md 完整走查 V1~V8（V8 浏览器走查复用缓存 Chromium + playwright-core 方式）并记录到 specs/021-audit-trace/acceptance-report.md（SC-001~SC-008 逐项对勾，镜像 018~020 报告形式）
-- [ ] T024 运行 `mvn verify` 全量质量门禁并清零新增告警（Spotless + P3C + Checkstyle + SpotBugs/FindSecBugs + OWASP）
+- [X] T023 按 quickstart.md 完整走查 V1~V8（V8 浏览器走查复用缓存 Chromium + playwright-core 方式）并记录到 specs/021-audit-trace/acceptance-report.md（SC-001~SC-008 逐项对勾，镜像 018~020 报告形式）
+- [X] T024 运行 `mvn verify` 全量质量门禁并清零新增告警（Spotless + P3C + Checkstyle + SpotBugs/FindSecBugs + OWASP）
 
 ---
 
