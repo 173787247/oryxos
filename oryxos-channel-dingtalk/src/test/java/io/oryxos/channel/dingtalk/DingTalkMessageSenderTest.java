@@ -47,8 +47,8 @@ class DingTalkMessageSenderTest {
   }
 
   @Test
-  @DisplayName("sessionWebhook 发送 text 并过 OutboundGuard")
-  void sendTextViaSessionWebhook() throws Exception {
+  @DisplayName("sessionWebhook 发送 markdown 并过 OutboundGuard")
+  void sendMarkdownViaSessionWebhook() throws Exception {
     String webhookUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/hook";
     DingTalkMessageSender sender =
         new DingTalkMessageSender(
@@ -59,9 +59,20 @@ class DingTalkMessageSenderTest {
     assertEquals(webhookUrl, guarded.get());
     assertEquals(1, bodies.size());
     JsonNode body = MAPPER.readTree(bodies.get(0));
-    assertEquals("text", body.path("msgtype").asText());
-    assertEquals("你好", body.path("text").path("content").asText());
+    assertEquals(DingTalkMessageSender.MSG_TYPE_MARKDOWN, body.path("msgtype").asText());
+    assertEquals("你好", body.path("markdown").path("text").asText());
+    assertEquals("你好", body.path("markdown").path("title").asText());
     assertTrue(body.path("at").isMissingNode());
+  }
+
+  @Test
+  @DisplayName("markdown title 取首行并截断")
+  void markdownTitleFromFirstLine() {
+    assertEquals("OryxOS", DingTalkMessageSender.markdownTitle(""));
+    assertEquals("摘要", DingTalkMessageSender.markdownTitle("## 摘要\n正文"));
+    String title = DingTalkMessageSender.markdownTitle("这是一段很长的标题需要被截断到二十字以后的内容");
+    assertTrue(title.length() <= 20);
+    assertTrue(title.startsWith("这是一段很长的标题"));
   }
 
   @Test
@@ -74,6 +85,7 @@ class DingTalkMessageSenderTest {
     sender.send("conv-g", "答", "msg-1");
 
     JsonNode body = MAPPER.readTree(bodies.get(0));
+    assertEquals(DingTalkMessageSender.MSG_TYPE_MARKDOWN, body.path("msgtype").asText());
     assertEquals("staff-9", body.path("at").path("atUserIds").get(0).asText());
   }
 
