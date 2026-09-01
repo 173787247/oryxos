@@ -8,6 +8,8 @@ import io.oryxos.tool.sandbox.PinnedHttpReadClient;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -35,6 +37,9 @@ public class HttpTools {
 
   /** fetch_webpage 抽取正文的长度上限，防超大页面撑爆上下文。 */
   private static final int FETCH_TEXT_MAX = 20000;
+
+  /** download_file 落盘上限：超限即中止并删半成品——URL 默认放行，模型可触达任意公网大文件，全量缓冲会 OOM。 */
+  private static final long DOWNLOAD_MAX_BYTES = 50L * 1024 * 1024;
 
   private static final String DEFAULT_METHOD = "GET";
 
@@ -73,9 +78,17 @@ public class HttpTools {
   /** HTTP_REQUEST 专用：保留域名白名单语义，不额外拒绝运营者显式批准的内网端点。 */
   private final RestClient writeClient;
 
+  /** 下载落盘上限（可注入便于测试，生产固定 {@link #DOWNLOAD_MAX_BYTES}）。 */
+  private final long downloadMaxBytes;
+
   public HttpTools(Sandbox sandbox, RestClient restClient) {
+    this(sandbox, restClient, DOWNLOAD_MAX_BYTES);
+  }
+
+  HttpTools(Sandbox sandbox, RestClient restClient, long downloadMaxBytes) {
     this.sandbox = Objects.requireNonNull(sandbox, "sandbox 不能为空");
     Objects.requireNonNull(restClient, "restClient 不能为空"); // 保留构造签名，供 Spring 装配
+    this.downloadMaxBytes = downloadMaxBytes;
     JdkClientHttpRequestFactory writeFactory =
         new JdkClientHttpRequestFactory(
             HttpClient.newBuilder()
@@ -343,34 +356,123 @@ public class HttpTools {
     return htmlToText(html);
   }
 
-  @Tool(name = "download_file", description = "下载一个 URL 的内容到指定本地文件路径（URL：默认放行 + SSRF；本地路径：文件白名单）")
+  @Tool(
+      name = "download_file",
+      description = "下载一个 URL 的内容到指定本地文件路径（URL：默认放行 + SSRF；本地路径：文件白名单；超过 50MB 中止）")
   public String downloadFile(
       @ToolParam(description = "要下载的 URL") String url,
       @ToolParam(description = "保存到的本地文件路径") String path) {
-    MemoryMdGuard.rejectMutation(path);
-    AdminConfigFileGuard.rejectMutation(path);
-    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
-    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
-    sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path)); // 先校验落盘路径
-    byte[] data = read(url, byte[].class); // 读远端：放行 + 内网黑名单 + 逐跳重定向重校验
-    byte[] bytes = data == null ? new byte[0] : data;
+    enforceWriteGuards(path); // 先校验落盘路径，被拒就不发起网络请求
+    Path file = Path.of(path);
     try {
-      Path file = Path.of(path);
       Path parent = file.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
       }
-      // 写前复检：与 write_file 同款——createDirectories 之后、Files.write 之前。
-      // 复检若放在建目录前，通过后父路径仍可被换成外向软链，写出白名单。
-      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
-      MemoryMdGuard.rejectMutation(path);
-      AdminConfigFileGuard.rejectMutation(path);
-      WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
-      WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
-      Files.write(file, bytes);
-      return "已下载到: " + path + "（" + bytes.length + " 字节）";
     } catch (IOException e) {
-      throw new UncheckedIOException("下载写入失败: " + path, e);
+      throw new UncheckedIOException("下载建目录失败: " + path, e);
+    }
+    // 写前复检：与 write_file 同款——createDirectories 之后、写文件之前。
+    // 复检若放在建目录前，通过后父路径仍可被换成外向软链，写出白名单。
+    enforceWriteGuards(path);
+    long bytes = downloadTo(url, file); // 读远端：放行 + 内网黑名单 + 逐跳重定向重校验
+    return "已下载到: " + path + "（" + bytes + " 字节）";
+  }
+
+  /** 落盘路径的全部写守卫：三守卫 + 文件白名单（调用点：下载前与建目录后复检各一次）。 */
+  private void enforceWriteGuards(String path) {
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
+    sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
+  }
+
+  /**
+   * 流式下载：手动跟随重定向（每跳重过 {@code HTTP_READ} 校验），响应体边读边写、超 {@link #DOWNLOAD_MAX_BYTES}
+   * 即中止并删半成品——不再全量缓冲进内存。
+   */
+  private long downloadTo(String url, Path file) {
+    String current = url;
+    for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      sandbox.enforce(new SandboxAction(ActionType.HTTP_READ, current)); // 每跳校验
+      String next;
+      try (PinnedHttpReadClient client =
+          PinnedHttpReadClient.open(sandbox, CONNECT_TIMEOUT, READ_TIMEOUT)) {
+        next = streamOneHop(client, current, file);
+      }
+      if (next == null) {
+        try {
+          return Files.size(file); // 本跳已落盘
+        } catch (IOException e) {
+          throw new UncheckedIOException("下载读取落盘信息失败: " + file, e);
+        }
+      }
+      current = URI.create(current).resolve(next).toString();
+    }
+    throw new IllegalStateException("重定向次数过多，拒绝: " + url);
+  }
+
+  /**
+   * 下载一跳：3xx 且带 Location 返回下一跳 URL（不读 body）；否则把响应体流式写入 {@code file} 并返回 null。 4xx/5xx 拒绝落盘（与
+   * retrieve() 的语义对齐，错误页不当成下载内容）。
+   */
+  private String streamOneHop(PinnedHttpReadClient client, String url, Path file) {
+    return client
+        .restClient()
+        .method(HttpMethod.GET)
+        .uri(url)
+        .exchange(
+            (request, response) -> {
+              if (response.getStatusCode().is3xxRedirection()) {
+                String location = response.getHeaders().getFirst("Location");
+                if (location != null && !location.isBlank()) {
+                  response.close();
+                  return location;
+                }
+              }
+              if (response.getStatusCode().isError()) {
+                response.close();
+                throw new IllegalStateException(
+                    "下载失败: HTTP " + response.getStatusCode().value() + " " + url);
+              }
+              try (InputStream in = response.getBody()) {
+                copyBounded(in, file, url, downloadMaxBytes);
+                return null;
+              } catch (IOException e) {
+                throw new UncheckedIOException("下载读取失败: " + url, e);
+              }
+            });
+  }
+
+  /** 边读边写并计数；超上限时中止、关闭流后删除半成品文件（Windows 上打开中的文件删不掉）， 不留部分下载内容被误用。 */
+  private static void copyBounded(InputStream in, Path file, String url, long maxBytes)
+      throws IOException {
+    long total = 0;
+    boolean exceeded = false;
+    try (OutputStream out = Files.newOutputStream(file)) {
+      byte[] buffer = new byte[8192];
+      int n;
+      while ((n = in.read(buffer)) != -1) {
+        total += n;
+        if (total > maxBytes) {
+          exceeded = true;
+          break;
+        }
+        out.write(buffer, 0, n);
+      }
+    }
+    if (exceeded) {
+      deleteQuietly(file);
+      throw new IllegalStateException("下载中止：超过上限 " + maxBytes + " 字节: " + url);
+    }
+  }
+
+  private static void deleteQuietly(Path file) {
+    try {
+      Files.deleteIfExists(file);
+    } catch (IOException e) {
+      // 半成品删不掉不掩盖原始失败——中止异常照常抛出
     }
   }
 

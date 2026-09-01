@@ -720,4 +720,36 @@ class HttpToolsTest {
     assertTrue(Files.exists(target));
     assertTrue(Files.readString(target).contains("晴"));
   }
+
+  @Test
+  @DisplayName("download_file 超过大小上限_中止并删除半成品（流式限长，不全量缓冲）")
+  void downloadFileAbortsAndDeletesPartialWhenOverLimit(@TempDir Path dir) throws IOException {
+    HttpServer big = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    try {
+      big.createContext(
+          "/big",
+          exchange -> {
+            byte[] chunk = new byte[8192];
+            exchange.sendResponseHeaders(200, 4L * chunk.length);
+            for (int i = 0; i < 4; i++) {
+              exchange.getResponseBody().write(chunk);
+            }
+            exchange.close();
+          });
+      big.start();
+      // 上限注入 1KB，服务端给 32KB——不必真传 50MB 即可验证限长
+      HttpTools limited = new HttpTools(new PermissiveSandbox(), RestClient.create(), 1024);
+      Path target = dir.resolve("big.bin");
+      String bigUrl = "http://127.0.0.1:" + big.getAddress().getPort() + "/big";
+
+      IllegalStateException ex =
+          assertThrows(
+              IllegalStateException.class, () -> limited.downloadFile(bigUrl, target.toString()));
+
+      assertTrue(ex.getMessage().contains("上限"));
+      assertTrue(Files.notExists(target), "超限后半成品必须删除，不得留部分下载内容");
+    } finally {
+      big.stop(0);
+    }
+  }
 }

@@ -81,4 +81,18 @@ class McpToolAdapterTest {
     assertTrue(result.retryable(), "网络/限流类失败值得循环再试一次");
     assertTrue(result.errorMessage().contains("rate limited"));
   }
+
+  @Test
+  @DisplayName("返回内容超 64KB_截断并标注（全文回灌模型上下文，无界文本会撑爆窗口）")
+  void oversizedContentIsTruncated() throws Exception {
+    String big = "x".repeat(64 * 1024 + 100);
+    when(client.callTool(org.mockito.ArgumentMatchers.any()))
+        .thenReturn(new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(big)), false));
+
+    ToolResult result = adapter.execute(MAPPER.readTree("{}"));
+
+    assertTrue(result.success());
+    assertTrue(result.content().contains("已截断"));
+    assertTrue(result.content().length() < big.length(), "截断后必须短于原始内容");
+  }
 }

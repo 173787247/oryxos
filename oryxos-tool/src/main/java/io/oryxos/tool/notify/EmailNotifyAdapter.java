@@ -45,6 +45,12 @@ public final class EmailNotifyAdapter implements NotifyChannelAdapter {
   private static final int DEFAULT_SSL_PORT = 465;
   private static final int DEFAULT_STARTTLS_PORT = 587;
 
+  /**
+   * SMTP 三段超时（建连/读/写）：Jakarta Mail 缺省无限阻塞，同步执行模型（宪法 VII）下挂死的 SMTP 端点会把该 virtual thread 连同整个 ReAct
+   * 轮永久卡住——与 HttpTools/MCP 的超时口径对齐。
+   */
+  private static final String SMTP_TIMEOUT_MS = "10000";
+
   /** 凭证环境变量占位的包裹符：{@code ${VAR}} → 读取环境变量 VAR。 */
   private static final String ENV_PREFIX = "${";
 
@@ -74,6 +80,9 @@ public final class EmailNotifyAdapter implements NotifyChannelAdapter {
     Properties props = new Properties();
     props.put("mail.smtp.host", host);
     props.put("mail.smtp.port", String.valueOf(port));
+    props.put("mail.smtp.connectiontimeout", SMTP_TIMEOUT_MS);
+    props.put("mail.smtp.timeout", SMTP_TIMEOUT_MS);
+    props.put("mail.smtp.writetimeout", SMTP_TIMEOUT_MS);
     if (ENCRYPTION_SSL.equals(encryption)) {
       props.put("mail.smtp.ssl.enable", "true");
     } else if (ENCRYPTION_STARTTLS.equals(encryption)) {
