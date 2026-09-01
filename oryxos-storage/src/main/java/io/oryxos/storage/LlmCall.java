@@ -42,6 +42,10 @@ public class LlmCall {
   @Column(name = "profile_name")
   private String profileName;
 
+  /** 单轮处理串联标识（021）：同一次消息处理的全部审计记录共享；升级前旧行为 null。 */
+  @Column(name = "trace_id")
+  private String traceId;
+
   @Column(nullable = false)
   private boolean success;
 
@@ -127,6 +131,14 @@ public class LlmCall {
 
   public void setProfileName(String profileName) {
     this.profileName = profileName;
+  }
+
+  public String getTraceId() {
+    return traceId;
+  }
+
+  public void setTraceId(String traceId) {
+    this.traceId = traceId;
   }
 
   public boolean isSuccess() {

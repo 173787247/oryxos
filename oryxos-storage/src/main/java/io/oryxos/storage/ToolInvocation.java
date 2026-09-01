@@ -33,6 +33,10 @@ public class ToolInvocation {
   @Column(name = "profile_name")
   private String profileName;
 
+  /** 单轮处理串联标识（021）：同一次消息处理的全部审计记录共享；升级前旧行为 null。 */
+  @Column(name = "trace_id")
+  private String traceId;
+
   @Column(nullable = false)
   private boolean success;
 
@@ -134,5 +138,13 @@ public class ToolInvocation {
 
   public void setBlockedBy(String blockedBy) {
     this.blockedBy = blockedBy;
+  }
+
+  public String getTraceId() {
+    return traceId;
+  }
+
+  public void setTraceId(String traceId) {
+    this.traceId = traceId;
   }
 }

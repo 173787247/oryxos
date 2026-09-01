@@ -1,6 +1,7 @@
 package io.oryxos.storage;
 
 import io.oryxos.core.agent.ToolInvocationAuditor;
+import io.oryxos.core.agent.TraceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +63,8 @@ public class JpaToolInvocationAuditor implements ToolInvocationAuditor {
       record.setSuccess(success);
       record.setErrorMessage(errorMessage);
       record.setBlockedBy(blockedBy);
+      // 021：trace 走环境读取而非参数传递——Auditor 接口零改动（R2 红线），未开启上下文时为 null
+      record.setTraceId(TraceContext.current());
       record.setDurationMs(durationMs);
       repository.save(record);
     } catch (RuntimeException e) {

@@ -20,16 +20,27 @@ class AuditSchemaUpgradeTest {
   @Test
   void addsProfileAndCostColumnsToLegacyTablesAndBuildsPricing() throws Exception {
     SQLiteDataSource dataSource = dataSource("legacy.db");
-    execute(dataSource, legacyLlmCalls(), legacyToolInvocations(), legacyLlmCallRow());
+    execute(
+        dataSource,
+        legacyLlmCalls(),
+        legacyToolInvocations(),
+        legacyAgentExecutions(),
+        legacyLlmCallRow());
 
     new AuditSchemaUpgrade(dataSource).upgrade();
 
     try (Connection connection = dataSource.getConnection()) {
-      assertThat(columns(connection, "llm_calls")).contains("cost_micros", "profile_name");
-      assertThat(columns(connection, "tool_invocations")).contains("profile_name", "blocked_by");
+      assertThat(columns(connection, "llm_calls"))
+          .contains("cost_micros", "profile_name", "trace_id");
+      assertThat(columns(connection, "tool_invocations"))
+          .contains("profile_name", "blocked_by", "trace_id");
+      assertThat(columns(connection, "agent_executions")).contains("trace_id");
     }
-    assertThat(indexNames(dataSource, "llm_calls")).contains("idx_llm_calls_profile");
-    assertThat(indexNames(dataSource, "tool_invocations")).contains("idx_tool_invocations_profile");
+    assertThat(indexNames(dataSource, "llm_calls"))
+        .contains("idx_llm_calls_profile", "idx_llm_calls_trace");
+    assertThat(indexNames(dataSource, "tool_invocations"))
+        .contains("idx_tool_invocations_profile", "idx_tool_invocations_trace");
+    assertThat(indexNames(dataSource, "agent_executions")).contains("idx_agent_executions_trace");
     assertThat(tableNames(dataSource)).contains("llm_pricing");
   }
 
@@ -43,7 +54,8 @@ class AuditSchemaUpgradeTest {
     upgrade.upgrade(); // 第二次必须无副作用
 
     try (Connection connection = dataSource.getConnection()) {
-      assertThat(columns(connection, "llm_calls")).contains("cost_micros", "profile_name");
+      assertThat(columns(connection, "llm_calls"))
+          .contains("cost_micros", "profile_name", "trace_id");
     }
   }
 
@@ -66,8 +78,11 @@ class AuditSchemaUpgradeTest {
 
     new AuditSchemaUpgrade(dataSource).upgrade();
 
-    assertThat(indexNames(dataSource, "llm_calls")).contains("idx_llm_calls_profile");
-    assertThat(indexNames(dataSource, "tool_invocations")).contains("idx_tool_invocations_profile");
+    assertThat(indexNames(dataSource, "llm_calls"))
+        .contains("idx_llm_calls_profile", "idx_llm_calls_trace");
+    assertThat(indexNames(dataSource, "tool_invocations"))
+        .contains("idx_tool_invocations_profile", "idx_tool_invocations_trace");
+    assertThat(indexNames(dataSource, "agent_executions")).contains("idx_agent_executions_trace");
   }
 
   private static String legacyLlmCalls() {
@@ -100,6 +115,22 @@ class AuditSchemaUpgradeTest {
             error_message TEXT,
             duration_ms INTEGER NOT NULL,
             created_at TIMESTAMP NOT NULL
+        )
+        """;
+  }
+
+  private static String legacyAgentExecutions() {
+    return """
+        CREATE TABLE agent_executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_name VARCHAR(255) NOT NULL,
+            source VARCHAR(32) NOT NULL,
+            session_id VARCHAR(512),
+            started_at TIMESTAMP NOT NULL,
+            ended_at TIMESTAMP,
+            success BOOLEAN,
+            error_message TEXT,
+            duration_ms INTEGER
         )
         """;
   }

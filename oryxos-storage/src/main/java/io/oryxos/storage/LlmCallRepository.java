@@ -9,4 +9,7 @@ public interface LlmCallRepository extends JpaRepository<LlmCall, Long> {
   List<LlmCall> findBySessionId(String sessionId);
 
   List<LlmCall> findByCreatedAtBetween(java.time.Instant from, java.time.Instant to);
+
+  /** 021：单轮全链路回放——按 trace 取本轮全部 LLM 调用（走 idx_llm_calls_trace）。 */
+  List<LlmCall> findByTraceId(String traceId);
 }

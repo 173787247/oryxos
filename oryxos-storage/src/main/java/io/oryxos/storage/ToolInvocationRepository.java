@@ -12,4 +12,7 @@ public interface ToolInvocationRepository extends JpaRepository<ToolInvocation, 
       String toolName, java.time.Instant from, java.time.Instant to);
 
   List<ToolInvocation> findByCreatedAtBetween(java.time.Instant from, java.time.Instant to);
+
+  /** 021：单轮全链路回放——按 trace 取本轮全部工具调用（走 idx_tool_invocations_trace）。 */
+  List<ToolInvocation> findByTraceId(String traceId);
 }
