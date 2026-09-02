@@ -1,6 +1,7 @@
 package io.oryxos.channel.wecom;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.channel.ChannelStatus;
 import io.oryxos.core.channel.InboundChannelAdapter;
@@ -15,6 +16,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +50,7 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
   private final OutboundGuard guard;
 
   private final AtomicReference<WeComWsClient> wsRef = new AtomicReference<>();
+  private final AtomicReference<Consumer<ObjectNode>> transportRef = new AtomicReference<>();
   private volatile WeComMessageSender sender;
   private volatile WeComEventNormalizer normalizer;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
@@ -120,6 +123,9 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
     if (ws != null) {
       ws.closeQuietly();
     }
+    transportRef.set(null);
+    sender = null;
+    normalizer = null;
     state = ChannelStatus.State.DISCONNECTED;
   }
 
@@ -152,7 +158,7 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
   }
 
   private void connectLocked() throws Exception {
-    normalizer = new WeComEventNormalizer(config.name());
+    ensureOutboundStack();
     WeComWsClient client =
         new WeComWsClient(
             config.appId(),
@@ -160,11 +166,30 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
             WeComWsClient.DEFAULT_WS_URL,
             this::handleFrame,
             this::handleDisconnected);
-    sender =
-        new WeComMessageSender(
-            client::sendJson, guard, OUTBOUND_URL, WeComMessageSender.DEFAULT_CHUNK_SIZE);
+    transportRef.set(client::sendJson);
     client.connectAndSubscribe(START_TIMEOUT);
     wsRef.set(client);
+  }
+
+  /** 懒初始化出站组件；重连复用同一 {@link WeComMessageSender} 以保留 chatTypes 映射。 */
+  private void ensureOutboundStack() {
+    if (normalizer == null) {
+      normalizer = new WeComEventNormalizer(config.name());
+    }
+    if (sender == null) {
+      sender =
+          new WeComMessageSender(
+              frame -> {
+                Consumer<ObjectNode> transport = transportRef.get();
+                if (transport == null) {
+                  throw new IllegalStateException("企微长连接未建立，无法发送");
+                }
+                transport.accept(frame);
+              },
+              guard,
+              OUTBOUND_URL,
+              WeComMessageSender.DEFAULT_CHUNK_SIZE);
+    }
   }
 
   private void handleDisconnected() {
