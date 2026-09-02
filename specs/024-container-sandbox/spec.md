@@ -1,6 +1,6 @@
 # Feature Specification: 容器级执行隔离（Container Sandbox）
 
-**Feature Branch**: `023-container-sandbox`
+**Feature Branch**: `024-container-sandbox`
 
 **Created**: 2026-09-01
 

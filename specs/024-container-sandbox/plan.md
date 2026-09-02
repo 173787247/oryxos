@@ -1,8 +1,8 @@
 # Implementation Plan: 容器级执行隔离（Container Sandbox）
 
-**Branch**: `023-container-sandbox` | **Date**: 2026-09-01 | **Spec**: [spec.md](spec.md)
+**Branch**: `024-container-sandbox` | **Date**: 2026-09-01 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/023-container-sandbox/spec.md`（issue #334）
+**Input**: Feature specification from `/specs/024-container-sandbox/spec.md`（issue #334）
 
 > **评审并行推进说明**：spec 的 5 处待裁决（RQ-1~5）尚在评审，本 plan 按 spec **推荐**推进，并在受裁决影响处标注 `⚖️RQ-x`（翻案调整点）。裁决翻案只动标注点，不动整体骨架。
 
@@ -53,7 +53,7 @@ shell 执行后端可插拔：`ShellTools` 既有包级 `ProcessStarter` 接缝�
 ### Documentation (this feature)
 
 ```text
-specs/023-container-sandbox/
+specs/024-container-sandbox/
 ├── spec.md              # 特性规格（15 FR / 8 SC / 3 US / 5 RQ）
 ├── plan.md              # 本文件
 └── tasks.md             # 26 任务 6 阶段
