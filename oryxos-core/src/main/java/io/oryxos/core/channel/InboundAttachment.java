@@ -13,8 +13,10 @@ public record InboundAttachment(String type, String url, String reference) {
 
   public InboundAttachment {
     requireNonBlank(type, "type");
-    if ((url == null || url.isBlank()) && (reference == null || reference.isBlank())) {
-      throw new IllegalArgumentException("url 与 reference 至少提供一个");
+    if (isBlank(url)) {
+      if (isBlank(reference)) {
+        throw new IllegalArgumentException("url 与 reference 至少提供一个");
+      }
     }
   }
 
@@ -26,8 +28,12 @@ public record InboundAttachment(String type, String url, String reference) {
     return new InboundAttachment(TYPE_IMAGE, null, reference);
   }
 
+  private static boolean isBlank(String value) {
+    return value == null || value.isBlank();
+  }
+
   private static void requireNonBlank(String value, String field) {
-    if (value == null || value.isBlank()) {
+    if (isBlank(value)) {
       throw new IllegalArgumentException(field + " 不能为空");
     }
   }
