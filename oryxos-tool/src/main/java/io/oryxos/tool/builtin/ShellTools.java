@@ -1,6 +1,8 @@
 package io.oryxos.tool.builtin;
 
 import io.oryxos.tool.sandbox.ActionType;
+import io.oryxos.tool.sandbox.LocalProcessStarter;
+import io.oryxos.tool.sandbox.ProcessStarter;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
@@ -47,7 +49,7 @@ public class ShellTools {
   }
 
   ShellTools(Sandbox sandbox, Duration timeout) {
-    this(sandbox, timeout, ShellTools::startProcess, Charset.defaultCharset());
+    this(sandbox, timeout, new LocalProcessStarter(), Charset.defaultCharset());
   }
 
   ShellTools(Sandbox sandbox, Duration timeout, ProcessStarter processStarter) {
@@ -104,17 +106,6 @@ public class ShellTools {
     }
   }
 
-  /**
-   * 默认 ProcessStarter：命名方法而非 lambda，让 SuppressFBWarnings 能落在告警位置上（lambda 编译成 synthetic
-   * 方法，构造器上的注解盖不住）。
-   */
-  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-      value = "COMMAND_INJECTION",
-      justification = "以 argv 直接执行、不经 shell 解释；可执行文件在 shell() 启动前经 Sandbox 精确白名单校验")
-  private static Process startProcess(List<String> command) throws IOException {
-    return new ProcessBuilder(command).start();
-  }
-
   private static String requireExecutable(String executable) {
     if (executable == null || executable.isBlank()) {
       throw new IllegalArgumentException("可执行文件不能为空");
@@ -134,11 +125,6 @@ public class ShellTools {
       }
     }
     return List.copyOf(command);
-  }
-
-  @FunctionalInterface
-  interface ProcessStarter {
-    Process start(List<String> command) throws IOException;
   }
 
   /** 先递归杀命令派生的子孙进程，再杀命令本身（只 destroyForcibly 主进程会留孤儿继续执行）。 */

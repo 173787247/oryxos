@@ -47,6 +47,14 @@ public class ToolInvocation {
   @Column(name = "blocked_by")
   private String blockedBy;
 
+  /** 执行后端标识（024）：'local' / 'docker'；历史行为 null（≡ local，查询层兼容，D4）。 */
+  @Column(name = "execution_backend")
+  private String executionBackend;
+
+  /** docker 档容器 ID（024，容器执行溯源）；local 档与历史行为为 null。 */
+  @Column(name = "container_id")
+  private String containerId;
+
   @Column(name = "duration_ms", nullable = false)
   private long durationMs;
 
@@ -138,6 +146,22 @@ public class ToolInvocation {
 
   public void setBlockedBy(String blockedBy) {
     this.blockedBy = blockedBy;
+  }
+
+  public String getExecutionBackend() {
+    return executionBackend;
+  }
+
+  public void setExecutionBackend(String executionBackend) {
+    this.executionBackend = executionBackend;
+  }
+
+  public String getContainerId() {
+    return containerId;
+  }
+
+  public void setContainerId(String containerId) {
+    this.containerId = containerId;
   }
 
   public String getTraceId() {

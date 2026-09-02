@@ -23,6 +23,8 @@ public final class AuditSchemaUpgrade {
   private static final String PROFILE_NAME_COLUMN = "profile_name";
   private static final String BLOCKED_BY_COLUMN = "blocked_by";
   private static final String TRACE_ID_COLUMN = "trace_id";
+  private static final String EXECUTION_BACKEND_COLUMN = "execution_backend";
+  private static final String CONTAINER_ID_COLUMN = "container_id";
 
   /** 021：trace_id 落到审计三表（llm_calls / tool_invocations / agent_executions）。 */
   private static final String[] TRACE_TABLES = {
@@ -79,6 +81,14 @@ public final class AuditSchemaUpgrade {
     if (!columns.contains(BLOCKED_BY_COLUMN)) {
       execute(connection, "ALTER TABLE tool_invocations ADD COLUMN blocked_by VARCHAR(16)");
       log.info("tool_invocations 已补 blocked_by 列（020 策略拒绝标记）");
+    }
+    if (!columns.contains(EXECUTION_BACKEND_COLUMN)) {
+      execute(connection, "ALTER TABLE tool_invocations ADD COLUMN execution_backend VARCHAR(8)");
+      log.info("tool_invocations 已补 execution_backend 列（024 执行后端标识）");
+    }
+    if (!columns.contains(CONTAINER_ID_COLUMN)) {
+      execute(connection, "ALTER TABLE tool_invocations ADD COLUMN container_id VARCHAR(64)");
+      log.info("tool_invocations 已补 container_id 列（024 容器执行溯源）");
     }
   }
 
