@@ -147,6 +147,54 @@ class ChannelConfigLoaderTest {
   }
 
   @Test
+  @DisplayName("enabled 接受 yes/on/1 等常见真值，非法值 fail-loud")
+  void enabledCoercion() throws Exception {
+    write(
+        """
+        channels:
+          - name: quoted-yes
+            type: feishu
+            app_id: a
+            app_secret: b
+            agent: x
+            enabled: "yes"
+          - name: quoted-on
+            type: feishu
+            app_id: a
+            app_secret: b
+            agent: x
+            enabled: "on"
+          - name: numeric-one
+            type: feishu
+            app_id: a
+            app_secret: b
+            agent: x
+            enabled: 1
+        """);
+    List<ChannelConfig> configs = new ChannelConfigLoader(configFile()).loadRaw();
+    assertEquals(3, configs.size());
+    assertTrue(configs.get(0).enabled());
+    assertTrue(configs.get(1).enabled());
+    assertTrue(configs.get(2).enabled());
+
+    write(
+        """
+        channels:
+          - name: bad-enabled
+            type: feishu
+            app_id: a
+            app_secret: b
+            agent: x
+            enabled: maybe
+        """);
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> new ChannelConfigLoader(configFile()).loadRaw());
+    assertTrue(e.getMessage().contains("bad-enabled"));
+    assertTrue(e.getMessage().contains("enabled"));
+  }
+
+  @Test
   @DisplayName("YAML 1.1 布尔词 yes/on 不得被 String.valueOf 改成 true（须加引号）")
   void rejectsYamlBooleanWordsAsStringFields() throws Exception {
     write(
