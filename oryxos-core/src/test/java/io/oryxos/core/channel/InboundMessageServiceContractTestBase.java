@@ -107,12 +107,12 @@ public abstract class InboundMessageServiceContractTestBase {
   void b1Deduplication() {
     InboundMessage msg = p2pMessage("dup-1", "你好");
     Session session = stubSession(msg.userId());
-    when(agentService.process(eq(session), anyString())).thenReturn("回答");
+    when(agentService.process(eq(session), anyString(), anyList())).thenReturn("回答");
 
     service.onMessage(msg, replyChannel);
     service.onMessage(msg, replyChannel);
 
-    verify(agentService, times(1)).process(eq(session), anyString());
+    verify(agentService, times(1)).process(eq(session), anyString(), anyList());
     assertEquals(1, replyChannel.sent().size());
   }
 
@@ -121,7 +121,7 @@ public abstract class InboundMessageServiceContractTestBase {
   void b2P2pPersistentSession() {
     InboundMessage msg = p2pMessage("p2p-1", "磁盘告警怎么处理");
     Session session = stubSession(msg.userId());
-    when(agentService.process(eq(session), anyString())).thenReturn("先看 df -h");
+    when(agentService.process(eq(session), anyString(), anyList())).thenReturn("先看 df -h");
 
     service.onMessage(msg, replyChannel);
 
@@ -134,13 +134,13 @@ public abstract class InboundMessageServiceContractTestBase {
   void b3GroupStateless() {
     InboundMessage msg = groupMessage("grp-1", "发布为什么回滚");
     when(agentService.processStateless(
-            eq(AGENT), anyString(), startsWith(channelType() + "-group:")))
+            eq(AGENT), anyString(), anyList(), startsWith(channelType() + "-group:")))
         .thenReturn("配置漂移");
 
     service.onMessage(msg, replyChannel);
 
     verify(agentService)
-        .processStateless(eq(AGENT), anyString(), startsWith(channelType() + "-group:"));
+        .processStateless(eq(AGENT), anyString(), anyList(), startsWith(channelType() + "-group:"));
     verifyNoInteractions(sessionManager);
   }
 
@@ -148,8 +148,9 @@ public abstract class InboundMessageServiceContractTestBase {
   @DisplayName("B4: 私聊直发；群聊回复引用原消息")
   void b4ReplyCorrelation() {
     Session session = stubSession(p2pMessage("x", "x").userId());
-    when(agentService.process(any(), anyString())).thenReturn("答");
-    when(agentService.processStateless(anyString(), anyString(), anyString())).thenReturn("答");
+    when(agentService.process(any(), anyString(), anyList())).thenReturn("答");
+    when(agentService.processStateless(anyString(), anyString(), anyList(), anyString()))
+        .thenReturn("答");
 
     service.onMessage(p2pMessage("corr-p2p", "问"), replyChannel);
     service.onMessage(groupMessage("corr-grp", "问"), replyChannel);
@@ -163,7 +164,7 @@ public abstract class InboundMessageServiceContractTestBase {
   void b5b10AuditViaTriggerAsync() {
     InboundMessage msg = p2pMessage("audit-1", "问");
     Session session = stubSession(msg.userId());
-    when(agentService.process(eq(session), anyString())).thenReturn("答");
+    when(agentService.process(eq(session), anyString(), anyList())).thenReturn("答");
 
     service.onMessage(msg, replyChannel);
 
@@ -176,7 +177,8 @@ public abstract class InboundMessageServiceContractTestBase {
   void b6ReadableFailure() {
     InboundMessage msg = p2pMessage("fail-1", "问");
     stubSession(msg.userId());
-    when(agentService.process(any(), anyString())).thenThrow(new IllegalStateException("boom"));
+    when(agentService.process(any(), anyString(), anyList()))
+        .thenThrow(new IllegalStateException("boom"));
 
     service.onMessage(msg, replyChannel);
 
@@ -223,7 +225,7 @@ public abstract class InboundMessageServiceContractTestBase {
   void b8NoNoticeOnFastPath() throws Exception {
     InboundMessage msg = p2pMessage("fast-1", "问");
     Session session = stubSession(msg.userId());
-    when(agentService.process(eq(session), anyString())).thenReturn("秒回");
+    when(agentService.process(eq(session), anyString(), anyList())).thenReturn("秒回");
 
     service.onMessage(msg, replyChannel);
     Thread.sleep(50);

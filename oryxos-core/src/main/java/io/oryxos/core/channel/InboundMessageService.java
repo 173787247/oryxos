@@ -107,11 +107,7 @@ public class InboundMessageService {
       inference =
           () ->
               replyVia.sendReply(
-                  msg.chatId(),
-                  media.isEmpty()
-                      ? agentService.process(session, agentInput)
-                      : agentService.process(session, agentInput, media),
-                  null);
+                  msg.chatId(), agentService.process(session, agentInput, media), null);
     } else {
       // B3：群聊每次 @ 为独立无状态问答，不落 sessions 表；渠道前缀让审计可辨（B10）
       sessionId = msg.channelType() + "-group:" + UUID.randomUUID();
@@ -120,9 +116,7 @@ public class InboundMessageService {
           () ->
               replyVia.sendReply(
                   msg.chatId(),
-                  media.isEmpty()
-                      ? agentService.processStateless(agent, agentInput, groupSessionId)
-                      : agentService.processStateless(agent, agentInput, media, groupSessionId),
+                  agentService.processStateless(agent, agentInput, media, groupSessionId),
                   replyTo);
     }
     CountDownLatch done = new CountDownLatch(1);
