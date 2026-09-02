@@ -67,6 +67,10 @@ public class ContextLoader {
     if (profile.identity() != null && profile.identity().prompt() != null) {
       context.append(profile.identity().prompt()).append('\n');
     }
+    // 025：结构化人格段——固定模板渲染，插在正文之前（身份先于任务）；无 persona 不注入
+    if (profile.persona() != null) {
+      context.append(renderPersona(profile.persona())).append('\n');
+    }
     // AGENT.md 正文：现读、无缓存——改正文后下一次触发即生效（渐进式披露：正文常驻，子资源按需）
     Path agentMd = oryxosRoot.resolve(AGENTS_DIR).resolve(profile.name()).resolve(AGENT_FILE);
     if (Files.isRegularFile(agentMd)) {
@@ -181,6 +185,40 @@ public class ContextLoader {
     } catch (IOException e) {
       // 文件存在但读不出来（权限/编码）不属于"缺失可跳过"，必须显式失败
       throw new IllegalStateException("读取上下文文件失败: " + file.getFileName(), e);
+    }
+  }
+
+  /** 人格段固定模板（025）：契约「格式恒定」——字段名与顺序是模板的一部分，不是自由文本。 */
+  private static String renderPersona(Profile.Persona p) {
+    StringBuilder sb = new StringBuilder("## 你的人格（每轮固定，不可违背）\n");
+    sb.append("- 你是「").append(p.name()).append("」，角色：").append(p.role()).append('\n');
+    appendPersonaField(sb, "性格", p.traits());
+    appendPersonaField(sb, "语气", p.tone());
+    appendPersonaField(sb, "行为准则", p.values());
+    appendPersonaField(sb, "边界", p.boundaries());
+    appendPersonaField(sb, "风格示范", p.sampleStyle());
+    return sb.toString();
+  }
+
+  /**
+   * 追加一个「- 标签：值」字段。导入器把 values/tone 写成多行 block scalar（一条规则一行、可含 {@code ###} 分组小标题），直接拼会把续行顶到第 0
+   * 列、标签被首行内容吞掉（契约「格式恒定」被破坏）。这里单行值保持一行一字段；多行值标签独立成行、续行统一缩进两个空格成为列表项的延续块。
+   */
+  private static void appendPersonaField(StringBuilder sb, String label, String value) {
+    if (value == null) {
+      return;
+    }
+    sb.append("- ").append(label).append("：");
+    if (value.indexOf('\n') < 0) {
+      sb.append(value).append('\n');
+      return;
+    }
+    sb.append('\n');
+    for (String line : value.split("\n", -1)) {
+      String t = line.strip();
+      if (!t.isEmpty()) {
+        sb.append("  ").append(t).append('\n');
+      }
     }
   }
 
