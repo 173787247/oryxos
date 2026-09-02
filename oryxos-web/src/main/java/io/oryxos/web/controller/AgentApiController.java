@@ -1,8 +1,13 @@
 package io.oryxos.web.controller;
 
+import io.oryxos.core.OryxTool;
+import io.oryxos.core.agent.AgencyAgentsImporter;
+import io.oryxos.core.agent.AgencyAgentsParser;
+import io.oryxos.core.agent.AgencyAgentsParser.ParsedExpert;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.agent.AgentValidation;
 import io.oryxos.core.agent.TraceContext;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.memory.MemoryService;
@@ -22,6 +27,8 @@ import io.oryxos.web.controller.dto.AgentView;
 import io.oryxos.web.controller.dto.CreateAgentRequest;
 import io.oryxos.web.controller.dto.GenerateFilesRequest;
 import io.oryxos.web.controller.dto.GeneratedFilesView;
+import io.oryxos.web.controller.dto.ImportAgentRequest;
+import io.oryxos.web.controller.dto.ImportPreviewView;
 import io.oryxos.web.controller.dto.MessageRequest;
 import io.oryxos.web.controller.dto.MessageResponse;
 import io.oryxos.web.controller.dto.ReplaceKnowledgeBindingsRequest;
@@ -31,6 +38,7 @@ import io.oryxos.web.controller.dto.SessionView;
 import io.oryxos.web.controller.dto.TriggerResponse;
 import io.oryxos.web.controller.dto.UpdateAgentBasicRequest;
 import io.oryxos.web.controller.dto.UpdateAgentRequest;
+import io.oryxos.web.controller.dto.UpdatePersonaRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
 import io.oryxos.web.sse.SseStreamSupport;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,7 +46,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -82,6 +92,8 @@ public class AgentApiController {
   private final AgentSkillBindingService skillBindings;
   private final SkillCatalog skillCatalog;
   private final KnowledgeBindingService knowledgeBindings;
+  // 025 导入链：容器「tools」Map bean（OryxOsRuntime @Bean），导入器用它做工具名交集；null（测试直构/旧调用点）→ 空集。
+  private final Map<String, OryxTool> tools;
 
   /** SSE 编排（019）：默认实例保 telescoping 构造与测试直构可用，运行时由 @Autowired setter 覆盖为容器单例。 */
   private SseStreamSupport sseStreamSupport = SseStreamSupport.defaultSupport();
@@ -151,7 +163,7 @@ public class AgentApiController {
         null);
   }
 
-  @Autowired
+  /** 源码兼容旧 9 参调用点（telescoping 链 / 测试直构）：tools 置 null，导入端点退化为空工具交集。 */
   public AgentApiController(
       AgentLifecycleService lifecycle,
       AgentService agentService,
@@ -162,6 +174,31 @@ public class AgentApiController {
       AgentSkillBindingService skillBindings,
       SkillCatalog skillCatalog,
       KnowledgeBindingService knowledgeBindings) {
+    this(
+        lifecycle,
+        agentService,
+        sessionManager,
+        profileRegistry,
+        memoryService,
+        executionService,
+        skillBindings,
+        skillCatalog,
+        knowledgeBindings,
+        null);
+  }
+
+  @Autowired
+  public AgentApiController(
+      AgentLifecycleService lifecycle,
+      AgentService agentService,
+      SessionManager sessionManager,
+      ProfileRegistry profileRegistry,
+      MemoryService memoryService,
+      AgentExecutionService executionService,
+      AgentSkillBindingService skillBindings,
+      SkillCatalog skillCatalog,
+      KnowledgeBindingService knowledgeBindings,
+      @Qualifier("tools") Map<String, OryxTool> tools) {
     this.lifecycle = lifecycle;
     this.agentService = agentService;
     this.sessionManager = sessionManager;
@@ -171,6 +208,7 @@ public class AgentApiController {
     this.skillBindings = skillBindings;
     this.skillCatalog = skillCatalog;
     this.knowledgeBindings = knowledgeBindings;
+    this.tools = tools;
   }
 
   /** 创建：只需 name + description，后台按模板脚手架出完整目录 + 派生注册（失败回滚）。 */
@@ -234,6 +272,30 @@ public class AgentApiController {
     return ApiResponse.ok(
         AgentView.from(
             lifecycle.updateBasicInfo(name, req.description(), req.provider(), req.model())));
+  }
+
+  /**
+   * 结构化编辑人格（025 persona 段）：只改 AGENT.md frontmatter 的 persona 块，正文与其他配置原样保留。缺 name/role → 400； Agent
+   * 不存在 → 404。
+   */
+  @PutMapping("/{name}/persona")
+  public ApiResponse<AgentView> updatePersona(
+      @PathVariable String name, @RequestBody UpdatePersonaRequest req) {
+    if (lifecycle.get(name).isEmpty()) {
+      throw new ResourceNotFoundException("Agent 不存在: " + name); // → 404
+    }
+    io.oryxos.core.profile.Profile.Persona persona =
+        req == null
+            ? null
+            : new io.oryxos.core.profile.Profile.Persona(
+                req.name(),
+                req.role(),
+                req.traits(),
+                req.tone(),
+                req.values(),
+                req.boundaries(),
+                req.sampleStyle());
+    return ApiResponse.ok(view(lifecycle.updatePersona(name, persona)));
   }
 
   /** 019：Accept 含 text/event-stream 时 SSE 流式（校验前置，FR-009）；否则一次性 JSON 路径零改动。 */
@@ -373,6 +435,53 @@ public class AgentApiController {
     return ApiResponse.ok(view(saved));
   }
 
+  /**
+   * 导入预览（025）：解析 agency-agents 源文件 → 渲染成 AGENT.md 全文 + 字段投影 + 派生名 + dry-run 校验，不落盘、不注册。 dry-run
+   * 校验不抛——预览永远 200，失败体现在 validation.valid=false + message。
+   */
+  @PostMapping("/import-preview")
+  public ApiResponse<ImportPreviewView> importPreview(@RequestBody ImportAgentRequest req) {
+    if (req == null || req.sourceContent() == null || req.sourceContent().isBlank()) {
+      throw new IllegalArgumentException("源文件内容为空"); // → 400
+    }
+    ParsedExpert expert = new AgencyAgentsParser().parse(req.sourceContent());
+    String name = resolveImportName(req.name(), expert);
+    String rendered =
+        new AgencyAgentsImporter()
+            .toMarkdown(
+                expert,
+                lifecycle.defaultProvider(),
+                tools == null ? Set.of() : tools.keySet(),
+                name,
+                req.model());
+    AgentValidation validation = lifecycle.validateAgent(name, rendered);
+    return ApiResponse.ok(
+        new ImportPreviewView(
+            name,
+            rendered,
+            ImportPreviewView.ImportExpertView.from(expert),
+            ImportPreviewView.ValidationView.from(validation)));
+  }
+
+  /** 导入落地（025）：渲染 + 校验通过 → 真正创建 Agent。同名已有 → 400（只创建不覆盖，先删再导）。 */
+  @PostMapping("/import")
+  public ApiResponse<AgentView> importAgent(@RequestBody ImportAgentRequest req) {
+    if (req == null || req.sourceContent() == null || req.sourceContent().isBlank()) {
+      throw new IllegalArgumentException("源文件内容为空"); // → 400
+    }
+    ParsedExpert expert = new AgencyAgentsParser().parse(req.sourceContent());
+    String name = resolveImportName(req.name(), expert);
+    String rendered =
+        new AgencyAgentsImporter()
+            .toMarkdown(
+                expert,
+                lifecycle.defaultProvider(),
+                tools == null ? Set.of() : tools.keySet(),
+                name,
+                req.model());
+    return ApiResponse.ok(view(lifecycle.importAgent(name, rendered)));
+  }
+
   // ---- 知识库绑定三件套 + 整体替换（014 FR-002/018/019：绑定仅管理面动作，运行时无自改工具）----
 
   @GetMapping("/{name}/knowledge")
@@ -504,6 +613,20 @@ public class AgentApiController {
         throw new IllegalArgumentException("Skill 不在可访问且已安装的 catalog 中: " + name);
       }
     }
+  }
+
+  /** 025 导入：显式 name 优先；缺省从源 displayName 去掉非 {@code [A-Za-z0-9_-]} 字符派生（中文展示名不进 profile 名）。 */
+  private static String resolveImportName(String name, ParsedExpert expert) {
+    String n = name == null ? "" : name.strip();
+    if (!n.isEmpty()) {
+      return n;
+    }
+    String slug =
+        expert.displayName() == null ? "" : expert.displayName().replaceAll("[^A-Za-z0-9_-]", "");
+    if (slug.isEmpty()) {
+      throw new IllegalArgumentException("无法从源文件派生 Agent 名，请显式提供 name"); // → 400
+    }
+    return slug;
   }
 
   private static List<Message> recent(List<Message> messages) {
