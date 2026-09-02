@@ -44,6 +44,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private static final String BOT_INFO_PATH = "/open-apis/bot/v3/info";
   private static final String BOT_OPEN_ID_FIELD = "open_id";
   private static final String MEDIA_DIR_PREFIX = "oryxos-feishu-media-";
+  private static final String MEDIA_FALLBACK_DIR = "oryxos-feishu-media";
   private static final int HTTP_OK = 200;
   private static final long READY_TIMEOUT_MS = 15_000;
   private static final long READY_PROBE_TIMEOUT_MS = 50;
@@ -212,15 +213,19 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
 
   /** 入站图片落盘目录：进程临时目录下按渠道隔离；失败不阻断 start（解析器会降级保留 image_key）。 */
   private Path createMediaRoot() {
+    String channelSeg = FeishuInboundImageResolver.safeSegment(config.name());
     try {
-      return Files.createTempDirectory(MEDIA_DIR_PREFIX + sanitize(config.name()) + "-");
+      // 前缀必须是常量字面量：SpotBugs 视 createTempDirectory(userInput+…) 为 PATH_TRAVERSAL_IN
+      Path root = Files.createTempDirectory(MEDIA_DIR_PREFIX);
+      Path channelDir = root.resolve(channelSeg);
+      Files.createDirectories(channelDir);
+      return channelDir;
     } catch (Exception e) {
       LOG.warn(
           "飞书渠道 {} 创建图片缓存目录失败（{}），入站图片将保留 image_key",
           sanitize(config.name()),
           sanitize(e.getMessage()));
-      return Path.of(
-          System.getProperty("java.io.tmpdir"), "oryxos-feishu-media", sanitize(config.name()));
+      return Path.of(System.getProperty("java.io.tmpdir"), MEDIA_FALLBACK_DIR, channelSeg);
     }
   }
 
