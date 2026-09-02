@@ -594,7 +594,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     String uri = part.uri().strip();
     MimeType mime = resolveMime(part.mimeType(), uri);
     try {
-      if (uri.startsWith("http://") || uri.startsWith("https://")) {
+      if (ImageMime.isHttpUrl(uri)) {
         return new Media(mime, URI.create(uri));
       }
       Path path = Path.of(uri);
@@ -612,7 +612,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   private static MimeType resolveMime(String declared, String uri) {
     String raw = declared;
     if (raw == null || raw.isBlank()) {
-      if (uri.startsWith("http://") || uri.startsWith("https://")) {
+      if (ImageMime.isHttpUrl(uri)) {
         raw = ImageMime.fromPath(uri);
       } else {
         raw = ImageMime.probeFile(Path.of(uri));

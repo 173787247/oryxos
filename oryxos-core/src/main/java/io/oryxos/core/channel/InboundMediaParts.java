@@ -31,7 +31,7 @@ public final class InboundMediaParts {
   }
 
   private static String resolveMime(String url) {
-    if (url.startsWith("http://") || url.startsWith("https://")) {
+    if (ImageMime.isHttpUrl(url)) {
       return ImageMime.fromPath(url);
     }
     Path path = Path.of(url);
