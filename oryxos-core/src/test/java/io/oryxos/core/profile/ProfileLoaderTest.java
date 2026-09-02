@@ -742,4 +742,79 @@ class ProfileLoaderTest {
     assertTrue(ex.getMessage().contains("evening"), ex.getMessage());
     assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
   }
+
+  // —— 023：provider.fallback 有序备用列表解析 ——
+
+  @Test
+  void fallback两候选_按序解析() throws IOException {
+    write(
+        "fb.yaml",
+        """
+        name: fb-agent
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: kimi
+              model: moonshot-v1-8k
+            - name: deepseek
+              model: deepseek-reasoner
+        """);
+
+    Profile profile = loader().loadAll().get("fb-agent").orElseThrow();
+
+    assertEquals(
+        java.util.List.of(
+            new Profile.ProviderRef.FallbackRef("kimi", "moonshot-v1-8k"),
+            new Profile.ProviderRef.FallbackRef("deepseek", "deepseek-reasoner")),
+        profile.provider().fallbacks()); // 顺序即声明序
+  }
+
+  @Test
+  void fallback候选缺model_加载失败跳过该文件() throws IOException {
+    write(
+        "bad-fb.yaml",
+        """
+        name: bad-fb
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: kimi
+        """);
+
+    assertTrue(loader().loadAll().get("bad-fb").isEmpty()); // 坏文件 ERROR 跳过（与主 provider 校验同口径）
+  }
+
+  @Test
+  void fallback候选引用未知provider_WARN但加载成功() throws IOException {
+    write(
+        "unknown-fb.yaml",
+        """
+        name: unknown-fb
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: ghost-provider
+              model: some-model
+        """);
+
+    Profile profile = loader().loadAll().get("unknown-fb").orElseThrow();
+
+    // 候选可用性是运行时属性：保留声明、调用时跳过（tools 未注册口径）
+    assertEquals(
+        java.util.List.of(new Profile.ProviderRef.FallbackRef("ghost-provider", "some-model")),
+        profile.provider().fallbacks());
+  }
+
+  @Test
+  void 无fallback字段_列表为空_旧YAML零变化() throws IOException {
+    write("plain.yaml", FULL_YAML);
+
+    Profile profile = loader().loadAll().get("ops-agent").orElseThrow();
+
+    assertTrue(profile.provider().fallbacks().isEmpty());
+    assertEquals("deepseek", profile.provider().name()); // 既有解析不受影响
+  }
 }
