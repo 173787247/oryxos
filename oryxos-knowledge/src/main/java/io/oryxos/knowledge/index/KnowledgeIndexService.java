@@ -76,8 +76,11 @@ public class KnowledgeIndexService {
                 .orElse(0L));
   }
 
-  /** 两段式导入的同步段：校验 + 登记 PENDING + 提交后台索引；返回可查询的初始状态。 */
-  public DocumentStatus importDocument(String kbName, String relPath) {
+  /**
+   * 两段式导入的同步段：校验 + 登记 PENDING + 提交后台索引；返回可查询的初始状态。 synchronized 与 rebuild/reconcile 同款：并发导入（对账 +
+   * 手动）若交错，deleteChunksOf/saveChunks 会翻倍落片段， 后到的新建还可能撞 UNIQUE(kb_name,rel_path,generation) 直接 500。
+   */
+  public synchronized DocumentStatus importDocument(String kbName, String relPath) {
     Path file = requireDocumentFile(kbName, relPath);
     List<ParsedUnit> units = parseValidated(file);
     long generation = activeGeneration(kbName);
@@ -205,7 +208,12 @@ public class KnowledgeIndexService {
     } catch (RuntimeException e) {
       LOG.warn(
           "知识文档索引失败: {}/{}: {}", sanitize(kbName), sanitize(relPath), sanitize(e.getMessage()));
-      store.saveDocument(record.withState(DocumentState.FAILED, readable(e)));
+      // 只在行还在时落 FAILED——索引期间被删除/替换的文档不得因此复活（TOCTOU）
+      ChunkStore.DocumentRecord latest =
+          store.findDocument(kbName, relPath, generation).orElse(null);
+      if (latest != null && latest.id() != null && latest.id() == documentId) {
+        store.saveDocument(record.withState(DocumentState.FAILED, readable(e)));
+      }
     }
   }
 
@@ -230,6 +238,13 @@ public class KnowledgeIndexService {
                 embedder.modelId(),
                 record.generation()));
       }
+    }
+    // TOCTOU 复检：embed 是秒级外部调用，窗口内文档可能已被删除/替换——检索取数不 join
+    // documents 表，此刻若照常落库，已删文档的孤儿片段仍可被召回（违反 SC-006）
+    ChunkStore.DocumentRecord current =
+        store.findDocument(record.kbName(), record.relPath(), record.generation()).orElse(null);
+    if (current == null || current.id() == null || !current.id().equals(record.id())) {
+      throw new IllegalStateException("文档在索引期间被删除或替换，片段放弃落库");
     }
     store.deleteChunksOf(record.id());
     store.saveChunks(chunkRecords);
