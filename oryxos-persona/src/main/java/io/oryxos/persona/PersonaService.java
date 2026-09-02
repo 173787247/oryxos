@@ -17,6 +17,9 @@ import java.util.Optional;
  * <p>与 {@code AgentLifecycleService} / {@code SkillService} 同构：{@link #get} 返回 {@link Optional}，404
  * 由 web 层决定； 非法入参抛 {@link IllegalArgumentException}（web 映射 400）。内置人格一律拒绝 CRUD（只读）。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "EI_EXPOSE_REP2",
+    justification = "catalog/store 均为 Spring 注入的共享单例，构造注入共享同一引用正是意图（无法也不应防御性拷贝）。")
 public class PersonaService {
 
   private final PersonaPresetCatalog builtins;

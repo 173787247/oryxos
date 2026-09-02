@@ -98,7 +98,11 @@ public class PersonaStore {
   }
 
   private static String stem(Path file) {
-    String name = file.getFileName().toString();
+    Path fileName = file.getFileName();
+    if (fileName == null) {
+      return null; // 根路径等零元素路径没有文件名（Files.list 子项理论上不会，防护到显式语义）
+    }
+    String name = fileName.toString();
     if (!name.endsWith(MARKDOWN_SUFFIX)) {
       return null;
     }

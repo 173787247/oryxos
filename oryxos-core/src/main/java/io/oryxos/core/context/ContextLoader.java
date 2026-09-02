@@ -189,9 +189,14 @@ public class ContextLoader {
   }
 
   /** 人格段固定模板（025）：契约「格式恒定」——字段名与顺序是模板的一部分，不是自由文本。 */
+  private static final String PERSONA_HEADING = "## 你的人格（每轮固定，不可违背）\n";
+
+  /** 人格多行值内的行分隔符：tag 与值之间、字段之间都用它拆行（P3C 禁裸魔法值，作常量复用）。 */
+  private static final String LINE_BREAK = "\n";
+
   private static String renderPersona(Profile.Persona p) {
-    StringBuilder sb = new StringBuilder("## 你的人格（每轮固定，不可违背）\n");
-    sb.append("- 你是「").append(p.name()).append("」，角色：").append(p.role()).append('\n');
+    StringBuilder sb = new StringBuilder(PERSONA_HEADING);
+    sb.append("- 你是「").append(p.name()).append("」，角色：").append(p.role()).append(LINE_BREAK);
     appendPersonaField(sb, "性格", p.traits());
     appendPersonaField(sb, "语气", p.tone());
     appendPersonaField(sb, "行为准则", p.values());
@@ -209,15 +214,15 @@ public class ContextLoader {
       return;
     }
     sb.append("- ").append(label).append("：");
-    if (value.indexOf('\n') < 0) {
-      sb.append(value).append('\n');
+    if (!value.contains(LINE_BREAK)) {
+      sb.append(value).append(LINE_BREAK);
       return;
     }
-    sb.append('\n');
-    for (String line : value.split("\n", -1)) {
+    sb.append(LINE_BREAK);
+    for (String line : value.split(LINE_BREAK, -1)) {
       String t = line.strip();
       if (!t.isEmpty()) {
-        sb.append("  ").append(t).append('\n');
+        sb.append("  ").append(t).append(LINE_BREAK);
       }
     }
   }
