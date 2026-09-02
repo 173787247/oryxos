@@ -45,6 +45,8 @@ public record InboundMessage(
     }
     if (attachments == null) {
       attachments = List.of();
+    } else {
+      attachments = List.copyOf(attachments);
     }
   }
 
