@@ -1,5 +1,6 @@
 package io.oryxos.web.controller;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -26,6 +27,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -335,5 +337,46 @@ class AgentApiControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.name").value("architect"));
     verify(lifecycle).importAgent(eq("architect"), any());
+  }
+
+  @Test
+  @DisplayName("025：import 尊重请求显式选的 provider（默认 provider 不再覆盖 UI 选择）")
+  void import_usesChosenProvider() throws Exception {
+    when(lifecycle.defaultProvider()).thenReturn("deepseek"); // 底座默认是 deepseek
+    when(lifecycle.importAgent(eq("architect"), any())).thenReturn(profile("architect"));
+
+    mvc.perform(
+            post("/api/v1/agents/import")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"sourceContent\":\"---\\nname: 软件架构师\\ndescription: x\\n---\\n## 核心使命\\n正文\",\"name\":\"architect\",\"provider\":\"openai\",\"model\":\"gpt-4o\"}"))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<String> rendered = ArgumentCaptor.forClass(String.class);
+    verify(lifecycle).importAgent(eq("architect"), rendered.capture());
+    assertTrue(
+        rendered.getValue().contains("name: openai"),
+        () -> "渲染产物应含显式 provider:\n" + rendered.getValue());
+    assertTrue(rendered.getValue().contains("model: gpt-4o"));
+  }
+
+  @Test
+  @DisplayName("025：import 未显式选 provider 时回落默认 provider")
+  void import_blankProvider_fallsBackToDefault() throws Exception {
+    when(lifecycle.defaultProvider()).thenReturn("deepseek");
+    when(lifecycle.importAgent(eq("architect"), any())).thenReturn(profile("architect"));
+
+    mvc.perform(
+            post("/api/v1/agents/import")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"sourceContent\":\"---\\nname: 软件架构师\\ndescription: x\\n---\\n## 核心使命\\n正文\",\"name\":\"architect\",\"provider\":\"\"}"))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<String> rendered = ArgumentCaptor.forClass(String.class);
+    verify(lifecycle).importAgent(eq("architect"), rendered.capture());
+    assertTrue(
+        rendered.getValue().contains("name: deepseek"),
+        () -> "未选 provider 应回落默认:\n" + rendered.getValue());
   }
 }

@@ -816,7 +816,7 @@ async function previewImport() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceContent: agentImport.sourceContent, name: agentImport.name || undefined,
-        model: agentImport.model || undefined,
+        provider: agentImport.provider || undefined, model: agentImport.model || undefined,
       }),
     })
     const body = await res.json()
@@ -835,7 +835,7 @@ async function submitImport() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceContent: agentImport.sourceContent, name: agentImport.name,
-        model: agentImport.model || undefined,
+        provider: agentImport.provider || undefined, model: agentImport.model || undefined,
       }),
     })
     const body = await res.json()

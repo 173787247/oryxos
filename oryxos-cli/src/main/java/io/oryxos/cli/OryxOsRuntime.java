@@ -318,7 +318,7 @@ public class OryxOsRuntime {
     return new PersonaService(personaPresetCatalog, personaStore);
   }
 
-  /** 30 节：Agent 生命周期编排。创建脚手架的 AGENT.md 模板里 provider 缺省取最终注册表按名称排序后的第一项。 */
+  /** 30 节：Agent 生命周期编排。创建脚手架的 AGENT.md 模板里 provider 缺省取最终注册表按名称大小写不敏感的最小项。 */
   @Bean
   AgentLifecycleService agentLifecycleService(
       AgentLoader agentLoader,
@@ -340,8 +340,9 @@ public class OryxOsRuntime {
         providerRegistry.list().stream()
             .map(ProviderDef::name)
             .filter(name -> name != null && !name.isBlank())
-            .sorted()
-            .findFirst()
+            // 大小写不敏感取最小项：ASCII 排序会先排大写，让「大写开头的本地 provider（如 Qwen3.8-27B-gptq-w4a16）」
+            // 顶掉真正的默认 deepseek——这里统一按大小写无关的最小名取确定性默认。
+            .min(String::compareToIgnoreCase)
             .orElse(null);
     // 生成用 provider 缺省取最终注册表的确定性默认；显式 oryxos.author.provider 仍按原行为覆盖。
     String genProvider =

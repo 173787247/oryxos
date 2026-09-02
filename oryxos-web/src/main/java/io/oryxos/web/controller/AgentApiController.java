@@ -450,7 +450,7 @@ public class AgentApiController {
         new AgencyAgentsImporter()
             .toMarkdown(
                 expert,
-                lifecycle.defaultProvider(),
+                resolveImportProvider(req),
                 tools == null ? Set.of() : tools.keySet(),
                 name,
                 req.model());
@@ -475,7 +475,7 @@ public class AgentApiController {
         new AgencyAgentsImporter()
             .toMarkdown(
                 expert,
-                lifecycle.defaultProvider(),
+                resolveImportProvider(req),
                 tools == null ? Set.of() : tools.keySet(),
                 name,
                 req.model());
@@ -627,6 +627,13 @@ public class AgentApiController {
       throw new IllegalArgumentException("无法从源文件派生 Agent 名，请显式提供 name"); // → 400
     }
     return slug;
+  }
+
+  /** 导入用 provider：请求显式选择优先（导入弹框有 provider 下拉）；未选才跟随底座默认 provider。 */
+  private String resolveImportProvider(ImportAgentRequest req) {
+    return req.provider() == null || req.provider().isBlank()
+        ? lifecycle.defaultProvider()
+        : req.provider();
   }
 
   private static List<Message> recent(List<Message> messages) {
