@@ -22,8 +22,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * REST API Key 认证过滤器（018-rest-api-key）。
  *
- * <p>拦 {@code /api/v1/**} 与 {@code /api/v2/**}（由 {@code ApiKeyFilterConfig} 的 {@code
- * FilterRegistrationBean} 限定 URL 模式，{@code PROTECTED_URL_PATTERNS} 是唯一登记处）；与 012 的 {@code
+ * <p>拦 {@code /api/v1/**}、{@code /api/v2/**} 与 {@code /actuator/**}（由 {@code ApiKeyFilterConfig} 的
+ * {@code FilterRegistrationBean} 限定 URL 模式，{@code PROTECTED_URL_PATTERNS} 是唯一登记处）；与 012 的 {@code
  * BasicAuthFilter}（只拦 {@code /admin/*}）URL 模式互不重叠，两扇门各管各的（FR-002）。
  *
  * <p>豁免（filter 内判定，契约见 specs/018 contracts/auth-contract.md §1）：
@@ -31,6 +31,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <ol>
  *   <li>HTTP {@code OPTIONS}——CORS 预检不携带自定义头（FR-014）；
  *   <li>{@code /api/v1/health}——K8s/LB 探活（FR-002）;
+ *   <li>{@code /actuator/health} 及其 liveness/readiness 子路径——探活不带凭据；匿名仅见聚合状态， 组件/数据源/磁盘详情由 {@code
+ *       management.endpoint.health.show-details=when-authorized} 挡住；
  *   <li>{@code /api/v1/auth/**}——012 管理台登录子树，端点自身校验（FR-002）。
  * </ol>
  *
@@ -65,6 +67,12 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
   /** 探活豁免路径（FR-002）。 */
   private static final String HEALTH_PATH = "/api/v1/health";
+
+  /** Actuator 探活根路径（K8s/LB 不带凭据拉取；详情由 show-details=when-authorized 限制）。 */
+  private static final String ACTUATOR_HEALTH_PATH = "/actuator/health";
+
+  /** Actuator 探活子路径前缀（/actuator/health/liveness、/readiness 等探针组）。 */
+  private static final String ACTUATOR_HEALTH_PREFIX = "/actuator/health/";
 
   /** 012 管理台登录子树（端点自身校验，FR-002）。 */
   private static final String AUTH_SUBTREE_PREFIX = "/api/v1/auth/";
@@ -124,6 +132,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     }
     String uri = request.getRequestURI();
     return HEALTH_PATH.equals(uri)
+        || ACTUATOR_HEALTH_PATH.equals(uri)
+        || (uri != null && uri.startsWith(ACTUATOR_HEALTH_PREFIX))
         || AUTH_SUBTREE_ROOT.equals(uri)
         || (uri != null && uri.startsWith(AUTH_SUBTREE_PREFIX));
   }

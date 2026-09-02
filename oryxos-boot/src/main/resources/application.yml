@@ -90,6 +90,8 @@ oryxos:
       realm: OryxOS
 
 # Observability: Actuator + Micrometer/Prometheus
+# /actuator/** 由 ApiKeyAuthFilter 保护（API Key 或管理台 session），health 探活子树豁免；
+# prometheus/metrics/info 无凭据一律 401，避免运行时与业务指标匿名泄露。
 management:
   endpoints:
     web:
@@ -99,18 +101,23 @@ management:
     health:
       probes:
         enabled: true
-      show-details: always
-      show-components: always
+      # 匿名探活只看聚合 UP/DOWN；组件/数据源/磁盘等详情需认证（when-authorized）
+      show-details: when-authorized
+      show-components: when-authorized
   metrics:
     tags:
       application: oryxos
 
 # OpenAPI / Swagger UI
+# 默认关闭：接口模型不向网络暴露。本地调试可临时开启：
+#   --springdoc.api-docs.enabled=true --springdoc.swagger-ui.enabled=true
 springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
   api-docs:
+    enabled: false
     path: /v3/api-docs
+  swagger-ui:
+    enabled: false
+    path: /swagger-ui.html
 
 # Log levels (formatting/appenders live in logback-spring.xml)
 logging:
