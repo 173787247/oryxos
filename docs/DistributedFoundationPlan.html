@@ -106,8 +106,8 @@
   <p>会话 / 审计三表 / 记忆(sqlite 档) / 知识 chunk / 调度状态 / 执行历史 / providers / notify / 策略全在 DB。两个关键机制 day one 已按跨进程语义设计：<b>会话乐观锁</b>（<code>saveIfUnchanged</code> 条件更新）与<b>向量层库无关</b>（BLOB + Java 余弦——换 PostgreSQL 零向量迁移，pgvector 从必答降为可选优化）。</p>
   <h3>内存态——两处要改，其余是可重建缓存</h3>
   <ul>
-    <li><code>sessionLocks</code> 进程锁：跨副本语义要重建（→ 025 核心）</li>
-    <li>IM 长连接（<b>已实证</b>，2026-09-02 官方文档 + SDK 反编译 + 代码核查）：<b>三平台三种语义</b>——飞书集群模式随机投一条（≤50 连接）但有 3s 超时重推且可能落到另一副本；钉钉 Stream 同为随机投一；<b>企微单连接互踢</b>（新连接踢旧连接，多副本不能都建连 → 需租约属主）。存量坑实锤：017 的 MessageDeduplicator 是进程内 Map，多副本下重推去重失效 → 去重下沉 DB 幂等回执表（→ 025）</li>
+    <li><code>sessionLocks</code> 进程锁：跨副本语义要重建（→ 026 核心）</li>
+    <li>IM 长连接（<b>已实证</b>，2026-09-02 官方文档 + SDK 反编译 + 代码核查）：<b>三平台三种语义</b>——飞书集群模式随机投一条（≤50 连接）但有 3s 超时重推且可能落到另一副本；钉钉 Stream 同为随机投一；<b>企微单连接互踢</b>（新连接踢旧连接，多副本不能都建连 → 需租约属主）。存量坑实锤：017 的 MessageDeduplicator 是进程内 Map，多副本下重推去重失效 → 去重下沉 DB 幂等回执表（→ 026）</li>
   </ul>
   <h3>文件态——第三战场（本次盘点新增）</h3>
   <ul>
@@ -118,8 +118,8 @@
   </ul>
   <h3>瓶颈链（用的人多了，按序炸哪）</h3>
   <div class="chain">
-    ① SQLite 单写者锁（几百写 TPS 天花板）　<b>→ 024 解决</b><br>
-    ② 同 session 跨副本并发（单机排队退化为多机报错）　<b>→ 025 解决</b><br>
+    ① SQLite 单写者锁（几百写 TPS 天花板）　<b>→ 025 解决</b><br>
+    ② 同 session 跨副本并发（单机排队退化为多机报错）　<b>→ 026 解决</b><br>
     ③ LLM Provider 配额（加副本不增配额；023 fallback 缓冲）　→ 运营面，如实声明<br>
     ④ 计算层（虚拟线程挂 IO 等待，单副本可承数万并发）　→ 最不慌
   </div>
@@ -163,23 +163,24 @@
   </table></div>
 
   <h2><span class="no">04</span>四刀分解：每刀解决什么问题、怎么解</h2>
+  <p class="lede">编号备注：本稿原以 024–027 指代四刀；因 <span class="mono">024-container-sandbox</span>（容器级执行隔离，issue #334）先行占号，实际特性编号顺延为 <b>025 存储 / 026 归属 / 027 文件面 / 028 交付</b>，本稿已同步。</p>
   <div class="knives">
-    <div class="knife"><div class="kno">024</div><div class="kname">可插拔存储</div><div class="krole">物理前提</div></div>
-    <div class="knife"><div class="kno">025</div><div class="kname">session 归属与多副本正确性</div><div class="krole">行为正确性 · 技术核心</div></div>
-    <div class="knife"><div class="kno">026</div><div class="kname">文件面分布式</div><div class="krole">第三战场</div></div>
-    <div class="knife"><div class="kno">027</div><div class="kname">容器交付</div><div class="krole">验收 Demo 闭环</div></div>
+    <div class="knife"><div class="kno">025</div><div class="kname">可插拔存储</div><div class="krole">物理前提</div></div>
+    <div class="knife"><div class="kno">026</div><div class="kname">session 归属与多副本正确性</div><div class="krole">行为正确性 · 技术核心</div></div>
+    <div class="knife"><div class="kno">027</div><div class="kname">文件面分布式</div><div class="krole">第三战场</div></div>
+    <div class="knife"><div class="kno">028</div><div class="kname">容器交付</div><div class="krole">验收 Demo 闭环</div></div>
   </div>
 
-  <h3>024 可插拔存储</h3>
+  <h3>025 可插拔存储</h3>
   <p><b>解决什么问题</b>（三个，都能演示出坏行为）：</p>
   <ul>
-    <li><b>多副本没有共同事实源</b>——SQLite 是嵌入式单文件库，放 NFS 共享官方明确锁不可靠会坏库；今天起两个副本，连「都看到同一批会话」的前提都不存在。这是 025/026 的物理前提，必须第一刀</li>
+    <li><b>多副本没有共同事实源</b>——SQLite 是嵌入式单文件库，放 NFS 共享官方明确锁不可靠会坏库；今天起两个副本，连「都看到同一批会话」的前提都不存在。这是 026/027 的物理前提，必须第一刀</li>
     <li><b>单机写并发天花板</b>——SQLite 单写者（WAL 仅读写并行），每轮对话写 5+ 行；几十并发用户即撞写锁（<code>busy_timeout: 5000</code> 是已在吃止痛药的证据）</li>
     <li><b>表结构演进的债在指数化</b>——五个手工 SchemaUpgrade 类是 SQLite ALTER 弱的补偿；两种库后每次加列要手写两套幂等方言，且多副本并发启动会同时跑迁移</li>
   </ul>
   <p><b>怎么解</b>：Flyway 收编（schema.sql 转 baseline、五个升级类转版本化脚本后删除；history 表 + 内建启动锁一并解决并发启动）；<code>db/migration/{sqlite,postgres}/</code> vendor 双轨（14 处 AUTOINCREMENT 等专有面清理）；<b>SQLite 保持默认零配置档</b>。<b>为什么不是别的</b>：hibernate 自动迁移宪法明令禁止；Liquibase 的 XML 层无收益，Flyway 是宪法预留的口。</p>
 
-  <h3>025 session 归属与多副本正确性</h3>
+  <h3>026 session 归属与多副本正确性</h3>
   <p><b>解决什么问题</b>（六个，每个都是双副本一跑就翻车的具体场景）：</p>
   <ul>
     <li>① 同会话并发消息落两副本 → 乐观锁冲突 → <b>用户随机看到「处理失败」</b>（单机的排队退化为报错）</li>
@@ -191,7 +192,7 @@
   </ul>
   <p><b>怎么解</b>：一条 CAS 认领原语（「唯一约束即互斥 + 插入失败抢过期的 + 条件 UPDATE rowcount==1」）套五个场景——① <code>session_turn_leases</code> turn 租约（owner=<code>instanceId@epoch</code>，心跳续租带 fencing、失败即中止；本副本内保留 sessionLocks 快路径）；② <code>scheduled_tasks</code> 同款 CAS 认领；③ 去重下沉 <code>channel_event_receipts</code> 回执表；④ <code>channel_leases</code> 连接属主（持租约副本才建企微连接，过期即接管；飞书/钉钉随机投一无需属主）；⑤ 回收扫描只认过期租约（绝无 startup 全量抹除）→ 该轮标失败 + 告知重发、<b>不重放</b>；⑥ <code>instances</code> 心跳表。协调面收敛在一个接口后：JDBC 默认（零新增件）、Redis 可插拔（规模档）。<b>为什么不是别的</b>：粘性路由+转发被两个参考项目双双否定（状态在共享 DB，归属换不来正确性只换来路由层）；纯 advisory lock 给不了「有身份有期限」的租约语义（企微属主、崩溃收尾、可观测都需要它）。</p>
 
-  <h3 id="msg-flow">025 补充 · 同一 session 的消息到底谁处理？</h3>
+  <h3 id="msg-flow">026 补充 · 同一 session 的消息到底谁处理？</h3>
   <p>关键认知：<b>session 不归属副本，归属的只是「正在执行的这一轮」</b>。对话连续性由 DB 会话历史保证（处理方进锁后重读最新快照，day one 设计），不靠任何副本的内存。</p>
   <div class="chain">
     消息① → 飞书<b>随机</b>投给副本 A → A 认领 session-X 租约 ✔ → 读历史·跑 ReAct·写回 → 回复① → 释放<br>
@@ -199,24 +200,24 @@
   </div>
   <p>三个边界：<b>时间重叠</b>（①在 A 处理中、②落到 B）→ B 认领失败短轮询等待，A 释放后 B 接着处理——与单机排队语义等价，只是队伍横跨副本；<b>超时重推跨副本</b> → 回执表判重丢弃，用户只收一条；<b>A 处理中挂掉</b> → 租约过期、该轮标失败并提示重发，用户下一条消息落到哪个健康副本谁接管——<b>接管的是下一轮执行权，不是进行中的执行（不重放）</b>。</p>
 
-  <h3>025 补充 · 消息量大了性能怎么保障？</h3>
+  <h3>026 补充 · 消息量大了性能怎么保障？</h3>
   <ul>
     <li><b>租约开销账</b>：每轮仅增约 5 次单行小写（去重 1 + 认领 1 + 续租 ~2 + 释放 1），对比该轮既有的 5+ 次写与几十 KB 会话覆写是零头；LLM 往返（秒~分钟级）才是时间大头，DB 毫秒级操作在关键路径占比 &lt;1%。估算：1000 活跃用户 ×1 条/分钟 ≈ 17 msg/s → 含租约约 170 写/s，PG 单实例数千写/s 余量十倍以上</li>
     <li><b>串行只在同 session 内</b>（对话语义必须，与今天单机排队一致）；<b>session 间零竞争、全并行</b>——并发承载靠这个，加副本即加并行度</li>
     <li><b>群聊（消息量最大的场景）天然绕开竞争</b>：017 既有设计群聊问答走无状态独立会话（<code>feishu-group:&lt;uuid&gt;</code>），几十人同时 @bot 是几十个互不相干的会话，零租约竞争</li>
     <li><b>真瓶颈位次</b>：LLM Provider 配额（运营面，023 fallback 分摊）≫ 会话历史整段覆写（既有行为，<code>max_history_turns</code> 控制，PG TOAST 前无忧）≫ 协调面（万级 msg/s 才需换 Redis 实现——接口留缝正为此）</li>
-    <li><b>验收锚点</b>：025 的 SC 含压测——双副本 + PG 下「N 并发独立会话 + 单会话连发」两种负载，断言吞吐随副本数线性、租约开销在 p99 不可见</li>
+    <li><b>验收锚点</b>：026 的 SC 含压测——双副本 + PG 下「N 并发独立会话 + 单会话连发」两种负载，断言吞吐随副本数线性、租约开销在 p99 不可见</li>
   </ul>
 
-  <h3>026 文件面分布式</h3>
+  <h3>027 文件面分布式</h3>
   <p><b>解决什么问题</b>（四个）：① 副本 A 建的 Agent 在 B 的盘上不存在 → B 报「Agent 不存在」；② 挂共享卷后 <b>inotify 在 NFS 上不产生事件</b> → B 的注册表永远陈旧、改配置不生效；③ 知识索引流水线两副本都捡 → 重复索引/generation 互相覆盖；④ markdown 记忆档并发追加 → 经典丢写。</p>
-  <p><b>怎么解</b>：文件本体走共享卷（只依赖「读写可见 + rename 原子」，不依赖文件锁——StaffDeck 教训）；②变更感知换总线——管理台写路径在 DB 记工作区版本号、各副本秒级轮询（<b>DB 作通知总线、文件作内容载体</b>，单机档保留 watcher 零回归）；③索引 CAS 认领 + 超时回退（复用 025 原语，零新机制）；④markdown 档裁决为单机档，分布式档启动 <b>fail-fast 拒绝</b>并指明 DB 记忆后端。<b>为什么不是别的</b>：文件全面入库动「目录=Agent」接口承诺根基 + 单机直改文件的双模式难题，留 v1.0 租户定型时裁决。</p>
+  <p><b>怎么解</b>：文件本体走共享卷（只依赖「读写可见 + rename 原子」，不依赖文件锁——StaffDeck 教训）；②变更感知换总线——管理台写路径在 DB 记工作区版本号、各副本秒级轮询（<b>DB 作通知总线、文件作内容载体</b>，单机档保留 watcher 零回归）；③索引 CAS 认领 + 超时回退（复用 026 原语，零新机制）；④markdown 档裁决为单机档，分布式档启动 <b>fail-fast 拒绝</b>并指明 DB 记忆后端。<b>为什么不是别的</b>：文件全面入库动「目录=Agent」接口承诺根基 + 单机直改文件的双模式难题，留 v1.0 租户定型时裁决。</p>
 
-  <h3>027 容器交付</h3>
+  <h3>028 容器交付</h3>
   <p><b>解决什么问题</b>（三个）：① 企业没有标准部署入口（无镜像无 Chart，每客户手工装机）；② 前三刀能力没有验收载体——且滚动升级不断线不是免费的（需要 readiness 就绪门控 + preStop 优雅期让在途轮次收尾）；③ 021 内生 trace 接不进客户已有的 Jaeger/Tempo 观测栈。</p>
   <p><b>怎么解</b>：多阶段 Dockerfile（精简 JRE）+ Helm Chart（Deployment 副本可调、DB 连接与 <code>ORYXOS_MASTER_KEY</code> 走 K8s Secret——022 环境变量档零改动、<code>.oryxos</code> PVC 挂载、liveness/readiness 用既有 actuator、preStop 对接优雅停机与租约释放）；OTel 导出以 021 traceId 为 trace 上下文、span 打在既有审计点位（审计供精确回放、OTel 供跨系统链路，同源不同面）；验收 Demo 四条 + 性能锚点在真 K8s 走查落卷。</p>
 
-  <p class="lede"><b>因果链收拢</b>：024 给多副本一个能共享、扛得住写并发的事实源；025 用一条租约原语把六种「双副本一跑就翻车」的场景全部收口；026 让文件形态的资产在副本间可见、可感知、不打架；027 把这一切装进企业一条命令部署的载体并闭环验收。</p>
+  <p class="lede"><b>因果链收拢</b>：025 给多副本一个能共享、扛得住写并发的事实源；026 用一条租约原语把六种「双副本一跑就翻车」的场景全部收口；027 让文件形态的资产在副本间可见、可感知、不打架；028 把这一切装进企业一条命令部署的载体并闭环验收。</p>
 
   <h2><span class="no">05</span>差异化立足点</h2>
   <ul>
@@ -227,12 +228,12 @@
 
   <h2><span class="no">06</span>开放问题（邀请重点拍砖）</h2>
   <div class="q"><span class="qno">Q1</span> <span class="qt">turn 租约的 TTL 策略</span><p>参考值：StaffDeck 900s 固定 / AgentScope 90s+心跳续租。OryxOS 单轮含多次 LLM 往返（长的分钟级），倾向「短 TTL（60~90s）+ 心跳续租」——是否认可？</p></div>
-  <div class="q"><span class="qno">Q0</span> <span class="qt">（已闭环）IM 长连接多副本行为</span><p>原"未实证"项已证实：飞书/钉钉随机投一、企微单连接互踢；结论已并入 025 范围（DB 幂等回执 + 企微连接属主租约），无需再评审。</p></div>
+  <div class="q"><span class="qno">Q0</span> <span class="qt">（已闭环）IM 长连接多副本行为</span><p>原"未实证"项已证实：飞书/钉钉随机投一、企微单连接互踢；结论已并入 026 范围（DB 幂等回执 + 企微连接属主租约），无需再评审。</p></div>
   <div class="q"><span class="qno">Q2</span> <span class="qt">崩溃轮次的用户体验</span><p>不重放 + 告知重发是底线；是否需要在 IM 渠道主动推一条「刚才那轮中断了请重发」（StaffDeck 做了）？</p></div>
   <div class="q"><span class="qno">Q3</span> <span class="qt">MySQL 的优先级</span><p>建议 v0.4 只做 PostgreSQL（企业开源部署主流 + advisory lock 等能力更全），MySQL 视需求后补——是否接受？</p></div>
   <div class="q"><span class="qno">Q4</span> <span class="qt">共享卷的支持矩阵</span><p>NFS 语义参差。我们只依赖「读写可见性 + rename 原子性」、不依赖文件锁——文档如何声明支持矩阵？</p></div>
   <div class="q"><span class="qno">Q5</span> <span class="qt">Redis 插件的启动时机</span><p>接口留缝 v0.4 落；Redis 实现是 v0.4 内做完，还是留待真实规模需求触发（倾向后者，YAGNI）？</p></div>
-  <div class="q"><span class="qno">Q6</span> <span class="qt">024 的 PG 测试策略</span><p>开发/CI 环境镜像受限。候选：宿主机 PG 服务 / 嵌入式 PG 二进制 / 门禁内 SQLite + 发布前 PG 真机清单——需要定一个。</p></div>
+  <div class="q"><span class="qno">Q6</span> <span class="qt">025 的 PG 测试策略</span><p>开发/CI 环境镜像受限。候选：宿主机 PG 服务 / 嵌入式 PG 二进制 / 门禁内 SQLite + 发布前 PG 真机清单——需要定一个。</p></div>
 
   <div class="foot">
     审议轨迹：状态盘点与瓶颈链（2026-09-02 维护者审议）· StaffDeck / AgentScope Java 逐文件调研（八维度，证据到文件:行号，已交叉核对）· IM 长连接三平台实证（官方文档 + oapi-sdk 2.8.5 反编译 + 017 代码核查，2026-09-02）· roadmap v0.4 卡片与本文同步（docs/roadmap.html）
