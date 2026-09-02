@@ -26,8 +26,8 @@ import org.yaml.snakeyaml.Yaml;
  * 用；{@link #loadRaw} 保留字面量 {@code ${VAR}} 不解析，给管理台 CRUD（列表展示 / 改配置再 {@link
  * #save}）用——否则改一次配置就会把解析出的明文 token 写回磁盘，凭证泄露进文件（宪法：敏感配置走环境变量，不落盘明文）。
  *
- * <p>结构非法（YAML 解析失败 / 顶层 servers 非列表 / 条目非对象）抛 {@link IllegalArgumentException} 点名报错， 不静默按零 server
- * 处理——与 {@code ChannelConfigLoader} 同口径。
+ * <p>结构非法（YAML 解析失败 / 顶层 servers 非列表 / 条目非对象 / env·headers 非映射）抛 {@link IllegalArgumentException}
+ * 点名报错，不静默按零 server / 空 map 处理——与 {@code ChannelConfigLoader} 同口径。
  */
 public class McpConfigLoader {
 
@@ -92,9 +92,9 @@ public class McpConfigLoader {
               asString(entry.get("name")),
               asString(entry.get("transport")),
               asString(entry.get("command")),
-              asStringMap(entry.get("env")),
+              asStringMap(entry.get("env"), "env"),
               asString(entry.get("url")),
-              asStringMap(entry.get("headers"))));
+              asStringMap(entry.get("headers"), "headers")));
     }
     return configs;
   }
@@ -159,10 +159,15 @@ public class McpConfigLoader {
     return resolved;
   }
 
+  /** {@code env}/{@code headers}：缺省或 null → 空 map；显式写成标量/列表则 fail-loud，避免凭证/请求头静默丢失。 */
   @SuppressWarnings("unchecked")
-  private static Map<String, String> asStringMap(Object value) {
-    if (!(value instanceof Map)) {
+  private static Map<String, String> asStringMap(Object value, String field) {
+    if (value == null) {
       return Map.of();
+    }
+    if (!(value instanceof Map)) {
+      throw new IllegalArgumentException(
+          "mcp_servers.yaml 的 " + field + " 必须是映射: " + sanitize(String.valueOf(value)));
     }
     Map<String, String> out = new LinkedHashMap<>();
     for (Map.Entry<String, Object> entry : ((Map<String, Object>) value).entrySet()) {
