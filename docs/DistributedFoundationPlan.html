@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OryxOS 分布式底座规划（v0.4 评审稿）</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --paper: #FAF9F7; --surface: #F2EEE7; --ink: #26221C; --ink-2: #6F675B;
+    --line: #E5E0D6; --accent: #D9660A; --accent-soft: #FBEADB;
+    --ok: #2E7D4F; --warn: #A15C00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #17150F; --surface: #211E16; --ink: #EAE5DB; --ink-2: #A79D8C;
+      --line: #363126; --accent: #F08A2E; --accent-soft: #33270F;
+      --ok: #6FBF8F; --warn: #E0A24A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #17150F; --surface: #211E16; --ink: #EAE5DB; --ink-2: #A79D8C;
+    --line: #363126; --accent: #F08A2E; --accent-soft: #33270F;
+    --ok: #6FBF8F; --warn: #E0A24A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.85 -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 76ch; margin: 0 auto; padding: 48px 24px 96px; }
+  h1, h2, h3 { font-family: "Noto Serif SC", "Songti SC", serif; text-wrap: balance; line-height: 1.35; }
+  h1 { font-size: 30px; font-weight: 700; margin: 10px 0 6px; }
+  h2 { font-size: 21px; font-weight: 700; margin: 52px 0 14px; padding-top: 22px; border-top: 1px solid var(--line); }
+  h2 .no { color: var(--accent); font-family: "JetBrains Mono", monospace; font-size: 15px; margin-right: 10px; }
+  h3 { font-size: 16.5px; font-weight: 600; margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  .eyebrow { font-family: "JetBrains Mono", monospace; font-size: 12px; letter-spacing: .14em; color: var(--accent); text-transform: uppercase; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px 22px; color: var(--ink-2); font-size: 13.5px; margin: 4px 0 0; }
+  .badge { display: inline-block; font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 600;
+    color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent);
+    border-radius: 3px; padding: 1px 9px; vertical-align: 2px; }
+  .lede { font-size: 15px; color: var(--ink-2); border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; margin: 22px 0; }
+  .demo-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px 22px; margin: 26px 0; }
+  .demo-card b { font-family: "Noto Serif SC", serif; }
+  .demo-card ol { margin: 8px 0 0; padding-left: 22px; }
+  .demo-card li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.65; margin: 14px 0; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--surface); font-weight: 600; white-space: nowrap; }
+  .tbl-scroll { overflow-x: auto; }
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .88em; }
+  code { background: var(--surface); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+  .chain { background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+    padding: 14px 18px; margin: 14px 0; font-family: "JetBrains Mono", monospace; font-size: 13px; line-height: 2; overflow-x: auto; }
+  .chain b { color: var(--accent); font-weight: 600; }
+  .knives { display: flex; gap: 0; align-items: stretch; margin: 20px 0 6px; overflow-x: auto; }
+  .knife { flex: 1; min-width: 130px; border: 1px solid var(--line); background: var(--surface);
+    padding: 12px 14px; position: relative; }
+  .knife + .knife { border-left: none; }
+  .knife .kno { font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 600; color: var(--accent); }
+  .knife .kname { font-weight: 600; font-size: 14.5px; margin: 2px 0; }
+  .knife .krole { font-size: 12.5px; color: var(--ink-2); }
+  ul { padding-left: 22px; } li { margin: 5px 0; }
+  .q { border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 0 6px 6px 0;
+    background: var(--surface); padding: 12px 18px; margin: 12px 0; }
+  .q .qno { font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 600; color: var(--warn); }
+  .q .qt { font-weight: 600; }
+  .q p { margin: 4px 0 0; font-size: 14.5px; color: var(--ink-2); }
+  .adopt { color: var(--ok); font-weight: 600; }
+  .avoid { color: var(--warn); font-weight: 600; }
+  .foot { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 13px; }
+  @media (max-width: 640px) { .knives { flex-direction: column; } .knife + .knife { border-left: 1px solid var(--line); border-top: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="eyebrow">OryxOS · v0.4 评审稿</div>
+  <h1>分布式底座规划 <span class="badge">待评审</span></h1>
+  <div class="meta">
+    <span>2026-09-02</span>
+    <span>前置：v0.3 治理面已交付（020–023）</span>
+    <span>仓库路径：<span class="mono">docs/DistributedFoundationPlan.html</span></span>
+  </div>
+
+  <p class="lede">每条关键裁决都附理由与被否掉的备选，欢迎针对性反对；文末六个开放问题是明确邀请拍砖的地方。</p>
+
+  <div class="demo-card">
+    <b>验收 Demo（版本完成的定义）</b>——K8s 双副本：
+    <ol>
+      <li>滚动升级中进行的会话不断线</li>
+      <li>定时任务恰好执行一次</li>
+      <li>并发多用户 / 同用户连发消息：无丢失、无重复、无报错</li>
+      <li>副本 A 创建的 Agent 在副本 B 秒级可见、可对话</li>
+    </ol>
+  </div>
+
+  <h2><span class="no">01</span>目标与边界</h2>
+  <p><b>双目标</b>：<b>容错</b>（挂一个副本不断服务、滚动升级用户无感）与<b>承载</b>（用户量上来后加副本就能摊——这是分布式更日常的价值，不只是灾备）。</p>
+  <p><b>明确不做</b>：消息队列、K8s Operator、跨请求 Provider 健康记忆、文件全面入库（留 v1.0 租户模型定型后）、智能路由。</p>
+
+  <h2><span class="no">02</span>现状盘点：有状态且单点的全量清单</h2>
+  <p>按「状态在哪、多副本下会发生什么」盘点全部已有功能，结论三分：</p>
+  <h3>DB 态——基本就绪，换库即好</h3>
+  <p>会话 / 审计三表 / 记忆(sqlite 档) / 知识 chunk / 调度状态 / 执行历史 / providers / notify / 策略全在 DB。两个关键机制 day one 已按跨进程语义设计：<b>会话乐观锁</b>（<code>saveIfUnchanged</code> 条件更新）与<b>向量层库无关</b>（BLOB + Java 余弦——换 PostgreSQL 零向量迁移，pgvector 从必答降为可选优化）。</p>
+  <h3>内存态——两处要改，其余是可重建缓存</h3>
+  <ul>
+    <li><code>sessionLocks</code> 进程锁：跨副本语义要重建（→ 025 核心）</li>
+    <li>飞书/企微/钉钉长连接：事件单连接投递还是广播？<b>未实证</b>（→ 025 前置调查 + 幂等去重）</li>
+  </ul>
+  <h3>文件态——第三战场（本次盘点新增）</h3>
+  <ul>
+    <li>Agent 工作区：共享卷可解，但 <b>WorkspaceWatcher 的 inotify 在共享存储上不可靠</b>——热更新感知要换机制</li>
+    <li>知识库源文件：共享卷 + 索引任务跨副本认领</li>
+    <li>记忆 markdown 档：并发追加写丢数据——裁决为单机档</li>
+    <li>启动期一次性逻辑（迁移/播种）：多副本并发启动安全</li>
+  </ul>
+  <h3>瓶颈链（用的人多了，按序炸哪）</h3>
+  <div class="chain">
+    ① SQLite 单写者锁（几百写 TPS 天花板）　<b>→ 024 解决</b><br>
+    ② 同 session 跨副本并发（单机排队退化为多机报错）　<b>→ 025 解决</b><br>
+    ③ LLM Provider 配额（加副本不增配额；023 fallback 缓冲）　→ 运营面，如实声明<br>
+    ④ 计算层（虚拟线程挂 IO 等待，单副本可承数万并发）　→ 最不慌
+  </div>
+
+  <h2><span class="no">03</span>参考实现调研：StaffDeck / AgentScope Java</h2>
+  <p>对两个项目做了逐文件调研（八个维度，证据到文件:行号），交叉结论：</p>
+  <h3>核心发现：两家殊途同归于「turn 租约互斥」，都没做粘性路由</h3>
+  <div class="tbl-scroll"><table>
+    <tr><th></th><th>StaffDeck</th><th>AgentScope Java</th></tr>
+    <tr><td><b>形态</b></td><td>刻意单实例（文件锁拒绝第二进程），但租约模型完整</td><td>无状态多副本；官方明确「不 sticky-route，只互斥」，<code>sessionAffinity</code> 是死代码</td></tr>
+    <tr><td><b>会话归属</b></td><td>turn 租约表：唯一约束即互斥，执行期归属、执行完释放</td><td>同款（TTL 90s、TTL/3 心跳续租），turn 间无归属、每轮从 store 重载</td></tr>
+    <tr><td><b>副本挂了</b></td><td>租约过期 → 终结该轮 + 保留检查点 + 告知用户重发，<b>不自动重放</b></td><td>租约过期 → 释放 + 置 idle，下一条消息任意副本自然接管</td></tr>
+  </table></div>
+  <p><b>采纳口径</b>：绑定的是「正在执行的一轮」（租约 + 续租 fencing 硬互斥），不是「会话永久归属副本」——状态在共享 DB，永久归属换不来正确性收益，却要付路由/转发/再平衡整套复杂度。副本挂 → 租约过期 → 下一条消息落到哪个健康副本哪个接管：<b>零协调者、秒级、零数据丢失</b>。LB 层 IP-hash 粘性可作缓存优化叠加，不承担正确性。</p>
+
+  <h3><span class="adopt">吸收</span> — StaffDeck 的租约工艺</h3>
+  <ul>
+    <li>统一并发原语：「唯一约束即互斥 + 插入失败抢过期的 + 条件 UPDATE rowcount==1」——session turn / 定时任务 / 知识索引 / IM 事件全用同一套</li>
+    <li><b>续租带 owner fencing、失败即终止执行</b>——防脑裂核心</li>
+    <li>双层锁：进程内快路径 + DB 慢路径（OryxOS 的 sessionLocks 恰好已是一半）</li>
+    <li><b>不自动重放</b>：崩溃轮次终结为失败、执行历史留痕、告知用户重发、标记「副作用结果未知」</li>
+    <li>回收多证据交叉验证；IM 事件幂等回执表</li>
+  </ul>
+  <h3><span class="adopt">吸收</span> — AgentScope Java 的架构骨架</h3>
+  <ul>
+    <li>总路线验证：「无状态副本 + 外置状态 + turn 互斥 + CAS 兜底」——OryxOS 现状与之同构</li>
+    <li><b>协调面接口化</b>：JDBC 租约为默认实现（零新增件，同库多副本即可跑），Redis 作为可插拔第二实现（规模档插件）</li>
+    <li>误配 fail-fast：分布式档 + 单机型组件 → 启动直接拒绝</li>
+    <li>「权威落库 + seq 游标」事件流分层——记为 v0.5 方案储备</li>
+  </ul>
+  <h3><span class="avoid">避开</span> — 两家的已知坑</h3>
+  <div class="tbl-scroll"><table>
+    <tr><th>坑</th><th>出处</th><th>OryxOS 对策</th></tr>
+    <tr><td>文件锁承担正确性（跨机器静默失效）</td><td>StaffDeck</td><td>正确性只依赖 DB 租约</td></tr>
+    <tr><td><b>startup 全量抹除活跃行</b>（多副本互杀）</td><td>StaffDeck</td><td>回收只认过期租约，永无 startup 分支</td></tr>
+    <tr><td>lease_owner 随机 ID 不可路由</td><td>StaffDeck</td><td>owner 写成 <code>instanceId@epoch</code></td></tr>
+    <tr><td>租约参数硬编码、零指标</td><td>StaffDeck</td><td>配置化 + 租约指标挂 023 MetricsRecorder</td></tr>
+    <tr><td>锁不可达 30s <b>静默降级为进程锁</b>（脑裂后门）</td><td>AgentScope</td><td>fail-closed：拒绝服务优于错误服务</td></tr>
+    <tr><td>fencing token 发了但客户端不用 / 锁无续期看门狗</td><td>AgentScope</td><td>fencing 贯穿续租与终止；心跳续租必选</td></tr>
+    <tr><td>多租户拼字符串</td><td>AgentScope</td><td>v0.4 不做租户，但不埋拼接式债务</td></tr>
+  </table></div>
+
+  <h2><span class="no">04</span>四刀分解</h2>
+  <div class="knives">
+    <div class="knife"><div class="kno">024</div><div class="kname">可插拔存储</div><div class="krole">物理前提</div></div>
+    <div class="knife"><div class="kno">025</div><div class="kname">session 归属与多副本正确性</div><div class="krole">行为正确性 · 技术核心</div></div>
+    <div class="knife"><div class="kno">026</div><div class="kname">文件面分布式</div><div class="krole">第三战场</div></div>
+    <div class="knife"><div class="kno">027</div><div class="kname">容器交付</div><div class="krole">验收 Demo 闭环</div></div>
+  </div>
+  <h3>024 可插拔存储</h3>
+  <ul>
+    <li>Flyway 接管迁移，<b>收编五个手工 SchemaUpgrade</b>（Flyway 自带迁移锁顺带解决多副本并发启动）</li>
+    <li>PostgreSQL 支持：方言/迁移脚本双轨（14 处 AUTOINCREMENT 等专有面清理）</li>
+    <li><b>SQLite 保持默认零配置档</b>——单机五分钟上手是产品资产，PG 是可选档不是升级</li>
+    <li>已知风险：开发环境 PG 自动化测试路径受限，plan 阶段先行验证（见问题 6）</li>
+  </ul>
+  <h3>025 session 归属与多副本正确性</h3>
+  <ul>
+    <li><b>turn 租约表</b>：唯一约束即互斥、插入失败抢过期的、CAS 认领；owner=<code>instanceId@epoch</code>；续租 fencing 失败即中止；过期惰性接管 + 不重放</li>
+    <li>双层锁：进程内快路径 + DB 租约兜底；定时/索引/IM 事件同一套认领原语 + 幂等去重</li>
+    <li><code>instances</code> 心跳表（落库不落内存）；协调面接口化（JDBC 默认 / Redis 可插拔）</li>
+    <li>租约配置化 + 指标；分布式误配 fail-fast；IM 长连接多副本投递行为前置实证</li>
+  </ul>
+  <h3>026 文件面分布式</h3>
+  <ul>
+    <li>Agent 工作区 / 知识库源文件走共享卷（其 HA 是企业存储设施职责——与「DB 的 HA 交给 DBA」同一边界哲学）</li>
+    <li><b>watcher 从 inotify 改为 DB 版本号通知</b>（DB 作变更通知总线、文件作内容载体，仍零新增件）</li>
+    <li>知识索引任务 DB 原子认领（复用 025 原语）；markdown 记忆档裁决为单机档（误配 fail-fast）</li>
+  </ul>
+  <h3>027 容器交付</h3>
+  <ul>
+    <li>官方镜像 + Helm Chart + 探针；主密钥接 K8s Secret（022 环境变量档零改动）；共享卷挂载编排</li>
+    <li>OpenTelemetry tracing 导出（021 内生 trace 的导出面）；验收 Demo 四条在此闭环</li>
+  </ul>
+
+  <h2><span class="no">05</span>差异化立足点</h2>
+  <ul>
+    <li>对 <b>Dify / RAGFlow</b>（Postgres+Redis+Celery+向量库多件套）：OryxOS 默认<b>一个共享 DB 就能多副本</b>；Redis 是规模档可选插件而非必答</li>
+    <li>对 <b>kagent</b>（CNCF，K8s-native）：不绑 K8s——裸机 / VM / K8s 都是一等部署形态，Helm 是兼容而非归顺</li>
+    <li>对 <b>AgentScope Java</b> 自身：其锁语义（可降级/无 fencing 落地/无续期）与消息层停在「能跑」水平——OryxOS 按企业底座标准把这几块做对</li>
+  </ul>
+
+  <h2><span class="no">06</span>开放问题（邀请重点拍砖）</h2>
+  <div class="q"><span class="qno">Q1</span> <span class="qt">turn 租约的 TTL 策略</span><p>参考值：StaffDeck 900s 固定 / AgentScope 90s+心跳续租。OryxOS 单轮含多次 LLM 往返（长的分钟级），倾向「短 TTL（60~90s）+ 心跳续租」——是否认可？</p></div>
+  <div class="q"><span class="qno">Q2</span> <span class="qt">崩溃轮次的用户体验</span><p>不重放 + 告知重发是底线；是否需要在 IM 渠道主动推一条「刚才那轮中断了请重发」（StaffDeck 做了）？</p></div>
+  <div class="q"><span class="qno">Q3</span> <span class="qt">MySQL 的优先级</span><p>建议 v0.4 只做 PostgreSQL（企业开源部署主流 + advisory lock 等能力更全），MySQL 视需求后补——是否接受？</p></div>
+  <div class="q"><span class="qno">Q4</span> <span class="qt">共享卷的支持矩阵</span><p>NFS 语义参差。我们只依赖「读写可见性 + rename 原子性」、不依赖文件锁——文档如何声明支持矩阵？</p></div>
+  <div class="q"><span class="qno">Q5</span> <span class="qt">Redis 插件的启动时机</span><p>接口留缝 v0.4 落；Redis 实现是 v0.4 内做完，还是留待真实规模需求触发（倾向后者，YAGNI）？</p></div>
+  <div class="q"><span class="qno">Q6</span> <span class="qt">024 的 PG 测试策略</span><p>开发/CI 环境镜像受限。候选：宿主机 PG 服务 / 嵌入式 PG 二进制 / 门禁内 SQLite + 发布前 PG 真机清单——需要定一个。</p></div>
+
+  <div class="foot">
+    审议轨迹：状态盘点与瓶颈链（2026-09-02 维护者审议）· StaffDeck / AgentScope Java 逐文件调研（八维度，证据到文件:行号，已交叉核对）· roadmap v0.4 卡片与本文同步（docs/roadmap.html）
+  </div>
+</div>
+
+</body>
+</html>
