@@ -812,6 +812,14 @@ On the timeline, a TOOL step's `inputSummary`/`resultSummary`/`errorMessage` are
 
 ---
 
+## Provider fallback & business metrics
+
+**Fallback (023)**: the `provider` section of `AGENT.md` accepts an ordered fallback list — when a single LLM call hits a provider-side failure (network/timeout/5xx/429/401/403), the call retries the same request through the fallback chain in declared order; only when all candidates fail is the last error thrown. Business-level failures (400-class) never switch. Switching is scoped to a single LLM call (ReAct iteration semantics unchanged; every call starts from the primary — no cross-request health memory); streaming calls may switch only before the first content fragment is emitted. Every attempt writes its own `llm_calls` row (primary and fallback both audited, same trace), and each switch logs a WARN (from→to, with traceId). Zero declarations = zero behavior change.
+
+**Business metrics (023)**: `GET /actuator/prometheus` (existing endpoint) gains `oryxos_`-prefixed metrics for enterprise monitoring stacks — `oryxos_llm_calls_total{provider,model,outcome}` (same cardinality as `llm_calls` rows), `oryxos_llm_call_duration_seconds`, `oryxos_llm_tokens_total{type}`, `oryxos_tool_invocations_total{tool,outcome}`, `oryxos_policy_blocks_total{tool}`, `oryxos_fallback_switches_total{from,to}`. Metrics serve aggregation and alerting; the audit tables remain the source of precise replay (orthogonal — metrics never change audit semantics). Absent or zero series simply mean the event has not occurred.
+
+---
+
 ## Workspace file browser
 
 A read-only directory tree plus per-file read/write over the workspace (`agents/` and `archive/`). All paths are relative to the workspace root; a path that escapes the root (path traversal) returns `400`.

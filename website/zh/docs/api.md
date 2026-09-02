@@ -827,6 +827,23 @@ Sandbox 白名单分三类——`FILE`（允许路径）、`SHELL`（允许命�
 
 ---
 
+## Provider 失败切换与业务指标
+
+**失败切换（023）**：`AGENT.md` 的 provider 节可声明有序备用列表——单次 LLM 调用发生 provider 侧故障（网络/超时/5xx/429/401/403）时按序切换备用重发同一请求，候选耗尽才以最后错误上抛；业务性失败（400 类）不切换。切换语义限定在「单次调用」层面（ReAct 轮次口径不变，每次调用独立从主开始）；流式调用仅在首个内容片段送出前可切换。每次尝试各写一条 `llm_calls`（主备留痕、trace 同链可回放），切换记 WARN 日志（from→to，带 traceId）。零声明 = 现状行为零变化。
+
+```yaml
+provider:
+  name: deepseek
+  model: deepseek-chat
+  fallback:
+    - name: qwen
+      model: qwen-plus
+```
+
+**业务指标（023）**：`GET /actuator/prometheus`（既有端点）新增 `oryxos_` 前缀业务指标，供企业监控栈聚合与告警——`oryxos_llm_calls_total{provider,model,outcome}`（与 llm_calls 行数同口径）、`oryxos_llm_call_duration_seconds`、`oryxos_llm_tokens_total{type}`、`oryxos_tool_invocations_total{tool,outcome}`、`oryxos_policy_blocks_total{tool}`、`oryxos_fallback_switches_total{from,to}`。指标供监控聚合、审计供精确回放（正交，指标不改变审计落库口径）；未发生对应事件时指标缺席或为零均为正常形态。
+
+---
+
 ## 工作区文件浏览
 
 工作区（`agents/` 与 `archive/`）的只读目录树，加上按文件读 / 写。所有路径相对工作区根目录；越界路径（路径穿越）返回 `400`。
