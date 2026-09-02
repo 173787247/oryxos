@@ -46,7 +46,7 @@ final class DingTalkStreamClient implements WebSocket.Listener {
   private final String clientSecret;
   private final OutboundGuard guard;
   private final Consumer<JsonNode> onBotMessage;
-  private final Runnable onDisconnected;
+  private final Consumer<DingTalkDisconnectKind> onDisconnected;
 
   private final AtomicReference<WebSocket> socket = new AtomicReference<>();
   private final AtomicBoolean connected = new AtomicBoolean(false);
@@ -54,22 +54,25 @@ final class DingTalkStreamClient implements WebSocket.Listener {
   private final StringBuilder textBuf = new StringBuilder();
   private final CountDownLatch openLatch = new CountDownLatch(1);
   private volatile String openError;
+  private volatile long connectedAtMillis;
+  private final AtomicBoolean disconnectNotified = new AtomicBoolean(false);
 
   DingTalkStreamClient(
       String clientId,
       String clientSecret,
       OutboundGuard guard,
       Consumer<JsonNode> onBotMessage,
-      Runnable onDisconnected) {
+      Consumer<DingTalkDisconnectKind> onDisconnected) {
     this.clientId = Objects.requireNonNull(clientId);
     this.clientSecret = Objects.requireNonNull(clientSecret);
     this.guard = Objects.requireNonNull(guard);
     this.onBotMessage = Objects.requireNonNull(onBotMessage);
-    this.onDisconnected = onDisconnected == null ? () -> {} : onDisconnected;
+    this.onDisconnected = onDisconnected == null ? kind -> {} : onDisconnected;
   }
 
   void connect(Duration timeout) throws Exception {
     closed.set(false);
+    disconnectNotified.set(false);
     guard.check(API_BASE_URL);
     URI wsUri = openWebSocketUri();
     HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
@@ -112,6 +115,8 @@ final class DingTalkStreamClient implements WebSocket.Listener {
   @Override
   public void onOpen(WebSocket webSocket) {
     connected.set(true);
+    connectedAtMillis = System.currentTimeMillis();
+    disconnectNotified.set(false);
     openLatch.countDown();
     webSocket.request(1);
   }
@@ -136,8 +141,7 @@ final class DingTalkStreamClient implements WebSocket.Listener {
 
   @Override
   public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-    markDisconnected();
-    onDisconnected.run();
+    notifyDisconnected(DingTalkDisconnectKind.ABRUPT, "close " + statusCode + " " + reason);
     return null;
   }
 
@@ -148,8 +152,7 @@ final class DingTalkStreamClient implements WebSocket.Listener {
       openError = error == null ? "unknown" : error.getMessage();
       openLatch.countDown();
     }
-    markDisconnected();
-    onDisconnected.run();
+    notifyDisconnected(DingTalkDisconnectKind.ABRUPT, error == null ? null : error.getMessage());
   }
 
   void dispatchFrameForTest(String raw, WebSocket webSocket) {
@@ -189,9 +192,11 @@ final class DingTalkStreamClient implements WebSocket.Listener {
       return;
     }
     if (TOPIC_DISCONNECT.equals(topic)) {
-      LOG.info("钉钉 Stream 服务端请求断开: {}", sanitize(dataRaw));
+      long uptimeMs = connectedAtMillis > 0 ? System.currentTimeMillis() - connectedAtMillis : -1L;
+      LOG.info("钉钉 Stream 服务端请求断开（uptime={}ms）: {}", uptimeMs, sanitize(dataRaw));
       closeQuietly();
-      onDisconnected.run();
+      notifyDisconnected(DingTalkDisconnectKind.GRACEFUL, dataRaw);
+      return;
     }
   }
 
@@ -269,6 +274,14 @@ final class DingTalkStreamClient implements WebSocket.Listener {
     closed.set(true);
     connected.set(false);
     openLatch.countDown();
+  }
+
+  private void notifyDisconnected(DingTalkDisconnectKind kind, String detail) {
+    if (!disconnectNotified.compareAndSet(false, true)) {
+      return;
+    }
+    markDisconnected();
+    onDisconnected.accept(kind);
   }
 
   private static String extractOpaque(String dataRaw) {

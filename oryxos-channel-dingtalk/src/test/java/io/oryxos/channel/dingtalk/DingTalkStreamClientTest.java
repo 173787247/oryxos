@@ -2,7 +2,6 @@ package io.oryxos.channel.dingtalk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -32,7 +31,7 @@ class DingTalkStreamClientTest {
     AtomicReference<String> ack = new AtomicReference<>();
     WebSocket ws = mockWebSocket(ack);
     DingTalkStreamClient client =
-        new DingTalkStreamClient("id", "secret", url -> {}, messages::add, () -> {});
+        new DingTalkStreamClient("id", "secret", url -> {}, messages::add, k -> {});
     String frame =
         """
         {
@@ -59,7 +58,7 @@ class DingTalkStreamClientTest {
     AtomicReference<String> ack = new AtomicReference<>();
     WebSocket ws = mockWebSocket(ack);
     DingTalkStreamClient client =
-        new DingTalkStreamClient("id", "secret", url -> {}, node -> {}, () -> {});
+        new DingTalkStreamClient("id", "secret", url -> {}, node -> {}, k -> {});
     String frame =
         """
         {
@@ -80,12 +79,11 @@ class DingTalkStreamClientTest {
   @Test
   @DisplayName("disconnect 帧主动 closeQuietly 并通知上层")
   void disconnectTopicClosesSocketAndNotifies() throws Exception {
-    AtomicBoolean disconnected = new AtomicBoolean(false);
+    AtomicReference<DingTalkDisconnectKind> kind = new AtomicReference<>();
     WebSocket ws = mock(WebSocket.class);
     when(ws.sendClose(anyInt(), anyString())).thenReturn(CompletableFuture.completedFuture(ws));
     DingTalkStreamClient client =
-        new DingTalkStreamClient(
-            "id", "secret", url -> {}, node -> {}, () -> disconnected.set(true));
+        new DingTalkStreamClient("id", "secret", url -> {}, node -> {}, kind::set);
     seedOpenClient(client, ws);
 
     String frame =
@@ -102,7 +100,7 @@ class DingTalkStreamClientTest {
     client.dispatchFrameForTest(frame, ws);
 
     assertFalse(client.isConnected());
-    assertTrue(disconnected.get());
+    assertEquals(DingTalkDisconnectKind.GRACEFUL, kind.get());
     verify(ws).sendClose(WebSocket.NORMAL_CLOSURE, "bye");
   }
 
