@@ -3,6 +3,7 @@ package io.oryxos.core.channel;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -200,11 +201,11 @@ class InboundMessageServiceTest {
             java.util.List.of(InboundAttachment.imageUrl("https://example/img.png")));
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
-    when(agentService.process(eq(session), anyString())).thenReturn("图片已收到");
+    when(agentService.process(eq(session), anyString(), anyList())).thenReturn("图片已收到");
 
     service.onMessage(img, adapter);
 
-    verify(agentService).process(eq(session), anyString());
+    verify(agentService).process(eq(session), anyString(), anyList());
     assertEquals("图片已收到", adapter.sent().get(0).text());
   }
 
