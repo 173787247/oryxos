@@ -49,6 +49,9 @@ public final class ImageMime {
   }
 
   /** 由路径或 URL 字符串的后缀推断；无后缀则默认 JPEG。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification = "仅对 ASCII 扩展名做 Locale.ROOT 小写匹配以判 MIME，不参与安全/身份比较")
   public static String fromPath(String pathOrUrl) {
     if (pathOrUrl == null || pathOrUrl.isBlank()) {
       return IMAGE_JPEG;
