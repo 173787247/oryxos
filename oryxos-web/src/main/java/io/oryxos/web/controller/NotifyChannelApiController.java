@@ -83,15 +83,36 @@ public class NotifyChannelApiController {
   @PutMapping("/{name}")
   public ApiResponse<NotifyChannelView> update(
       @PathVariable String name, @RequestBody UpdateNotifyChannelRequest req) {
-    if (!registry.exists(name)) {
-      throw new ResourceNotFoundException("通知渠道不存在: " + name); // → 404
-    }
-    Map<String, String> config = req.config();
+    NotifyChannelDef existing =
+        registry
+            .find(name)
+            .orElseThrow(() -> new ResourceNotFoundException("通知渠道不存在: " + name)); // → 404
+    // 022：前端编辑表单回填的是敏感项掩码；提交掩码原样或留空 = 未修改，保留原值——否则打码值会覆盖真实凭证
+    Map<String, String> config = keepUnchangedSecrets(existing.config(), req.config());
     String url = normalizeUrl(req.type(), req.url());
     validate(req.type(), url, config);
     NotifyChannelDef saved =
         registry.save(new NotifyChannelDef(name, req.type(), url, req.description(), config));
     return ApiResponse.ok(NotifyChannelView.from(saved));
+  }
+
+  /** 敏感项未修改判定（ProviderApiController 同款范式）：提交值为空或等于原值掩码 → 沿用原值；否则取新值。 */
+  private static Map<String, String> keepUnchangedSecrets(
+      Map<String, String> existing, Map<String, String> submitted) {
+    if (submitted == null || submitted.isEmpty()) {
+      return submitted;
+    }
+    Map<String, String> masked = NotifyChannelView.maskConfig(existing);
+    Map<String, String> out = new java.util.LinkedHashMap<>();
+    submitted.forEach(
+        (key, value) -> {
+          boolean unchanged =
+              io.oryxos.core.secret.SensitiveConfigKeys.isSensitive(key)
+                  && existing.containsKey(key)
+                  && (value == null || value.isBlank() || value.equals(masked.get(key)));
+          out.put(key, unchanged ? existing.get(key) : value);
+        });
+    return out;
   }
 
   @DeleteMapping("/{name}")

@@ -173,8 +173,11 @@ public class OryxOsRuntime {
   ProviderRegistry providerRegistry(
       LlmProviderRepository repository,
       ProvidersProperties properties,
-      ProviderRegistryBootstrap bootstrap) {
-    ProviderRegistry registry = new JpaProviderRegistry(repository);
+      ProviderRegistryBootstrap bootstrap,
+      io.oryxos.core.secret.SecretCipher secretCipher,
+      io.oryxos.storage.SecretMigration secretMigration) {
+    // 022：注册表收口加解密；依赖 SecretMigration 保证「守卫+存量迁移」先于 YAML 播种与一切读写
+    ProviderRegistry registry = new JpaProviderRegistry(repository, secretCipher);
     bootstrap.seedMissing(registry, properties);
     return registry;
   }
@@ -199,6 +202,26 @@ public class OryxOsRuntime {
   @DependsOn("dataSourceScriptDatabaseInitializer")
   AuditSchemaUpgrade auditSchemaUpgrade(DataSource dataSource) {
     return new AuditSchemaUpgrade(dataSource);
+  }
+
+  /** 022：落库凭证加解密——主密钥两档解析（ORYXOS_MASTER_KEY 优先，缺省 {oryxos.root}/master.key 首启自动生成）。 */
+  @Bean
+  io.oryxos.core.secret.SecretCipher secretCipher() {
+    return new io.oryxos.core.secret.LocalMasterKeyCipher(
+        new io.oryxos.core.secret.MasterKeyResolver(oryxosRoot()).resolve());
+  }
+
+  /** 022：存量明文迁移 + 密钥守卫（幂等；密钥不匹配拒启指路）。数据源就绪后执行，AuditSchemaUpgrade 同位。 */
+  @Bean
+  @DependsOn("dataSourceScriptDatabaseInitializer")
+  io.oryxos.storage.SecretMigration secretMigration(
+      LlmProviderRepository providerRepository,
+      NotifyChannelRepository channelRepository,
+      io.oryxos.core.secret.SecretCipher secretCipher) {
+    io.oryxos.storage.SecretMigration migration =
+        new io.oryxos.storage.SecretMigration(providerRepository, channelRepository, secretCipher);
+    migration.run();
+    return migration;
   }
 
   @Bean
@@ -844,8 +867,12 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  NotifyChannelRegistry notifyChannelRegistry(NotifyChannelRepository repository) {
-    return new JpaNotifyChannelRegistry(repository);
+  NotifyChannelRegistry notifyChannelRegistry(
+      NotifyChannelRepository repository,
+      io.oryxos.core.secret.SecretCipher secretCipher,
+      io.oryxos.storage.SecretMigration secretMigration) {
+    // 022：同 providerRegistry——收口加解密，且迁移先行
+    return new JpaNotifyChannelRegistry(repository, secretCipher);
   }
 
   @Bean
