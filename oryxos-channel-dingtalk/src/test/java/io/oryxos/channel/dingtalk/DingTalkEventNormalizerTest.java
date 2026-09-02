@@ -72,7 +72,27 @@ class DingTalkEventNormalizerTest {
   }
 
   @Test
-  @DisplayName("非文本仍构造消息但 textual=false；图片带附件")
+  @DisplayName("picture + downloadCode（官方 Stream 格式）→ 图片附件")
+  void pictureWithDownloadCode() {
+    ObjectNode body = mapper.createObjectNode();
+    body.put("msgId", "m3b");
+    body.put("conversationType", "1");
+    body.put("conversationId", "conv-p2p");
+    body.put("senderId", "u1");
+    body.put("msgtype", "picture");
+    body.putObject("content")
+        .put("pictureDownloadCode", "pWjA****ks=")
+        .put("downloadCode", "mIof****JE0E");
+
+    InboundMessage msg = normalizer.normalize(body).orElseThrow();
+    assertFalse(msg.textual());
+    assertTrue(msg.processable());
+    assertEquals(1, msg.attachments().size());
+    assertEquals("mIof****JE0E", msg.attachments().get(0).reference());
+  }
+
+  @Test
+  @DisplayName("非文本仍构造消息但 textual=false；图片带 picURL 附件")
   void nonText() {
     ObjectNode body = mapper.createObjectNode();
     body.put("msgId", "m3");
