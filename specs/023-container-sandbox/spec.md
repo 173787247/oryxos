@@ -4,9 +4,17 @@
 
 **Created**: 2026-09-01
 
-**Status**: Draft（issue #334 认领后的首版草案，5 处待裁决，见 Clarifications）
+**Status**: Draft（**草案体例**——先出 spec/plan/tasks 三件收敛 5 处裁决；裁决收敛后按 020/021 九件套补齐 data-model / research / quickstart / contracts / checklists / acceptance-report）
 
 **Input**: User description: "容器级执行隔离（方向 F，issue #334）：Agent 的 shell 工具目前执行在 OryxOS 进程内，沙箱白名单是应用自觉的策略层——检查者与被检查者同处一个信任域，近两个月的十几个安全修复全部是在封堵绕过手法（symlink 别名/TOCTOU/隧道地址），注定持续对抗。本特性把执行位置迁到内核强制的容器边界：ToolExecutor 的 shell 执行后端可插拔——local（默认，现状零依赖零变化）/ docker（可选，短命容器执行）/ ssh（远程，后续档）。与 015 记忆后端三档、020 Tool Policy 构成纵深防御：Policy 管意图、白名单管准入、容器管爆炸半径，三层互补不替代。落点参照既有 ProcessStarter 接缝（现为包级测试用，ProcessBuilder 为默认实现），docker 档走 CLI 零新依赖。明确不做：file/http 工具容器化、容器化 OryxOS 挂 docker socket（advanced 文档化）、SSH 档（后续）。"
+
+## 术语约定（消歧：sandbox 一词三义）
+
+| 术语 | 指 | 命名载体 |
+| --- | --- | --- |
+| **白名单沙箱** | 既有准入检查层（`Sandbox`/`WhitelistSandbox`，路径/命令/域名） | 类名/代码域保持不动 |
+| **执行后端**（execution backend） | 本特性的执行位置抽象（local / docker） | 配置键 `oryxos.sandbox.execution.*`、类 `ExecutionBackendProperties` 等——一律用 execution 词根 |
+| **沙箱配置段** | AGENT.md frontmatter 的 `sandbox:` 段，专指该 Agent 的执行环境声明 | frontmatter 段名保留 `sandbox:`（作者视角简洁），字段 `backend` / `docker.*` |
 
 ## Clarifications（5 处待裁决，均附推荐）
 
@@ -44,7 +52,7 @@
 
 ### User Story 1 - docker 档最小闭环：shell 命令在短命容器里执行 (Priority: P1)
 
-管理员在 `config/application.yml` 配置 `oryxos.sandbox.backend: docker` 与执行镜像后重启。此后所有 Agent 的 `shell` 调用：白名单与 Tool Policy 照常前置（意图与准入检查一个不少），实际执行发生在 `docker run --rm` 的短命容器里——工作区挂载在 `/workspace` 双向可见，命令结束后容器销毁不留痕迹，审计记录多出「backend=docker + 容器 ID」。未配置 backend 的部署一切与现状完全一致（local 档零回归）。
+管理员在 `config/application.yml` 配置 `oryxos.sandbox.execution.backend: docker` 与执行镜像后重启。此后所有 Agent 的 `shell` 调用：白名单与 Tool Policy 照常前置（意图与准入检查一个不少），实际执行发生在 `docker run --rm` 的短命容器里——工作区挂载在 `/workspace` 双向可见，命令结束后容器销毁不留痕迹，审计记录多出「backend=docker + 容器 ID」。未配置 backend 的部署一切与现状完全一致（local 档零回归）。
 
 **Why this priority**: 本特性的本体——把执行位置从「应用自觉」迁到「内核强制」。全局最小闭环独立可用，不依赖任何按 Agent 配置。
 
@@ -114,11 +122,11 @@
 | FR-002 | docker 档 MUST 以 `docker run --rm` 短命容器执行白名单校验后的命令，经 CLI 调用（ProcessBuilder 起 docker 进程），MUST NOT 引入 docker SDK / 新运行时依赖 | 宪法「零仪式」同源 |
 | FR-003 | `ORYXOS_ROOT` MUST 读写挂载到容器内固定路径 `/workspace`；shell 入参中的工作区绝对路径 MUST 翻译为 `/workspace/...`，审计 MUST 记录宿主原始路径 | RQ-4 |
 | FR-004 | docker 档默认安全参数 MUST 生效：`--network none`、`--read-only` + `--tmpfs /tmp`、`--memory 512m`、`--cpus 1.0`、非 root `--user`；各项 MUST 可配置覆写 | RQ-5 |
-| FR-005 | 档位为 docker 时 MUST 显式配置执行镜像（`oryxos.sandbox.docker.image`）；启动校验 MUST 验证 CLI 存在 + daemon 可达 + 镜像可用（必要时预拉取），任一失败 fail loud | EC-1/4/7 |
+| FR-005 | 档位为 docker 时 MUST 显式配置执行镜像（`oryxos.sandbox.execution.image`）；启动校验 MUST 验证 CLI 存在 + daemon 可达 + 镜像可用（必要时预拉取），任一失败 fail loud | EC-1/4/7 |
 | FR-006 | 工具超时 MUST 终止容器本体而非仅杀 docker CLI 进程（如 `--cidfile` + destroy 联动 `docker kill`）；MUST NOT 留下泄漏容器 | SC-004 |
 | FR-007 | 既有检查顺序 MUST 不变：Tool Policy（020，事前不可见/事中拒绝）→ 白名单 enforce → 后端执行；后端 MUST NOT 跳过或替代前两层 | 三层互补 |
 | FR-008 | `tool_invocations` 审计 MUST 记录执行后端标识（local/docker）与容器 ID（docker 档）；local 档记录与本 feature 之前一致 + backend=local | 兼容既有查询 |
-| FR-009 | 全局配置 MUST 支持 `oryxos.sandbox.backend: local|docker`（默认 local）与 `oryxos.sandbox.docker.*`（image/memory/cpus/network/user/tmpfs） | |
+| FR-009 | 全局配置 MUST 支持 `oryxos.sandbox.execution.backend: local|docker`（默认 local）与 `oryxos.sandbox.execution.*`（image/memory/cpus/network/user/tmpfs） | |
 | FR-010 | Agent MUST 可经 AGENT.md frontmatter（`sandbox.backend` + 限额覆写）覆写全局档位；非法值告警并回落全局（EC） | US2 |
 | FR-011 | docker 不可用（daemon 停止/CLI 缺失）时 MUST 以清晰错误失败并留审计，MUST NOT 静默回落 local 执行 | 安全语义：档位是承诺 |
 | FR-012 | 管理台 MUST 提供后端状态页：档位、daemon 探测、镜像信息、默认限额、Agent 覆写一览（只读） | US3 |
@@ -129,11 +137,11 @@
 ### Key Entities
 
 ```yaml
-# config/application.yml（新增段）
+# config/application.yml（新增段；execution 词根见术语约定）
 oryxos:
   sandbox:
-    backend: local            # local | docker，默认 local
-    docker:
+    execution:
+      backend: local          # local | docker，默认 local
       image: ""               # 必填（backend=docker 时），如 python:3.12-alpine
       memory: 512m
       cpus: "1.0"

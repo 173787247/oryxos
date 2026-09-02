@@ -36,15 +36,15 @@ shell 执行后端可插拔：`ShellTools` 既有包级 `ProcessStarter` 接缝�
 
 | 原则 | 评估 | 结论 |
 |------|------|------|
-| I 自实现 ReAct | ReActLoop / ToolExecutor 零改动——后端是 ShellTools 内部执行细节，工具签名与语义不变 | ✅ |
-| II Spring AI 边界 | 不涉及 | ✅ |
-| III Provider 显式映射 | 不涉及 | ✅ |
-| IV 目录=Agent / Skill | frontmatter 新增**可选** `sandbox:` 段——作者层执行环境声明，与治理层（020）分离同构；不配即继承全局，目录模型不变 | ✅ |
-| V 审计 Day One | backend 标识 + 容器 ID 随每次调用落 `tool_invocations`（FR-008），容器化执行不产生审计盲区 | ✅ |
-| VI 安全是地基 | 容器是内核边界而非 SecurityManager；白名单 enforce 前置不变；默认参数安全优先（none/512m/read-only，RQ-5） | ✅ |
-| VII 同步 + 虚拟线程 | docker CLI 为同步阻塞 Process 调用，与现状同型；无常驻探测线程 | ✅ |
-| VIII 状态外置 / 手工 schema | ALTER 走 `AuditSchemaUpgrade` 幂等模式（020 `blocked_by` 先例），不依赖 Hibernate 迁移 | ✅ |
-| 模块约束 | 契约+实现归 oryxos-tool/sandbox 既有包，不新建模块、无循环依赖 | ✅ |
+| 一 · 自实现 ReAct Loop | ReActLoop / ToolExecutor 零改动——后端是 ShellTools 内部执行细节，工具签名与语义不变 | ✅ |
+| 二 · Spring AI 只用两件事 | 不涉及 | ✅ |
+| 三 · Provider 必须显式映射 | 不涉及 | ✅ |
+| 四 · 一个目录 = 一个 Agent；Skill 软连接绑定并渐进披露 | frontmatter 新增**可选** `sandbox:` 段——作者层执行环境声明，与治理层（020）分离同构；不配即继承全局，目录模型与 skills 软连接规则不动 | ✅ |
+| 五 · 审计表 Day One 写入 | backend 标识 + 容器 ID 随每次调用落 `tool_invocations`（FR-008），容器化执行不产生审计盲区 | ✅ |
+| 六 · 不使用 Java SecurityManager；软连接必须校验真实路径 | 容器是内核边界而非 SecurityManager；白名单（含真实路径校验）enforce 前置不变（FR-007）；默认参数安全优先（none/512m/read-only，RQ-5） | ✅ |
+| 七 · 同步执行模型 | docker CLI 为同步阻塞 Process 调用，与现状同型；无常驻探测线程 | ✅ |
+| 八 · Tool 模块三合一 | 契约+实现归 oryxos-tool 既有 sandbox 包，不新建模块、无循环依赖 | ✅ |
+| 补充 · 状态外置 / 手工 schema（非编号原则，020 先例口径） | ALTER 走 `AuditSchemaUpgrade` 幂等模式（`blocked_by` 先例），不依赖 Hibernate 迁移 | ✅ |
 
 **Phase 1 设计后复评**: 无新增违背项，全部通过。
 
@@ -69,7 +69,7 @@ oryxos-tool/src/main/java/io/oryxos/tool/
 ├── sandbox/DockerRunSpec.java           # 新增：纯函数——配置+命令 → docker run 参数序列（可单测钉死）
 ├── sandbox/DockerProcessStarter.java    # 新增：CLI 执行 + CidfileProcessWrapper（destroy→docker kill）
 ├── sandbox/WorkspacePathMapper.java     # 新增：ORYXOS_ROOT ↔ /workspace 双向翻译
-└── sandbox/DockerSandboxProperties.java # 新增：配置属性（镜像/限额/网络/user），镜像 ShellSandboxProperties 风格
+└── sandbox/ExecutionBackendProperties.java # 新增：配置属性（镜像/限额/网络/user），镜像 ShellSandboxProperties 风格
 
 oryxos-core/src/main/java/io/oryxos/core/
 ├── provider/ToolInvocationAuditor.java  # 修改：record 加 backend/containerId 重载（旧签名委托，镜像 020 blockedBy 模式）
@@ -97,14 +97,14 @@ oryxos-web/src/main/java/io/oryxos/web/
 | D4 | 审计两列 nullable，旧行 NULL≡local（查询层兼容）；新调用恒写值 | 存量库零破坏；避免全表回填 | 低 |
 | D5 | daemon 探测按需（启动校验/状态页/失败分类），零常驻线程 | 宪法 VII；探测频率无 SLA 需求 | 低 |
 | D6 | 路径翻译 = ORYXOS_ROOT 前缀 ↔ `/workspace` 字符串映射（不做 realpath 跟随）；审计记宿主原始路径 | 容器内路径无宿主 realpath 语义；前缀映射可预测可单测 | ⚖️RQ-4（若裁决改挂载点/只读，仅动 Mapper 与挂载参数） |
-| D7 | Phase 1 不建 `oryxos-sandbox` 模块，契约与实现归 oryxos-tool 既有 sandbox 包 | 零新依赖零新模块；模块拆分留待 SSH 档（第三实现出现时按 III 哲学再拆） | ⚖️RQ-2/RQ-3（若裁决扩大范围，模块化议题重开） |
+| D7 | Phase 1 不建 `oryxos-sandbox` 模块，契约与实现归 oryxos-tool 既有 sandbox 包。**与立项输入（issue #334 提出独立模块、roadmap 方向 F「视情况」）的显式偏差**：尊重原则八（Tool 三合一、不轻建模块），零实现档出现前不预拆。**跨模块化路径预留**：SSH 档出现时按依赖倒置将契约迁 oryxos-core（届时三消费方以上，构成真实跨模块诉求） | 零新依赖零新模块；模块拆分有明确的触发条件而非拍脑袋 | ⚖️RQ-2/RQ-3（若裁决扩大范围，模块化议题重开） |
 | D8 | 生效档位 = frontmatter `sandbox.backend` > 全局配置；非法值 WARN + 回落全局（不阻断其它 Agent） | 与 020 例外登记同构「配置即责任」；fail-soft 只用于声明层，运行层 fail-loud（FR-011） | ⚖️RQ-5（限额/网络默认值调整只动 Properties 默认值与 D2 构造） |
 
 ## Implementation Phases（与 tasks.md 对齐）
 
 | Phase | 内容 | 出口（Checkpoint） |
 | --- | --- | --- |
-| 1 Setup | 审计列迁移 + 配置属性类 | 升级用例绿；`oryxos.sandbox.*` 可配 |
+| 1 Setup | 审计列迁移 + 配置属性类 | 升级用例绿；`oryxos.sandbox.execution.*` 可配 |
 | 2 Foundational | ProcessStarter 升格 + Local 实现 + DockerRunSpec + PathMapper + CidfileProcessWrapper（全纯函数/可 mock） | 单测全绿；local 档既有测试零修改（SC-001 锚点） |
 | 3 US1 MVP | DockerProcessStarter 装配 + 启动校验 + 审计贯通 + fail-loud + SC-002~006 契约测试 | docker 档最小闭环可用 |
 | 4 US2 | frontmatter sandbox 段 + 生效档位收敛 + 按 Agent 限额 + EC-4 | SC-007/SC-008 绿 |
