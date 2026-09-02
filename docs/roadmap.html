@@ -303,13 +303,13 @@
   </div>
 
   <div class="phase">
-    <div class="phase-head"><span class="ver">v0.4</span><h3>分布式底座 —— 兑现名字里的 Distributed</h3><span class="when">2027 Q2</span></div>
-    <p class="why">「无状态实例、状态外置」从 day one 就是设计前提，这一版兑现它。放在多 Agent 之前，因为多 Agent 协作吃资源弹性；kagent 已带着 CNCF 背书占位 K8s 场景，Helm/Operator 是必答题。</p>
+    <div class="phase-head"><span class="ver">v0.4</span><h3>分布式底座 —— 兑现名字里的 Distributed</h3><span class="when">进行中 · 2026-09 起（原排期 2027 Q2）</span></div>
+    <p class="why">「无状态实例、状态外置」从 day one 就是设计前提，这一版兑现它。2026-09 摸底修正两个当年假设：会话跨进程乐观锁（saveIfUnchanged 条件更新）与向量层库无关形态（BLOB + Java 余弦，非 sqlite-vec）已在——换库比预想轻。差异化坚守「零新增件」：无 Redis、无消息队列、不做 Operator，一个共享 DB 就能多副本（对 Dify 多件套与 kagent 绑 K8s 的双向差异化；Helm 是兼容 K8s 而非归顺）。按三刀推进：</p>
     <ul class="items">
-      <li><span class="tag">存储</span><span>存储层可插拔：PostgreSQL / MySQL，Flyway 接管迁移（同时解决 SQLite ALTER TABLE 顽疾）；向量层切 pgvector</span></li>
-      <li><span class="tag">无状态</span><span>Session/记忆/调度/审计全外置共享 DB，实例彻底无状态</span></li>
-      <li><span class="tag">调度</span><span>定时任务 DB 抢锁（xxl-job 式），多副本不重跑；实例注册 + 心跳</span></li>
-      <li><span class="tag">交付</span><span>官方镜像 + Helm Chart；OpenTelemetry tracing（对齐 kagent 的可观测水位）</span></li>
+      <li><span class="tag">024 存储</span><span>可插拔存储：Flyway 收编五个手工 SchemaUpgrade（SQLite ALTER 弱的补偿产物就此退役）、PostgreSQL 方言/迁移脚本双轨（14 处 AUTOINCREMENT 等专有面清理）；<b>SQLite 仍是默认零配置档</b>（单机体验是产品资产）；pgvector 降为可选优化留缝（向量层换库零迁移）</span></li>
+      <li><span class="tag">025 多副本</span><span>多副本正确性：定时任务 DB 抢锁（xxl-job 思想自实现，零新依赖）多副本恰好一次；实例注册 + 心跳表；会话跨副本冲突（既有乐观锁）重试语义收口；进程内 sessionLocks 降级为副本内防抖</span></li>
+      <li><span class="tag">026 交付</span><span>容器交付：官方镜像 + Helm Chart + 探针（actuator 已就位）；主密钥走 K8s Secret（022 环境变量档零改动接线）；Agent 工作区共享卷口径（「目录=Agent」接口承诺不动，入库留 v1.0 租户定型后）</span></li>
+      <li><span class="tag">可观测</span><span>OpenTelemetry tracing 导出（021 内生 trace 的导出面，对齐 kagent 可观测水位）——可并入 026 或独立小刀</span></li>
     </ul>
     <div class="demo"><b>验收 Demo</b>：K8s 双副本滚动升级，进行中的会话不断线、定时任务恰好执行一次。</div>
   </div>
