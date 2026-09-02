@@ -40,16 +40,16 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-provider / oryxos-cli / oryx
 
 **Independent Test**: quickstart V1/V3/V4/V5——主败备成对话正常；全败上抛；400 不切；流式透明切换
 
-- [ ] T005 [P] [US1] 新建 oryxos-provider/src/main/java/io/oryxos/provider/FallbackClassifier.java（分类表见 data-model.md）：静态 `boolean isSwitchable(RuntimeException)`——遍历异常链提取 HTTP 状态码（Spring HttpStatusCodeException/WebClientResponseException/Spring AI 异常的状态承载形态，按实际类路径穷举）与网络/超时类（ResourceAccessException/IOException/TimeoutException cause）；5xx/429/401/403/408/网络/无状态码 → true，400/404/422 等其余 4xx → false
-- [ ] T006 [P] [US1] 新建单测 oryxos-provider/src/test/java/io/oryxos/provider/FallbackClassifierTest.java（依赖 T005）：分类表逐行钉死——各状态码正反例、网络异常链（cause 深埋）、无状态码 RuntimeException → true、嵌套包装异常
-- [ ] T007 [US1] 修改 oryxos-provider/src/main/java/io/oryxos/provider/SpringAiProviderServiceImpl.java（依赖 T005，**本特性核心**）：
+- [X] T005 [P] [US1] 新建 oryxos-provider/src/main/java/io/oryxos/provider/FallbackClassifier.java（分类表见 data-model.md）：静态 `boolean isSwitchable(RuntimeException)`——遍历异常链提取 HTTP 状态码（Spring HttpStatusCodeException/WebClientResponseException/Spring AI 异常的状态承载形态，按实际类路径穷举）与网络/超时类（ResourceAccessException/IOException/TimeoutException cause）；5xx/429/401/403/408/网络/无状态码 → true，400/404/422 等其余 4xx → false
+- [X] T006 [P] [US1] 新建单测 oryxos-provider/src/test/java/io/oryxos/provider/FallbackClassifierTest.java（依赖 T005）：分类表逐行钉死——各状态码正反例、网络异常链（cause 深埋）、无状态码 RuntimeException → true、嵌套包装异常
+- [X] T007 [US1] 修改 oryxos-provider/src/main/java/io/oryxos/provider/SpringAiProviderServiceImpl.java（依赖 T005，**本特性核心**）：
   - 抽尝试序列：`List<Attempt(name, model)>` = 主 + `profile.provider().fallbacks()`；chat/chatStream 外层循环逐个执行
   - **attempt 参数化贯穿三处**（R2 陷阱）：`registry.find(attempt.name)`、`buildPrompt` 的 `options.model(attempt.model)`、recordSuccess/recordFailure 的 provider/model 参数——备用调用必须用备用模型名且审计如实
   - 失败处理：recordFailure 照旧（每尝试一条）→ `FallbackClassifier.isSwitchable` 且有下一候选 → WARN「provider 切换: from → to」（sanitize，MDC 自带 traceId）→ 下一个；否则原样上抛
   - 候选 `registry.find` 缺失 → WARN 跳过不落审计（FR-008）；ProviderNotFoundException 对**主** provider 保持现状直抛（零声明回归）
   - chatStream 附加：失败时 `text.isEmpty() && toolCalls.isEmpty()` 才允许切换（首片段边界，R4）；已有输出按既有路径落账上抛；UnsupportedOperationException 降级逻辑保持在"单次尝试"内不变
-- [ ] T008 [P] [US1] 新建单测 oryxos-provider/src/test/java/io/oryxos/provider/ProviderFallbackTest.java（依赖 T007；mock ChatModel builder + registry + auditor，镜像既有 provider 测试形态）：主败备成返回备结果且备用调用携带备 model、全部候选失败上抛最后异常、不可切换异常（400）直接上抛无第二次尝试、候选未注册跳过直达第三候选、零 fallback 声明行为与现状一致（单次调用单条审计）、流式首片段前失败切换成功 / 已出 token 后失败不切换、**同一 service 实例连续两次 chat：第一次主败备成后第二次仍先尝试主 Provider**（FR-004 无健康记忆断言，verify 调用顺序）
-- [ ] T009 [US1] 在 oryxos-provider/src/test/java/io/oryxos/provider/ProviderFallbackTest.java 追加审计断言（依赖 T008，同文件串行）：主败备成场景 auditor.record 恰被调两次——第一次 provider=主/success=false、第二次 provider=备/model=备 model/success=true（SC-003 的单测面；verify 参数捕获）
+- [X] T008 [P] [US1] 新建单测 oryxos-provider/src/test/java/io/oryxos/provider/ProviderFallbackTest.java（依赖 T007；mock ChatModel builder + registry + auditor，镜像既有 provider 测试形态）：主败备成返回备结果且备用调用携带备 model、全部候选失败上抛最后异常、不可切换异常（400）直接上抛无第二次尝试、候选未注册跳过直达第三候选、零 fallback 声明行为与现状一致（单次调用单条审计）、流式首片段前失败切换成功 / 已出 token 后失败不切换、**同一 service 实例连续两次 chat：第一次主败备成后第二次仍先尝试主 Provider**（FR-004 无健康记忆断言，verify 调用顺序）
+- [X] T009 [US1] 在 oryxos-provider/src/test/java/io/oryxos/provider/ProviderFallbackTest.java 追加审计断言（依赖 T008，同文件串行）：主败备成场景 auditor.record 恰被调两次——第一次 provider=主/success=false、第二次 provider=备/model=备 model/success=true（SC-003 的单测面；verify 参数捕获）
 
 **Checkpoint**: quickstart V1/V3/V4/V5 语义可单测复现——MVP 可交付
 

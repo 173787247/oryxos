@@ -86,3 +86,11 @@ provider:
 - **跨请求 Provider 健康记忆**：无状态原则（宪法「无状态实例」）；每次调用独立从主开始
 - **管理台新页面**：016 报表覆盖"人看"；Prometheus 面向机器与告警
 - **Spring Retry / Resilience4j**：引依赖换不来更简单的三十行循环
+
+## R8 —（实施期新增裁决）收敛 Spring AI 内建 RetryTemplate 为单次尝试
+
+**Decision**: `ProviderChatModelFactory.buildOne` 给 OpenAiChatModel 显式配 `maxAttempts=1` 的 RetryTemplate（不重试、无退避）——「重试」语义整层上收到 fallback 循环，单层负责。
+
+**Rationale**: 摸底发现 Spring AI 默认 RetryTemplate 对 ResourceAccessException 重试 10 次、指数退避至 180s（ProviderChatModelFactoryTimeoutTest 注释明证）。不收敛则：① SC-007「最坏时延=候选数×单次超时」失控（broken 主 provider 每次尝试先被内建重试放大 ~3 分钟）；② 该默认独立于本特性也是坏默认——挂死端点能把同步会话卡半小时。**行为差异如实声明**：零声明 Agent 失去内建的网络抖动隐形自愈（此前瞬断可能被 10 次重试掩盖）——失败上抛的口径不变，变化的是隐形重试次数；抖动自愈的正道是声明 fallback。此差异在验收报告向维护者显式报告（SC-002 的例外说明）。
+
+**Alternatives considered**: 保留内建重试（SC-007 名存实亡，E2E 不可测）；仅 fallback 声明时禁用（同一 provider 双实例缓存复杂化，行为不一致更难解释）；收敛为 3 次短退避（时延上界仍是三倍，且两层重试语义纠缠）。
