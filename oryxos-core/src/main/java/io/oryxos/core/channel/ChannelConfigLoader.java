@@ -172,6 +172,10 @@ public class ChannelConfigLoader {
    * {@code enabled} 缺省 true；接受 YAML 布尔、常见字符串/数字真值。{@code Boolean.parseBoolean("yes")} 恒为
    * false，会静默关断渠道。
    */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "enabled truthy tokens are ASCII (true/yes/on/1); Locale.ROOT lowercasing is the correct case-fold.")
   private static boolean asEnabled(Object value, String channelName) {
     if (value == null) {
       return true;
