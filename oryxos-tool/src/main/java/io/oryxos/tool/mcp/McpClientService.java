@@ -11,10 +11,10 @@ import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.tool.ToolRegistry;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,9 +39,11 @@ public class McpClientService {
   private final Function<McpServerConfig, McpSyncClient> clientFactory;
 
   // 运行时状态（供管理台状态查询 + disconnect 用）：server 名 -> 已连接的客户端 / 它注册过的工具名 / 上次失败原因。
-  private final Map<String, McpSyncClient> activeClients = new LinkedHashMap<>();
-  private final Map<String, List<String>> registeredTools = new LinkedHashMap<>();
-  private final Map<String, String> lastErrors = new LinkedHashMap<>();
+  // 写路径（connect/disconnect）经 McpServerAdminService 串行，但读路径 status() 无锁裸读——必须用并发 Map，
+  // 否则管理台查询与增删并发时 HashMap 结构修改中的 get 是未定义行为。
+  private final Map<String, McpSyncClient> activeClients = new ConcurrentHashMap<>();
+  private final Map<String, List<String>> registeredTools = new ConcurrentHashMap<>();
+  private final Map<String, String> lastErrors = new ConcurrentHashMap<>();
 
   public McpClientService(McpConfigLoader configLoader) {
     this(configLoader, McpClientService::connectDefault);
@@ -81,7 +83,7 @@ public class McpClientService {
         toolNames.add(tool.name());
       }
       activeClients.put(config.name(), client);
-      registeredTools.put(config.name(), toolNames);
+      registeredTools.put(config.name(), List.copyOf(toolNames));
       lastErrors.remove(config.name());
     } catch (RuntimeException e) {
       // 外部依赖失联不拖垮自身启动——只 WARN，OryxOS 照常起（课件守点）。
@@ -92,7 +94,9 @@ public class McpClientService {
       }
       closeQuietly(config.name(), client);
       LOG.warn("MCP server {} 连接失败，跳过它的工具: {}", s(config.name()), s(e.getMessage()));
-      lastErrors.put(config.name(), e.getMessage());
+      // ConcurrentHashMap 不收 null：异常无 message 时落异常类名
+      lastErrors.put(
+          config.name(), e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
     }
   }
 

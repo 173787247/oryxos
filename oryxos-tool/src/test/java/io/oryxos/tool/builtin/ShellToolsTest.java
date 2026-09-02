@@ -156,6 +156,40 @@ class ShellToolsTest {
     assertTrue(ex.getMessage().contains(errText));
   }
 
+  @Test
+  @DisplayName("stdout 超 64KB_截断并标注（白名单内命令可无界输出，防撑爆内存与上下文窗口）")
+  void stdoutOverLimitIsTruncated() {
+    byte[] big = new byte[ShellTools.MAX_OUTPUT_BYTES + 100];
+    java.util.Arrays.fill(big, (byte) 'a');
+    ShellTools tools =
+        new ShellTools(
+            new PermissiveSandbox(),
+            Duration.ofSeconds(1),
+            command -> new StubProcess(true, big, new byte[0], 0));
+
+    String result = tools.shell("echo", List.of("x"));
+
+    assertTrue(result.contains("已截断"));
+    assertTrue(result.length() < big.length, "截断后必须短于原始输出");
+  }
+
+  @Test
+  @DisplayName("非零退出码且 stderr 超限_截断后仍带标注")
+  void stderrOverLimitIsTruncatedOnFailure() {
+    byte[] big = new byte[ShellTools.MAX_OUTPUT_BYTES + 100];
+    java.util.Arrays.fill(big, (byte) 'e');
+    ShellTools tools =
+        new ShellTools(
+            new PermissiveSandbox(),
+            Duration.ofSeconds(1),
+            command -> new StubProcess(true, new byte[0], big, 1));
+
+    IllegalStateException ex =
+        assertThrows(IllegalStateException.class, () -> tools.shell("echo", List.of("x")));
+
+    assertTrue(ex.getMessage().contains("已截断"));
+  }
+
   private static ShellTools shellTools(Process process) {
     return new ShellTools(new PermissiveSandbox(), Duration.ofSeconds(1), command -> process);
   }
