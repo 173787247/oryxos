@@ -107,7 +107,7 @@
   <h3>内存态——两处要改，其余是可重建缓存</h3>
   <ul>
     <li><code>sessionLocks</code> 进程锁：跨副本语义要重建（→ 025 核心）</li>
-    <li>飞书/企微/钉钉长连接：事件单连接投递还是广播？<b>未实证</b>（→ 025 前置调查 + 幂等去重）</li>
+    <li>IM 长连接（<b>已实证</b>，2026-09-02 官方文档 + SDK 反编译 + 代码核查）：<b>三平台三种语义</b>——飞书集群模式随机投一条（≤50 连接）但有 3s 超时重推且可能落到另一副本；钉钉 Stream 同为随机投一；<b>企微单连接互踢</b>（新连接踢旧连接，多副本不能都建连 → 需租约属主）。存量坑实锤：017 的 MessageDeduplicator 是进程内 Map，多副本下重推去重失效 → 去重下沉 DB 幂等回执表（→ 025）</li>
   </ul>
   <h3>文件态——第三战场（本次盘点新增）</h3>
   <ul>
@@ -181,7 +181,7 @@
     <li><b>turn 租约表</b>：唯一约束即互斥、插入失败抢过期的、CAS 认领；owner=<code>instanceId@epoch</code>；续租 fencing 失败即中止；过期惰性接管 + 不重放</li>
     <li>双层锁：进程内快路径 + DB 租约兜底；定时/索引/IM 事件同一套认领原语 + 幂等去重</li>
     <li><code>instances</code> 心跳表（落库不落内存）；协调面接口化（JDBC 默认 / Redis 可插拔）</li>
-    <li>租约配置化 + 指标；分布式误配 fail-fast；IM 长连接多副本投递行为前置实证</li>
+    <li>租约配置化 + 指标；分布式误配 fail-fast；<b>IM 渠道多副本定案</b>（已实证）：飞书/钉钉随机投一无需属主、去重下沉 DB 回执表（替换进程内 Map）；企微互踢 → 渠道连接租约属主（持租约副本建连、过期即接管——025 租约模型的直接用例）</li>
   </ul>
   <h3>026 文件面分布式</h3>
   <ul>
@@ -204,6 +204,7 @@
 
   <h2><span class="no">06</span>开放问题（邀请重点拍砖）</h2>
   <div class="q"><span class="qno">Q1</span> <span class="qt">turn 租约的 TTL 策略</span><p>参考值：StaffDeck 900s 固定 / AgentScope 90s+心跳续租。OryxOS 单轮含多次 LLM 往返（长的分钟级），倾向「短 TTL（60~90s）+ 心跳续租」——是否认可？</p></div>
+  <div class="q"><span class="qno">Q0</span> <span class="qt">（已闭环）IM 长连接多副本行为</span><p>原"未实证"项已证实：飞书/钉钉随机投一、企微单连接互踢；结论已并入 025 范围（DB 幂等回执 + 企微连接属主租约），无需再评审。</p></div>
   <div class="q"><span class="qno">Q2</span> <span class="qt">崩溃轮次的用户体验</span><p>不重放 + 告知重发是底线；是否需要在 IM 渠道主动推一条「刚才那轮中断了请重发」（StaffDeck 做了）？</p></div>
   <div class="q"><span class="qno">Q3</span> <span class="qt">MySQL 的优先级</span><p>建议 v0.4 只做 PostgreSQL（企业开源部署主流 + advisory lock 等能力更全），MySQL 视需求后补——是否接受？</p></div>
   <div class="q"><span class="qno">Q4</span> <span class="qt">共享卷的支持矩阵</span><p>NFS 语义参差。我们只依赖「读写可见性 + rename 原子性」、不依赖文件锁——文档如何声明支持矩阵？</p></div>
