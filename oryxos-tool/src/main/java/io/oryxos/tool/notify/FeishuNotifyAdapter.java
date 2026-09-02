@@ -15,9 +15,9 @@ import javax.crypto.spec.SecretKeySpec;
  *
  * <p>二者协议相同、仅域名不同（open.feishu.cn / open.larksuite.com），URL 来自配置故一个实现覆盖两者。
  *
- * <p>默认 body：{@code {"msg_type":"text","content":{"text":"..."}}}。 {@code
- * config.format=post}/{@code markdown} 时发官方富文本 post（把 content 整段放入 text 节点）。 {@code
- * format=interactive}/{@code card} 时发简易互动卡片（header + lark_md 正文）。
+ * <p>默认 body：{@code {"msg_type":"text","content":{"text":"..."}}}。 {@code config.format=post}
+ * 时发官方富文本 post（把 content 整段放入 text 节点）。 {@code format=markdown} 时发互动卡片 {@code lark_md} 以渲染
+ * Markdown。 {@code format=interactive}/{@code card} 时发简易互动卡片（header + lark_md 正文）。
  *
  * <p>签名校验为可选项：config 含 {@code secret} 时按官方算法把 {@code timestamp}+{@code sign} 写入 JSON 体（秒级时间戳；
  * 与钉钉「拼到 URL」不同）。
@@ -52,8 +52,10 @@ public class FeishuNotifyAdapter implements NotifyChannelAdapter {
     }
     String format = resolveFormat(target.config());
     Map<String, Object> body;
-    if (FORMAT_POST.equals(format) || FORMAT_MARKDOWN.equals(format)) {
+    if (FORMAT_POST.equals(format)) {
       body = buildPostBody(target.config(), content);
+    } else if (FORMAT_MARKDOWN.equals(format)) {
+      body = buildInteractiveBody(target.config(), content);
     } else if (FORMAT_INTERACTIVE.equals(format) || FORMAT_CARD.equals(format)) {
       body = buildInteractiveBody(target.config(), content);
     } else if (FORMAT_TEXT.equals(format)) {
