@@ -4,8 +4,8 @@ package io.oryxos.core.channel;
  * 入站媒体附件（图片等），由渠道 normalizer 从平台事件提取。
  *
  * @param type 媒体类型，见 {@link #TYPE_IMAGE}
- * @param url 可直接访问的 URL（企微/钉钉图片）；飞书可能为空
- * @param reference 平台资源标识（如飞书 {@code image_key}），供后续解析
+ * @param url 可直接访问的路径或 URL（企微 COS / 飞书下载落地后的本地绝对路径）；可能为空
+ * @param reference 平台资源标识（如飞书 {@code image_key}），供下载或降级展示
  */
 public record InboundAttachment(String type, String url, String reference) {
 

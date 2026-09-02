@@ -16,6 +16,8 @@ import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +34,7 @@ import org.slf4j.LoggerFactory;
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "UWF_FIELD_NOT_INITIALIZED_IN_CONSTRUCTOR",
     justification =
-        "apiClient/normalizer/sender 在 start() 内初始化（长连接生命周期晚于构造）；事件回调只会在 start 成功后由 SDK 触发，sendReply 有显式空判，不存在未初始化解引用路径。")
+        "apiClient/normalizer/sender/imageResolver 在 start() 内初始化（长连接生命周期晚于构造）；事件回调只会在 start 成功后由 SDK 触发，sendReply 有显式空判，不存在未初始化解引用路径。")
 public class FeishuChannelAdapter implements InboundChannelAdapter {
 
   private static final Logger LOG = LoggerFactory.getLogger(FeishuChannelAdapter.class);
@@ -41,6 +43,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private static final String API_BASE_URL = "https://open.feishu.cn";
   private static final String BOT_INFO_PATH = "/open-apis/bot/v3/info";
   private static final String BOT_OPEN_ID_FIELD = "open_id";
+  private static final String MEDIA_DIR_PREFIX = "oryxos-feishu-media-";
   private static final int HTTP_OK = 200;
   private static final long READY_TIMEOUT_MS = 15_000;
   private static final long READY_PROBE_TIMEOUT_MS = 50;
@@ -54,6 +57,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private volatile com.lark.oapi.ws.Client wsClient;
   private volatile FeishuMessageSender sender;
   private volatile FeishuEventNormalizer normalizer;
+  private volatile FeishuInboundImageResolver imageResolver;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
   private volatile String lastError;
 
@@ -101,6 +105,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
           new FeishuMessageSender(
               apiClient, guard, API_BASE_URL, FeishuMessageSender.DEFAULT_CHUNK_SIZE);
       normalizer = new FeishuEventNormalizer(config.name(), fetchBotOpenId());
+      imageResolver = new FeishuInboundImageResolver(apiClient, createMediaRoot(), config.name());
       EventDispatcher dispatcher =
           EventDispatcher.newBuilder("", "") // 长连接免验签：verificationToken/encryptKey 必须空串
               .onP2MessageReceiveV1(
@@ -190,13 +195,32 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     active.send(chatId, text, replyToMessageId);
   }
 
-  /** 事件入口：归一化 → 编排；任何异常只留日志——抛出会触发平台重推循环（去重会拦但用户收不到回答）。 */
+  /** 事件入口：归一化 → 图片资源落地 → 编排；任何异常只留日志——抛出会触发平台重推循环（去重会拦但用户收不到回答）。 */
   private void handleEvent(P2MessageReceiveV1 event) {
     try {
       Optional<InboundMessage> msg = normalizer.normalize(event);
-      msg.ifPresent(m -> inboundMessageService.onMessage(m, this));
+      msg.ifPresent(
+          m -> {
+            FeishuInboundImageResolver resolver = imageResolver;
+            InboundMessage enriched = resolver == null ? m : resolver.resolve(m);
+            inboundMessageService.onMessage(enriched, this);
+          });
     } catch (RuntimeException e) {
       LOG.error("飞书渠道 {} 事件处理异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
+    }
+  }
+
+  /** 入站图片落盘目录：进程临时目录下按渠道隔离；失败不阻断 start（解析器会降级保留 image_key）。 */
+  private Path createMediaRoot() {
+    try {
+      return Files.createTempDirectory(MEDIA_DIR_PREFIX + sanitize(config.name()) + "-");
+    } catch (Exception e) {
+      LOG.warn(
+          "飞书渠道 {} 创建图片缓存目录失败（{}），入站图片将保留 image_key",
+          sanitize(config.name()),
+          sanitize(e.getMessage()));
+      return Path.of(
+          System.getProperty("java.io.tmpdir"), "oryxos-feishu-media", sanitize(config.name()));
     }
   }
 
