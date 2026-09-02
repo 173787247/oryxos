@@ -14,6 +14,18 @@ public final class WorkspacePathMapper {
   /** 容器内固定挂载点（RQ-4 裁决推荐：固定挂载点让翻译规则可预测、可测试）。 */
   public static final String CONTAINER_ROOT = "/workspace";
 
+  /** POSIX 绝对路径前缀。 */
+  private static final String POSIX_ROOT = "/";
+
+  /** Windows 盘符绝对路径（C:/ 或 C:\ 形态）。 */
+  private static final String WINDOWS_DRIVE = "^[A-Za-z]:[\\\\/].*";
+
+  /** 仅根（POSIX 的 "/"）不参与尾分隔符剥离。 */
+  private static final int ROOT_ONLY = 1;
+
+  /** 前缀剥离时的分隔符长度。 */
+  private static final int ROOT_SEPARATOR_LENGTH = 1;
+
   private final Path workspaceRoot;
 
   public WorkspacePathMapper(Path workspaceRoot) {
@@ -32,7 +44,7 @@ public final class WorkspacePathMapper {
 
   /** 该宿主路径是否落在工作区内（按路径组件比较，非字符串前缀）。 */
   public boolean isWorkspacePath(String hostPath) {
-    if (hostPath == null || !hostPath.startsWith("/") && !hostPath.matches("^[A-Za-z]:[\\\\/].*")) {
+    if (hostPath == null || !isAbsolute(hostPath)) {
       return false; // 相对路径与非绝对路径不属工作区判定
     }
     try {
@@ -40,6 +52,10 @@ public final class WorkspacePathMapper {
     } catch (IllegalArgumentException e) {
       return false;
     }
+  }
+
+  private static boolean isAbsolute(String path) {
+    return path.startsWith(POSIX_ROOT) || path.matches(WINDOWS_DRIVE);
   }
 
   /**
@@ -70,16 +86,16 @@ public final class WorkspacePathMapper {
       return null;
     }
     String normalized =
-        containerPath.endsWith("/") && containerPath.length() > 1
+        containerPath.endsWith(POSIX_ROOT) && containerPath.length() > ROOT_ONLY
             ? containerPath.substring(0, containerPath.length() - 1)
             : containerPath;
     if (CONTAINER_ROOT.equals(normalized)) {
       return workspaceRoot.toString();
     }
-    if (!normalized.startsWith(CONTAINER_ROOT + "/")) {
+    if (!normalized.startsWith(CONTAINER_ROOT + POSIX_ROOT)) {
       return containerPath;
     }
-    String relative = normalized.substring(CONTAINER_ROOT.length() + 1);
+    String relative = normalized.substring(CONTAINER_ROOT.length() + ROOT_SEPARATOR_LENGTH);
     return workspaceRoot.resolve(relative).toString();
   }
 }
