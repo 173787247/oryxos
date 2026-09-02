@@ -61,8 +61,8 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-provider / oryxos-cli / oryx
 
 **Independent Test**: quickstart V1/V2——真实 HTTP 主败备成后审计两条、时间线同链、日志可 grep
 
-- [ ] T010 [US2] 新建 oryxos-boot/src/test/java/io/oryxos/boot/ProviderFallbackE2ETest.java（依赖 T007；镜像 TraceE2ETest 模式：临时工作区 + mock provider + 真实 HTTP + SQLite）：**broken provider 必须启动前预置**（Agent 启动加载时 knownProviders 校验要能看到它，运行时 API 注册有时序坑）——首选 `properties` 里 `oryxos.providers[1].name=broken` + base-url 指向 `http://127.0.0.1:1/v1` 走 YAML 种子路径；若 ProvidersProperties 无 base-url 键则回退「@DynamicPropertySource 前直插 providers 表 / 或 seedWorkspace 阶段写入」；Agent 主 broken + fallback mock——invoke 返回 200 且回复为 mock 文案（SC-001）；llm_calls 中 broken 失败与 mock 成功记录成对出现且同 traceId；`GET /audit/trace/{id}` 时间线主备 LLM 步同链按时间序（SC-003）；ListAppender 断言 WARN「provider 切换」日志存在且 MDC traceId 与本轮一致
-- [ ] T011 [US2] 在 oryxos-boot/src/test/java/io/oryxos/boot/ProviderFallbackE2ETest.java 追加（依赖 T010，同文件串行）：零声明 Agent（只配 mock）行为回归——单轮审计条数与 022 前基线一致（SC-002/SC-006 锚点）；全败 Agent（broken + fallback broken2）invoke 报错且无成功行
+- [X] T010 [US2] 新建 oryxos-boot/src/test/java/io/oryxos/boot/ProviderFallbackE2ETest.java（依赖 T007；镜像 TraceE2ETest 模式：临时工作区 + mock provider + 真实 HTTP + SQLite）：**broken provider 必须启动前预置**（Agent 启动加载时 knownProviders 校验要能看到它，运行时 API 注册有时序坑）——首选 `properties` 里 `oryxos.providers[1].name=broken` + base-url 指向 `http://127.0.0.1:1/v1` 走 YAML 种子路径；若 ProvidersProperties 无 base-url 键则回退「@DynamicPropertySource 前直插 providers 表 / 或 seedWorkspace 阶段写入」；Agent 主 broken + fallback mock——invoke 返回 200 且回复为 mock 文案（SC-001）；llm_calls 中 broken 失败与 mock 成功记录成对出现且同 traceId；`GET /audit/trace/{id}` 时间线主备 LLM 步同链按时间序（SC-003）；ListAppender 断言 WARN「provider 切换」日志存在且 MDC traceId 与本轮一致
+- [X] T011 [US2] 在 oryxos-boot/src/test/java/io/oryxos/boot/ProviderFallbackE2ETest.java 追加（依赖 T010，同文件串行）：零声明 Agent（只配 mock）行为回归——单轮审计条数与 022 前基线一致（SC-002/SC-006 锚点）；全败 Agent（broken + fallback broken2）invoke 报错且无成功行
 
 **Checkpoint**: quickstart V1/V2/V3 可走通——US1+US2 独立可测
 
@@ -76,7 +76,7 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-provider / oryxos-cli / oryx
 
 - [ ] T012 [US3] 修改 oryxos-cli/pom.xml：加 `io.micrometer:micrometer-core` 编译依赖（运行时 jar 已由 boot actuator 传递带入，注释注明零新增运行时构件）
 - [ ] T013 [US3] 新建 oryxos-cli/src/main/java/io/oryxos/cli/MicrometerMetricsRecorder.java（依赖 T003/T012）：实现五方法落 oryxos_* 指标（目录见 contracts §3）——Counter/Timer 经 MeterRegistry 惰性获取；全部方法 try/catch 吞异常记 DEBUG（FR-010 埋点不伤主链路）；标签值 null 兜底为 "unknown"。配套新建 oryxos-cli/src/test/java/io/oryxos/cli/MicrometerMetricsRecorderTest.java：SimpleMeterRegistry 断言五类指标名/标签/计数，**并注入恒抛异常的 MeterRegistry 断言五方法全部静默不抛**（FR-010 显式断言）
-- [ ] T014 [US3] 修改 oryxos-provider/src/main/java/io/oryxos/provider/SpringAiProviderServiceImpl.java（依赖 T007/T003，同文件串行）：构造注入 `MetricsRecorder`（旧构造委托 NOOP 保既有测试）；recordSuccess/recordFailure 旁挂 recordLlmCall（每尝试）、成功侧挂 recordLlmTokens、切换点挂 recordFallbackSwitch
+- [X] T014 [US3] 修改 oryxos-provider/src/main/java/io/oryxos/provider/SpringAiProviderServiceImpl.java（依赖 T007/T003，同文件串行）：构造注入 `MetricsRecorder`（旧构造委托 NOOP 保既有测试）；recordSuccess/recordFailure 旁挂 recordLlmCall（每尝试）、成功侧挂 recordLlmTokens、切换点挂 recordFallbackSwitch
 - [ ] T015 [P] [US3] 修改 oryxos-core/src/main/java/io/oryxos/core/agent/ToolExecutor.java（依赖 T003）：构造注入 `MetricsRecorder`（旧构造委托 NOOP）；审计调用旁挂 recordToolInvocation（成败如实）；策略拒绝点挂 recordPolicyBlock
 - [ ] T016 [US3] 修改 oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java（依赖 T013~T015）：`@Bean MetricsRecorder`——`ObjectProvider<MeterRegistry>` 有则 MicrometerMetricsRecorder、无则 NOOP（chat 命令等无 actuator 上下文兜底）；providerService 与 toolExecutor 装配点注入
 - [ ] T017 [US3] 在 oryxos-boot/src/test/java/io/oryxos/boot/ProviderFallbackE2ETest.java 追加（依赖 T011/T016，同文件串行）：`GET /actuator/prometheus` 抓文本断言——`oryxos_llm_calls_total`（broken/failure 与 mock/success 序列在位且计数与 llm_calls 表行数对照一致，SC-005/SC-006）、`oryxos_fallback_switches_total{from="broken",to="mock"}` ≥1、`oryxos_tool_invocations_total` 与 `oryxos_llm_tokens_total` 在位；配 GLOBAL_DENY 触发拦截 → `oryxos_policy_blocks_total` 递增
