@@ -148,16 +148,20 @@ class VendorNotifyAdapterTest {
   }
 
   @Test
-  @DisplayName("飞书：format=markdown 走 post 富文本（与企微同参）")
-  void feishuMarkdownAliasUsesPostBody() throws IOException {
+  @DisplayName("飞书：format=markdown 发互动卡片 lark_md（可渲染 Markdown）")
+  void feishuMarkdownAliasUsesInteractiveLarkMd() throws IOException {
     new FeishuNotifyAdapter(poster)
         .send(
             new NotifyTarget("feishu", Map.of("url", url(), "format", "markdown")),
             "## 告警\nCPU 90%");
 
     JsonNode body = lastBody();
-    assertEquals("post", body.get("msg_type").asText());
-    assertEquals("告警", body.get("content").get("post").get("zh_cn").get("title").asText());
+    assertEquals("interactive", body.get("msg_type").asText());
+    assertEquals(
+        "lark_md", body.get("card").get("elements").get(0).get("text").get("tag").asText());
+    assertEquals(
+        "## 告警\nCPU 90%",
+        body.get("card").get("elements").get(0).get("text").get("content").asText());
   }
 
   @Test
