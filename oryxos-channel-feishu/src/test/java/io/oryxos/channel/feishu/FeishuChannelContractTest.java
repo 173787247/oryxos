@@ -50,6 +50,11 @@ class FeishuChannelContractTest extends InboundMessageServiceContractTestBase {
 
   @Override
   protected InboundMessage nonTextualMessage(String messageId) {
+    return normalizer.normalize(event(messageId, "p2p", "audio", "{}", null)).orElseThrow();
+  }
+
+  @Override
+  protected InboundMessage imageMessage(String messageId) {
     return normalizer
         .normalize(event(messageId, "p2p", "image", "{\"image_key\":\"img\"}", null))
         .orElseThrow();

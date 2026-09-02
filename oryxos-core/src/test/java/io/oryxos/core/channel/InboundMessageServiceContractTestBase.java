@@ -59,8 +59,11 @@ public abstract class InboundMessageServiceContractTestBase {
   /** 构造一条群聊 @ 机器人文本消息。 */
   protected abstract InboundMessage groupMessage(String messageId, String content);
 
-  /** 构造一条私聊非文本消息。 */
+  /** 构造一条私聊非文本且不可处理的消息（无附件）。 */
   protected abstract InboundMessage nonTextualMessage(String messageId);
+
+  /** 构造一条私聊图片消息（含附件，应进入编排）。 */
+  protected abstract InboundMessage imageMessage(String messageId);
 
   @BeforeEach
   void contractSetUp() {
@@ -76,6 +79,7 @@ public abstract class InboundMessageServiceContractTestBase {
             profileRegistry,
             executionService,
             new MessageDeduplicator(),
+            null,
             Duration.ofSeconds(30));
     when(profileRegistry.get(AGENT)).thenReturn(Optional.of(mock(Profile.class)));
     doAnswer(
@@ -179,13 +183,26 @@ public abstract class InboundMessageServiceContractTestBase {
   }
 
   @Test
-  @DisplayName("B7: 非文本消息回能力说明，不触发推理")
+  @DisplayName("B7: 不可处理非文本消息回能力说明，不触发推理")
   void b7NonTextualNotice() {
     service.onMessage(nonTextualMessage("img-1"), replyChannel);
 
     assertEquals(InboundMessageService.UNSUPPORTED_TYPE_REPLY, replyChannel.sent().get(0).text());
     verifyNoInteractions(agentService);
     verify(executionService, never()).triggerAsync(anyString(), anyString(), any(), any());
+  }
+
+  @Test
+  @DisplayName("B7b: 图片附件消息进入编排")
+  void b7ImageAttachmentProcessed() {
+    InboundMessage img = imageMessage("img-2");
+    Session session = stubSession(img.userId());
+    when(agentService.process(eq(session), anyString())).thenReturn("看到了图片");
+
+    service.onMessage(img, replyChannel);
+
+    verify(agentService).process(eq(session), anyString());
+    assertEquals("看到了图片", replyChannel.sent().get(0).text());
   }
 
   @Test

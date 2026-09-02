@@ -38,6 +38,7 @@ public class InboundMessageService {
   private final ProfileRegistry profileRegistry;
   private final AgentExecutionService executionService;
   private final MessageDeduplicator deduplicator;
+  private final InboundMediaEnricher mediaEnricher;
   private final Duration processingNoticeDelay;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -49,12 +50,14 @@ public class InboundMessageService {
       ProfileRegistry profileRegistry,
       AgentExecutionService executionService,
       MessageDeduplicator deduplicator,
+      InboundMediaEnricher mediaEnricher,
       Duration processingNoticeDelay) {
     this.agentService = agentService;
     this.sessionManager = sessionManager;
     this.profileRegistry = profileRegistry;
     this.executionService = executionService;
     this.deduplicator = deduplicator;
+    this.mediaEnricher = mediaEnricher == null ? new DefaultInboundMediaEnricher() : mediaEnricher;
     this.processingNoticeDelay = processingNoticeDelay;
   }
 
@@ -72,8 +75,9 @@ public class InboundMessageService {
     }
     // B4：群聊回复引用原消息使问答可对应；私聊直发
     String replyTo = msg.chatKind() == ChatKind.GROUP ? msg.messageId() : null;
-    // B7：非文本消息回能力说明，不进推理、不落执行记录
-    if (!msg.textual()) {
+    // B7：不可处理的消息（非文本且无附件）回能力说明，不进推理、不落执行记录
+    String agentInput = mediaEnricher.toAgentInput(msg);
+    if (!msg.processable() || agentInput.isBlank()) {
       safeReply(replyVia, msg.chatId(), UNSUPPORTED_TYPE_REPLY, replyTo);
       return;
     }
@@ -98,8 +102,7 @@ public class InboundMessageService {
       Session session = sessionManager.getOrCreate(msg.channelType(), msg.userId(), agent);
       sessionId = session.sessionId();
       inference =
-          () ->
-              replyVia.sendReply(msg.chatId(), agentService.process(session, msg.content()), null);
+          () -> replyVia.sendReply(msg.chatId(), agentService.process(session, agentInput), null);
     } else {
       // B3：群聊每次 @ 为独立无状态问答，不落 sessions 表；渠道前缀让审计可辨（B10）
       sessionId = msg.channelType() + "-group:" + UUID.randomUUID();
@@ -107,7 +110,7 @@ public class InboundMessageService {
           () ->
               replyVia.sendReply(
                   msg.chatId(),
-                  agentService.processStateless(agent, msg.content(), sessionId),
+                  agentService.processStateless(agent, agentInput, sessionId),
                   replyTo);
     }
     CountDownLatch done = new CountDownLatch(1);

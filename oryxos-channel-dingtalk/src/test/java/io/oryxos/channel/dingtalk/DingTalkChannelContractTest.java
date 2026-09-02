@@ -30,6 +30,11 @@ class DingTalkChannelContractTest extends InboundMessageServiceContractTestBase 
 
   @Override
   protected InboundMessage nonTextualMessage(String messageId) {
+    return normalizer.normalize(body(messageId, "1", "audio", null, false)).orElseThrow();
+  }
+
+  @Override
+  protected InboundMessage imageMessage(String messageId) {
     return normalizer.normalize(body(messageId, "1", "picture", null, false)).orElseThrow();
   }
 

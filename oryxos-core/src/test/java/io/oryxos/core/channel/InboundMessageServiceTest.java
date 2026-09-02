@@ -55,6 +55,7 @@ class InboundMessageServiceTest {
             profileRegistry,
             executionService,
             new MessageDeduplicator(),
+            null,
             Duration.ofMillis(120));
     when(profileRegistry.get(AGENT)).thenReturn(Optional.of(mock(Profile.class)));
     // 默认：triggerAsync 同步执行 work（吞掉 work 异常，模拟真实实现里的记录失败不上抛）
@@ -73,12 +74,30 @@ class InboundMessageServiceTest {
 
   private InboundMessage p2p(String messageId, String content) {
     return new InboundMessage(
-        "stub", "stub-chan", messageId, ChatKind.P2P, "user-1", "chat-p2p", content, true, false);
+        "stub",
+        "stub-chan",
+        messageId,
+        ChatKind.P2P,
+        "user-1",
+        "chat-p2p",
+        content,
+        true,
+        false,
+        java.util.List.of());
   }
 
   private InboundMessage group(String messageId, String content) {
     return new InboundMessage(
-        "stub", "stub-chan", messageId, ChatKind.GROUP, "user-1", "chat-grp", content, true, true);
+        "stub",
+        "stub-chan",
+        messageId,
+        ChatKind.GROUP,
+        "user-1",
+        "chat-grp",
+        content,
+        true,
+        true,
+        java.util.List.of());
   }
 
   @Test
@@ -141,11 +160,20 @@ class InboundMessageServiceTest {
   }
 
   @Test
-  @DisplayName("B7: 非文本消息回能力说明，不触发推理与执行记录")
+  @DisplayName("B7: 不可处理非文本消息回能力说明，不触发推理与执行记录")
   void nonTextualGetsCapabilityNotice() {
     InboundMessage img =
         new InboundMessage(
-            "stub", "stub-chan", "m-5", ChatKind.P2P, "user-1", "chat-p2p", "", false, false);
+            "stub",
+            "stub-chan",
+            "m-5",
+            ChatKind.P2P,
+            "user-1",
+            "chat-p2p",
+            "",
+            false,
+            false,
+            java.util.List.of());
 
     service.onMessage(img, adapter);
 
@@ -153,6 +181,31 @@ class InboundMessageServiceTest {
     assertEquals(InboundMessageService.UNSUPPORTED_TYPE_REPLY, adapter.sent().get(0).text());
     verifyNoInteractions(agentService);
     verify(executionService, never()).triggerAsync(anyString(), anyString(), any(), any());
+  }
+
+  @Test
+  @DisplayName("B7b: 图片附件消息进入 Agent 编排")
+  void imageAttachmentProcessed() {
+    InboundMessage img =
+        new InboundMessage(
+            "stub",
+            "stub-chan",
+            "m-5b",
+            ChatKind.P2P,
+            "user-1",
+            "chat-p2p",
+            "",
+            false,
+            false,
+            java.util.List.of(InboundAttachment.imageUrl("https://example/img.png")));
+    Session session = new Session("stub:user-1:" + AGENT, AGENT);
+    when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
+    when(agentService.process(eq(session), anyString())).thenReturn("图片已收到");
+
+    service.onMessage(img, adapter);
+
+    verify(agentService).process(eq(session), anyString());
+    assertEquals("图片已收到", adapter.sent().get(0).text());
   }
 
   @Test

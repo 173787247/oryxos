@@ -916,6 +916,7 @@ public class OryxOsRuntime {
         profileRegistry,
         agentExecutionService,
         messageDeduplicator,
+        new io.oryxos.core.channel.DefaultInboundMediaEnricher(),
         java.time.Duration.ofSeconds(15)); // 「处理中」提示阈值（Edge Case：先行告知）
   }
 

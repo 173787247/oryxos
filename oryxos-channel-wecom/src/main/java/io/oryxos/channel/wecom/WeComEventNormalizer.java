@@ -2,7 +2,10 @@ package io.oryxos.channel.wecom;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.oryxos.core.channel.ChatKind;
+import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -22,6 +25,7 @@ public class WeComEventNormalizer {
   private static final String CHAT_SINGLE = "single";
   private static final String CHAT_GROUP = "group";
   private static final String MSG_TEXT = "text";
+  private static final String MSG_IMAGE = "image";
   private static final Pattern LEADING_AT = Pattern.compile("^@\\S+\\s*");
 
   private final String channelName;
@@ -56,12 +60,18 @@ public class WeComEventNormalizer {
     String msgtype = text(body, "msgtype");
     boolean textual = MSG_TEXT.equals(msgtype);
     String content = "";
+    List<InboundAttachment> attachments = new ArrayList<>();
     if (textual) {
       content = body.path("text").path("content").asText("");
       if (group) {
         content = LEADING_AT.matcher(content).replaceFirst("");
       }
       content = content.strip();
+    } else if (MSG_IMAGE.equals(msgtype)) {
+      String imageUrl = body.path("image").path("url").asText(null);
+      if (imageUrl != null && !imageUrl.isBlank()) {
+        attachments.add(InboundAttachment.imageUrl(imageUrl));
+      }
     }
     return Optional.of(
         new InboundMessage(
@@ -73,7 +83,8 @@ public class WeComEventNormalizer {
             chatId,
             content,
             textual,
-            group));
+            group,
+            attachments));
   }
 
   /** 会话类型：1 单聊 / 2 群聊；未知返回 0（发送时让平台兼容解析）。 */
