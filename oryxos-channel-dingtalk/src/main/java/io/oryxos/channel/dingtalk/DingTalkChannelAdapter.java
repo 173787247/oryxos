@@ -45,6 +45,7 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   private final AtomicReference<DingTalkStreamClient> streamRef = new AtomicReference<>();
   private volatile DingTalkMessageSender sender;
   private volatile DingTalkEventNormalizer normalizer;
+  private volatile DingTalkDisconnectKind lastDisconnectKind = DingTalkDisconnectKind.ABRUPT;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
   private volatile String lastError;
   private volatile boolean running;
@@ -172,18 +173,26 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
     }
   }
 
-  private void handleDisconnected() {
+  private void handleDisconnected(DingTalkDisconnectKind kind) {
     boolean shouldReconnect;
     synchronized (this) {
       if (!running || state == ChannelStatus.State.ERROR) {
         return;
+      }
+      lastDisconnectKind = kind == null ? DingTalkDisconnectKind.ABRUPT : kind;
+      if (lastDisconnectKind == DingTalkDisconnectKind.GRACEFUL) {
+        reconnectAttempt = 0;
       }
       streamRef.set(null);
       state = ChannelStatus.State.DISCONNECTED;
       shouldReconnect = true;
     }
     if (shouldReconnect) {
-      LOG.warn("钉钉渠道 {} Stream 断开，将自动重连", sanitize(config.name()));
+      if (lastDisconnectKind == DingTalkDisconnectKind.GRACEFUL) {
+        LOG.info("钉钉渠道 {} Stream 服务端轮换断开，立即重连", sanitize(config.name()));
+      } else {
+        LOG.warn("钉钉渠道 {} Stream 断开，将自动重连", sanitize(config.name()));
+      }
       scheduleReconnect();
     }
   }
@@ -193,7 +202,10 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
       if (!running || reconnectFuture != null) {
         return;
       }
-      long delayMs = reconnectDelayMs(reconnectAttempt);
+      long delayMs =
+          lastDisconnectKind == DingTalkDisconnectKind.GRACEFUL
+              ? 0L
+              : reconnectDelayMs(reconnectAttempt);
       reconnectFuture =
           reconnectScheduler().schedule(this::attemptReconnect, delayMs, TimeUnit.MILLISECONDS);
     }
