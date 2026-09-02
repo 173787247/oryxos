@@ -1,6 +1,7 @@
 package io.oryxos.core.profile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -741,6 +742,86 @@ class ProfileLoaderTest {
 
     assertTrue(ex.getMessage().contains("evening"), ex.getMessage());
     assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
+  }
+
+  @Test
+  void persona段_七字段解析且sampleStyle蛇形键映射() throws IOException {
+    write(
+        "persona.yaml",
+        """
+        name: p
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          name: 老张
+          role: 运维专家
+          traits: 严谨、可靠
+          tone: 简洁
+          values: 诚实
+          boundaries: 不越权
+          sample_style: 先结论后依据
+        """);
+
+    Profile.Persona persona = loader().loadAll().get("p").orElseThrow().persona();
+
+    assertEquals("老张", persona.name());
+    assertEquals("运维专家", persona.role());
+    assertEquals("严谨、可靠", persona.traits());
+    assertEquals("简洁", persona.tone());
+    assertEquals("诚实", persona.values());
+    assertEquals("不越权", persona.boundaries());
+    assertEquals("先结论后依据", persona.sampleStyle()); // sample_style → sampleStyle
+  }
+
+  @Test
+  void 无persona段_返回null_向后兼容() throws IOException {
+    write("nopersona.yaml", "name: nopersona\nprovider:\n  name: deepseek\n  model: m\n");
+
+    Profile profile = loader().loadAll().get("nopersona").orElseThrow();
+
+    assertNull(profile.persona()); // 契约二：老 Agent 零改变
+  }
+
+  @Test
+  void persona段缺name或role_校验异常() throws IOException {
+    write(
+        "bad-persona.yaml",
+        """
+        name: bp
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          role: 只有角色
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-persona.yaml")));
+
+    assertTrue(ex.getMessage().contains("name/role"));
+  }
+
+  @Test
+  void persona段sampleStyle可空() throws IOException {
+    write(
+        "min-persona.yaml",
+        """
+        name: mp
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          name: 助手
+          role: 乐于助人的助手
+        """);
+
+    Profile.Persona persona = loader().loadAll().get("mp").orElseThrow().persona();
+
+    assertNotNull(persona);
+    assertNull(persona.sampleStyle());
   }
 
   // —— 023：provider.fallback 有序备用列表解析 ——

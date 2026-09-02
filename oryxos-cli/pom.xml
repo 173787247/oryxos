@@ -60,6 +60,11 @@
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-knowledge</artifactId>
         </dependency>
+        <!-- 025-persona-library: OryxOsRuntime @Bean PersonaPresetCatalog/PersonaStore/PersonaService + CLI agent import -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-persona</artifactId>
+        </dependency>
         <dependency>
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>

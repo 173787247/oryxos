@@ -8,6 +8,7 @@ public record Profile(
     String name,
     String description,
     Identity identity,
+    Persona persona,
     ProviderRef provider,
     List<String> tools,
     List<String> mcpServers,
@@ -25,6 +26,36 @@ public record Profile(
     schedules = schedules == null ? List.of() : List.copyOf(schedules);
     bootstrap = bootstrap == null ? List.of() : List.copyOf(bootstrap);
     settings = settings == null ? Settings.defaults() : settings;
+  }
+
+  /**
+   * Compatibility constructor for callers that still pass pre-persona 11 args: persona stays null.
+   */
+  public Profile(
+      String name,
+      String description,
+      Identity identity,
+      ProviderRef provider,
+      List<String> tools,
+      List<String> mcpServers,
+      List<String> channels,
+      List<NotifyChannel> notifyChannels,
+      List<ScheduleConfig> schedules,
+      List<String> bootstrap,
+      Settings settings) {
+    this(
+        name,
+        description,
+        identity,
+        null,
+        provider,
+        tools,
+        mcpServers,
+        channels,
+        notifyChannels,
+        schedules,
+        bootstrap,
+        settings);
   }
 
   /** Compatibility constructor for callers that still pass ignoredSkills. */
@@ -45,6 +76,7 @@ public record Profile(
         name,
         description,
         identity,
+        null,
         provider,
         tools,
         mcpServers,
@@ -56,6 +88,16 @@ public record Profile(
   }
 
   public record Identity(String agentName, String prompt) {}
+
+  /** 人格设定（025 迁移）：结构化主人格，与 identity.prompt（自由补充）叠加注入。name/role 必填，其余可空。 */
+  public record Persona(
+      String name,
+      String role,
+      String traits,
+      String tone,
+      String values,
+      String boundaries,
+      String sampleStyle) {}
 
   /** fallbacks（023）：有序备用 Provider 列表，单次 LLM 调用故障时按序切换；空=零变化。 */
   public record ProviderRef(

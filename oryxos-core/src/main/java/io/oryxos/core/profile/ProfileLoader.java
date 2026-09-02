@@ -117,6 +117,7 @@ public class ProfileLoader {
         name,
         asString(map.get("description")),
         toIdentity(asMap(map.get("identity"))),
+        toPersona(asMap(map.get("persona"))),
         provider,
         asStringList(map.get("tools"), "tools", name),
         asStringList(map.get("mcp_servers"), "mcp_servers", name),
@@ -191,6 +192,26 @@ public class ProfileLoader {
       return null;
     }
     return new Profile.Identity(asString(map.get("agent_name")), asString(map.get("prompt")));
+  }
+
+  /** 025：结构化人格段解析。无 persona 段返回 null（向后兼容）；有段缺 name/role → 校验失败。 */
+  private static Profile.Persona toPersona(Map<String, Object> map) {
+    if (map == null) {
+      return null;
+    }
+    String name = asString(map.get("name"));
+    String role = asString(map.get("role"));
+    if (name == null || name.isBlank() || role == null || role.isBlank()) {
+      throw new ProfileValidationException("persona 段缺少 name/role 字段");
+    }
+    return new Profile.Persona(
+        name,
+        role,
+        asString(map.get("traits")),
+        asString(map.get("tone")),
+        asString(map.get("values")),
+        asString(map.get("boundaries")),
+        asString(map.get("sample_style")));
   }
 
   private static List<Profile.NotifyChannel> toNotifyChannels(
