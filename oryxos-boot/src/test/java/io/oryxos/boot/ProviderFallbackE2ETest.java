@@ -34,6 +34,9 @@ import org.springframework.test.context.DynamicPropertySource;
  * 校验要能看到它）+ mock 备用；真实 HTTP + SQLite——主败备成用户无感知（SC-001）、 每尝试一条审计且 trace 同链（SC-003）、切换 WARN 带
  * traceId、零声明回归（SC-002）、全败上抛。 无 key、无网络、gate 内可跑。
  */
+// @AutoConfigureObservability：@SpringBootTest 默认禁用 metrics export（防测试打点外泄），
+// 不加则 PrometheusMeterRegistry 不装配、/actuator/prometheus 404——真机 serve 不受此影响
+@org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
 @SpringBootTest(
     classes = OryxOsRuntime.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -209,6 +212,65 @@ class ProviderFallbackE2ETest {
     assertFalse(round.isEmpty());
     assertTrue(round.stream().noneMatch(LlmCall::isSuccess), "无成功行");
     assertEquals(2, round.size(), "主 + 备各一次失败尝试（同一轮首个 LLM 调用即失败终止）");
+  }
+
+  @Test
+  @Order(4)
+  void prometheus端点_五类业务指标在位且与审计口径对照一致() {
+    // 触发一次策略拦截：GLOBAL_DENY save_memory → policy_blocks 计数
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    ResponseEntity<String> rule =
+        rest.postForEntity(
+            "/api/v1/tool-policy/rules",
+            new HttpEntity<>("{\"ruleType\":\"GLOBAL_DENY\",\"pattern\":\"save_memory\"}", headers),
+            String.class);
+    assertEquals(HttpStatus.OK, rule.getStatusCode());
+    long ruleId = readJson(rule.getBody()).get("data").get("id").asLong();
+    try {
+      invokeOk("plain-agent", "触发拦截场景");
+    } finally {
+      rest.delete("/api/v1/tool-policy/rules/" + ruleId);
+    }
+
+    ResponseEntity<String> metrics = rest.getForEntity("/actuator/prometheus", String.class);
+    assertEquals(HttpStatus.OK, metrics.getStatusCode());
+    String body = metrics.getBody();
+    assertNotNull(body);
+
+    // 五类指标在位（SC-005）
+    assertTrue(body.contains("oryxos_llm_calls_total"), "LLM 调用计数在位");
+    // Prometheus 文本格式标签按字母序输出——逐行 contains 判定，不假定标签顺序
+    assertTrue(
+        hasSeries(body, "oryxos_llm_calls_total", "provider=\"broken\"", "outcome=\"failure\""),
+        "broken 失败序列在位");
+    assertTrue(
+        hasSeries(body, "oryxos_llm_calls_total", "provider=\"mock\"", "outcome=\"success\""),
+        "mock 成功序列在位");
+    assertTrue(
+        hasSeries(body, "oryxos_fallback_switches_total", "from=\"broken\"", "to=\"mock\""),
+        "切换计数在位");
+    assertTrue(body.contains("oryxos_tool_invocations_total"), "工具调用计数在位");
+    // oryxos_llm_tokens_total：mock provider 的 usage 恒为 0 token → 指标合法缺席（契约：未发生即缺席/零值），
+    // 计数语义由 MicrometerMetricsRecorderTest 钉死，真实 token 序列在真机走查（quickstart V6）验证
+    assertTrue(body.contains("oryxos_policy_blocks_total"), "策略拦截计数在位");
+
+    // SC-005/SC-006：指标总数与 llm_calls 表行数同口径（每尝试各计一）
+    double metricTotal =
+        java.util.regex.Pattern.compile("oryxos_llm_calls_total\\{[^}]*} (\\S+)")
+            .matcher(body)
+            .results()
+            .mapToDouble(m -> Double.parseDouble(m.group(1)))
+            .sum();
+    assertEquals(llmCalls.count(), (long) metricTotal, "指标计数与审计行数对照一致");
+  }
+
+  private static boolean hasSeries(String body, String metric, String... labels) {
+    return body.lines()
+        .anyMatch(
+            line ->
+                line.startsWith(metric)
+                    && java.util.Arrays.stream(labels).allMatch(line::contains));
   }
 
   // —— helpers ——

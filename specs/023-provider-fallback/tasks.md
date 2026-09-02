@@ -74,12 +74,12 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-provider / oryxos-cli / oryx
 
 **Independent Test**: quickstart V6——触发调用/拦截/切换后抓端点，指标在位且计数对照一致
 
-- [ ] T012 [US3] 修改 oryxos-cli/pom.xml：加 `io.micrometer:micrometer-core` 编译依赖（运行时 jar 已由 boot actuator 传递带入，注释注明零新增运行时构件）
-- [ ] T013 [US3] 新建 oryxos-cli/src/main/java/io/oryxos/cli/MicrometerMetricsRecorder.java（依赖 T003/T012）：实现五方法落 oryxos_* 指标（目录见 contracts §3）——Counter/Timer 经 MeterRegistry 惰性获取；全部方法 try/catch 吞异常记 DEBUG（FR-010 埋点不伤主链路）；标签值 null 兜底为 "unknown"。配套新建 oryxos-cli/src/test/java/io/oryxos/cli/MicrometerMetricsRecorderTest.java：SimpleMeterRegistry 断言五类指标名/标签/计数，**并注入恒抛异常的 MeterRegistry 断言五方法全部静默不抛**（FR-010 显式断言）
+- [X] T012 [US3] 修改 oryxos-cli/pom.xml：加 `io.micrometer:micrometer-core` 编译依赖（运行时 jar 已由 boot actuator 传递带入，注释注明零新增运行时构件）
+- [X] T013 [US3] 新建 oryxos-cli/src/main/java/io/oryxos/cli/MicrometerMetricsRecorder.java（依赖 T003/T012）：实现五方法落 oryxos_* 指标（目录见 contracts §3）——Counter/Timer 经 MeterRegistry 惰性获取；全部方法 try/catch 吞异常记 DEBUG（FR-010 埋点不伤主链路）；标签值 null 兜底为 "unknown"。配套新建 oryxos-cli/src/test/java/io/oryxos/cli/MicrometerMetricsRecorderTest.java：SimpleMeterRegistry 断言五类指标名/标签/计数，**并注入恒抛异常的 MeterRegistry 断言五方法全部静默不抛**（FR-010 显式断言）
 - [X] T014 [US3] 修改 oryxos-provider/src/main/java/io/oryxos/provider/SpringAiProviderServiceImpl.java（依赖 T007/T003，同文件串行）：构造注入 `MetricsRecorder`（旧构造委托 NOOP 保既有测试）；recordSuccess/recordFailure 旁挂 recordLlmCall（每尝试）、成功侧挂 recordLlmTokens、切换点挂 recordFallbackSwitch
-- [ ] T015 [P] [US3] 修改 oryxos-core/src/main/java/io/oryxos/core/agent/ToolExecutor.java（依赖 T003）：构造注入 `MetricsRecorder`（旧构造委托 NOOP）；审计调用旁挂 recordToolInvocation（成败如实）；策略拒绝点挂 recordPolicyBlock
-- [ ] T016 [US3] 修改 oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java（依赖 T013~T015）：`@Bean MetricsRecorder`——`ObjectProvider<MeterRegistry>` 有则 MicrometerMetricsRecorder、无则 NOOP（chat 命令等无 actuator 上下文兜底）；providerService 与 toolExecutor 装配点注入
-- [ ] T017 [US3] 在 oryxos-boot/src/test/java/io/oryxos/boot/ProviderFallbackE2ETest.java 追加（依赖 T011/T016，同文件串行）：`GET /actuator/prometheus` 抓文本断言——`oryxos_llm_calls_total`（broken/failure 与 mock/success 序列在位且计数与 llm_calls 表行数对照一致，SC-005/SC-006）、`oryxos_fallback_switches_total{from="broken",to="mock"}` ≥1、`oryxos_tool_invocations_total` 与 `oryxos_llm_tokens_total` 在位；配 GLOBAL_DENY 触发拦截 → `oryxos_policy_blocks_total` 递增
+- [X] T015 [P] [US3] 修改 oryxos-core/src/main/java/io/oryxos/core/agent/ToolExecutor.java（依赖 T003）：构造注入 `MetricsRecorder`（旧构造委托 NOOP）；审计调用旁挂 recordToolInvocation（成败如实）；策略拒绝点挂 recordPolicyBlock
+- [X] T016 [US3] 修改 oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java（依赖 T013~T015）：`@Bean MetricsRecorder`——`ObjectProvider<MeterRegistry>` 有则 MicrometerMetricsRecorder、无则 NOOP（chat 命令等无 actuator 上下文兜底）；providerService 与 toolExecutor 装配点注入
+- [X] T017 [US3] 在 oryxos-boot/src/test/java/io/oryxos/boot/ProviderFallbackE2ETest.java 追加（依赖 T011/T016，同文件串行）：`GET /actuator/prometheus` 抓文本断言——`oryxos_llm_calls_total`（broken/failure 与 mock/success 序列在位且计数与 llm_calls 表行数对照一致，SC-005/SC-006）、`oryxos_fallback_switches_total{from="broken",to="mock"}` ≥1、`oryxos_tool_invocations_total` 与 `oryxos_llm_tokens_total` 在位；配 GLOBAL_DENY 触发拦截 → `oryxos_policy_blocks_total` 递增
 
 **Checkpoint**: 全部故事独立可测
 
