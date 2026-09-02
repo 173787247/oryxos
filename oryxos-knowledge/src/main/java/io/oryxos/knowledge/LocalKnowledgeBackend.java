@@ -35,6 +35,9 @@ import java.util.stream.Stream;
  */
 public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
 
+  private static final org.slf4j.Logger LOG =
+      org.slf4j.LoggerFactory.getLogger(LocalKnowledgeBackend.class);
+
   private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9_-]+");
 
   /** 每路召回候选量与 topK 的倍数：给融合层留足重排空间。 */
@@ -109,7 +112,14 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
         // FR-014：拒绝新旧向量混合比较，关键词路独立服务并提示重建，不静默返回错误排序
         degradedReason = mismatch;
       } else {
-        vectorRoute = vectorRecall(chunks, embedder, query, topK * ROUTE_FACTOR);
+        try {
+          vectorRoute = vectorRecall(chunks, embedder, query, topK * ROUTE_FACTOR);
+        } catch (RuntimeException e) {
+          // embedder bean 在、embed 调用才失败（embedding API 宕机是最常见降级场景）——
+          // 必须 WARN + 逐条标注降级（FR-013），不能静默变成纯关键词结果（与 MemoryRecallEngine 口径一致）
+          LOG.warn("向量检索失败，降级为关键词检索: {}", sanitize(e.getMessage()));
+          degradedReason = "向量检索失败（" + sanitize(e.getMessage()) + "），已降级为关键词检索";
+        }
       }
     }
     List<RetrievalPipeline.Candidate> keywordRoute =
@@ -161,12 +171,8 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
 
   private static List<RetrievalPipeline.Candidate> vectorRecall(
       List<ChunkStore.ChunkRecord> chunks, TextEmbedder embedder, String query, int limit) {
-    float[] queryVector;
-    try {
-      queryVector = embedder.embed(query);
-    } catch (RuntimeException e) {
-      return List.of();
-    }
+    // embed 失败直接上抛：由 retrieveOne 统一 WARN + 标注降级，这里不再静默吞成空结果
+    float[] queryVector = embedder.embed(query);
     return chunks.stream()
         .filter(
             chunk -> chunk.embedding() != null && chunk.embedding().length == queryVector.length)
@@ -177,6 +183,10 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
         .sorted(Comparator.comparingDouble(RetrievalPipeline.Candidate::score).reversed())
         .limit(limit)
         .toList();
+  }
+
+  private static String sanitize(String value) {
+    return value == null || value.isBlank() ? "未知原因" : value.replace('\r', '_').replace('\n', '_');
   }
 
   /** 关键词路：空白分词的包含计数 + 整句包含加权；子串匹配天然覆盖中文（Edge Cases 中英混排）。 */

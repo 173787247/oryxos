@@ -72,10 +72,7 @@ public class DingTalkEventNormalizer {
       }
       content = content.strip();
     } else if (MSG_PICTURE.equals(msgtype)) {
-      String picUrl = body.path("content").path("picURL").asText(null);
-      if (picUrl != null && !picUrl.isBlank()) {
-        attachments.add(InboundAttachment.imageUrl(picUrl));
-      }
+      extractPictureAttachment(body.path("content")).ifPresent(attachments::add);
     }
     return Optional.of(
         new InboundMessage(
@@ -89,6 +86,26 @@ public class DingTalkEventNormalizer {
             textual,
             group,
             attachments));
+  }
+
+  private static Optional<InboundAttachment> extractPictureAttachment(JsonNode content) {
+    if (content == null || content.isMissingNode()) {
+      return Optional.empty();
+    }
+    String picUrl = content.path("picURL").asText(null);
+    if (picUrl != null && !picUrl.isBlank()) {
+      return Optional.of(InboundAttachment.imageUrl(picUrl));
+    }
+    // 官方 Stream 图片：content.downloadCode / pictureDownloadCode（无直链 URL）
+    String downloadCode = content.path("downloadCode").asText(null);
+    if (downloadCode != null && !downloadCode.isBlank()) {
+      return Optional.of(InboundAttachment.imageReference(downloadCode));
+    }
+    String pictureDownloadCode = content.path("pictureDownloadCode").asText(null);
+    if (pictureDownloadCode != null && !pictureDownloadCode.isBlank()) {
+      return Optional.of(InboundAttachment.imageReference(pictureDownloadCode));
+    }
+    return Optional.empty();
   }
 
   private static String text(JsonNode node, String field) {

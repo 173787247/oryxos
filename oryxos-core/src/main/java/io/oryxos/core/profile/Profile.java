@@ -99,7 +99,22 @@ public record Profile(
       String boundaries,
       String sampleStyle) {}
 
-  public record ProviderRef(String name, String model, Double temperature) {}
+  /** fallbacks（023）：有序备用 Provider 列表，单次 LLM 调用故障时按序切换；空=零变化。 */
+  public record ProviderRef(
+      String name, String model, Double temperature, List<FallbackRef> fallbacks) {
+
+    public ProviderRef {
+      fallbacks = fallbacks == null ? List.of() : List.copyOf(fallbacks);
+    }
+
+    /** 旧三参构造保留（既有构造点/测试兼容）：无备用声明委托空列表（023 纯增量）。 */
+    public ProviderRef(String name, String model, Double temperature) {
+      this(name, model, temperature, List.of());
+    }
+
+    /** 一个备用候选：已注册 Provider 名 + 该 Provider 下使用的模型名。 */
+    public record FallbackRef(String name, String model) {}
+  }
 
   public record NotifyChannel(String type, Map<String, String> config) {
     public NotifyChannel {

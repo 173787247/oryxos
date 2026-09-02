@@ -96,6 +96,12 @@
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
+        <!-- 023：业务指标 MicrometerMetricsRecorder 的编译依赖——运行时 jar 已由 oryxos-boot 的
+             spring-boot-starter-actuator 传递带入，此处仅补编译可见性，零新增运行时构件 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

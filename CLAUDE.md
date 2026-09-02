@@ -196,6 +196,9 @@ provider:
   model: deepseek-chat
   temperature: 0.7
   api_key: ${DEEPSEEK_API_KEY}   # 从环境变量读取，不明文写死
+  fallback:               # 023 可选：有序备用 Provider——单次 LLM 调用的 provider 侧故障按序切换重发，
+    - name: qwen          #   每次尝试各写一条 llm_calls（主备留痕）、切换 WARN 带 traceId；业务性失败（400 类）不切
+      model: qwen-plus
 tools:
   - read_file
   - shell

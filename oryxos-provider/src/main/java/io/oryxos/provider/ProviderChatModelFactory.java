@@ -62,7 +62,17 @@ public class ProviderChatModelFactory {
       // 端点版本在 baseUrl 里（如 GLM 的 /api/paas/v4），改补无版本的 /chat/completions
       api.completionsPath("/chat/completions");
     }
-    return OpenAiChatModel.builder().openAiApi(api.build()).build();
+    // 023 R8：收敛 Spring AI 默认 RetryTemplate（原为 10 次指数退避至 180s）为单次尝试——
+    // 「重试」语义整层上收到 fallback 切换循环（单层负责），挂死端点不再卡同步会话数分钟。
+    return OpenAiChatModel.builder()
+        .openAiApi(api.build())
+        .retryTemplate(noRetryTemplate())
+        .build();
+  }
+
+  /** 单次尝试、无退避：见 buildOne 内 023 R8 注释。 */
+  static org.springframework.retry.support.RetryTemplate noRetryTemplate() {
+    return org.springframework.retry.support.RetryTemplate.builder().maxAttempts(1).build();
   }
 
   /** 带连接/读取超时的请求工厂：默认 RestClient 无超时，端点挂死会把同步 ReAct 循环连带会话永久卡住。构建时读属性，不在类加载期固化。 */
