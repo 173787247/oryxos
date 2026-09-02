@@ -67,6 +67,8 @@ class WeComEventNormalizerTest {
     InboundMessage msg = normalizer.normalize(body).orElseThrow();
     assertFalse(msg.textual());
     assertEquals("", msg.content());
+    assertEquals(1, msg.attachments().size());
+    assertEquals("https://x", msg.attachments().get(0).url());
   }
 
   @Test

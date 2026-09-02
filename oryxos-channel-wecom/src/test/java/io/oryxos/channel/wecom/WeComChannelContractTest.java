@@ -30,6 +30,11 @@ class WeComChannelContractTest extends InboundMessageServiceContractTestBase {
 
   @Override
   protected InboundMessage nonTextualMessage(String messageId) {
+    return normalizer.normalize(body(messageId, "single", "voice", null, null)).orElseThrow();
+  }
+
+  @Override
+  protected InboundMessage imageMessage(String messageId) {
     return normalizer.normalize(body(messageId, "single", "image", null, null)).orElseThrow();
   }
 

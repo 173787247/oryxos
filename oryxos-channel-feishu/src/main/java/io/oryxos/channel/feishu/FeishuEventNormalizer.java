@@ -7,7 +7,9 @@ import com.lark.oapi.service.im.v1.model.EventMessage;
 import com.lark.oapi.service.im.v1.model.MentionEvent;
 import com.lark.oapi.service.im.v1.model.P2MessageReceiveV1;
 import io.oryxos.core.channel.ChatKind;
+import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
+import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +30,7 @@ public class FeishuEventNormalizer {
   private static final String CHANNEL_TYPE = "feishu";
   private static final String CHAT_TYPE_P2P = "p2p";
   private static final String MSG_TYPE_TEXT = "text";
+  private static final String MSG_TYPE_IMAGE = "image";
   private static final String MENTIONED_TYPE_BOT = "bot";
 
   private final String channelName;
@@ -61,6 +64,7 @@ public class FeishuEventNormalizer {
     boolean textual = MSG_TYPE_TEXT.equals(message.getMessageType());
     String content =
         textual ? stripMentions(extractText(message.getContent()), message.getMentions()) : "";
+    List<InboundAttachment> attachments = extractAttachments(message);
     return Optional.of(
         new InboundMessage(
             CHANNEL_TYPE,
@@ -71,7 +75,37 @@ public class FeishuEventNormalizer {
             message.getChatId(),
             content,
             textual,
-            mentionedBot));
+            mentionedBot,
+            attachments));
+  }
+
+  private List<InboundAttachment> extractAttachments(EventMessage message) {
+    if (!MSG_TYPE_IMAGE.equals(message.getMessageType())) {
+      return List.of();
+    }
+    String imageKey = extractImageKey(message.getContent());
+    if (imageKey == null || imageKey.isBlank()) {
+      return List.of();
+    }
+    return List.of(InboundAttachment.imageReference(imageKey));
+  }
+
+  /** 图片消息 content 是 JSON：{"image_key":"img_xxx"}。 */
+  static String extractImageKey(String contentJson) {
+    if (contentJson == null || contentJson.isBlank()) {
+      return null;
+    }
+    try {
+      JsonElement root = JsonParser.parseString(contentJson);
+      if (!root.isJsonObject()) {
+        return null;
+      }
+      JsonElement key = root.getAsJsonObject().get("image_key");
+      return key == null || key.isJsonNull() ? null : key.getAsString();
+    } catch (RuntimeException e) {
+      LOG.warn("飞书图片消息 content 解析失败，按无附件处理");
+      return null;
+    }
   }
 
   /** mention 列表中是否 @ 了本机器人（open_id 比对；bot open_id 缺失时按 mentioned_type 降级）。 */

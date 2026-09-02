@@ -72,7 +72,7 @@ class DingTalkEventNormalizerTest {
   }
 
   @Test
-  @DisplayName("非文本仍构造消息但 textual=false")
+  @DisplayName("非文本仍构造消息但 textual=false；图片带附件")
   void nonText() {
     ObjectNode body = mapper.createObjectNode();
     body.put("msgId", "m3");
@@ -85,6 +85,8 @@ class DingTalkEventNormalizerTest {
     InboundMessage msg = normalizer.normalize(body).orElseThrow();
     assertFalse(msg.textual());
     assertEquals("", msg.content());
+    assertEquals(1, msg.attachments().size());
+    assertEquals("https://x", msg.attachments().get(0).url());
   }
 
   @Test

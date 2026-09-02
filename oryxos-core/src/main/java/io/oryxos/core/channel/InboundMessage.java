@@ -1,5 +1,7 @@
 package io.oryxos.core.channel;
 
+import java.util.List;
+
 /**
  * 归一化入站消息：平台事件经渠道适配器归一化后的唯一入站模型，编排服务只认它、不认平台原始事件（017 FR-010）。
  *
@@ -13,8 +15,9 @@ package io.oryxos.core.channel;
  * @param userId 提问者标识（飞书 open_id）；私聊会话三元组的 user 位
  * @param chatId 回复目标（私聊 = 用户会话，群聊 = 群）
  * @param content 纯文本正文；群聊已剥离 @ 机器人片段、其余 mention 已替换为人名；非文本时为空串
- * @param textual 是否文本消息；false 触发「仅支持文本」能力说明回复（FR-009）
+ * @param textual 是否文本消息；false 且无附件时触发「仅支持文本」能力说明回复（FR-009）
  * @param mentionedBot 群聊是否 @ 了本机器人；进入编排的群消息恒为 true
+ * @param attachments 图片等媒体附件（可为空）
  */
 public record InboundMessage(
     String channelType,
@@ -25,7 +28,8 @@ public record InboundMessage(
     String chatId,
     String content,
     boolean textual,
-    boolean mentionedBot) {
+    boolean mentionedBot,
+    List<InboundAttachment> attachments) {
 
   public InboundMessage {
     requireNonBlank(channelType, "channelType");
@@ -39,6 +43,14 @@ public record InboundMessage(
     if (content == null) {
       content = "";
     }
+    if (attachments == null) {
+      attachments = List.of();
+    }
+  }
+
+  /** 文本或含可处理附件（如图片）时进入 Agent 编排。 */
+  public boolean processable() {
+    return textual || !attachments.isEmpty();
   }
 
   private static void requireNonBlank(String value, String field) {
