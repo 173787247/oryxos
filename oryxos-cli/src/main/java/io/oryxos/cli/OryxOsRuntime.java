@@ -42,6 +42,9 @@ import io.oryxos.memory.Mem0MemoryStore;
 import io.oryxos.memory.MemoryServiceImpl;
 import io.oryxos.memory.SqliteMemoryStore;
 import io.oryxos.memory.builtin.MemoryTools;
+import io.oryxos.persona.PersonaPresetCatalog;
+import io.oryxos.persona.PersonaService;
+import io.oryxos.persona.PersonaStore;
 import io.oryxos.provider.ProviderChatModelFactory;
 import io.oryxos.provider.ProviderRegistryBootstrap;
 import io.oryxos.provider.ProviderRegistryValidator;
@@ -281,6 +284,25 @@ public class OryxOsRuntime {
   @Bean
   AgentStore agentStore() {
     return new AgentStore(oryxosRoot());
+  }
+
+  /** 025 人格库：默认人格预设目录（12 个 agency-agents-zh 专家源文件随 jar 内置，Web/CLI 导入的预置内容种子）。 */
+  @Bean
+  PersonaPresetCatalog personaPresetCatalog() {
+    return new PersonaPresetCatalog();
+  }
+
+  /** 025 人格库：自定义人格的工作区 store（{@code .oryxos/personas/} 扁平 .md，只放用户自建，不播种内置）。 */
+  @Bean
+  PersonaStore personaStore() {
+    return new PersonaStore(oryxosRoot());
+  }
+
+  /** 025 人格库：只读内置 + 可 CRUD 自定义的统一编排（copy-in 模板库，仍非按名引用的人格市场）。 */
+  @Bean
+  PersonaService personaService(
+      PersonaPresetCatalog personaPresetCatalog, PersonaStore personaStore) {
+    return new PersonaService(personaPresetCatalog, personaStore);
   }
 
   /** 30 节：Agent 生命周期编排。创建脚手架的 AGENT.md 模板里 provider 缺省取最终注册表按名称排序后的第一项。 */
