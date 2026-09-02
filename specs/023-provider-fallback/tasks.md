@@ -90,8 +90,8 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-provider / oryxos-cli / oryx
 **Purpose**: 文档与全量验收
 
 - [X] T018 [P] 文档同步：CLAUDE.md AGENT.md 示例 provider 节补 `fallback` 字段与一句口径；website/zh/docs/api.md 与 website/docs/api.md 补「Provider 失败切换」与「业务指标」小节（对齐 contracts）；docs/CliGuide.md 提及 fallback 声明与 /actuator/prometheus 接入
-- [ ] T019 按 quickstart.md 完整走查 V1~V6（真机 fat JAR：broken provider 指不通端口 + mock 备用；V4 用 python 400 stub）并记录到 specs/023-provider-fallback/acceptance-report.md（SC-001~SC-007 逐项对勾，镜像 018~022 报告形式）
-- [ ] T020 运行 `mvn verify` 全量质量门禁并清零新增告警（CRLF 日志参数一律 sanitize——022 教训前置）
+- [X] T019 按 quickstart.md 完整走查 V1~V6（真机 fat JAR：broken provider 指不通端口 + mock 备用；V4 用 python 400 stub）并记录到 specs/023-provider-fallback/acceptance-report.md（SC-001~SC-007 逐项对勾，镜像 018~022 报告形式）
+- [X] T020 运行 `mvn verify` 全量质量门禁并清零新增告警（CRLF 日志参数一律 sanitize——022 教训前置）
 
 ---
 

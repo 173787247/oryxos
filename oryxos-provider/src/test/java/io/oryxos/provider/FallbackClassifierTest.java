@@ -61,4 +61,31 @@ class FallbackClassifierTest {
   void 无状态码的未知异常_宁多试一次() {
     assertThat(FallbackClassifier.isSwitchable(new IllegalStateException("who knows"))).isTrue();
   }
+
+  @Test
+  void SpringAI包装形态_message前缀状态码判定() {
+    // 真机验证的形态：4xx 被包成 NonTransientAiException("400 - {json}")，cause 链无 RestClient 异常
+    assertThat(
+            FallbackClassifier.isSwitchable(
+                new org.springframework.ai.retry.NonTransientAiException(
+                    "400 - {\"error\":{\"message\":\"invalid request body\"}}")))
+        .isFalse();
+    assertThat(
+            FallbackClassifier.isSwitchable(
+                new org.springframework.ai.retry.NonTransientAiException("401 - unauthorized")))
+        .isTrue(); // 凭证问题换家有意义（R3）
+    assertThat(
+            FallbackClassifier.isSwitchable(
+                new org.springframework.ai.retry.TransientAiException("429 - rate limited")))
+        .isTrue();
+    // 无前缀码：信 Spring AI 的瞬时性分类
+    assertThat(
+            FallbackClassifier.isSwitchable(
+                new org.springframework.ai.retry.NonTransientAiException("schema mismatch")))
+        .isFalse();
+    assertThat(
+            FallbackClassifier.isSwitchable(
+                new org.springframework.ai.retry.TransientAiException("temporary hiccup")))
+        .isTrue();
+  }
 }

@@ -217,6 +217,11 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     throw last != null ? last : new ProviderNotFoundException(profile.provider().name());
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE",
+      justification =
+          "Spring AI 注解声称 chunk 各字段非空，但流式 chunk 边界形态因 provider 而异，"
+              + "对 generation/output 的防御性判空是有意保留的（019 裁决，信注解不如信线上流量）")
   private ProviderResponse chatStreamOnce(
       String sessionId,
       Profile profile,

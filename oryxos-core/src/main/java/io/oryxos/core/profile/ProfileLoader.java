@@ -176,7 +176,10 @@ public class ProfileLoader {
             "Profile " + profileName + " 的 provider.fallback 候选缺少 name 或 model");
       }
       if (!knownProviders.contains(name)) {
-        LOG.warn("Profile {} 的 fallback 候选引用了未注册的 provider: {}（保留声明，调用时跳过）", profileName, name);
+        LOG.warn(
+            "Profile {} 的 fallback 候选引用了未注册的 provider: {}（保留声明，调用时跳过）",
+            sanitize(profileName),
+            sanitize(name));
       }
       fallbacks.add(new Profile.ProviderRef.FallbackRef(name, model));
     }
