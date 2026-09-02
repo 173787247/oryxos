@@ -26,6 +26,10 @@ final class FeishuInboundImageResolver {
   private static final Logger LOG = LoggerFactory.getLogger(FeishuInboundImageResolver.class);
 
   private static final String RESOURCE_TYPE_IMAGE = "image";
+  private static final String DEFAULT_EXTENSION = ".bin";
+  private static final String FALLBACK_SEGMENT = "x";
+  private static final String SAFE_EXTENSION_PATTERN = "\\.[a-z0-9]{1,8}";
+  private static final char PATH_SAFE_REPLACEMENT = '_';
   private static final int MAX_SEGMENT_LEN = 96;
 
   private final Client client;
@@ -128,34 +132,36 @@ final class FeishuInboundImageResolver {
 
   private static String extensionOf(String fileName) {
     if (fileName == null || fileName.isBlank()) {
-      return ".bin";
+      return DEFAULT_EXTENSION;
     }
     int dot = fileName.lastIndexOf('.');
     if (dot < 0 || dot == fileName.length() - 1) {
-      return ".bin";
+      return DEFAULT_EXTENSION;
     }
     String ext = fileName.substring(dot).toLowerCase(Locale.ROOT);
-    if (!ext.matches("\\.[a-z0-9]{1,8}")) {
-      return ".bin";
+    if (!ext.matches(SAFE_EXTENSION_PATTERN)) {
+      return DEFAULT_EXTENSION;
     }
     return ext;
   }
 
   static String safeSegment(String raw) {
     if (raw == null || raw.isBlank()) {
-      return "x";
+      return FALLBACK_SEGMENT;
     }
-    String cleaned = raw.replaceAll("[^a-zA-Z0-9._-]", "_");
+    String cleaned = raw.replaceAll("[^a-zA-Z0-9._-]", String.valueOf(PATH_SAFE_REPLACEMENT));
     if (cleaned.length() > MAX_SEGMENT_LEN) {
       cleaned = cleaned.substring(0, MAX_SEGMENT_LEN);
     }
-    if (cleaned.isBlank() || cleaned.chars().allMatch(ch -> ch == '_')) {
-      return "x";
+    if (cleaned.isBlank() || cleaned.chars().allMatch(ch -> ch == PATH_SAFE_REPLACEMENT)) {
+      return FALLBACK_SEGMENT;
     }
     return cleaned;
   }
 
   private static String sanitize(String value) {
-    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
+    return value == null
+        ? ""
+        : value.replace('\r', PATH_SAFE_REPLACEMENT).replace('\n', PATH_SAFE_REPLACEMENT);
   }
 }
