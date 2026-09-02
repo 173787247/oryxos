@@ -52,7 +52,7 @@ const TOP_NAV = [
   // Skill 列表（第 32 节）：全局 Skill 库，自定义加载器（loadSkills）不走通用 path。知识库仍为占位页
   { key: 'skills', label: 'Skill 列表' },
   { key: 'knowledge', label: '知识库' },
-  { key: 'report', label: '报表' },
+  { key: 'report', label: '审计' },
 ]
 
 const RUNTIME_NAV = [
@@ -393,7 +393,6 @@ async function loadTrace(id) {
     trace.result = body.data
   } catch (e) { trace.error = e.message } finally { trace.loading = false }
 }
-function shortTrace(id) { return id ? id.slice(0, 8) : '—' }
 const filteredLlmList = computed(() => {
   if (!reportFilter.value) return report.llmList
   const { type, key } = reportFilter.value
@@ -1928,7 +1927,7 @@ const outputRows = computed(() =>
                       <td class="mono">{{ fmtCost(c.costMicros) }}</td>
                       <td class="mono">{{ fmtDuration(c.durationMs) }}</td>
                       <td><span :class="['tag', c.success ? 'ok' : 'off']">{{ c.success ? '成功' : '失败' }}</span></td>
-                      <td class="mono"><a v-if="c.traceId" href="#" :title="c.traceId" @click.prevent="loadTrace(c.traceId)">{{ shortTrace(c.traceId) }}</a><template v-else>—</template></td>
+                      <td class="mono trace-cell"><a v-if="c.traceId" href="#" title="点击回放该轮时间线" @click.prevent="loadTrace(c.traceId)">{{ c.traceId }}</a><template v-else>—</template></td>
                     </tr>
                   </tbody>
                 </table>
@@ -1959,7 +1958,7 @@ const outputRows = computed(() =>
                       <td class="mono">{{ t.toolName }}</td>
                       <td class="mono">{{ fmtDuration(t.durationMs) }}</td>
                       <td><span :class="['tag', t.success ? 'ok' : 'off']">{{ t.success ? '成功' : '失败' }}</span></td>
-                      <td class="mono"><a v-if="t.traceId" href="#" :title="t.traceId" @click.prevent="loadTrace(t.traceId)">{{ shortTrace(t.traceId) }}</a><template v-else>—</template></td>
+                      <td class="mono trace-cell"><a v-if="t.traceId" href="#" title="点击回放该轮时间线" @click.prevent="loadTrace(t.traceId)">{{ t.traceId }}</a><template v-else>—</template></td>
                     </tr>
                   </tbody>
                 </table>
@@ -2671,7 +2670,7 @@ const outputRows = computed(() =>
                       <td class="mono">{{ fmtTime(e.startedAt) }}</td>
                       <td class="mono">{{ fmtTime(e.endedAt) }}</td>
                       <td class="mono">{{ fmtDuration(e.durationMs) }}</td>
-                      <td class="mono" :title="e.traceId || ''">{{ shortTrace(e.traceId) }}</td>
+                      <td class="mono trace-cell">{{ e.traceId || '—' }}</td>
                       <td class="error">{{ e.errorMessage || '' }}</td>
                     </tr>
                   </tbody>
@@ -3094,6 +3093,9 @@ const outputRows = computed(() =>
 </template>
 
 <style scoped>
+/* trace ID 完整展示（021/023）：小号等宽不换行——截断会让复制变成折磨 */
+.trace-cell { font-size: 11px; white-space: nowrap; }
+
 .layout { display: flex; min-height: 100vh; }
 .nav {
   width: 200px; background: var(--bg-soft); border-right: 1px solid var(--border);

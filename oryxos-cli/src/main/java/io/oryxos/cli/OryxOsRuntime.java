@@ -226,12 +226,24 @@ public class OryxOsRuntime {
     return migration;
   }
 
+  /** 023：业务指标——serve 场景（actuator 在类路径且有 MeterRegistry）落 Micrometer；chat 等无监控上下文 NOOP 兜底。 */
+  @Bean
+  io.oryxos.core.metrics.MetricsRecorder metricsRecorder(
+      org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>
+          meterRegistry) {
+    io.micrometer.core.instrument.MeterRegistry registry = meterRegistry.getIfAvailable();
+    return registry == null
+        ? io.oryxos.core.metrics.MetricsRecorder.NOOP
+        : new MicrometerMetricsRecorder(registry);
+  }
+
   @Bean
   ProviderService providerService(
       ProviderRegistry providerRegistry,
       LlmCallAuditor auditor,
       PricingStore pricingStore,
-      AuditSchemaUpgrade auditSchemaUpgrade) {
+      AuditSchemaUpgrade auditSchemaUpgrade,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     auditSchemaUpgrade.upgrade(); // 幂等：存量库补列 + 建 llm_pricing 表
     // 动态解析（31 节）：按名从注册表取参数、经工厂即时建/缓存 ChatModel（宪法 III 显式映射，只是运行时可变）
     ProviderChatModelFactory factory = new ProviderChatModelFactory();
@@ -240,7 +252,8 @@ public class OryxOsRuntime {
         def -> factory.buildOne(def.name(), def.apiKey(), def.baseUrl()),
         new ToolSchemaAdapter(),
         auditor,
-        pricingStore);
+        pricingStore,
+        metricsRecorder); // 023：LLM 调用/token/切换指标
   }
 
   @Bean
@@ -840,11 +853,13 @@ public class OryxOsRuntime {
       ToolRegistry toolRegistry,
       ProfileRegistry profileRegistry,
       ToolInvocationAuditor auditor,
-      io.oryxos.core.policy.ToolPolicyService toolPolicyService) {
+      io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
     ToolExecutor executor =
         new ToolExecutor(tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
+    executor.setMetricsRecorder(metricsRecorder); // 023：工具调用/策略拦截指标
     return executor;
   }
 

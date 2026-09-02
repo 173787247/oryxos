@@ -151,7 +151,39 @@ public class ProfileLoader {
               + "）");
     }
     return new Profile.ProviderRef(
-        providerName, model, asDouble(map.get("temperature"), "provider.temperature", profileName));
+        providerName,
+        model,
+        asDouble(map.get("temperature"), "provider.temperature", profileName),
+        toFallbacks(
+            requireListOrNull(map.get("fallback"), "provider.fallback", profileName), profileName));
+  }
+
+  /**
+   * 023：解析 provider.fallback 有序备用列表。候选缺 name/model 抛校验异常（与主 provider 同口径）； 候选引用未注册 provider 只 WARN
+   * 不阻断——候选可用性是运行时属性（provider 可随时增删）， 硬校验会让删一个备用连坐一批 Agent 启动失败（tools 未注册能力的既有口径，运行时再跳过）。
+   */
+  private List<Profile.ProviderRef.FallbackRef> toFallbacks(List<Object> list, String profileName) {
+    if (list == null || list.isEmpty()) {
+      return List.of();
+    }
+    List<Profile.ProviderRef.FallbackRef> fallbacks = new ArrayList<>();
+    for (Object item : list) {
+      Map<String, Object> entry = asMap(item);
+      String name = entry == null ? null : asString(entry.get("name"));
+      String model = entry == null ? null : asString(entry.get("model"));
+      if (name == null || name.isBlank() || model == null || model.isBlank()) {
+        throw new ProfileValidationException(
+            "Profile " + profileName + " 的 provider.fallback 候选缺少 name 或 model");
+      }
+      if (!knownProviders.contains(name)) {
+        LOG.warn(
+            "Profile {} 的 fallback 候选引用了未注册的 provider: {}（保留声明，调用时跳过）",
+            sanitize(profileName),
+            sanitize(name));
+      }
+      fallbacks.add(new Profile.ProviderRef.FallbackRef(name, model));
+    }
+    return List.copyOf(fallbacks);
   }
 
   private static Profile.Identity toIdentity(Map<String, Object> map) {
