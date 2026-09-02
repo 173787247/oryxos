@@ -1,6 +1,6 @@
 # Tasks: 容器级执行隔离（Container Sandbox）
 
-**Input**: Design documents from `/specs/021-container-sandbox/`（spec.md + plan.md）
+**Input**: Design documents from `/specs/023-container-sandbox/`（spec.md + plan.md）
 
 **Prerequisites**: spec.md（15 FR / 8 SC / 3 US / 5 RQ）、plan.md（D1~D8 设计决策）
 
