@@ -5,6 +5,7 @@ import com.lark.oapi.service.im.v1.model.GetMessageResourceReq;
 import com.lark.oapi.service.im.v1.model.GetMessageResourceResp;
 import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
+import io.oryxos.core.session.ImageMime;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -126,6 +127,20 @@ final class FeishuInboundImageResolver {
     Path target = dir.resolve(safeSegment(imageKey) + ext);
     try (OutputStream out = Files.newOutputStream(target)) {
       resp.getData().writeTo(out);
+    }
+    // 飞书常不给后缀（落成 .bin）：用魔数改成正确扩展名，便于 MIME / vision
+    if (DEFAULT_EXTENSION.equals(ext)) {
+      String sniffed = ImageMime.probeFile(target);
+      String betterExt = ImageMime.extensionFor(sniffed);
+      if (!DEFAULT_EXTENSION.equals(betterExt) && !betterExt.equals(ext)) {
+        Path renamed = dir.resolve(safeSegment(imageKey) + betterExt);
+        try {
+          Files.move(target, renamed);
+          return renamed;
+        } catch (IOException moveFailed) {
+          LOG.debug("飞书图片重命名扩展名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+        }
+      }
     }
     return target;
   }

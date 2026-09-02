@@ -3,6 +3,7 @@ package io.oryxos.core.channel;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -105,12 +106,12 @@ class InboundMessageServiceTest {
   void duplicateMessageProcessedOnce() {
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
-    when(agentService.process(session, "hi")).thenReturn("回答");
+    when(agentService.process(eq(session), eq("hi"), anyList())).thenReturn("回答");
 
     service.onMessage(p2p("m-1", "hi"), adapter);
     service.onMessage(p2p("m-1", "hi"), adapter);
 
-    verify(agentService, times(1)).process(session, "hi");
+    verify(agentService, times(1)).process(eq(session), eq("hi"), anyList());
     assertEquals(1, adapter.sent().size());
   }
 
@@ -119,7 +120,7 @@ class InboundMessageServiceTest {
   void p2pUsesPersistentSession() {
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
-    when(agentService.process(session, "磁盘告警怎么处理")).thenReturn("先看 df -h");
+    when(agentService.process(eq(session), eq("磁盘告警怎么处理"), anyList())).thenReturn("先看 df -h");
 
     service.onMessage(p2p("m-2", "磁盘告警怎么处理"), adapter);
 
@@ -133,12 +134,14 @@ class InboundMessageServiceTest {
   @Test
   @DisplayName("B3/B4/B10: 群聊走无状态问答（渠道前缀临时会话 id），回复引用原消息，不落持久会话")
   void groupIsStatelessWithChannelTag() {
-    when(agentService.processStateless(eq(AGENT), eq("发布为什么回滚"), startsWith("stub-group:")))
+    when(agentService.processStateless(
+            eq(AGENT), eq("发布为什么回滚"), anyList(), startsWith("stub-group:")))
         .thenReturn("因为配置漂移");
 
     service.onMessage(group("m-3", "发布为什么回滚"), adapter);
 
-    verify(agentService).processStateless(eq(AGENT), eq("发布为什么回滚"), startsWith("stub-group:"));
+    verify(agentService)
+        .processStateless(eq(AGENT), eq("发布为什么回滚"), anyList(), startsWith("stub-group:"));
     verifyNoInteractions(sessionManager);
     assertEquals(1, adapter.sent().size());
     assertEquals("m-3", adapter.sent().get(0).replyToMessageId());
@@ -151,7 +154,8 @@ class InboundMessageServiceTest {
   void failureRepliedReadably() {
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
-    when(agentService.process(any(), anyString())).thenThrow(new IllegalStateException("模型服务不可用"));
+    when(agentService.process(any(), anyString(), anyList()))
+        .thenThrow(new IllegalStateException("模型服务不可用"));
 
     service.onMessage(p2p("m-4", "hi"), adapter);
 
@@ -200,11 +204,11 @@ class InboundMessageServiceTest {
             java.util.List.of(InboundAttachment.imageUrl("https://example/img.png")));
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
-    when(agentService.process(eq(session), anyString())).thenReturn("图片已收到");
+    when(agentService.process(eq(session), anyString(), anyList())).thenReturn("图片已收到");
 
     service.onMessage(img, adapter);
 
-    verify(agentService).process(eq(session), anyString());
+    verify(agentService).process(eq(session), anyString(), anyList());
     assertEquals("图片已收到", adapter.sent().get(0).text());
   }
 
@@ -214,7 +218,7 @@ class InboundMessageServiceTest {
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
     CountDownLatch workDone = new CountDownLatch(1);
-    when(agentService.process(any(), anyString()))
+    when(agentService.process(any(), anyString(), anyList()))
         .thenAnswer(
             inv -> {
               Thread.sleep(400); // 超过 120ms 阈值
@@ -265,7 +269,7 @@ class InboundMessageServiceTest {
   void auditCarriesChannelSource() {
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
-    when(agentService.process(session, "hi")).thenReturn("ok");
+    when(agentService.process(eq(session), eq("hi"), anyList())).thenReturn("ok");
 
     service.onMessage(p2p("m-8", "hi"), adapter);
 
@@ -278,7 +282,7 @@ class InboundMessageServiceTest {
   void sendFailureDoesNotPropagate() {
     Session session = new Session("stub:user-1:" + AGENT, AGENT);
     when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
-    when(agentService.process(session, "hi")).thenReturn("ok");
+    when(agentService.process(eq(session), eq("hi"), anyList())).thenReturn("ok");
     adapter.failSendsWith(new IllegalStateException("网络故障"));
 
     service.onMessage(p2p("m-9", "hi"), adapter); // 不抛出即通过

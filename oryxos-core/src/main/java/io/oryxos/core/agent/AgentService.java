@@ -48,11 +48,22 @@ public class AgentService {
   }
 
   public String process(Session session, String userMessage) {
-    return process(session, userMessage, StreamListener.NOOP);
+    return process(session, userMessage, List.of(), StreamListener.NOOP);
+  }
+
+  /** 带入站 media（图片 URL/本地路径）的会话处理。 */
+  public String process(Session session, String userMessage, List<Message.MediaPart> media) {
+    return process(session, userMessage, media, StreamListener.NOOP);
   }
 
   /** 带流式观察者的会话处理（019）：锁与 ProfileContext 语义不变，listener 只是透传给 ReActLoop。 */
   public String process(Session session, String userMessage, StreamListener listener) {
+    return process(session, userMessage, List.of(), listener);
+  }
+
+  /** 带 media + 流式观察者的会话处理。 */
+  public String process(
+      Session session, String userMessage, List<Message.MediaPart> media, StreamListener listener) {
     // 同一会话的读写整段互斥；sessionId 理论上永不为 null（来自 SessionManager），mock 场景兜底防 NPE
     String sessionKey =
         session.sessionId() == null ? profileNameOrFallback(session) : session.sessionId();
@@ -73,11 +84,14 @@ public class AgentService {
                           "Session 引用的 Profile 不存在: " + activeSession.profileName()));
       ProfileContext.set(profile); // 工具执行时靠它知道"当前是哪个 Agent"
       try {
-        // NOOP 走三参原入口：保持对 ReActLoop 的既有交互契约（现存测试按三参 stub/verify），语义与四参 NOOP 等价
-        String reply =
-            listener == StreamListener.NOOP
-                ? reActLoop.run(activeSession, userMessage, profile)
-                : reActLoop.run(activeSession, userMessage, profile, listener);
+        List<Message.MediaPart> parts = media == null ? List.of() : media;
+        // 无 media 且 NOOP：走三参原入口，保持对 ReActLoop 的既有交互契约（现存测试按三参 stub/verify）
+        String reply;
+        if (parts.isEmpty() && listener == StreamListener.NOOP) {
+          reply = reActLoop.run(activeSession, userMessage, profile);
+        } else {
+          reply = reActLoop.run(activeSession, userMessage, parts, profile, listener);
+        }
         // 达到最大迭代上限时 ReAct 返回占位文本（不抛异常），这里检测并转为异常，
         // 让 triggerAsync 把执行记成失败状态（否则前端显示"执行成功"——错误引导用户）
         boolean exhausted = ReActLoop.MAX_ITERATIONS_REPLY.equals(reply);
@@ -118,12 +132,32 @@ public class AgentService {
    * 'feishu%'} 查询）。仍不创建持久会话。
    */
   public String processStateless(String agentName, String userMessage, String statelessSessionId) {
-    return processStateless(agentName, userMessage, statelessSessionId, StreamListener.NOOP);
+    return processStateless(
+        agentName, userMessage, List.of(), statelessSessionId, StreamListener.NOOP);
+  }
+
+  /** 无状态调用 + media（群聊入站图片等）。 */
+  public String processStateless(
+      String agentName,
+      String userMessage,
+      List<Message.MediaPart> media,
+      String statelessSessionId) {
+    return processStateless(agentName, userMessage, media, statelessSessionId, StreamListener.NOOP);
   }
 
   /** 无状态调用全参形态（019）：显式会话标识 + 流式观察者。 */
   public String processStateless(
       String agentName, String userMessage, String statelessSessionId, StreamListener listener) {
+    return processStateless(agentName, userMessage, List.of(), statelessSessionId, listener);
+  }
+
+  /** 无状态调用全参形态：会话标识 + media + 流式观察者。 */
+  public String processStateless(
+      String agentName,
+      String userMessage,
+      List<Message.MediaPart> media,
+      String statelessSessionId,
+      StreamListener listener) {
     Profile profile =
         profileRegistry
             .get(agentName)
@@ -132,11 +166,13 @@ public class AgentService {
     ProfileContext.set(profile);
     // 021：同 process——兜底开启 trace，已开启则复用
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
-      // 同 process：NOOP 走三参原入口，保持既有交互契约
-      String reply =
-          listener == StreamListener.NOOP
-              ? reActLoop.run(session, userMessage, profile)
-              : reActLoop.run(session, userMessage, profile, listener);
+      List<Message.MediaPart> parts = media == null ? List.of() : media;
+      String reply;
+      if (parts.isEmpty() && listener == StreamListener.NOOP) {
+        reply = reActLoop.run(session, userMessage, profile);
+      } else {
+        reply = reActLoop.run(session, userMessage, parts, profile, listener);
+      }
       if (ReActLoop.MAX_ITERATIONS_REPLY.equals(reply)) {
         throw new AgentMaxIterationsExceededException(reply);
       }

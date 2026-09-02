@@ -3,9 +3,11 @@ package io.oryxos.core.channel;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.profile.ProfileRegistry;
+import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
 import io.oryxos.core.session.SessionManager;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -95,6 +97,7 @@ public class InboundMessageService {
           });
       return;
     }
+    List<Message.MediaPart> media = InboundMediaParts.from(msg);
     String sessionId;
     Runnable inference;
     if (msg.chatKind() == ChatKind.P2P) {
@@ -102,15 +105,18 @@ public class InboundMessageService {
       Session session = sessionManager.getOrCreate(msg.channelType(), msg.userId(), agent);
       sessionId = session.sessionId();
       inference =
-          () -> replyVia.sendReply(msg.chatId(), agentService.process(session, agentInput), null);
+          () ->
+              replyVia.sendReply(
+                  msg.chatId(), agentService.process(session, agentInput, media), null);
     } else {
       // B3：群聊每次 @ 为独立无状态问答，不落 sessions 表；渠道前缀让审计可辨（B10）
       sessionId = msg.channelType() + "-group:" + UUID.randomUUID();
+      String groupSessionId = sessionId;
       inference =
           () ->
               replyVia.sendReply(
                   msg.chatId(),
-                  agentService.processStateless(agent, agentInput, sessionId),
+                  agentService.processStateless(agent, agentInput, media, groupSessionId),
                   replyTo);
     }
     CountDownLatch done = new CountDownLatch(1);

@@ -101,4 +101,38 @@ class FeishuInboundImageResolverTest {
     assertTrue(FeishuInboundImageResolver.safeSegment("img/../x").contains("_"));
     assertEquals("x", FeishuInboundImageResolver.safeSegment("???"));
   }
+
+  @Test
+  @DisplayName("无后缀但魔数为 PNG → 落盘为 .png")
+  void sniffsPngMagicWhenNoFilename() throws Exception {
+    Client client = mock(Client.class, RETURNS_DEEP_STUBS);
+    GetMessageResourceResp resp = new GetMessageResourceResp();
+    resp.setCode(0);
+    resp.setMsg("ok");
+    resp.setFileName(null);
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+    data.write(
+        new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02, 0x03, 0x04});
+    resp.setData(data);
+    when(client.im().messageResource().get(any())).thenReturn(resp);
+
+    FeishuInboundImageResolver resolver =
+        new FeishuInboundImageResolver(client, mediaRoot, "ops-feishu");
+    InboundMessage out =
+        resolver.resolve(
+            new InboundMessage(
+                "feishu",
+                "ops-feishu",
+                "om_msg_3",
+                ChatKind.P2P,
+                "ou_user",
+                "oc_chat",
+                "",
+                false,
+                false,
+                List.of(InboundAttachment.imageReference("img_magic"))));
+
+    String url = out.attachments().get(0).url();
+    assertTrue(url.endsWith(".png"), url);
+  }
 }
