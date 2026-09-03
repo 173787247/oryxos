@@ -5,24 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.file.Path;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /** 课件《第18节》验收 harness：SessionManagerTest——会话口径（幂等/隔离/id 单点）在此钉死。 */
-@SqliteJpaTest
-class SessionManagerTest {
-
-  @TempDir static Path dbDir;
-
-  @DynamicPropertySource
-  static void sqliteFile(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("manager-test.db"));
-  }
+@org.springframework.transaction.annotation.Transactional
+abstract class SessionManagerContractTest {
 
   @Autowired private SessionRepository repository;
 

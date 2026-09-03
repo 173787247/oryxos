@@ -14,9 +14,15 @@ public class StatusCommand implements Runnable {
     System.out.println(
         "工作区 " + root + "/  : " + (Files.isDirectory(root) ? "已初始化" : "未初始化（先跑 oryxos init）"));
     System.out.println("Agent 目录      : " + describeDir(root.resolve("agents"), "*"));
-    System.out.println(
-        "SQLite 数据库   : "
-            + (Files.exists(Path.of("oryxos.db")) ? "oryxos.db 存在" : "尚未创建（首次重命令运行时生成）"));
+    LightDbConfig db = LightDbConfig.load();
+    if (db.isSqlite()) {
+      System.out.println(
+          "数据库（SQLite） : "
+              + (db.sqliteFileMissing() ? "尚未创建（首次重命令运行时生成）" : db.sqliteFile() + " 存在"));
+    } else {
+      // 外部共享库（025）：秒回原则不做实连探测，连接问题由重命令启动校验报出
+      System.out.println("数据库（外部）   : " + db.describe());
+    }
   }
 
   private static String describeDir(Path dir, String glob) {

@@ -9,26 +9,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import java.nio.file.Path;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /** 第17节 harness 补充：ToolInvocationRepositoryTest——建表必须走手工 schema.sql（同 16 节口径）。 */
-@SqliteJpaTest
-class ToolInvocationRepositoryTest {
-
-  @TempDir static Path dbDir;
-
-  @DynamicPropertySource
-  static void sqliteProperties(DynamicPropertyRegistry registry) {
-    registry.add(
-        "spring.datasource.url",
-        () -> "jdbc:sqlite:" + dbDir.resolve("test.db")); // 不许 Hibernate 自动建表 // 建表走手工 schema.sql
-  }
+@org.springframework.transaction.annotation.Transactional
+abstract class ToolInvocationRepositoryContractTest {
 
   @Autowired ToolInvocationRepository repository;
 

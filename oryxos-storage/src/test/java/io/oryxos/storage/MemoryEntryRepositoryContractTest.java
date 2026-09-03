@@ -3,26 +3,15 @@ package io.oryxos.storage;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /** memory_entries 手工建表 + LIMIT/LIKE 查询（16 节 SQLite 文件库模式）。 */
-@SqliteJpaTest
-class MemoryEntryRepositoryTest {
-
-  @TempDir static Path dbDir;
-
-  @DynamicPropertySource
-  static void sqliteFile(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("memory-test.db"));
-  }
+@org.springframework.transaction.annotation.Transactional
+abstract class MemoryEntryRepositoryContractTest {
 
   @Autowired private MemoryEntryRepository repository;
 

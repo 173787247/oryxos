@@ -9,26 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.oryxos.core.ToolResult;
 import io.oryxos.core.provider.ProviderResponse;
 import io.oryxos.core.session.Message;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /** 课件《第18节》验收 harness：SessionRepositoryTest——手工表能存能读、历史回读完整、跨重启恢复。 */
-@SqliteJpaTest
-class SessionRepositoryTest {
-
-  @TempDir static Path dbDir;
-
-  @DynamicPropertySource
-  static void sqliteFile(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("repo-test.db"));
-  }
+@org.springframework.transaction.annotation.Transactional
+abstract class SessionRepositoryContractTest {
 
   @Autowired private SessionRepository repository;
 

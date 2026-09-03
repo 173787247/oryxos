@@ -4,30 +4,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * 012-web-auth US3 验收 harness：WebSessionServiceTest——session 创建/查有效/过期惰性清/登出 钉死。 镜像
  * WebUserServiceTest 的 @DataJpaTest + @DynamicPropertySource 模式。
  */
-@SqliteJpaTest
-class WebSessionServiceTest {
-
-  @TempDir static Path dbDir;
-
-  @DynamicPropertySource
-  static void sqliteProperties(DynamicPropertyRegistry registry) {
-    registry.add(
-        "spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("websession-test.db"));
-  }
+@org.springframework.transaction.annotation.Transactional
+abstract class WebSessionServiceContractTest {
 
   @Autowired private WebSessionRepository repository;
 

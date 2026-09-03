@@ -9,26 +9,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.oryxos.core.agent.TraceContext;
-import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /** 课件《第16节》验收 harness：LlmCallRepositoryTest——建表必须走手工 schema.sql。 */
-@SqliteJpaTest
-class LlmCallRepositoryTest {
-
-  @TempDir static Path dbDir;
-
-  @DynamicPropertySource
-  static void sqliteProperties(DynamicPropertyRegistry registry) {
-    registry.add(
-        "spring.datasource.url",
-        () -> "jdbc:sqlite:" + dbDir.resolve("test.db")); // 不许 Hibernate 自动建表 // 建表走手工 schema.sql
-  }
+@org.springframework.transaction.annotation.Transactional
+abstract class LlmCallRepositoryContractTest {
 
   @Autowired LlmCallRepository repository;
 

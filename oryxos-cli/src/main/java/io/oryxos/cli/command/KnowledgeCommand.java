@@ -7,7 +7,6 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -33,11 +32,6 @@ public class KnowledgeCommand implements Runnable {
 
   @Command(name = "list", description = "列出知识库", mixinStandardHelpOptions = true)
   static class ListCommand implements Runnable {
-
-    /** 与重命令 application.yml 的 datasource 保持同一相对路径——两边看到的必须是同一个库。 */
-    private static final String DB_FILE = "oryxos.db";
-
-    private static final String DB_URL = "jdbc:sqlite:" + DB_FILE + "?busy_timeout=5000";
 
     private static final Path KNOWLEDGE_DIR = Path.of(".oryxos", "knowledge");
 
@@ -90,10 +84,12 @@ public class KnowledgeCommand implements Runnable {
       return manifests;
     }
 
-    /** [文档数, 片段数, 失败数, 进行中数]；库文件不存在时全 0（远程后端库也落这里）。 */
+    /** [文档数, 片段数, 失败数, 进行中数]；SQLite 数据文件尚未生成时全 0（远程后端库也落这里）。 */
     private static long[] indexStats(String kbName) {
       long[] stats = new long[STAT_COUNT];
-      if (!Files.exists(Path.of(DB_FILE))) {
+      // 与重命令读同一份 config/application.yml——两边看到的必须是同一个库（025：SQLite 或 PG）
+      LightDbConfig db = LightDbConfig.load();
+      if (db.sqliteFileMissing()) {
         return stats;
       }
       String sql =
@@ -101,7 +97,7 @@ public class KnowledgeCommand implements Runnable {
               + " sum(CASE WHEN status='FAILED' THEN 1 ELSE 0 END),"
               + " sum(CASE WHEN status IN ('PENDING','INDEXING') THEN 1 ELSE 0 END)"
               + " FROM knowledge_documents WHERE kb_name = ?";
-      try (Connection conn = DriverManager.getConnection(DB_URL);
+      try (Connection conn = db.connect();
           PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setString(1, kbName);
         try (ResultSet rs = stmt.executeQuery()) {

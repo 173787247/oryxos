@@ -7,29 +7,16 @@ import io.oryxos.core.notify.NotifyChannelDef;
 import io.oryxos.core.provider.ProviderDef;
 import io.oryxos.core.secret.LocalMasterKeyCipher;
 import io.oryxos.core.secret.SecretCipher;
-import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /** 022 US1/US2：注册表收口加解密透明性、迁移幂等、密钥守卫拒启、坏行隔离。 */
-@SqliteJpaTest
-class SecretStorageTest {
-
-  @TempDir static Path dbDir;
+@org.springframework.transaction.annotation.Transactional
+abstract class SecretStorageContractTest {
 
   private static final byte[] KEY = keyOf(1);
   private static final byte[] WRONG_KEY = keyOf(2);
-
-  @DynamicPropertySource
-  static void sqliteProperties(DynamicPropertyRegistry registry) {
-    registry.add(
-        "spring.datasource.url",
-        () -> "jdbc:sqlite:" + dbDir.resolve("secret.db")); // 建表走手工 schema.sql
-  }
 
   @Autowired LlmProviderRepository providerRepository;
   @Autowired NotifyChannelRepository channelRepository;
