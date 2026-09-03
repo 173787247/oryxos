@@ -152,6 +152,16 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
     active.send(chatId, text, replyToMessageId);
   }
 
+  @Override
+  public java.util.Optional<io.oryxos.core.channel.InboundProgressStream> openProgressStream(
+      String chatId, String replyToMessageId) {
+    DingTalkMessageSender active = sender;
+    if (active == null) {
+      return java.util.Optional.empty();
+    }
+    return java.util.Optional.of(new DingTalkProgressStream(active, chatId, replyToMessageId));
+  }
+
   /** 供单测校验退避间隔，不触网。 */
   static long reconnectDelayMs(int attempt) {
     int capped = Math.min(Math.max(attempt, 0), RECONNECT_MAX_SHIFT);
