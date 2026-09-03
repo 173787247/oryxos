@@ -29,7 +29,7 @@
 
 - [X] T012 [US2] 新增存量接管集成测试 oryxos-boot/src/test/java/io/oryxos/boot/LegacyTakeoverIT.java（SpringApplicationBuilder 手工启停范式，参照 ScheduleSchemaUpgradeIntegrationTest）：fixture 造「缺 trace_id/agent_name/config 列 + legacy schedule 键」的旧库 → 启动 → 断言 flyway_schema_history 有 baseline(0)+V1~V5、结构收敛、存量行数据完好；二次重启断言 history 无新增
 - [X] T013 [P] [US2] storage 测试基座去重：新建 oryxos-storage/src/test/java/io/oryxos/storage/SqliteJpaTest.java 组合注解（@DataJpaTest + Replace.NONE + 四件套属性），8 个 @DataJpaTest 类（LlmCall/ToolInvocation/Session×2/MemoryEntry/Secret/WebUser/WebSession）迁移到基座（sql.init 属性换成 flyway 属性）
-- [ ] T014 [US2] 真机走查 quickstart V1+V2：旧 jar 造数据 → 新 jar 零配置升级 → sqlite3 断言 history 与数据；grep 确认升级类零残留；结果记入走查笔记（供 acceptance-report）
+- [X] T014 [US2] 真机走查 quickstart V1+V2：旧 jar 造数据 → 新 jar 零配置升级 → sqlite3 断言 history 与数据；grep 确认升级类零残留；结果记入走查笔记（供 acceptance-report）
 
 **Checkpoint**: US2 独立可验收——SQLite 用户面完整无损
 
@@ -45,7 +45,7 @@
 - [X] T019 [US1] 新建 oryxos-boot/src/test/java/io/oryxos/boot/PostgresStorageE2ETest.java：zonky 起 PG → mock provider 全链路（对话+工具调用→审计三表 trace 同链→save/recall 记忆→重启第二上下文连同库断言数据可见——SC-002/003 的测试面等价物）
 - [X] T020 [P] [US1] 故障报错三分类测试（可并入 T019 类）：不可达 url / 错误凭证 / 只读账号 → 启动失败且报错含可定位信息（SC-008）；断言不静默降级
 - [X] T021 [P] [US1] config/application.yml.example 补 PG 示例段（注释态：url/username/`${ORYXOS_DB_PASSWORD}` 占位 + 「库类型按 url 自动识别」说明）；docker/docker-compose.yml 的「SQLite ⇒ 只能单副本」注释补 PG 选项口径
-- [ ] T022 [US1] 真机走查 quickstart V3+V5：zonky 或真 PG 实例——两进程共同事实源、psql 侧数据断言、三类故障报错；30 并发独立会话写入零锁冲突（SC-007，对照 SQLite 档）
+- [X] T022 [US1] 真机走查 quickstart V3+V5：zonky 或真 PG 实例——两进程共同事实源、psql 侧数据断言、三类故障报错；30 并发独立会话写入零锁冲突（SC-007，对照 SQLite 档）
 
 **Checkpoint**: US1 独立可验收——PG 部署选项完整
 
@@ -64,8 +64,8 @@
 
 - [X] T026 [P] 文档同步（R8）：.specify/memory/constitution.md §技术栈持久化行 PATCH 修订（含 Sync Impact Report 头注更新）；CLAUDE.md 技术栈表与「常见陷阱」表；docs/CliGuide.md 部署配置节补 PG
 - [X] T027 [P] SqliteDataSourceConfigTest 确认仅 sqlite 路径断言 PRAGMA（PG 下不适用则条件化）；全仓 grep `sql.init|SchemaUpgrade|schema.sql` 残留清零
-- [ ] T028 `mvn -q spotless:apply && mvn verify` 全量门禁全绿（含 OWASP 对 flyway/postgresql/zonky 新增面；如报 CVE 按门禁纪律处置）；两库测试零跳过零豁免（SC-005）
-- [ ] T029 quickstart V1~V6 完整走查落卷 specs/025-pluggable-storage/acceptance-report.md（SC-001~008 对照表）
+- [X] T028 `mvn -q spotless:apply && mvn verify` 全量门禁全绿（含 OWASP 对 flyway/postgresql/zonky 新增面；如报 CVE 按门禁纪律处置）；两库测试零跳过零豁免（SC-005）
+- [X] T029 quickstart V1~V6 完整走查落卷 specs/025-pluggable-storage/acceptance-report.md（SC-001~008 对照表）
 
 ## Dependencies
 
