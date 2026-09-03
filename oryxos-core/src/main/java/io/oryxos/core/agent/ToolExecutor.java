@@ -109,16 +109,34 @@ public class ToolExecutor {
       }
       // 审计 fail-open：工具已执行完、副作用已发生，审计存储抖动不应让循环把这次执行当失败处理（否则模型可能
       // 重调一次有副作用的工具）；不重试审计也不伪造第二条失败审计，失败走 ERROR 日志独立告警。
+      // 024：docker 档时补记执行后端与容器 ID（此时进程已结束，cidfile 必已写入）；local 档不置上下文，
+      // 走既有 8 参签名——对 auditor 的既有交互契约（现存测试按 8 参 stub/verify）零变化。
+      String executionBackend = ToolExecutionContext.executionBackend();
       try {
-        auditor.record(
-            sessionId,
-            agentName,
-            call.name(),
-            call.argumentsJson(),
-            result.success() ? result.content() : null,
-            result.success(),
-            result.success() ? null : result.errorMessage(),
-            System.currentTimeMillis() - startedAt);
+        if (executionBackend == null) {
+          auditor.record(
+              sessionId,
+              agentName,
+              call.name(),
+              call.argumentsJson(),
+              result.success() ? result.content() : null,
+              result.success(),
+              result.success() ? null : result.errorMessage(),
+              System.currentTimeMillis() - startedAt);
+        } else {
+          auditor.record(
+              sessionId,
+              agentName,
+              call.name(),
+              call.argumentsJson(),
+              result.success() ? result.content() : null,
+              result.success(),
+              result.success() ? null : result.errorMessage(),
+              null,
+              executionBackend,
+              ToolExecutionContext.containerId(),
+              System.currentTimeMillis() - startedAt);
+        }
       } catch (RuntimeException auditFailure) {
         LOG.error("工具调用审计落库失败（结果照常返回）: tool={}", sanitize(call.name()), auditFailure);
       }
@@ -179,9 +197,24 @@ public class ToolExecutor {
       long startedAt) {
     // 同成功路径：审计失败不掩盖工具的真实失败原因（否则循环看到的是审计异常而非工具错误）。
     // blockedBy 为空走旧 8 参签名——保持对 auditor 的既有交互契约（现存测试按 8 参 stub/verify）。
+    // 024：docker 档失败（含超时被杀）同样补记后端与容器 ID——SC-004 的审计故事；local 档交互不变。
     try {
       long duration = System.currentTimeMillis() - startedAt;
-      if (blockedBy == null) {
+      String executionBackend = ToolExecutionContext.executionBackend();
+      if (executionBackend != null) {
+        auditor.record(
+            sessionId,
+            agentName,
+            call.name(),
+            call.argumentsJson(),
+            null,
+            false,
+            errorMessage,
+            blockedBy,
+            executionBackend,
+            ToolExecutionContext.containerId(),
+            duration);
+      } else if (blockedBy == null) {
         auditor.record(
             sessionId,
             agentName,

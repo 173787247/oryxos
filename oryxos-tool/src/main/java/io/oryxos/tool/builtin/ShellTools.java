@@ -48,6 +48,11 @@ public class ShellTools {
     this(sandbox, DEFAULT_TIMEOUT);
   }
 
+  /** 装配层注入执行后端（024）：local 档传 LocalProcessStarter、docker 档传 DockerProcessStarter。 */
+  public ShellTools(Sandbox sandbox, ProcessStarter processStarter) {
+    this(sandbox, DEFAULT_TIMEOUT, processStarter, Charset.defaultCharset());
+  }
+
   ShellTools(Sandbox sandbox, Duration timeout) {
     this(sandbox, timeout, new LocalProcessStarter(), Charset.defaultCharset());
   }

@@ -99,6 +99,14 @@ public final class CidfileProcessWrapper extends Process {
   }
 
   private String readContainerId() {
+    return readContainerId(cidFile);
+  }
+
+  /**
+   * 读 cidfile 中的容器 ID（包级静态，DockerProcessStarter 的审计惰性读取器共用）： 文件缺失/空白/读失败均返回
+   * null（竞态兜底：容器未及创建即被终止，或早已退出）。
+   */
+  static String readContainerId(Path cidFile) {
     try {
       if (!Files.exists(cidFile)) {
         return null; // 竞态兜底：容器未及创建即被终止，或早已退出

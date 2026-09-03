@@ -96,12 +96,18 @@ import io.oryxos.tool.notify.NotifyChannelAdapter;
 import io.oryxos.tool.notify.NotifyPoster;
 import io.oryxos.tool.notify.WeComNotifyAdapter;
 import io.oryxos.tool.notify.WebhookNotifyAdapter;
+import io.oryxos.tool.sandbox.CidfileProcessWrapper;
+import io.oryxos.tool.sandbox.DockerProcessStarter;
+import io.oryxos.tool.sandbox.ExecutionBackendProperties;
 import io.oryxos.tool.sandbox.FileSandboxProperties;
 import io.oryxos.tool.sandbox.HttpSandboxProperties;
+import io.oryxos.tool.sandbox.LocalProcessStarter;
+import io.oryxos.tool.sandbox.ProcessStarter;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.SmtpSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
+import io.oryxos.tool.sandbox.WorkspacePathMapper;
 import io.oryxos.tool.web.DuckDuckGoSearchProvider;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
@@ -144,7 +150,8 @@ import org.springframework.web.context.WebApplicationContext;
   FileSandboxProperties.class,
   ShellSandboxProperties.class,
   HttpSandboxProperties.class,
-  SmtpSandboxProperties.class
+  SmtpSandboxProperties.class,
+  ExecutionBackendProperties.class
 })
 public class OryxOsRuntime {
 
@@ -727,11 +734,20 @@ public class OryxOsRuntime {
       NotifyChannelRegistry notifyChannelRegistry,
       McpClientService mcpClientService,
       UserInteraction userInteraction,
-      io.oryxos.core.knowledge.KnowledgeService knowledgeService) {
+      io.oryxos.core.knowledge.KnowledgeService knowledgeService,
+      ExecutionBackendProperties executionBackendProperties) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
     registry.registerAnnotated(new FileTools(sandbox)); // read/write/list/edit/grep/glob
-    registry.registerAnnotated(new ShellTools(sandbox));
+    // 024：执行后端按档位装配（local=现状零变化 / docker=短命容器），白名单 enforce 仍在工具内部前置（FR-007）
+    ProcessStarter shellStarter =
+        executionBackendProperties.isDocker()
+            ? new DockerProcessStarter(
+                executionBackendProperties,
+                new WorkspacePathMapper(oryxosRoot()),
+                CidfileProcessWrapper.dockerCliKiller())
+            : new LocalProcessStarter();
+    registry.registerAnnotated(new ShellTools(sandbox, shellStarter));
     registry.registerAnnotated(
         new HttpTools(sandbox, restClient)); // + http_request/fetch_webpage/download_file
     registry.registerAnnotated(new UtilTools()); // current_time / json_extract（纯计算，无沙箱）
@@ -802,6 +818,15 @@ public class OryxOsRuntime {
       ProfileRegistry profileRegistry,
       ToolRegistry toolRegistry) {
     return new ToolPolicyStartupCheck(toolPolicyService, profileRegistry, toolRegistry);
+  }
+
+  /** 024 FR-005：docker 档启动校验（CLI/daemon/镜像，fail loud）；local 档零检查零开销。 */
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication(
+      type =
+          org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type.SERVLET)
+  DockerBackendStartupCheck dockerBackendStartupCheck(ExecutionBackendProperties props) {
+    return new DockerBackendStartupCheck(props);
   }
 
   @Bean
