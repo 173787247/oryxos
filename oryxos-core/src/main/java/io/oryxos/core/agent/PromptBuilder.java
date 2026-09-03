@@ -77,9 +77,44 @@ public class PromptBuilder {
     }
     // ③ 会话历史：结构化透传（不再拍平成文本），保留 assistant tool_calls / tool tool_call_id 配对——
     //    多步 ReAct 里模型才能看出工具已调过、继续下一步（31 节修复）；仍只留最近 N 轮（坑二）
-    List<Message> history = session.recentTurns(profile.settings().maxHistoryTurns());
+    List<Message> history =
+        pruneHistoricalMedia(session.recentTurns(profile.settings().maxHistoryTurns()));
     // ④ 工具列表经 availableTools 传递，Provider 侧翻译成 Function Calling 格式
     return new ProviderRequest(system.toString(), history, resolveTools(profile));
+  }
+
+  /**
+   * 历史里只保留「最近一条带 media 的 user」附件；更早的图只留正文。
+   *
+   * <p>IM 连测多图后，若不裁剪，纯文本轮也会把窗口内全部本地图重传给 Vision，流式动辄数分钟。
+   */
+  static List<Message> pruneHistoricalMedia(List<Message> history) {
+    if (history == null || history.isEmpty()) {
+      return history == null ? List.of() : history;
+    }
+    int keepMediaAt = -1;
+    for (int i = history.size() - 1; i >= 0; i--) {
+      Message m = history.get(i);
+      if (Message.ROLE_USER.equals(m.role()) && !m.media().isEmpty()) {
+        keepMediaAt = i;
+        break;
+      }
+    }
+    if (keepMediaAt < 0) {
+      return history;
+    }
+    List<Message> out = new ArrayList<>(history.size());
+    for (int i = 0; i < history.size(); i++) {
+      Message m = history.get(i);
+      if (i != keepMediaAt && !m.media().isEmpty()) {
+        out.add(
+            new Message(
+                m.role(), m.content(), m.toolName(), m.toolCallId(), m.toolCalls(), List.of()));
+      } else {
+        out.add(m);
+      }
+    }
+    return out;
   }
 
   private List<OryxTool> resolveTools(Profile profile) {
