@@ -1,5 +1,6 @@
 package io.oryxos.channel.feishu;
 
+import io.oryxos.core.agent.ReActLoop;
 import io.oryxos.core.channel.InboundProgressStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +20,7 @@ final class FeishuStreamListener implements InboundProgressStream {
   private static final String TITLE_WORKING = "处理中";
   private static final String TITLE_DONE = "回答";
   private static final String TITLE_FAILED = "处理失败";
+  private static final String TITLE_STOPPED = "已停止";
   private static final String PLACEHOLDER = "_等待模型输出…_";
   private static final long FLUSH_INTERVAL_MS = 2_000L;
   private static final int FLUSH_CHARS = 100;
@@ -100,7 +102,9 @@ final class FeishuStreamListener implements InboundProgressStream {
     finished = true;
     String body =
         errorMessage == null || errorMessage.isBlank() ? "抱歉，这次处理失败了。" : errorMessage.strip();
-    patchQuiet(FeishuProgressCard.build(TITLE_FAILED, FeishuProgressCard.TEMPLATE_RED, body), true);
+    boolean stopped = ReActLoop.INTERRUPTED_REPLY.equals(body);
+    String title = stopped ? TITLE_STOPPED : TITLE_FAILED;
+    patchQuiet(FeishuProgressCard.build(title, FeishuProgressCard.TEMPLATE_RED, body), true);
   }
 
   private void maybeFlush(boolean force) {

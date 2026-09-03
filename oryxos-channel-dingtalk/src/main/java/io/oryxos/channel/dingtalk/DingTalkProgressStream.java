@@ -4,7 +4,7 @@ import io.oryxos.core.channel.InboundProgressStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** 钉钉进度流：sessionWebhook 出站无原地编辑，采用「占位 markdown + 终态再发」两跳（对称企微 {@code WeComProgressStream}）。 */
+/** 钉钉进度流：sessionWebhook 出站无原地编辑，采用「占位 + 可选一次工具行 + 终态」（对称企微）。 */
 final class DingTalkProgressStream implements InboundProgressStream {
 
   private static final Logger LOG = LoggerFactory.getLogger(DingTalkProgressStream.class);
@@ -16,6 +16,7 @@ final class DingTalkProgressStream implements InboundProgressStream {
   private final String chatId;
   private final String replyToMessageId;
   private boolean finished;
+  private boolean toolNotified;
 
   DingTalkProgressStream(DingTalkMessageSender sender, String chatId, String replyToMessageId) {
     this.sender = sender;
@@ -35,7 +36,11 @@ final class DingTalkProgressStream implements InboundProgressStream {
 
   @Override
   public void onToolStart(String toolName) {
-    // no-op
+    if (finished || toolNotified) {
+      return;
+    }
+    toolNotified = true;
+    sender.send(chatId, "🔧 正在执行 `" + safeName(toolName) + "` …", replyToMessageId);
   }
 
   @Override
@@ -67,6 +72,13 @@ final class DingTalkProgressStream implements InboundProgressStream {
       LOG.warn("钉钉进度流失败态发送失败: {}", sanitize(e.getMessage()));
       throw e;
     }
+  }
+
+  private static String safeName(String toolName) {
+    if (toolName == null || toolName.isBlank()) {
+      return "tool";
+    }
+    return toolName.replace('`', '\'').strip();
   }
 
   private static String sanitize(String value) {

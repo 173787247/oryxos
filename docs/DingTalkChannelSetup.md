@@ -56,9 +56,10 @@
 | 凭证 | App ID / App Secret | BotID / 长连接 Secret | ClientId / ClientSecret |
 | 连接 | SDK 长连接 | `openws.work.weixin.qq.com` WS | `api.dingtalk.com` Stream WS |
 | 回复 | im API（post + md） | 长连接 `aibot_send_msg` | `sessionWebhook` POST markdown |
-| 进度提示 | 交互卡片原地 PATCH | 占位 markdown + 终态再发 | 占位 markdown + 终态再发 |
+| 进度提示 | 交互卡片原地 PATCH | 占位 + 至多一条工具进度 + 终态 | 占位 + 至多一条工具进度 + 终态 |
 | 入站图 | message_id + image_key 下载 | COS URL + AES 落盘 | `downloadCode` → 临时 URL 落盘 |
 | 群 @ 关联 | open_id / mentioned | `quote.msgid` | `at.atUserIds`（非真引用线程） |
+| 命令 | `/new`（私聊）；`/stop`（私聊/群聊进行中任务） | 同 | 同 |
 
 ## 五、非目标（本期不做）
 

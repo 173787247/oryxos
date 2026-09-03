@@ -49,10 +49,10 @@
 | 凭证 | App ID / App Secret | BotID / 长连接 Secret |
 | 连接 | `open.feishu.cn` SDK 长连接 | `openws.work.weixin.qq.com` WebSocket |
 | 回复 | im/v1 messages API（post + md） | 长连接 `aibot_send_msg`（markdown） |
-| 进度提示 | 交互卡片原地 PATCH（思考→终态） | 先发「正在思考…」占位，再发终态（无原地编辑） |
+| 进度提示 | 交互卡片原地 PATCH（思考→工具→终态；`/stop` 红卡「已停止」） | 占位 + 至多一条工具进度 + 终态（无原地编辑） |
 | 入站图 | image_key 官方下载 | COS 临时 URL → AES 解密落盘 |
 | 同一 Bot 连接数 | SDK 管理 | 同时仅一条有效长连接（新连踢旧） |
-| 私聊命令 | `/new` 清会话；`/stop` 见主线能力 | 同（由核心编排，渠道无特殊实现） |
+| 命令 | 私聊 `/new` 清会话；私聊/群聊 `/stop` 停进行中推理（下一轮生效） | 同（核心编排，渠道无特殊实现） |
 
 ## 五、非目标（本期不做）
 

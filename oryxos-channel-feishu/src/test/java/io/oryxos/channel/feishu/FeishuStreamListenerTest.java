@@ -65,6 +65,19 @@ class FeishuStreamListenerTest {
   }
 
   @Test
+  @DisplayName("中断 fail 用「已停止」标题")
+  void failInterruptedUsesStoppedTitle() {
+    listener.start();
+    listener.fail(io.oryxos.core.agent.ReActLoop.INTERRUPTED_REPLY);
+
+    ArgumentCaptor<String> patches = ArgumentCaptor.forClass(String.class);
+    verify(sender).patchInteractive(eq("om_card_1"), patches.capture());
+    assertTrue(patches.getValue().contains("red"));
+    assertTrue(patches.getValue().contains("已停止"));
+    assertTrue(patches.getValue().contains(io.oryxos.core.agent.ReActLoop.INTERRUPTED_REPLY));
+  }
+
+  @Test
   @DisplayName("卡片 JSON 含 header template 与 lark_md")
   void cardShape() {
     String json = FeishuProgressCard.build("回答", FeishuProgressCard.TEMPLATE_GREEN, "hi");
