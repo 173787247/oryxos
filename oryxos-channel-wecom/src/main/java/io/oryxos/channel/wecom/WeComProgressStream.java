@@ -5,7 +5,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 企微进度流：平台无消息 PATCH，采用「占位 markdown + 终态再发」两跳（对齐飞书 {@code InboundProgressStream} 契约，但不逐 token 刷屏）。
+ * 企微进度流：平台无消息 PATCH，采用「占位 markdown + 可选一次工具行 + 终态再发」（对齐飞书 {@code InboundProgressStream} 契约，但不逐
+ * token 刷屏）。
  *
  * <p>{@link #start()} 成功后编排走流式路径并跳过延迟「处理中」文本，避免双提示。
  */
@@ -20,6 +21,7 @@ final class WeComProgressStream implements InboundProgressStream {
   private final String chatId;
   private final String replyToMessageId;
   private boolean finished;
+  private boolean toolNotified;
 
   WeComProgressStream(WeComMessageSender sender, String chatId, String replyToMessageId) {
     this.sender = sender;
@@ -39,12 +41,16 @@ final class WeComProgressStream implements InboundProgressStream {
 
   @Override
   public void onToolStart(String toolName) {
-    // 同上：避免多条刷屏
+    if (finished || toolNotified) {
+      return;
+    }
+    toolNotified = true;
+    sender.send(chatId, "🔧 正在执行 `" + safeName(toolName) + "` …", replyToMessageId);
   }
 
   @Override
   public void onToolEnd(String toolName, boolean success) {
-    // no-op
+    // no-op：避免多条刷屏；终态一次发出
   }
 
   @Override
@@ -71,6 +77,13 @@ final class WeComProgressStream implements InboundProgressStream {
       LOG.warn("企微进度流失败态发送失败: {}", sanitize(e.getMessage()));
       throw e;
     }
+  }
+
+  private static String safeName(String toolName) {
+    if (toolName == null || toolName.isBlank()) {
+      return "tool";
+    }
+    return toolName.replace('`', '\'').strip();
   }
 
   private static String sanitize(String value) {
