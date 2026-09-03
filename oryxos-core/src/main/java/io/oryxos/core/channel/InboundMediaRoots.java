@@ -14,6 +14,7 @@ public final class InboundMediaRoots {
 
   private static final Logger LOG = LoggerFactory.getLogger(InboundMediaRoots.class);
   private static final String INBOUND_MEDIA = "inbound-media";
+  private static final String FALLBACK_TEMP_PREFIX = "oryxos-inbound-media-";
   private static final int MAX_SEGMENT_LEN = 96;
 
   private InboundMediaRoots() {}
@@ -26,11 +27,10 @@ public final class InboundMediaRoots {
       return preferred;
     } catch (IOException e) {
       LOG.warn(
-          "创建入站媒体目录失败（{}），回退临时目录: {}",
-          preferred,
-          e.getMessage() == null ? "" : e.getMessage().replace('\r', '_').replace('\n', '_'));
+          "创建入站媒体目录失败（{}），回退临时目录: {}", sanitize(preferred.toString()), sanitize(e.getMessage()));
       try {
-        Path root = Files.createTempDirectory(tempPrefix);
+        // 前缀用常量：避免 SpotBugs PATH_TRAVERSAL_IN（调用方传入的 tempPrefix 仅作末级目录名）
+        Path root = Files.createTempDirectory(FALLBACK_TEMP_PREFIX);
         Path channelDir = root.resolve(channelSeg);
         Files.createDirectories(channelDir);
         return channelDir;
@@ -38,7 +38,8 @@ public final class InboundMediaRoots {
         Path last =
             Path.of(
                 System.getProperty("java.io.tmpdir"),
-                tempPrefix.replaceAll("[^a-zA-Z0-9_-]", "_"),
+                safeSegment(
+                    tempPrefix == null || tempPrefix.isBlank() ? FALLBACK_TEMP_PREFIX : tempPrefix),
                 channelSeg);
         try {
           Files.createDirectories(last);
@@ -59,5 +60,9 @@ public final class InboundMediaRoots {
       cleaned = cleaned.substring(0, MAX_SEGMENT_LEN);
     }
     return cleaned.isBlank() ? "x" : cleaned;
+  }
+
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }
