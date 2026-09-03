@@ -159,6 +159,16 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
     active.send(chatId, text, replyToMessageId);
   }
 
+  @Override
+  public java.util.Optional<io.oryxos.core.channel.InboundProgressStream> openProgressStream(
+      String chatId, String replyToMessageId) {
+    WeComMessageSender active = sender;
+    if (active == null) {
+      return java.util.Optional.empty();
+    }
+    return java.util.Optional.of(new WeComProgressStream(active, chatId, replyToMessageId));
+  }
+
   /** 供单测校验退避间隔，不触网。 */
   static long reconnectDelayMs(int attempt) {
     int capped = Math.min(Math.max(attempt, 0), RECONNECT_MAX_SHIFT);

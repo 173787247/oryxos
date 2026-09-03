@@ -48,13 +48,14 @@
 |--|------|----------------|
 | 凭证 | App ID / App Secret | BotID / 长连接 Secret |
 | 连接 | `open.feishu.cn` SDK 长连接 | `openws.work.weixin.qq.com` WebSocket |
-| 回复 | im/v1 messages API | 长连接 `aibot_send_msg`（markdown） |
-| 入站图 | image_key 官方下载 | COS 临时 URL → 本地落盘 |
+| 回复 | im/v1 messages API（post + md） | 长连接 `aibot_send_msg`（markdown） |
+| 进度提示 | 交互卡片原地 PATCH（思考→终态） | 先发「正在思考…」占位，再发终态（无原地编辑） |
+| 入站图 | image_key 官方下载 | COS 临时 URL → AES 解密落盘 |
 | 同一 Bot 连接数 | SDK 管理 | 同时仅一条有效长连接（新连踢旧） |
+| 私聊命令 | `/new` 清会话；`/stop` 见主线能力 | 同（由核心编排，渠道无特殊实现） |
 
 ## 五、非目标（本期不做）
 
-- 自建应用 HTTP 回调 + AES 加解密
-- 流式逐 token 刷屏（Agent 仍整段推理后再回发）
-- 模板卡片 / 富媒体 / HITL
+- 自建应用 HTTP 回调 + AES 加解密（入站图 COS 解密除外）
+- 逐 token 刷屏 / 模板卡片 HITL
 - 语音 / 视频 / 文件入站（仅图片 + 文本）
