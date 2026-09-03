@@ -31,6 +31,7 @@ public class FeishuEventNormalizer {
   private static final String CHAT_TYPE_P2P = "p2p";
   private static final String MSG_TYPE_TEXT = "text";
   private static final String MSG_TYPE_IMAGE = "image";
+  private static final String MSG_TYPE_FILE = "file";
   private static final String MENTIONED_TYPE_BOT = "bot";
 
   private final String channelName;
@@ -80,18 +81,35 @@ public class FeishuEventNormalizer {
   }
 
   private List<InboundAttachment> extractAttachments(EventMessage message) {
-    if (!MSG_TYPE_IMAGE.equals(message.getMessageType())) {
-      return List.of();
+    String msgType = message.getMessageType();
+    if (MSG_TYPE_IMAGE.equals(msgType)) {
+      String imageKey = extractImageKey(message.getContent());
+      if (imageKey == null || imageKey.isBlank()) {
+        return List.of();
+      }
+      return List.of(InboundAttachment.imageReference(imageKey));
     }
-    String imageKey = extractImageKey(message.getContent());
-    if (imageKey == null || imageKey.isBlank()) {
-      return List.of();
+    if (MSG_TYPE_FILE.equals(msgType)) {
+      String fileKey = extractFileKey(message.getContent());
+      if (fileKey == null || fileKey.isBlank()) {
+        return List.of();
+      }
+      return List.of(InboundAttachment.fileReference(fileKey));
     }
-    return List.of(InboundAttachment.imageReference(imageKey));
+    return List.of();
   }
 
   /** 图片消息 content 是 JSON：{"image_key":"img_xxx"}。 */
   static String extractImageKey(String contentJson) {
+    return extractJsonStringField(contentJson, "image_key", "飞书图片消息 content 解析失败，按无附件处理");
+  }
+
+  /** 文件消息 content 是 JSON：{"file_key":"file_xxx","file_name":"..."}。 */
+  static String extractFileKey(String contentJson) {
+    return extractJsonStringField(contentJson, "file_key", "飞书文件消息 content 解析失败，按无附件处理");
+  }
+
+  private static String extractJsonStringField(String contentJson, String field, String warnMsg) {
     if (contentJson == null || contentJson.isBlank()) {
       return null;
     }
@@ -100,10 +118,10 @@ public class FeishuEventNormalizer {
       if (!root.isJsonObject()) {
         return null;
       }
-      JsonElement key = root.getAsJsonObject().get("image_key");
+      JsonElement key = root.getAsJsonObject().get(field);
       return key == null || key.isJsonNull() ? null : key.getAsString();
     } catch (RuntimeException e) {
-      LOG.warn("飞书图片消息 content 解析失败，按无附件处理");
+      LOG.warn(warnMsg);
       return null;
     }
   }

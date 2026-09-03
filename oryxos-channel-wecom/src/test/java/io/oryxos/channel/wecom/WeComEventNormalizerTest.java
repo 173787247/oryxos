@@ -73,6 +73,25 @@ class WeComEventNormalizerTest {
   }
 
   @Test
+  @DisplayName("文件消息 → TYPE_FILE 附件（url + 可选 aeskey）")
+  void fileMessage() throws Exception {
+    ObjectNode body = mapper.createObjectNode();
+    body.put("msgid", "m3f");
+    body.put("chattype", "single");
+    body.put("msgtype", "file");
+    body.putObject("from").put("userid", "u1");
+    body.putObject("file").put("url", "https://file.example/a.pdf").put("aeskey", "FILEAES");
+
+    InboundMessage msg = normalizer.normalize(body).orElseThrow();
+    assertFalse(msg.textual());
+    assertTrue(msg.processable());
+    assertEquals(1, msg.attachments().size());
+    assertEquals("file", msg.attachments().get(0).type());
+    assertEquals("https://file.example/a.pdf", msg.attachments().get(0).url());
+    assertEquals("FILEAES", msg.attachments().get(0).reference());
+  }
+
+  @Test
   @DisplayName("缺字段 → empty")
   void missingFields() throws Exception {
     ObjectNode body = mapper.createObjectNode();

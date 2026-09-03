@@ -26,6 +26,7 @@ public class WeComEventNormalizer {
   private static final String CHAT_GROUP = "group";
   private static final String MSG_TEXT = "text";
   private static final String MSG_IMAGE = "image";
+  private static final String MSG_FILE = "file";
   private static final Pattern LEADING_AT = Pattern.compile("^@\\S+\\s*");
 
   private final String channelName;
@@ -76,6 +77,16 @@ public class WeComEventNormalizer {
           attachments.add(new InboundAttachment(InboundAttachment.TYPE_IMAGE, imageUrl, aesKey));
         } else {
           attachments.add(InboundAttachment.imageUrl(imageUrl));
+        }
+      }
+    } else if (MSG_FILE.equals(msgtype)) {
+      String fileUrl = body.path("file").path("url").asText(null);
+      if (fileUrl != null && !fileUrl.isBlank()) {
+        String aesKey = body.path("file").path("aeskey").asText(null);
+        if (aesKey != null && !aesKey.isBlank()) {
+          attachments.add(new InboundAttachment(InboundAttachment.TYPE_FILE, fileUrl, aesKey));
+        } else {
+          attachments.add(InboundAttachment.fileUrl(fileUrl));
         }
       }
     }

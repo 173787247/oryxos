@@ -26,6 +26,7 @@ public class DingTalkEventNormalizer {
   private static final String CONVERSATION_GROUP = "2";
   private static final String MSG_TEXT = "text";
   private static final String MSG_PICTURE = "picture";
+  private static final String MSG_FILE = "file";
   private static final String FIELD_IN_AT_LIST = "isInAtList";
   private static final Pattern LEADING_AT = Pattern.compile("^@\\S+\\s*");
 
@@ -73,6 +74,8 @@ public class DingTalkEventNormalizer {
       content = content.strip();
     } else if (MSG_PICTURE.equals(msgtype)) {
       extractPictureAttachment(body.path("content")).ifPresent(attachments::add);
+    } else if (MSG_FILE.equals(msgtype)) {
+      extractFileAttachment(body.path("content")).ifPresent(attachments::add);
     }
     return Optional.of(
         new InboundMessage(
@@ -104,6 +107,24 @@ public class DingTalkEventNormalizer {
     String pictureDownloadCode = content.path("pictureDownloadCode").asText(null);
     if (pictureDownloadCode != null && !pictureDownloadCode.isBlank()) {
       return Optional.of(InboundAttachment.imageReference(pictureDownloadCode));
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<InboundAttachment> extractFileAttachment(JsonNode content) {
+    if (content == null || content.isMissingNode()) {
+      return Optional.empty();
+    }
+    String fileUrl = content.path("downloadUrl").asText(null);
+    if (fileUrl == null || fileUrl.isBlank()) {
+      fileUrl = content.path("fileUrl").asText(null);
+    }
+    if (fileUrl != null && !fileUrl.isBlank()) {
+      return Optional.of(InboundAttachment.fileUrl(fileUrl));
+    }
+    String downloadCode = content.path("downloadCode").asText(null);
+    if (downloadCode != null && !downloadCode.isBlank()) {
+      return Optional.of(InboundAttachment.fileReference(downloadCode));
     }
     return Optional.empty();
   }

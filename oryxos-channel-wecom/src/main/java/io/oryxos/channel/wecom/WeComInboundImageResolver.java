@@ -32,6 +32,7 @@ final class WeComInboundImageResolver {
   private static final char PATH_SAFE_REPLACEMENT = '_';
   private static final int MAX_SEGMENT_LEN = 96;
   private static final int DOWNLOAD_ATTEMPTS = 2;
+  private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
   private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(60);
   private static final int HTTP_STATUS_OK_MIN = 200;
   private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
@@ -100,14 +101,21 @@ final class WeComInboundImageResolver {
   }
 
   static boolean needsDownload(InboundAttachment attachment) {
-    return InboundAttachment.TYPE_IMAGE.equals(attachment.type())
-        && attachment.url() != null
-        && ImageMime.isHttpUrl(attachment.url().strip());
+    if (attachment.url() == null || !ImageMime.isHttpUrl(attachment.url().strip())) {
+      return false;
+    }
+    String type = attachment.type();
+    return InboundAttachment.TYPE_IMAGE.equals(type) || InboundAttachment.TYPE_FILE.equals(type);
   }
 
   static boolean hasImage(InboundMessage message) {
+    return hasDownloadableMedia(message);
+  }
+
+  static boolean hasDownloadableMedia(InboundMessage message) {
     for (InboundAttachment attachment : message.attachments()) {
-      if (InboundAttachment.TYPE_IMAGE.equals(attachment.type())) {
+      String type = attachment.type();
+      if (InboundAttachment.TYPE_IMAGE.equals(type) || InboundAttachment.TYPE_FILE.equals(type)) {
         return true;
       }
     }
@@ -117,12 +125,13 @@ final class WeComInboundImageResolver {
   private InboundAttachment downloadOrKeep(String messageId, InboundAttachment attachment) {
     String remoteUrl = attachment.url().strip();
     String aesKey = mediaAesKey(attachment);
+    boolean file = InboundAttachment.TYPE_FILE.equals(attachment.type());
     Exception last = null;
     for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
       try {
-        Path file = writeToMediaRoot(messageId, remoteUrl, aesKey);
+        Path path = writeToMediaRoot(messageId, remoteUrl, aesKey, file);
         return new InboundAttachment(
-            InboundAttachment.TYPE_IMAGE, file.toAbsolutePath().toString(), remoteUrl);
+            attachment.type(), path.toAbsolutePath().toString(), remoteUrl);
       } catch (IOException | InterruptedException | RuntimeException e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();
@@ -130,7 +139,7 @@ final class WeComInboundImageResolver {
         last = e;
         if (attempt < DOWNLOAD_ATTEMPTS && isTransientTimeout(e)) {
           LOG.warn(
-              "企微渠道 {} 下载图片超时重试 {}/{}（messageId={}）：{}",
+              "企微渠道 {} 下载媒体超时重试 {}/{}（messageId={}）：{}",
               sanitize(channelName),
               attempt,
               DOWNLOAD_ATTEMPTS,
@@ -142,7 +151,7 @@ final class WeComInboundImageResolver {
       }
     }
     LOG.warn(
-        "企微渠道 {} 下载图片失败（messageId={}）：{}，保留远程 URL",
+        "企微渠道 {} 下载媒体失败（messageId={}）：{}，保留远程 URL",
         sanitize(channelName),
         sanitize(messageId),
         sanitize(last == null ? null : last.getMessage()));
@@ -158,7 +167,7 @@ final class WeComInboundImageResolver {
     return ref.strip();
   }
 
-  private Path writeToMediaRoot(String messageId, String remoteUrl, String aesKey)
+  private Path writeToMediaRoot(String messageId, String remoteUrl, String aesKey, boolean file)
       throws IOException, InterruptedException {
     URI uri = URI.create(remoteUrl);
     if (!isAllowedMediaUri(uri)) {
@@ -175,9 +184,12 @@ final class WeComInboundImageResolver {
     if (bytes == null || bytes.length == 0) {
       throw new IllegalStateException("下载临时文件为空");
     }
+    if (bytes.length > MAX_FILE_BYTES) {
+      throw new IllegalStateException("入站文件超过上限 " + MAX_FILE_BYTES + " 字节");
+    }
     if (aesKey != null) {
       bytes = WeComMediaAesDecrypt.decrypt(bytes, aesKey);
-    } else if (!ImageMime.hasRecognizedMagic(bytes)) {
+    } else if (!file && !ImageMime.hasRecognizedMagic(bytes)) {
       throw new IllegalStateException("下载内容非明文图片且消息缺 aeskey，无法解密");
     }
     String ext = extensionOf(uri.getPath());
@@ -186,23 +198,25 @@ final class WeComInboundImageResolver {
     String stem = safeSegment(Integer.toHexString(remoteUrl.hashCode()));
     Path target = dir.resolve(stem + ext);
     Files.write(target, bytes);
-    if (!ImageMime.hasRecognizedMagic(target)) {
-      try {
-        Files.deleteIfExists(target);
-      } catch (IOException ignored) {
-        // 尽力删除坏文件
-      }
-      throw new IllegalStateException("解密/下载后仍非可识别图片格式");
-    }
-    if (DEFAULT_EXTENSION.equals(ext)) {
-      String betterExt = ImageMime.extensionFor(ImageMime.probeFile(target));
-      if (!DEFAULT_EXTENSION.equals(betterExt) && !betterExt.equals(ext)) {
-        Path renamed = dir.resolve(stem + betterExt);
+    if (!file) {
+      if (!ImageMime.hasRecognizedMagic(target)) {
         try {
-          Files.move(target, renamed);
-          return renamed;
-        } catch (IOException moveFailed) {
-          LOG.debug("企微图片重命名扩展名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+          Files.deleteIfExists(target);
+        } catch (IOException ignored) {
+          // 尽力删除坏文件
+        }
+        throw new IllegalStateException("解密/下载后仍非可识别图片格式");
+      }
+      if (DEFAULT_EXTENSION.equals(ext)) {
+        String betterExt = ImageMime.extensionFor(ImageMime.probeFile(target));
+        if (!DEFAULT_EXTENSION.equals(betterExt) && !betterExt.equals(ext)) {
+          Path renamed = dir.resolve(stem + betterExt);
+          try {
+            Files.move(target, renamed);
+            return renamed;
+          } catch (IOException moveFailed) {
+            LOG.debug("企微图片重命名扩展名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+          }
         }
       }
     }

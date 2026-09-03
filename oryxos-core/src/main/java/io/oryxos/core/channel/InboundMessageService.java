@@ -35,7 +35,7 @@ public class InboundMessageService {
   private static final String DEDUP_KEY_SEPARATOR = ":";
   private static final String STOP_COMMAND = "/stop";
 
-  static final String UNSUPPORTED_TYPE_REPLY = "当前仅支持文本或图片，请用文字描述或发送图片。";
+  static final String UNSUPPORTED_TYPE_REPLY = "当前仅支持文本、图片或文件，请用文字描述或发送图片/文件。";
   static final String AGENT_UNAVAILABLE_REPLY = "Agent 暂不可用（未找到绑定的 Agent），请联系管理员。";
   static final String FAILURE_REPLY = "抱歉，这次处理失败了，请稍后重试或联系管理员。";
   static final String PROCESSING_REPLY = "已收到，正在处理中，请稍候…";

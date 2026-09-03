@@ -9,7 +9,6 @@ import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
@@ -41,7 +40,6 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   private static final long RECONNECT_MAX_MS = 60_000L;
   private static final int RECONNECT_MAX_SHIFT = 5;
   private static final String MEDIA_DIR_PREFIX = "oryxos-dingtalk-media-";
-  private static final String MEDIA_FALLBACK_DIR = "oryxos-dingtalk-media";
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -341,7 +339,7 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
     }
     String replyTo = m.chatKind() == ChatKind.GROUP ? m.messageId() : null;
     CountDownLatch slowWork = null;
-    if (DingTalkInboundImageResolver.hasImage(m)) {
+    if (DingTalkInboundImageResolver.hasDownloadableMedia(m)) {
       slowWork = inboundMessageService.beginSlowWork(this, m.chatId(), replyTo);
     }
     try {
@@ -361,19 +359,7 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   }
 
   private Path createMediaRoot() {
-    String channelSeg = DingTalkInboundImageResolver.safeSegment(config.name());
-    try {
-      Path root = Files.createTempDirectory(MEDIA_DIR_PREFIX);
-      Path channelDir = root.resolve(channelSeg);
-      Files.createDirectories(channelDir);
-      return channelDir;
-    } catch (Exception e) {
-      LOG.warn(
-          "钉钉渠道 {} 创建图片缓存目录失败（{}），入站图片将保留 downloadCode",
-          sanitize(config.name()),
-          sanitize(e.getMessage()));
-      return Path.of(System.getProperty("java.io.tmpdir"), MEDIA_FALLBACK_DIR, channelSeg);
-    }
+    return io.oryxos.core.channel.InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX);
   }
 
   private static String sanitize(String value) {

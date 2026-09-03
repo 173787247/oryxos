@@ -57,4 +57,25 @@ class DefaultInboundMediaEnricherTest {
             List.of(InboundAttachment.imageReference("img_abc")));
     assertTrue(enricher.toAgentInput(msg).contains("img_abc"));
   }
+
+  @Test
+  @DisplayName("文件本地路径转为 Agent 可消费说明")
+  void fileLocalPathAttachment() {
+    InboundMessage msg =
+        new InboundMessage(
+            "feishu",
+            "ops-feishu",
+            "m4",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(InboundAttachment.fileUrl("C:/tmp/report.pdf")));
+    String input = enricher.toAgentInput(msg);
+    assertTrue(input.contains("report.pdf"));
+    assertTrue(input.contains("文件"));
+    assertTrue(input.contains("read_file"));
+  }
 }
