@@ -9,8 +9,6 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.Properties;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -23,10 +21,9 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 final class LightDbConfig {
 
   private static final String DEFAULT_SQLITE_FILE = "oryxos.db";
+  private static final String SQLITE_PREFIX = "jdbc:sqlite:";
+  private static final String BUSY_TIMEOUT = "busy_timeout";
   private static final Path EXTERNAL_CONFIG = Path.of("config", "application.yml");
-  private static final Pattern ENV_PLACEHOLDER =
-      Pattern.compile("\\$\\{([A-Za-z0-9_]+)(?::([^}]*))?}");
-
   private final String url;
   private final String username;
   private final String password;
@@ -41,9 +38,9 @@ final class LightDbConfig {
     Map<String, Object> datasource = readDatasourceSection();
     String url = resolvePlaceholders(stringValue(datasource.get("url")));
     if (url == null || url.isBlank()) {
-      url = "jdbc:sqlite:" + DEFAULT_SQLITE_FILE + "?busy_timeout=5000";
-    } else if (url.startsWith("jdbc:sqlite:") && !url.contains("busy_timeout")) {
-      url = url + (url.contains("?") ? "&" : "?") + "busy_timeout=5000";
+      url = SQLITE_PREFIX + DEFAULT_SQLITE_FILE + "?" + BUSY_TIMEOUT + "=5000";
+    } else if (url.startsWith(SQLITE_PREFIX) && !url.contains(BUSY_TIMEOUT)) {
+      url = url + (url.contains("?") ? "&" : "?") + BUSY_TIMEOUT + "=5000";
     }
     return new LightDbConfig(
         url,
@@ -52,7 +49,7 @@ final class LightDbConfig {
   }
 
   boolean isSqlite() {
-    return url.startsWith("jdbc:sqlite:");
+    return url.startsWith(SQLITE_PREFIX);
   }
 
   /** SQLite 档专用：数据文件尚未生成（首次重命令运行时才建）。PG 档恒 false，状态由连接探测判定。 */
@@ -62,7 +59,7 @@ final class LightDbConfig {
 
   /** SQLite 数据文件相对路径（去掉 jdbc 前缀与连接参数）；仅 isSqlite() 时有意义。 */
   String sqliteFile() {
-    String file = url.substring("jdbc:sqlite:".length());
+    String file = url.substring(SQLITE_PREFIX.length());
     int paramsAt = file.indexOf('?');
     return paramsAt >= 0 ? file.substring(0, paramsAt) : file;
   }
@@ -112,14 +109,28 @@ final class LightDbConfig {
     if (value == null) {
       return null;
     }
-    Matcher matcher = ENV_PLACEHOLDER.matcher(value);
-    StringBuilder resolved = new StringBuilder();
-    while (matcher.find()) {
-      String env = System.getenv(matcher.group(1));
-      String fallback = matcher.group(2) == null ? "" : matcher.group(2);
-      matcher.appendReplacement(resolved, Matcher.quoteReplacement(env == null ? fallback : env));
+    StringBuilder resolved = new StringBuilder(value.length());
+    int i = 0;
+    while (i < value.length()) {
+      int start = value.indexOf("${", i);
+      if (start < 0) {
+        resolved.append(value, i, value.length());
+        break;
+      }
+      int end = value.indexOf('}', start + 2);
+      if (end < 0) {
+        resolved.append(value, i, value.length());
+        break;
+      }
+      resolved.append(value, i, start);
+      String token = value.substring(start + 2, end);
+      int colon = token.indexOf(':');
+      String name = colon < 0 ? token : token.substring(0, colon);
+      String fallback = colon < 0 ? "" : token.substring(colon + 1);
+      String env = System.getenv(name);
+      resolved.append(env == null ? fallback : env);
+      i = end + 1;
     }
-    matcher.appendTail(resolved);
     return resolved.toString();
   }
 }
