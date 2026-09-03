@@ -169,6 +169,11 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   }
 
   private void connectLocked() throws Exception {
+    streamRef.set(connect());
+  }
+
+  /** 建连并返回客户端；不写入 {@link #streamRef}——由调用方在持锁处决定是否接管（重连期间可能已被 stop）。 */
+  private DingTalkStreamClient connect() throws Exception {
     ensureOutboundStack();
     DingTalkStreamClient client =
         new DingTalkStreamClient(
@@ -178,7 +183,7 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
             this::handleBotMessage,
             this::handleDisconnected);
     client.connect(START_TIMEOUT);
-    streamRef.set(client);
+    return client;
   }
 
   /** 懒初始化出站/入站组件；重连复用同一 {@link DingTalkMessageSender} 以保留 sessionWebhook 映射。 */
@@ -246,13 +251,13 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
       if (!running) {
         return;
       }
-      try {
-        connectLocked();
-        reconnectAttempt = 0;
-        state = ChannelStatus.State.CONNECTED;
-        lastError = null;
-        LOG.info("钉钉渠道 {} Stream 已恢复", sanitize(config.name()));
-      } catch (Exception e) {
+    }
+    // 建连放锁外：Stream connect 可能长时间阻塞，锁内执行会把 stop()/管理端停用卡住
+    DingTalkStreamClient client;
+    try {
+      client = connect();
+    } catch (Exception e) {
+      synchronized (this) {
         reconnectAttempt++;
         lastError = "Stream 重连失败: " + sanitize(e.getMessage());
         LOG.warn(
@@ -260,8 +265,20 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
             sanitize(config.name()),
             reconnectAttempt,
             sanitize(lastError));
-        scheduleReconnect();
       }
+      scheduleReconnect();
+      return;
+    }
+    synchronized (this) {
+      if (!running) {
+        client.closeQuietly();
+        return;
+      }
+      streamRef.set(client);
+      reconnectAttempt = 0;
+      state = ChannelStatus.State.CONNECTED;
+      lastError = null;
+      LOG.info("钉钉渠道 {} Stream 已恢复", sanitize(config.name()));
     }
   }
 
