@@ -214,6 +214,76 @@ class ContextLoaderTest {
     assertTrue(warned, "Bootstrap 缺失至少 WARN——静默跳过会造成人格悄悄丢失");
   }
 
+  @Test
+  @DisplayName("025：有人格时注入固定模板且位置在 identity 之后、正文之前")
+  void personaInjectedBetweenIdentityAndBody() throws IOException {
+    writeAgentBody("任务指令：查天气");
+    Profile p =
+        new Profile(
+            "ops-agent",
+            null,
+            new Profile.Identity("运维小欧", "自由补充的 prompt"),
+            new Profile.Persona("老张", "运维专家", "严谨", "简洁", null, null, null),
+            new Profile.ProviderRef("deepseek", "deepseek-chat", null),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            Profile.Settings.defaults());
+
+    String system = loader.load(p);
+
+    int personaIdx = system.indexOf("## 你的人格（每轮固定，不可违背）");
+    int bodyIdx = system.indexOf("任务指令：查天气");
+    int identityIdx = system.indexOf("自由补充的 prompt");
+    assertTrue(personaIdx > identityIdx, "人格在 identity.prompt 之后");
+    assertTrue(personaIdx < bodyIdx, "人格在 AGENT.md 正文之前");
+    assertTrue(system.contains("你是「老张」，角色：运维专家"), "模板字段渲染");
+  }
+
+  @Test
+  @DisplayName("025：多行 persona 值（导入 block scalar）标签独立成行、续行缩进——契约一格式恒定不被破坏")
+  void multiLinePersonaValueKeepsTemplateShape() throws IOException {
+    writeAgentBody("任务指令：查天气");
+    Profile p =
+        new Profile(
+            "ops-agent",
+            null,
+            new Profile.Identity("运维小欧", "自由补充的 prompt"),
+            new Profile.Persona(
+                "老张",
+                "运维专家",
+                "严谨",
+                "简洁",
+                "### 性能测试纪律\n测试环境必须尽可能接近生产\n至少硬件配置和数据量级相当",
+                "不能偷换变量",
+                null),
+            new Profile.ProviderRef("deepseek", "deepseek-chat", null),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            Profile.Settings.defaults());
+
+    String system = loader.load(p);
+
+    assertTrue(
+        system.contains("- 行为准则：\n  ### 性能测试纪律\n  测试环境必须尽可能接近生产\n  至少硬件配置和数据量级相当"),
+        "多行值标签独立成行、续行缩进");
+    assertTrue(system.contains("- 边界：不能偷换变量"), "单行边界仍是一行一字段");
+    assertTrue(system.contains("- 语气：简洁"), "单行语气保持原格式");
+  }
+
+  @Test
+  @DisplayName("025：无 persona 时 system 不含人格锚点（老 Agent 零改变）")
+  void noPersonaMeansNoAnchor() {
+    assertFalse(loader.load(profileWith(List.of())).contains("你的人格"));
+  }
+
   private AgentSkillBindingService bindingService() {
     return new AgentSkillBindingService(oryxosRoot, new SkillLoader(oryxosRoot.resolve("skills")));
   }

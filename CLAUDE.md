@@ -24,12 +24,14 @@ OryxOS 是用 Java 实现的面向企业场景的 **Distributed AI Agent OS**。
 
 ---
 
-## 模块结构（11 个）
+## 模块结构（14 个）
 
 ```
 oryxos/
 ├── oryxos-core          # 核心抽象：OryxTool 接口、Session、Profile、ContextLoader、
 │                        #   ReActLoop、PromptBuilder、ToolExecutor、AgentService
+├── oryxos-persona       # 025 人格库（copy-in 模板库）：PersonaPresetCatalog（内置 12 只读、
+│                        #   classpath）、PersonaStore/PersonaService（.oryxos/personas/ 自定义 CRUD）
 ├── oryxos-provider      # 能力一：ProviderService、Function Calling 适配、
 │                        #   多 Provider 显式映射
 ├── oryxos-memory        # 能力三：MemoryService 门面、LongTermMemory 三档后端、
@@ -45,11 +47,18 @@ oryxos/
 ├── oryxos-channel-feishu # 飞书 IM 入站渠道（017）：oapi-sdk 长连接收 im.message.receive_v1、
 │                        #   FeishuEventNormalizer（@ 判定/剥离）、FeishuMessageSender（分段+沙箱）
 │                        #   （入站渠道契约与共享编排在 oryxos-core/channel/，依赖倒置）
+├── oryxos-channel-wecom  # 企微智能机器人入站渠道（对称飞书）：长连接收消息、免公网回调，
+│                        #   WeComEventNormalizer（@ 判定/剥离）、WeComMessageSender（分段+沙箱）
+│                        #   （入站渠道契约与共享编排在 oryxos-core/channel/，依赖倒置）
+├── oryxos-channel-dingtalk # 钉钉机器人入站渠道（对称飞书/企微）：Stream 长连接收消息、
+│                        #   DingTalkEventNormalizer（@ 判定/剥离）、DingTalkMessageSender（分段+沙箱）、
+│                        #   断线自动重连（对齐企微）
+│                        #   （入站渠道契约与共享编排在 oryxos-core/channel/，依赖倒置）
 ├── oryxos-web           # 能力五：WebServer、ApiController、GlobalExceptionHandler、
 │                        #   OpenAPI
 ├── oryxos-storage       # 持久化：SQLite、SessionRepository、
 │                        #   ToolInvocationRepository、LlmCallRepository
-├── oryxos-cli           # 命令行入口：Picocli 主入口、12 个子命令、ConfigLoader
+├── oryxos-cli           # 命令行入口：Picocli 主入口、13 个子命令、ConfigLoader（025：agent import）
 └── oryxos-boot          # Spring Boot 启动模块：主类、自动配置、依赖聚合
 ```
 

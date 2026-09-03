@@ -25,6 +25,11 @@
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-core</artifactId>
         </dependency>
+        <!-- 025-persona-library: PersonaApiController 调 PersonaService（人格库合并列表 + 自定义 CRUD）；web→persona 单向 -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-persona</artifactId>
+        </dependency>
         <!-- 012-web-auth: BasicAuthFilter / AuthStartupCheck 调 WebUserService（账号校验）；web→storage 单向，无循环 -->
         <dependency>
             <groupId>io.oryxos</groupId>

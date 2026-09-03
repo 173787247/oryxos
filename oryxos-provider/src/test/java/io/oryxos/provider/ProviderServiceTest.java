@@ -23,6 +23,7 @@ import io.oryxos.core.provider.LlmCallAuditor;
 import io.oryxos.core.provider.ProviderRequest;
 import io.oryxos.core.provider.ProviderResponse;
 import io.oryxos.core.provider.ProviderService;
+import io.oryxos.core.session.Message;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -316,5 +317,62 @@ class ProviderServiceTest {
     current.set(new io.oryxos.core.provider.ProviderDef("deepseek", "key-1", "https://a", null));
     cachedService.chat("s-1", profileUsing("deepseek"), ProviderRequest.of("hi"));
     assertEquals(3, builds.get()); // 换回旧配置也重建——旧条目已被替换而非累积保留
+  }
+
+  @Test
+  void 用户消息带图片URL_Prompt含Media() {
+    when(deepseek.call(any(Prompt.class))).thenReturn(textResponse("看到海浪"));
+    Message user =
+        new Message(
+            Message.ROLE_USER,
+            "[用户发送了一张图片]\n图片链接: https://example.com/a.png",
+            null,
+            null,
+            List.of(),
+            List.of(new Message.MediaPart("image/png", "https://example.com/a.png")));
+
+    service.chat(
+        "s-1", profileUsing("deepseek"), new ProviderRequest(null, List.of(user), List.of()));
+
+    ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+    verify(deepseek).call(captor.capture());
+    var springUser =
+        (org.springframework.ai.chat.messages.UserMessage)
+            captor.getValue().getInstructions().get(0);
+    assertEquals(1, springUser.getMedia().size());
+    assertEquals("image/png", springUser.getMedia().get(0).getMimeType().toString());
+  }
+
+  @Test
+  void multimodal被400拒绝_降级纯文本重试成功() {
+    org.springframework.web.client.HttpClientErrorException reject =
+        org.springframework.web.client.HttpClientErrorException.create(
+            org.springframework.http.HttpStatus.BAD_REQUEST,
+            "bad request",
+            org.springframework.http.HttpHeaders.EMPTY,
+            new byte[0],
+            null);
+    when(deepseek.call(any(Prompt.class))).thenThrow(reject).thenReturn(textResponse("仅看到链接说明"));
+
+    Message user =
+        new Message(
+            Message.ROLE_USER,
+            "图片链接: https://example.com/a.png",
+            null,
+            null,
+            List.of(),
+            List.of(new Message.MediaPart("image/png", "https://example.com/a.png")));
+
+    ProviderResponse response =
+        service.chat(
+            "s-1", profileUsing("deepseek"), new ProviderRequest(null, List.of(user), List.of()));
+
+    assertEquals("仅看到链接说明", response.text());
+    ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+    verify(deepseek, times(2)).call(captor.capture());
+    var second =
+        (org.springframework.ai.chat.messages.UserMessage)
+            captor.getAllValues().get(1).getInstructions().get(0);
+    assertTrue(second.getMedia().isEmpty());
   }
 }

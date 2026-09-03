@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     success BOOLEAN NOT NULL,
     error_message TEXT,
     blocked_by VARCHAR(16),
+    execution_backend VARCHAR(8),
+    container_id VARCHAR(64),
     duration_ms BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
 );

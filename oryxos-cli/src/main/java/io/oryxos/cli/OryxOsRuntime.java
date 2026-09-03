@@ -42,6 +42,9 @@ import io.oryxos.memory.Mem0MemoryStore;
 import io.oryxos.memory.MemoryServiceImpl;
 import io.oryxos.memory.SqliteMemoryStore;
 import io.oryxos.memory.builtin.MemoryTools;
+import io.oryxos.persona.PersonaPresetCatalog;
+import io.oryxos.persona.PersonaService;
+import io.oryxos.persona.PersonaStore;
 import io.oryxos.provider.ProviderChatModelFactory;
 import io.oryxos.provider.ProviderRegistryBootstrap;
 import io.oryxos.provider.ProviderRegistryValidator;
@@ -94,12 +97,18 @@ import io.oryxos.tool.notify.NotifyChannelAdapter;
 import io.oryxos.tool.notify.NotifyPoster;
 import io.oryxos.tool.notify.WeComNotifyAdapter;
 import io.oryxos.tool.notify.WebhookNotifyAdapter;
+import io.oryxos.tool.sandbox.CidfileProcessWrapper;
+import io.oryxos.tool.sandbox.DockerProcessStarter;
+import io.oryxos.tool.sandbox.ExecutionBackendProperties;
 import io.oryxos.tool.sandbox.FileSandboxProperties;
 import io.oryxos.tool.sandbox.HttpSandboxProperties;
+import io.oryxos.tool.sandbox.LocalProcessStarter;
+import io.oryxos.tool.sandbox.ProcessStarter;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.SmtpSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
+import io.oryxos.tool.sandbox.WorkspacePathMapper;
 import io.oryxos.tool.web.DuckDuckGoSearchProvider;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
@@ -143,7 +152,8 @@ import org.springframework.web.context.WebApplicationContext;
   FileSandboxProperties.class,
   ShellSandboxProperties.class,
   HttpSandboxProperties.class,
-  SmtpSandboxProperties.class
+  SmtpSandboxProperties.class,
+  ExecutionBackendProperties.class
 })
 public class OryxOsRuntime {
 
@@ -284,7 +294,26 @@ public class OryxOsRuntime {
     return new AgentStore(oryxosRoot());
   }
 
-  /** 30 节：Agent 生命周期编排。创建脚手架的 AGENT.md 模板里 provider 缺省取最终注册表按名称排序后的第一项。 */
+  /** 025 人格库：默认人格预设目录（12 个 agency-agents-zh 专家源文件随 jar 内置，Web/CLI 导入的预置内容种子）。 */
+  @Bean
+  PersonaPresetCatalog personaPresetCatalog() {
+    return new PersonaPresetCatalog();
+  }
+
+  /** 025 人格库：自定义人格的工作区 store（{@code .oryxos/personas/} 扁平 .md，只放用户自建，不播种内置）。 */
+  @Bean
+  PersonaStore personaStore() {
+    return new PersonaStore(oryxosRoot());
+  }
+
+  /** 025 人格库：只读内置 + 可 CRUD 自定义的统一编排（copy-in 模板库，仍非按名引用的人格市场）。 */
+  @Bean
+  PersonaService personaService(
+      PersonaPresetCatalog personaPresetCatalog, PersonaStore personaStore) {
+    return new PersonaService(personaPresetCatalog, personaStore);
+  }
+
+  /** 30 节：Agent 生命周期编排。创建脚手架的 AGENT.md 模板里 provider 缺省取最终注册表按名称大小写不敏感的最小项。 */
   @Bean
   AgentLifecycleService agentLifecycleService(
       AgentLoader agentLoader,
@@ -306,8 +335,9 @@ public class OryxOsRuntime {
         providerRegistry.list().stream()
             .map(ProviderDef::name)
             .filter(name -> name != null && !name.isBlank())
-            .sorted()
-            .findFirst()
+            // 大小写不敏感取最小项：ASCII 排序会先排大写，让「大写开头的本地 provider（如 Qwen3.8-27B-gptq-w4a16）」
+            // 顶掉真正的默认 deepseek——这里统一按大小写无关的最小名取确定性默认。
+            .min(String::compareToIgnoreCase)
             .orElse(null);
     // 生成用 provider 缺省取最终注册表的确定性默认；显式 oryxos.author.provider 仍按原行为覆盖。
     String genProvider =
@@ -736,11 +766,20 @@ public class OryxOsRuntime {
       NotifyChannelRegistry notifyChannelRegistry,
       McpClientService mcpClientService,
       UserInteraction userInteraction,
-      io.oryxos.core.knowledge.KnowledgeService knowledgeService) {
+      io.oryxos.core.knowledge.KnowledgeService knowledgeService,
+      ExecutionBackendProperties executionBackendProperties) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
     registry.registerAnnotated(new FileTools(sandbox)); // read/write/list/edit/grep/glob
-    registry.registerAnnotated(new ShellTools(sandbox));
+    // 024：执行后端按档位装配（local=现状零变化 / docker=短命容器），白名单 enforce 仍在工具内部前置（FR-007）
+    ProcessStarter shellStarter =
+        executionBackendProperties.isDocker()
+            ? new DockerProcessStarter(
+                executionBackendProperties,
+                new WorkspacePathMapper(oryxosRoot()),
+                CidfileProcessWrapper.dockerCliKiller())
+            : new LocalProcessStarter();
+    registry.registerAnnotated(new ShellTools(sandbox, shellStarter));
     registry.registerAnnotated(
         new HttpTools(sandbox, restClient)); // + http_request/fetch_webpage/download_file
     registry.registerAnnotated(new UtilTools()); // current_time / json_extract（纯计算，无沙箱）
@@ -811,6 +850,15 @@ public class OryxOsRuntime {
       ProfileRegistry profileRegistry,
       ToolRegistry toolRegistry) {
     return new ToolPolicyStartupCheck(toolPolicyService, profileRegistry, toolRegistry);
+  }
+
+  /** 024 FR-005：docker 档启动校验（CLI/daemon/镜像，fail loud）；local 档零检查零开销。 */
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication(
+      type =
+          org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type.SERVLET)
+  DockerBackendStartupCheck dockerBackendStartupCheck(ExecutionBackendProperties props) {
+    return new DockerBackendStartupCheck(props);
   }
 
   @Bean

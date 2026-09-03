@@ -34,7 +34,7 @@ class AuditColumnsMigrationTest {
       assertThat(columns(connection, "llm_calls"))
           .contains("cost_micros", "profile_name", "trace_id");
       assertThat(columns(connection, "tool_invocations"))
-          .contains("profile_name", "blocked_by", "trace_id");
+          .contains("profile_name", "blocked_by", "trace_id", "execution_backend", "container_id");
       assertThat(columns(connection, "agent_executions")).contains("trace_id");
     }
     assertThat(indexNames(dataSource, "llm_calls"))

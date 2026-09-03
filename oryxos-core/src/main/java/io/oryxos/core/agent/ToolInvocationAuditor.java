@@ -34,4 +34,33 @@ public interface ToolInvocationAuditor {
     record(
         sessionId, profileName, toolName, inputJson, resultJson, success, errorMessage, durationMs);
   }
+
+  /**
+   * 带执行后端标识的写入（024）：{@code executionBackend} 记录执行位置（"local"/"docker"）， {@code containerId} 记录
+   * docker 档容器 ID（local 档 null）——供审计按后端筛选与容器溯源（FR-008）。
+   * 默认实现丢弃后端信息委托上一级签名（旧实现/测试桩零破坏）；要落列的实现方（JPA）须覆写本方法。
+   */
+  default void record(
+      String sessionId,
+      String profileName,
+      String toolName,
+      String inputJson,
+      String resultJson,
+      boolean success,
+      String errorMessage,
+      String blockedBy,
+      String executionBackend,
+      String containerId,
+      long durationMs) {
+    record(
+        sessionId,
+        profileName,
+        toolName,
+        inputJson,
+        resultJson,
+        success,
+        errorMessage,
+        blockedBy,
+        durationMs);
+  }
 }

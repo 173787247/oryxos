@@ -35,11 +35,15 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     success BOOLEAN NOT NULL,
     error_message TEXT,
     blocked_by VARCHAR(16),
+    execution_backend VARCHAR(8),
+    container_id VARCHAR(64),
     duration_ms INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_session ON tool_invocations (session_id);
 -- idx_tool_invocations_profile (profile_name) / idx_tool_invocations_trace (trace_id) 由 V2 迁移创建（同上）。
+-- execution_backend / container_id（024 容器级执行隔离）：local 档恒写 backend、docker 档另记容器 ID；历史行 NULL ≡ local
+--（查询层兼容）。存量库补列归 V2 迁移（024 原 AuditSchemaUpgrade 的补列逻辑随 025 收编）。
 
 -- sessions：会话元数据 + JSON 序列化的对话历史（18 节）
 -- session_id 由 SessionManager 按 channel:user:profile 唯一拼接（全库唯一拼接点，H4④）

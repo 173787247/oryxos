@@ -101,7 +101,7 @@ class SseStreamingTest {
   @Test
   @DisplayName("流式_工具事件成对且顺序正确")
   void streaming_toolEventsPairedInOrder() throws Exception {
-    when(agentService.process(any(), anyString(), any()))
+    when(agentService.process(any(), anyString(), any(StreamListener.class)))
         .thenAnswer(
             inv -> {
               StreamListener listener = inv.getArgument(2, StreamListener.class);
@@ -124,7 +124,7 @@ class SseStreamingTest {
   @Test
   @DisplayName("流中异常_恰好一个error事件且无done_信息可读")
   void streaming_midStreamFailure_singleErrorTerminal() throws Exception {
-    when(agentService.process(any(), anyString(), any()))
+    when(agentService.process(any(), anyString(), any(StreamListener.class)))
         .thenAnswer(
             inv -> {
               StreamListener listener = inv.getArgument(2, StreamListener.class);
@@ -161,7 +161,7 @@ class SseStreamingTest {
     props.setHeartbeatSeconds(1);
     controller.setSseStreamSupport(new SseStreamSupport(new ObjectMapper(), props));
     MockMvc slowMvc = MockMvcBuilders.standaloneSetup(controller).build();
-    when(agentService.process(any(), anyString(), any()))
+    when(agentService.process(any(), anyString(), any(StreamListener.class)))
         .thenAnswer(
             inv -> {
               Thread.sleep(2500); // 静默期 > 2 个心跳间隔

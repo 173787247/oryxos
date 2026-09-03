@@ -3,13 +3,17 @@ package io.oryxos.channel.feishu;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.lark.oapi.core.httpclient.OkHttpTransport;
 import com.lark.oapi.core.response.RawResponse;
 import com.lark.oapi.core.token.AccessTokenType;
 import com.lark.oapi.event.EventDispatcher;
+import com.lark.oapi.okhttp.OkHttpClient;
 import com.lark.oapi.service.im.ImService;
 import com.lark.oapi.service.im.v1.model.P2MessageReceiveV1;
 import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.channel.ChannelStatus;
+import io.oryxos.core.channel.ChatKind;
+import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundChannelAdapter;
 import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageService;
@@ -19,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +53,15 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private static final int HTTP_OK = 200;
   private static final long READY_TIMEOUT_MS = 15_000;
   private static final long READY_PROBE_TIMEOUT_MS = 50;
+
+  /**
+   * 入站图片下载超时。SDK {@code requestTimeout} 只设置 OkHttp {@code callTimeout}，仍保留默认 {@code
+   * readTimeout=10s}，慢网/大图会在读 body 时 {@code client time out}。须自定义 transport 同时拉长 read/call。
+   */
+  private static final long API_CONNECT_TIMEOUT_SEC = 30;
+
+  private static final long API_READ_TIMEOUT_SEC = 180;
+  private static final long API_CALL_TIMEOUT_SEC = 180;
 
   private final ChannelConfig config; // resolved 口径（凭证为真实值，仅存活内存）
   private final ProfileRegistry profileRegistry;
@@ -101,7 +115,17 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     }
     guard.check(API_BASE_URL); // 出站白名单在建连前即校验，缺域名尽早点名
     try {
-      apiClient = com.lark.oapi.Client.newBuilder(config.appId(), config.appSecret()).build();
+      apiClient =
+          com.lark.oapi.Client.newBuilder(config.appId(), config.appSecret())
+              .httpTransport(
+                  new OkHttpTransport(
+                      new OkHttpClient.Builder()
+                          .connectTimeout(API_CONNECT_TIMEOUT_SEC, TimeUnit.SECONDS)
+                          .readTimeout(API_READ_TIMEOUT_SEC, TimeUnit.SECONDS)
+                          .writeTimeout(API_CONNECT_TIMEOUT_SEC, TimeUnit.SECONDS)
+                          .callTimeout(API_CALL_TIMEOUT_SEC, TimeUnit.SECONDS)
+                          .build()))
+              .build();
       sender =
           new FeishuMessageSender(
               apiClient, guard, API_BASE_URL, FeishuMessageSender.DEFAULT_CHUNK_SIZE);
@@ -196,19 +220,72 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     active.send(chatId, text, replyToMessageId);
   }
 
-  /** 事件入口：归一化 → 图片资源落地 → 编排；任何异常只留日志——抛出会触发平台重推循环（去重会拦但用户收不到回答）。 */
+  @Override
+  public java.util.Optional<io.oryxos.core.channel.InboundProgressStream> openProgressStream(
+      String chatId, String replyToMessageId) {
+    FeishuMessageSender active = sender;
+    if (active == null) {
+      return java.util.Optional.empty();
+    }
+    return java.util.Optional.of(new FeishuStreamListener(active, chatId, replyToMessageId));
+  }
+
+  /**
+   * 事件入口：归一化 → 去重占用 →（需下载时先开「处理中」）→ 图片资源落地 → 编排。去重必须在下载前：飞书平台重推同一 message_id
+   * 时，若先下载再去重会白耗带宽。任何异常只留日志——抛出会触发平台重推循环。
+   */
   private void handleEvent(P2MessageReceiveV1 event) {
     try {
       Optional<InboundMessage> msg = normalizer.normalize(event);
       msg.ifPresent(
           m -> {
-            FeishuInboundImageResolver resolver = imageResolver;
-            InboundMessage enriched = resolver == null ? m : resolver.resolve(m);
-            inboundMessageService.onMessage(enriched, this);
+            if (!inboundMessageService.tryClaim(m.channelName(), m.messageId())) {
+              LOG.info("渠道 {} 重复事件已忽略: {}", sanitize(m.channelName()), sanitize(m.messageId()));
+              return;
+            }
+            String replyTo = m.chatKind() == ChatKind.GROUP ? m.messageId() : null;
+            java.util.concurrent.CountDownLatch slowWork = null;
+            if (needsImageDownload(m)) {
+              // 下载前立刻「处理中」：默认 15s 阈值对识图偏长，延迟计时会导致「识别完才提示」
+              slowWork = inboundMessageService.beginSlowWork(this, m.chatId(), replyTo);
+            }
+            try {
+              FeishuInboundImageResolver resolver = imageResolver;
+              InboundMessage enriched = resolver == null ? m : resolver.resolve(m);
+              if (slowWork != null) {
+                inboundMessageService.onClaimedMessage(enriched, this, slowWork);
+              } else {
+                inboundMessageService.onClaimedMessage(enriched, this);
+              }
+            } catch (RuntimeException e) {
+              if (slowWork != null) {
+                slowWork.countDown();
+              }
+              throw e;
+            }
           });
     } catch (RuntimeException e) {
       LOG.error("飞书渠道 {} 事件处理异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
     }
+  }
+
+  private static boolean needsImageDownload(InboundMessage message) {
+    for (InboundAttachment attachment : message.attachments()) {
+      if (isUnresolvedImageAttachment(attachment)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isUnresolvedImageAttachment(InboundAttachment attachment) {
+    if (!InboundAttachment.TYPE_IMAGE.equals(attachment.type())) {
+      return false;
+    }
+    if (attachment.url() != null && !attachment.url().isBlank()) {
+      return false;
+    }
+    return attachment.reference() != null && !attachment.reference().isBlank();
   }
 
   /** 入站图片落盘目录：进程临时目录下按渠道隔离；失败不阻断 start（解析器会降级保留 image_key）。 */

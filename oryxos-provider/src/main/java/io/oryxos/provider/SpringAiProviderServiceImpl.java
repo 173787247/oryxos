@@ -11,7 +11,11 @@ import io.oryxos.core.provider.ProviderResponse;
 import io.oryxos.core.provider.ProviderService;
 import io.oryxos.core.provider.ToolCallRequest;
 import io.oryxos.core.provider.Usage;
+import io.oryxos.core.session.ImageMime;
 import io.oryxos.core.session.Message;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,8 +31,12 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.util.MimeType;
+import org.springframework.util.MimeTypeUtils;
 
 /**
  * Provider 前台（core {@link ProviderService} 契约的 Spring AI 实现）：按 Profile 显式路由到对应
@@ -120,6 +128,45 @@ public class SpringAiProviderServiceImpl implements ProviderService {
 
   /** 单次尝试（023）：attempt 的 name/model 贯穿路由、Prompt 与审计（R2）。 */
   private ProviderResponse chatOnce(
+      String sessionId,
+      Profile profile,
+      ProviderRequest request,
+      Attempt attempt,
+      ProviderDef def) {
+    try {
+      return invokeChat(sessionId, profile, request, attempt, def);
+    } catch (RuntimeException e) {
+      // 非 vision / 远程图链失效（常见 400）：先剔 http(s) media 保留本地图；仍失败再剥全部 media
+      if (hasUserMedia(request) && isClientError(e)) {
+        ProviderRequest withoutRemote = stripRemoteHttpMedia(request);
+        if (hasUserMedia(withoutRemote)
+            && countUserMedia(withoutRemote) < countUserMedia(request)) {
+          LOG.warn(
+              "multimodal 被拒，去掉远程 URL 图片后重试（provider={} model={}）：{}",
+              sanitize(attempt.provider()),
+              sanitize(attempt.model()),
+              sanitize(e.getMessage()));
+          try {
+            return invokeChat(sessionId, profile, withoutRemote, attempt, def);
+          } catch (RuntimeException e2) {
+            if (!canRetryWithoutAllMedia(withoutRemote, e2)) {
+              throw e2;
+            }
+            e = e2;
+          }
+        }
+        LOG.warn(
+            "multimodal 被拒，降级纯文本重试（provider={} model={}）：{}",
+            sanitize(attempt.provider()),
+            sanitize(attempt.model()),
+            sanitize(e.getMessage()));
+        return invokeChat(sessionId, profile, stripMedia(request), attempt, def);
+      }
+      throw e;
+    }
+  }
+
+  private ProviderResponse invokeChat(
       String sessionId,
       Profile profile,
       ProviderRequest request,
@@ -217,12 +264,55 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     throw last != null ? last : new ProviderNotFoundException(profile.provider().name());
   }
 
+  private ProviderResponse chatStreamOnce(
+      String sessionId,
+      Profile profile,
+      ProviderRequest request,
+      java.util.function.Consumer<String> onToken,
+      Attempt attempt,
+      ProviderDef def,
+      boolean[] contentStarted) {
+    try {
+      return invokeChatStream(sessionId, profile, request, onToken, attempt, def, contentStarted);
+    } catch (RuntimeException e) {
+      if (!contentStarted[0] && hasUserMedia(request) && isClientError(e)) {
+        ProviderRequest withoutRemote = stripRemoteHttpMedia(request);
+        if (hasUserMedia(withoutRemote)
+            && countUserMedia(withoutRemote) < countUserMedia(request)) {
+          LOG.warn(
+              "multimodal 流式被拒，去掉远程 URL 图片后重试（provider={} model={}）：{}",
+              sanitize(attempt.provider()),
+              sanitize(attempt.model()),
+              sanitize(e.getMessage()));
+          try {
+            return invokeChatStream(
+                sessionId, profile, withoutRemote, onToken, attempt, def, contentStarted);
+          } catch (RuntimeException e2) {
+            boolean alreadyStreaming = contentStarted[0];
+            if (alreadyStreaming || !canRetryWithoutAllMedia(withoutRemote, e2)) {
+              throw e2;
+            }
+            e = e2;
+          }
+        }
+        LOG.warn(
+            "multimodal 流式被拒，降级纯文本重试（provider={} model={}）：{}",
+            sanitize(attempt.provider()),
+            sanitize(attempt.model()),
+            sanitize(e.getMessage()));
+        return invokeChatStream(
+            sessionId, profile, stripMedia(request), onToken, attempt, def, contentStarted);
+      }
+      throw e;
+    }
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE",
       justification =
           "Spring AI 注解声称 chunk 各字段非空，但流式 chunk 边界形态因 provider 而异，"
               + "对 generation/output 的防御性判空是有意保留的（019 裁决，信注解不如信线上流量）")
-  private ProviderResponse chatStreamOnce(
+  private ProviderResponse invokeChatStream(
       String sessionId,
       Profile profile,
       ProviderRequest request,
@@ -482,7 +572,11 @@ public class SpringAiProviderServiceImpl implements ProviderService {
 
   private static org.springframework.ai.chat.messages.Message toSpringMessage(Message message) {
     if (Message.ROLE_USER.equals(message.role())) {
-      return new UserMessage(message.content());
+      List<Media> media = toSpringMedia(message.media());
+      if (media.isEmpty()) {
+        return new UserMessage(message.content());
+      }
+      return UserMessage.builder().text(message.content()).media(media).build();
     }
     if (Message.ROLE_TOOL.equals(message.role())) {
       String id = message.toolCallId();
@@ -513,6 +607,181 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         .properties(Map.of())
         .toolCalls(toolCalls)
         .build();
+  }
+
+  private static List<Media> toSpringMedia(List<Message.MediaPart> parts) {
+    if (parts == null || parts.isEmpty()) {
+      return List.of();
+    }
+    List<Media> media = new ArrayList<>(parts.size());
+    for (Message.MediaPart part : parts) {
+      Media m = toSpringMedia(part);
+      if (m != null) {
+        media.add(m);
+      }
+    }
+    return media;
+  }
+
+  private static Media toSpringMedia(Message.MediaPart part) {
+    if (part == null || part.uri() == null || part.uri().isBlank()) {
+      return null;
+    }
+    String uri = part.uri().strip();
+    MimeType mime = resolveMime(part.mimeType(), uri);
+    try {
+      if (ImageMime.isHttpUrl(uri)) {
+        return new Media(mime, URI.create(uri));
+      }
+      Path path = Path.of(uri);
+      if (!Files.isRegularFile(path)) {
+        LOG.warn("跳过不可读的本地图片: {}", sanitize(uri));
+        return null;
+      }
+      if (!ImageMime.hasRecognizedMagic(path)) {
+        LOG.warn("跳过无有效图片魔数的本地文件: {}", sanitize(uri));
+        return null;
+      }
+      return new Media(mime, new FileSystemResource(path));
+    } catch (RuntimeException e) {
+      LOG.warn("构造 Media 失败（uri={}）：{}", sanitize(uri), sanitize(e.getMessage()));
+      return null;
+    }
+  }
+
+  private static MimeType resolveMime(String declared, String uri) {
+    String raw = declared;
+    if (raw == null || raw.isBlank()) {
+      if (ImageMime.isHttpUrl(uri)) {
+        raw = ImageMime.fromPath(uri);
+      } else {
+        raw = ImageMime.probeFile(Path.of(uri));
+      }
+    }
+    try {
+      return MimeTypeUtils.parseMimeType(raw);
+    } catch (RuntimeException e) {
+      return MimeTypeUtils.IMAGE_JPEG;
+    }
+  }
+
+  private static boolean hasUserMedia(ProviderRequest request) {
+    return countUserMedia(request) > 0;
+  }
+
+  /** multimodal 二次降级（剥全部 media）前：请求仍有 user media 且错误为可剥的客户端 4xx。 */
+  private static boolean canRetryWithoutAllMedia(ProviderRequest request, RuntimeException error) {
+    return hasUserMedia(request) && isClientError(error);
+  }
+
+  private static int countUserMedia(ProviderRequest request) {
+    if (request == null || request.messages() == null) {
+      return 0;
+    }
+    int n = 0;
+    for (Message message : request.messages()) {
+      if (Message.ROLE_USER.equals(message.role())) {
+        n += message.media().size();
+      }
+    }
+    return n;
+  }
+
+  /** 去掉 http(s) 远程 media，保留本地路径。会话历史里过期 COS/OSS 签名链常导致整包 multimodal 400； 入站通道已落盘的新图应仍可送 Vision。 */
+  private static ProviderRequest stripRemoteHttpMedia(ProviderRequest request) {
+    List<Message> stripped = new ArrayList<>(request.messages().size());
+    for (Message message : request.messages()) {
+      if (message.media().isEmpty()) {
+        stripped.add(message);
+        continue;
+      }
+      List<Message.MediaPart> localOnly =
+          message.media().stream()
+              .filter(p -> p != null && p.uri() != null && !ImageMime.isHttpUrl(p.uri().strip()))
+              .toList();
+      if (localOnly.size() == message.media().size()) {
+        stripped.add(message);
+      } else {
+        stripped.add(
+            new Message(
+                message.role(),
+                message.content(),
+                message.toolName(),
+                message.toolCallId(),
+                message.toolCalls(),
+                localOnly));
+      }
+    }
+    return new ProviderRequest(request.systemPrompt(), stripped, request.availableTools());
+  }
+
+  private static ProviderRequest stripMedia(ProviderRequest request) {
+    List<Message> stripped = new ArrayList<>(request.messages().size());
+    for (Message message : request.messages()) {
+      if (message.media().isEmpty()) {
+        stripped.add(message);
+      } else {
+        stripped.add(
+            new Message(
+                message.role(),
+                message.content(),
+                message.toolName(),
+                message.toolCallId(),
+                message.toolCalls(),
+                List.of()));
+      }
+    }
+    return new ProviderRequest(request.systemPrompt(), stripped, request.availableTools());
+  }
+
+  /** 4xx 类客户端错误（模型拒收图片等）——值得剥 media 再试；5xx/网络交给既有 fallback。 */
+  private static boolean isClientError(RuntimeException e) {
+    Throwable t = e;
+    while (t != null) {
+      if (t instanceof org.springframework.web.client.RestClientResponseException rest) {
+        int code = rest.getStatusCode().value();
+        return code >= 400
+            && code < 500
+            && code != 401
+            && code != 403
+            && code != 408
+            && code != 429;
+      }
+      if (t
+          instanceof
+          org.springframework.web.reactive.function.client.WebClientResponseException web) {
+        int code = web.getStatusCode().value();
+        return code >= 400
+            && code < 500
+            && code != 401
+            && code != 403
+            && code != 408
+            && code != 429;
+      }
+      if (t instanceof org.springframework.ai.retry.NonTransientAiException
+          || t instanceof org.springframework.ai.retry.TransientAiException) {
+        Integer code = leadingHttpStatus(t.getMessage());
+        if (code != null) {
+          return code >= 400
+              && code < 500
+              && code != 401
+              && code != 403
+              && code != 408
+              && code != 429;
+        }
+      }
+      t = t.getCause();
+    }
+    return false;
+  }
+
+  private static Integer leadingHttpStatus(String message) {
+    if (message == null) {
+      return null;
+    }
+    java.util.regex.Matcher matcher =
+        java.util.regex.Pattern.compile("^(\\d{3}) - ").matcher(message);
+    return matcher.find() ? Integer.valueOf(matcher.group(1)) : null;
   }
 
   private static ProviderResponse toProviderResponse(ChatResponse response) {

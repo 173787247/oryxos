@@ -48,6 +48,8 @@ async function logout() {
 const TOP_NAV = [
   { key: 'overview', label: '概览' },
   { key: 'agents', label: 'Agent 列表' },
+  // 人格库（025）：copy-in 模板库独立成页，Agent 新建「从人格库导入」只负责选择，人格增删改统一在这里
+  { key: 'personas', label: '人格库' },
   { key: 'schedules', label: '定时任务', path: '/api/v2/schedules' },
   // Skill 列表（第 32 节）：全局 Skill 库，自定义加载器（loadSkills）不走通用 path。知识库仍为占位页
   { key: 'skills', label: 'Skill 列表' },
@@ -195,6 +197,7 @@ function select(key) {
   if (runtimeKeys.has(key)) runtimeOpen.value = true // 选中的是运行时子页 → 展开分组
   if (NAV.find((n) => n.key === key)?.path && !state[key]) load(key)
   if (key === 'agents') { agentDetail.value = null; fileView.value = null; loadAgents() }
+  if (key === 'personas') { cancelPersonaForm(); loadPersonaPresets() }
   if (key === 'notify-channels') { cancelNc(); loadNotifyChannels() }
   if (key === 'providers') { cancelPv(); loadProviders() }
   if (key === 'whitelist') { cancelWl(); loadWhitelist() }
@@ -210,6 +213,7 @@ function select(key) {
 function refresh() {
   const key = active.value
   if (key === 'agents') { loadAgents(); return }
+  if (key === 'personas') { loadPersonaPresets(); return }
   if (key === 'notify-channels') { loadNotifyChannels(); return }
   if (key === 'providers') { loadProviders(); return }
   if (key === 'whitelist') { loadWhitelist(); return }
@@ -746,6 +750,176 @@ async function submitCreate() {
     agentCreate.open = false
     await loadAgents()
   } catch (e) { agentCreate.error = e.message } finally { agentCreate.busy = false }
+}
+
+// —— 从人格库导入（025 Web 导入）：Agent 新建页「从人格库导入」入口（12 内置 + 自定义）——
+// 与「一句话生成」同一页，顶部切换模式；两条路都收敛到 import-preview → import → saveFiles 校验链。
+// 人格的新建/编辑/删除统一在左侧「人格库」页操作；这里只负责选中某个人格、上传/粘贴 .md、预览、落盘。
+const createMode = ref('llm') // 新建页模式：'llm' 一句话生成 / 'import' 人格库导入
+const personaPresets = ref({ loading: false, error: null, data: [] })
+const personaPageError = ref('') // 人格库页的页面级错误（删除失败等，非弹框内）
+const agentImport = reactive({
+  sourceContent: '', name: '', selected: '', provider: '', model: '', preview: null, busy: false, error: '',
+})
+function onImportProviderChange() { agentImport.model = ''; loadCreateModels(agentImport.provider) }
+function setCreateMode(m) {
+  createMode.value = m
+  if (m === 'import') {
+    if (!personaPresets.value.data.length && !personaPresets.value.loading) loadPersonaPresets()
+    if (!createProviders.value.data.length && !createProviders.value.loading) loadCreateProviders()
+  }
+}
+async function loadPersonaPresets() {
+  personaPresets.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch('/api/v1/personas')
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    personaPresets.value = { loading: false, error: null, data: body.data || [] }
+    personaPageError.value = ''
+  } catch (e) { personaPresets.value = { loading: false, error: e.message, data: [] } }
+}
+// 选中人格：拉源文件全文作导入草稿，Agent 名建议用 key（中文 displayName 派生不出合法 slug）。写/改人格去「人格库」页
+async function pickPreset(p) {
+  agentImport.selected = p.key
+  agentImport.name = p.key
+  agentImport.preview = null
+  agentImport.error = ''
+  agentImport.busy = true
+  try {
+    const res = await fetch(`/api/v1/personas/${encodeURIComponent(p.key)}`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    agentImport.sourceContent = body.data.sourceContent
+  } catch (e) { agentImport.error = e.message } finally { agentImport.busy = false }
+}
+// 上传 .md 文件：读文本作导入草稿，Agent 名从文件名推合法 slug
+function onImportFile(evt) {
+  const file = evt.target && evt.target.files && evt.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    agentImport.sourceContent = String(reader.result || '')
+    agentImport.selected = ''
+    agentImport.preview = null
+    const base = (file.name || '').replace(/\.md$/i, '').replace(/[^A-Za-z0-9_-]/g, '')
+    agentImport.name = base || agentImport.name
+  }
+  reader.readAsText(file)
+}
+// 预览：不落盘，返回渲染出的 AGENT.md + 人格字段投影（确认前可改 Agent 名 / 源文件内容再重预览）
+async function previewImport() {
+  if (!agentImport.sourceContent.trim()) { agentImport.error = '请先选择预设或粘贴源文件内容'; return }
+  agentImport.busy = true; agentImport.error = ''
+  try {
+    const res = await fetch('/api/v1/agents/import-preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceContent: agentImport.sourceContent, name: agentImport.name || undefined,
+        provider: agentImport.provider || undefined, model: agentImport.model || undefined,
+      }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '预览失败')
+    agentImport.preview = body.data
+    if (body.data.name) agentImport.name = body.data.name
+  } catch (e) { agentImport.error = e.message } finally { agentImport.busy = false }
+}
+// 确认导入：落盘并注册（importAgent 走 saveFiles 校验链），成功后直接进详情
+async function submitImport() {
+  if (!agentImport.sourceContent.trim()) return
+  if (!agentImport.name.trim()) { agentImport.error = '请填写 Agent 名'; return }
+  agentImport.busy = true; agentImport.error = ''
+  try {
+    const res = await fetch('/api/v1/agents/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceContent: agentImport.sourceContent, name: agentImport.name,
+        provider: agentImport.provider || undefined, model: agentImport.model || undefined,
+      }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '导入失败')
+    const imported = body.data
+    cancelCreate()
+    await loadAgents()
+    openAgent(imported)
+  } catch (e) { agentImport.error = e.message } finally { agentImport.busy = false }
+}
+
+// —— 人格库页（copy-in 模板库）管理：新建/编辑/查看共用一个弹框，源文件原文即库内容 ——
+const personaForm = reactive({ open: false, editing: false, viewOnly: false, key: '', sourceContent: '', busy: false, error: '' })
+function openPersonaEditor() {
+  personaForm.open = true; personaForm.editing = false; personaForm.viewOnly = false
+  personaForm.key = ''; personaForm.sourceContent = ''; personaForm.error = ''; personaForm.busy = false
+}
+function cancelPersonaForm() { personaForm.open = false }
+// 从本地 .md 文件导入人格源文件草稿：内容读入下方文本框；新建且 key 为空时从文件名派生合法 slug（可改）
+function onPersonaFile(evt) {
+  const file = evt.target && evt.target.files && evt.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    personaForm.sourceContent = String(reader.result || '')
+    if (!personaForm.editing && !personaForm.key.trim()) {
+      personaForm.key = (file.name || '').replace(/\.md$/i, '').replace(/[^A-Za-z0-9_-]/g, '')
+    }
+    personaForm.error = ''
+  }
+  reader.readAsText(file)
+  evt.target.value = '' // 重置 input，允许连续选同一个文件
+}
+// 编辑/查看先拉详情（源全文），就绪再开弹框，避免闪现空文本框
+async function editPersona(p) {
+  personaForm.busy = true; personaForm.error = ''
+  try {
+    const res = await fetch(`/api/v1/personas/${encodeURIComponent(p.key)}`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    personaForm.open = true; personaForm.editing = true; personaForm.viewOnly = false
+    personaForm.key = p.key; personaForm.sourceContent = body.data.sourceContent; personaForm.busy = false
+  } catch (e) { personaPageError.value = e.message; personaForm.busy = false }
+}
+async function viewPersona(p) {
+  personaForm.busy = true; personaForm.error = ''
+  try {
+    const res = await fetch(`/api/v1/personas/${encodeURIComponent(p.key)}`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    personaForm.open = true; personaForm.editing = false; personaForm.viewOnly = true
+    personaForm.key = p.key; personaForm.sourceContent = body.data.sourceContent; personaForm.busy = false
+  } catch (e) { personaPageError.value = e.message; personaForm.busy = false }
+}
+// 保存：编辑走 PUT（key 不可改），新建走 POST；内置 key 后端 400 只读
+async function savePersonaForm() {
+  const key = (personaForm.key || '').trim()
+  if (!key) { personaForm.error = '请填写 key'; return }
+  if (!personaForm.sourceContent.trim()) { personaForm.error = '人格内容不能为空'; return }
+  personaForm.busy = true; personaForm.error = ''
+  try {
+    const res = await fetch(personaForm.editing ? `/api/v1/personas/${encodeURIComponent(key)}` : '/api/v1/personas', {
+      method: personaForm.editing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, sourceContent: personaForm.sourceContent }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存失败')
+    personaForm.open = false
+    await loadPersonaPresets()
+  } catch (e) { personaForm.error = e.message } finally { personaForm.busy = false }
+}
+// 删除自定义人格（物理删，不可撤销）：内置只读（后端 400）；删的是导入页当前选中项时清空选中
+async function deletePersona(p) {
+  if (p.builtin) { personaPageError.value = '内置人格只读，不能删除'; return }
+  if (!window.confirm(`删除自定义人格「${p.label}」？此操作不可撤销。`)) return
+  personaPageError.value = ''
+  try {
+    const res = await fetch(`/api/v1/personas/${encodeURIComponent(p.key)}`, { method: 'DELETE' })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '删除失败')
+    if (agentImport.selected === p.key) { agentImport.selected = '' }
+    await loadPersonaPresets()
+  } catch (e) { personaPageError.value = e.message }
 }
 
 // 立即触发一次（异步）：后端立即返回执行记录 id，ReAct 在后台跑——不再干等整轮（消除 Failed to fetch）。
@@ -1499,6 +1673,42 @@ async function saveEditBasic() {
     agentDetail.value = { ...agentDetail.value, editing: false }
     await reloadAgent() // 刷新 agent 元数据（provider/model/skills 即时反映）
   } catch (e) { editError.value = e.message } finally { editSaving.value = false }
+}
+
+// —— 025 人格卡：Agent 详情「基本信息」页的 7 字段人格展示 + 编辑（camelCase 键对 PUT /agents/{name}/persona，落盘 AGENT.md persona 段）——
+const personaEdit = reactive({ open: false, name: '', role: '', traits: '', tone: '', values: '', boundaries: '', sampleStyle: '', saving: false, error: '' })
+function startEditPersona() {
+  const p = (agentDetail.value && agentDetail.value.agent && agentDetail.value.agent.persona) || {}
+  personaEdit.open = true
+  personaEdit.name = p.name || ''
+  personaEdit.role = p.role || ''
+  personaEdit.traits = p.traits || ''
+  personaEdit.tone = p.tone || ''
+  personaEdit.values = p.values || ''
+  personaEdit.boundaries = p.boundaries || ''
+  personaEdit.sampleStyle = p.sampleStyle || ''
+  personaEdit.saving = false
+  personaEdit.error = ''
+}
+function cancelEditPersona() { personaEdit.open = false }
+async function savePersona() {
+  if (!personaEdit.name.trim() || !personaEdit.role.trim()) { personaEdit.error = 'name 与 role 为必填'; return }
+  personaEdit.saving = true; personaEdit.error = ''
+  try {
+    const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/persona`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: personaEdit.name.trim(), role: personaEdit.role.trim(),
+        traits: personaEdit.traits.trim(), tone: personaEdit.tone.trim(),
+        values: personaEdit.values.trim(), boundaries: personaEdit.boundaries.trim(),
+        sampleStyle: personaEdit.sampleStyle.trim(),
+      }),
+    })
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存失败')
+    personaEdit.open = false
+    await reloadAgent()
+  } catch (e) { personaEdit.error = e.message } finally { personaEdit.saving = false }
 }
 
 // —— 执行历史 tab：该 Agent 每次触发的起止时间 / 状态 / 时长（手动 + 定时）——
@@ -2345,6 +2555,11 @@ const outputRows = computed(() =>
             <div v-if="agentCreate.open">
               <button class="btn back" @click="cancelCreate">← 返回</button>
               <div class="sess-meta"><span>新建 Agent</span></div>
+              <div class="tabs">
+                <button :class="['tab', { on: createMode === 'llm' }]" @click="setCreateMode('llm')">一句话生成</button>
+                <button :class="['tab', { on: createMode === 'import' }]" @click="setCreateMode('import')">从人格库导入</button>
+              </div>
+              <template v-if="createMode === 'llm'">
               <div class="gen-box">
                 <label class="empty" style="display:block;margin-bottom:2px">Agent 名（字母/数字/下划线/连字符，必填）</label>
                 <input v-model="agentCreate.name" class="gen-input" placeholder="例如 pr-digest" />
@@ -2401,6 +2616,76 @@ const outputRows = computed(() =>
                   <textarea class="mono filetext" v-model="agentCreate.files[path]"></textarea>
                 </div>
               </template>
+              </template>
+
+              <!-- 从人格库导入（025）：llm 之外的另一种建法。选人格/粘贴源 → import-preview 预览 → import 落盘，成功后直接进详情 -->
+              <div v-else class="gen-box">
+                <label class="empty" style="display:block;margin-bottom:2px">从人格库选（12 个内置 + 你保存的自定义；人格的新建/编辑/删除请到左侧「人格库」页），或上传/粘贴 agency-agents-zh 风格的 .md（身份段会被解析成 persona 7 字段，落盘成 AGENT.md）</label>
+                <div class="skill-picker">
+                  <span v-if="personaPresets.loading" class="empty">加载人格预设…</span>
+                  <span v-else-if="personaPresets.error" class="error">加载失败：{{ personaPresets.error }}</span>
+                  <template v-else>
+                    <button v-for="p in personaPresets.data" :key="p.key"
+                            :class="['preset-opt', { on: agentImport.selected === p.key }]"
+                            :disabled="agentImport.busy"
+                            @click="pickPreset(p)"
+                            :title="p.sourceFile || '自定义人格'">
+                      <span class="preset-emoji">{{ p.emoji }}</span>
+                      <span class="preset-label">{{ p.label }}
+                        <span class="preset-badge" :class="p.builtin ? 'b-in' : 'b-cu'">{{ p.builtin ? '内置' : '自定义' }}</span>
+                      </span>
+                      <span class="empty preset-desc">{{ p.description }}</span>
+                    </button>
+                  </template>
+                </div>
+                <label class="empty" style="display:block;margin:6px 0 2px">或上传 .md 源文件（.md，自动读入下方文本框）</label>
+                <input type="file" accept=".md,text/markdown" class="gen-input" @change="onImportFile" />
+                <label class="empty" style="display:block;margin:6px 0 2px">源文件内容（可粘贴后编辑，改动后重新「预览」）</label>
+                <textarea v-model="agentImport.sourceContent" class="gen-draft" rows="6" placeholder="---&#10;name: …&#10;description: …&#10;---&#10;## 核心使命&#10;…（agency-agents-zh 人格文件；身份段按 角色/个性/性格 行级关键字解析）"></textarea>
+                <label class="empty" style="display:block;margin:6px 0 2px">Agent 名（合法 slug：字母/数字/下划线/连字符；中文 displayName 派生不出合法 slug，默认用预设 key）</label>
+                <input v-model="agentImport.name" class="gen-input" placeholder="例如 product-manager" />
+                <label class="empty" style="display:block;margin:6px 0 2px">模型（可选，缺省落占位，导入后可在基本信息里改）</label>
+                <select v-model="agentImport.provider" class="gen-input" @change="onImportProviderChange">
+                  <option value="">Provider…</option>
+                  <option v-for="p in (createProviders.data || [])" :key="p.name" :value="p.name">{{ p.name }}</option>
+                </select>
+                <select v-if="agentImport.provider" v-model="agentImport.model" class="gen-input" style="margin-top:4px">
+                  <option value="">模型…</option>
+                  <option v-for="m in (createModels.data || [])" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <p v-if="createProviders.loading" class="empty">加载 Provider 列表…</p>
+                <p v-else-if="createProviders.error" class="error">Provider 列表加载失败：{{ createProviders.error }}</p>
+                <p v-else-if="agentImport.provider && createModels.loading" class="empty">加载模型列表…</p>
+                <p v-else-if="agentImport.provider && createModels.error" class="error">模型列表加载失败：{{ createModels.error }}</p>
+                <div class="ops">
+                  <button class="btn" :disabled="agentImport.busy || !agentImport.sourceContent.trim()" @click="previewImport">预览</button>
+                  <button class="btn btn-primary" :disabled="agentImport.busy || !agentImport.name.trim() || !agentImport.sourceContent.trim()" @click="submitImport">{{ agentImport.selected ? '导入此人格' : '导入' }}</button>
+                </div>
+                <p v-if="agentImport.busy" class="empty">处理中…</p>
+                <p v-if="agentImport.error" class="error">{{ agentImport.error }}</p>
+                <template v-if="agentImport.preview">
+                  <div class="sess-meta" style="margin-top:8px"><span>预览</span><span class="mono">{{ agentImport.preview.name }}</span></div>
+                  <div class="preview-valid">
+                    <template v-if="agentImport.preview.validation && agentImport.preview.validation.valid">
+                      <span class="ok">✅ 可导入：provider={{ agentImport.preview.validation.provider || '—' }}，model={{ agentImport.preview.validation.model || '占位（导入后可改）' }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="error">❌ 无法导入：{{ (agentImport.preview.validation && agentImport.preview.validation.message) || '未知错误' }}</span>
+                    </template>
+                  </div>
+                  <div class="info-grid">
+                    <div class="info-row"><span class="k">role</span><span>{{ agentImport.preview.expert.role || '—' }}</span></div>
+                    <div class="info-row"><span class="k">traits</span><span>{{ agentImport.preview.expert.traits || '—' }}</span></div>
+                    <div class="info-row"><span class="k">background</span><span>{{ agentImport.preview.expert.background || '—' }}</span></div>
+                    <div class="info-row"><span class="k">communication</span><span>{{ agentImport.preview.expert.communication || '—' }}</span></div>
+                    <div class="info-row"><span class="k">keyRules</span><span>{{ agentImport.preview.expert.keyRules || '—' }}</span></div>
+                    <div class="info-row"><span class="k">boundaries</span><span>{{ agentImport.preview.expert.boundaries || '—' }}</span></div>
+                    <div class="info-row"><span class="k">sampleStyle</span><span>{{ agentImport.preview.expert.sampleStyle || '—' }}</span></div>
+                  </div>
+                  <label class="empty" style="display:block;margin:6px 0 2px">渲染出的 AGENT.md（落盘前只读预览）</label>
+                  <div class="gen-file"><textarea class="mono filetext" readonly :value="agentImport.preview.agentMarkdown"></textarea></div>
+                </template>
+              </div>
             </div>
 
             <!-- 详情视图：Tab（基本信息 / 文件 / 会话） -->
@@ -2491,6 +2776,43 @@ const outputRows = computed(() =>
                   </div>
                   <div class="info-row"><span class="k">定时</span><span class="mono">{{ (agentDetail.agent.schedules || []).map((s) => s.cron + ' (' + s.zone + ')').join('；') || '—' }}</span></div>
                 </template>
+              </div>
+
+              <!-- 025 人格卡：7 字段展示 + 编辑（PUT /agents/{name}/persona 落盘成 AGENT.md persona 段，随每轮注入 system prompt） -->
+              <div v-if="agentDetail.tab === 'info'" style="margin-top:14px">
+                <div class="sess-meta"><span>人格</span>
+                  <button v-if="!personaEdit.open" class="btn" @click="startEditPersona">{{ agentDetail.agent.persona ? '编辑人格' : '设置人格' }}</button>
+                </div>
+                <template v-if="personaEdit.open">
+                  <div class="gen-box">
+                    <div class="info-row edit"><label class="k">name</label><input v-model="personaEdit.name" class="gen-input" placeholder="人格名（必填）" /></div>
+                    <div class="info-row edit"><label class="k">role</label><input v-model="personaEdit.role" class="gen-input" placeholder="角色定位（必填）" /></div>
+                    <div class="info-row edit"><label class="k">traits</label><textarea v-model="personaEdit.traits" class="gen-input" rows="2" placeholder="个性特征"></textarea></div>
+                    <div class="info-row edit"><label class="k">tone</label><textarea v-model="personaEdit.tone" class="gen-input" rows="2" placeholder="说话语气"></textarea></div>
+                    <div class="info-row edit"><label class="k">values</label><textarea v-model="personaEdit.values" class="gen-input" rows="2" placeholder="价值观"></textarea></div>
+                    <div class="info-row edit"><label class="k">boundaries</label><textarea v-model="personaEdit.boundaries" class="gen-input" rows="2" placeholder="边界/原则"></textarea></div>
+                    <div class="info-row edit"><label class="k">sampleStyle</label><textarea v-model="personaEdit.sampleStyle" class="gen-input" rows="3" placeholder="一句话风格示例"></textarea></div>
+                    <div class="info-actions">
+                      <button class="btn btn-primary" :disabled="personaEdit.saving || !personaEdit.name.trim() || !personaEdit.role.trim()" @click="savePersona">保存</button>
+                      <button class="btn" :disabled="personaEdit.saving" @click="cancelEditPersona">取消</button>
+                      <span v-if="personaEdit.saving" class="empty">保存中…</span>
+                      <span v-if="personaEdit.error" class="error">{{ personaEdit.error }}</span>
+                    </div>
+                    <p class="empty">name/role 为必填；这 7 个字段会被写进 AGENT.md 的 persona 段，每轮对话固定注入 system prompt。</p>
+                  </div>
+                </template>
+                <div v-else class="info-grid">
+                  <template v-if="agentDetail.agent.persona">
+                    <div class="info-row"><span class="k">name</span><span>{{ agentDetail.agent.persona.name }}</span></div>
+                    <div class="info-row"><span class="k">role</span><span>{{ agentDetail.agent.persona.role }}</span></div>
+                    <div class="info-row"><span class="k">traits</span><span>{{ agentDetail.agent.persona.traits || '—' }}</span></div>
+                    <div class="info-row"><span class="k">tone</span><span>{{ agentDetail.agent.persona.tone || '—' }}</span></div>
+                    <div class="info-row"><span class="k">values</span><span>{{ agentDetail.agent.persona.values || '—' }}</span></div>
+                    <div class="info-row"><span class="k">boundaries</span><span>{{ agentDetail.agent.persona.boundaries || '—' }}</span></div>
+                    <div class="info-row"><span class="k">sampleStyle</span><span>{{ agentDetail.agent.persona.sampleStyle || '—' }}</span></div>
+                  </template>
+                  <p v-else class="empty" style="padding:12px">未设置人格。点右上「设置人格」按 7 字段定义；或到「新建 Agent → 从人格库导入」从 12 个默认人格预设导入。</p>
+                </div>
               </div>
 
               <!-- Tab 3：文件浏览器（可编辑） -->
@@ -2734,6 +3056,81 @@ const outputRows = computed(() =>
                 </tbody>
               </table>
             </template>
+          </div>
+
+          <!-- 人格库（025）：copy-in 模板库独立成页。内置 12 只读 + 自定义 CRUD；Agent 新建「从人格库导入」只从这里选 -->
+          <div v-else-if="active === 'personas'">
+            <div class="toolbar">
+              <button class="btn btn-primary" @click="openPersonaEditor()">+ 新建人格</button>
+            </div>
+            <p class="empty" style="margin:4px 0 14px">
+              人格库 = copy-in 模板库：Agent 新建页「从人格库导入」选中某人时，源文件原文会被复制进 Agent 定义——之后改了库里的人格，
+              不影响已导入的 Agent。内置 12 个随 jar 升级自动更新、永远只读；自定义人格保存在
+              <span class="mono">.oryxos/personas/</span>，可改可删、跨重启持久。
+            </p>
+            <p v-if="personaPageError" class="error">{{ personaPageError }}</p>
+
+            <!-- 新建 / 编辑 / 查看 弹框：源文件原文即库内容（frontmatter name/description/emoji 投影卡片 meta） -->
+            <div v-if="personaForm.open" class="modal-overlay" @click.self="cancelPersonaForm()">
+              <div class="modal-card">
+                <div class="modal-head">
+                  <h3>{{ personaForm.viewOnly ? '查看人格' : personaForm.editing ? '编辑人格' : '新建人格' }}</h3>
+                  <button class="modal-x" @click="cancelPersonaForm()">✕</button>
+                </div>
+                <div class="modal-body">
+                  <template v-if="!personaForm.viewOnly">
+                    <label class="empty" style="display:block;margin:0 0 2px">从本地 .md 文件导入（读入下方文本框；新建时 key 从文件名派生，可改）</label>
+                    <input type="file" accept=".md,text/markdown" class="gen-input" @change="onPersonaFile" />
+                  </template>
+                  <input v-model="personaForm.key" class="gen-input" :disabled="personaForm.editing || personaForm.viewOnly"
+                         placeholder="key（字母/数字/下划线/连字符；也是导入时的建议 Agent 名）" />
+                  <p v-if="personaForm.busy" class="empty">加载中…</p>
+                  <textarea v-else v-model="personaForm.sourceContent" class="gen-draft mono" rows="14" :readonly="personaForm.viewOnly"
+                            placeholder="---&#10;name: 你的专家名&#10;description: 一句话描述&#10;emoji: 🎯&#10;---&#10;# 你的专家&#10;你是**专家**…&#10;&#10;## 🧠 身份与记忆&#10;- **角色**：…&#10;- **性格**：…&#10;（agency-agents-zh 人格文件格式；身份段按 角色/性格 等行级关键字解析成 persona 7 字段）"></textarea>
+                  <p v-if="personaForm.viewOnly" class="empty">内置人格只读，随 jar 升级自动更新；不能编辑或删除。</p>
+                  <p v-else class="empty">导入该人格时，源文件原文会被复制进 Agent 定义（copy-in），改这里不影响已导入的 Agent。</p>
+                  <p v-if="personaForm.error" class="error">{{ personaForm.error }}</p>
+                </div>
+                <div class="modal-foot">
+                  <button class="btn" @click="cancelPersonaForm">关闭</button>
+                  <button v-if="!personaForm.viewOnly" class="btn btn-primary"
+                          :disabled="personaForm.busy || !personaForm.sourceContent.trim() || (!personaForm.editing && !personaForm.key.trim())"
+                          @click="savePersonaForm">{{ personaForm.editing ? '保存修改' : '创建' }}</button>
+                </div>
+              </div>
+            </div>
+
+            <p v-if="personaPresets.loading" class="empty">加载中…</p>
+            <p v-else-if="personaPresets.error" class="error">出错：{{ personaPresets.error }}</p>
+            <table v-else>
+              <thead><tr><th>人格</th><th>类型</th><th>key</th><th>描述</th><th>来源</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-if="!personaPresets.data.length"><td colspan="6" class="empty">（暂无自定义人格 · 点「+ 新建人格」开始）</td></tr>
+                <tr v-for="p in personaPresets.data" :key="p.key">
+                  <td>
+                    <span class="persona-cell-name"><span class="preset-emoji">{{ p.emoji }}</span>{{ p.label }}</span>
+                  </td>
+                  <td class="persona-type">
+                    <span class="preset-badge" :class="p.builtin ? 'b-in' : 'b-cu'">{{ p.builtin ? '内置' : '自定义' }}</span>
+                  </td>
+                  <td class="mono">{{ p.key }}</td>
+                  <td>{{ p.description || '—' }}</td>
+                  <td class="mono">{{ p.builtin ? (p.sourceFile || 'classpath personas/' + p.key + '.md') : '.oryxos/personas/' + p.key + '.md' }}</td>
+                  <td class="ops">
+                    <button class="btn" @click="viewPersona(p)">查看</button>
+                    <button v-if="!p.builtin" class="btn" @click="editPersona(p)">编辑</button>
+                    <button v-if="!p.builtin" class="btn" @click="deletePersona(p)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- 来源注记：放在列表下方作页面底部脚注——新建人格往列表里加的行永远在它上边，提示恒在页底 -->
+            <p class="persona-src-foot">
+              内置 12 个人格预设的提示词源自 MIT 许可的 agency-agents 中文社区版
+              <a href="https://github.com/jnMetaCode/agency-agents-zh" target="_blank" rel="noopener">jnMetaCode/agency-agents-zh</a>
+              （上游 <a href="https://github.com/msitarzewski/agency-agents" target="_blank" rel="noopener">msitarzewski/agency-agents</a>，MIT）。
+            </p>
           </div>
 
           <!-- Notify 渠道：命名通知出口的 CRUD（新建/编辑/删除） -->
@@ -3121,6 +3518,16 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--text-2); font-weight: 500; }
 .empty { color: var(--text-3); }
+.persona-src-foot {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-3);
+  border-top: 1px dashed var(--border);
+  margin: 16px 0 0;
+  padding-top: 10px;
+}
+.persona-src-foot a { color: var(--brand); text-decoration: none; }
+.persona-src-foot a:hover { text-decoration: underline; }
 .error { color: var(--err); }
 .tag { display: inline-block; background: var(--bg-mute); color: var(--brand); border-radius: var(--radius); padding: 2px 8px; margin-right: 6px; }
 .memtext { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; white-space: pre-wrap; }
@@ -3300,4 +3707,19 @@ th { color: var(--text-2); font-weight: 500; }
 }
 @keyframes boot-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .boot-spinner { animation: none; } }
+/* 人格库（025）：预设卡片（emoji + label + 描述），Agent 导入页选中高亮；人格库页表格复用 emoji/badge */
+.preset-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 176px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-soft); color: var(--text-1); text-align: left; cursor: pointer; }
+.preset-opt:hover { border-color: var(--brand); }
+.preset-opt.on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--bg-soft)); color: var(--text-1); }
+.preset-opt:disabled { opacity: .55; cursor: default; }
+.preset-emoji { font-size: 18px; line-height: 1; }
+.preset-label { font-size: 13px; font-weight: 600; }
+.preset-desc { font-size: 11px; line-height: 1.4; color: var(--text-2); }
+.preset-badge { margin-left: 4px; font-size: 10px; font-weight: 400; padding: 1px 6px; border-radius: 999px; vertical-align: 1px; white-space: nowrap; }
+.preset-badge.b-in { color: var(--muted, #888); background: rgba(128, 128, 128, 0.15); }
+.preset-badge.b-cu { color: var(--ok); background: rgba(34, 197, 94, 0.12); }
+/* 人格库页「人格」列表格：人格列 = emoji+label 单行不拆词；类型列单独放「内置/自定义」徽标 */
+.persona-cell-name { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+td.persona-type .preset-badge, .persona-cell-name .preset-badge { margin-left: 0; }
+.preview-valid { margin-top: 6px; font-size: 12px; }
 </style>
