@@ -176,6 +176,11 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
   }
 
   private void connectLocked() throws Exception {
+    wsRef.set(connect());
+  }
+
+  /** 建连并返回客户端；不写入 {@link #wsRef}——由调用方在持锁处决定是否接管（重连期间可能已被 stop）。 */
+  private WeComWsClient connect() throws Exception {
     ensureOutboundStack();
     WeComWsClient client =
         new WeComWsClient(
@@ -186,7 +191,7 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
             this::handleDisconnected);
     transportRef.set(client::sendJson);
     client.connectAndSubscribe(START_TIMEOUT);
-    wsRef.set(client);
+    return client;
   }
 
   /** 懒初始化出站/入站组件；重连复用同一 {@link WeComMessageSender} 以保留 chatTypes 映射。 */
@@ -246,13 +251,13 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
       if (!running) {
         return;
       }
-      try {
-        connectLocked();
-        reconnectAttempt = 0;
-        state = ChannelStatus.State.CONNECTED;
-        lastError = null;
-        LOG.info("企微渠道 {} 长连接已恢复", sanitize(config.name()));
-      } catch (Exception e) {
+    }
+    // 建连放锁外：connectAndSubscribe 最坏阻塞 ~40s，锁内执行会把 stop()/管理端停用卡住
+    WeComWsClient client;
+    try {
+      client = connect();
+    } catch (Exception e) {
+      synchronized (this) {
         reconnectAttempt++;
         lastError = "长连接重连失败: " + sanitize(e.getMessage());
         LOG.warn(
@@ -260,8 +265,20 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
             sanitize(config.name()),
             reconnectAttempt,
             sanitize(lastError));
-        scheduleReconnect();
       }
+      scheduleReconnect();
+      return;
+    }
+    synchronized (this) {
+      if (!running) {
+        client.closeQuietly();
+        return;
+      }
+      wsRef.set(client);
+      reconnectAttempt = 0;
+      state = ChannelStatus.State.CONNECTED;
+      lastError = null;
+      LOG.info("企微渠道 {} 长连接已恢复", sanitize(config.name()));
     }
   }
 
