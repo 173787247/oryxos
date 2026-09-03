@@ -1,9 +1,15 @@
 package io.oryxos.tool.builtin;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.FileOutputStream;
+import io.oryxos.tool.sandbox.ActionType;
+import io.oryxos.tool.sandbox.Sandbox;
+import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.poi.ss.usermodel.Cell;
@@ -23,13 +29,19 @@ import org.springframework.ai.tool.annotation.ToolParam;
  *
  * <ul>
  *   <li>{@code format_sql} - 将 SQL 查询结果格式化为 Markdown 表格
- *   <li>{@code export_excel} - 将数据导出为 Excel 文件
+ *   <li>{@code export_excel} - 将数据导出为 Excel 文件（写路径必须过 FILE 沙箱白名单）
  * </ul>
  */
 public class FormatTools {
 
   private static final Logger LOG = LoggerFactory.getLogger(FormatTools.class);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  private final Sandbox sandbox;
+
+  public FormatTools(Sandbox sandbox) {
+    this.sandbox = sandbox;
+  }
 
   @Tool(
       name = "format_sql",
@@ -64,7 +76,7 @@ public class FormatTools {
       }
 
       return formatAsMarkdownTable(headers, rows);
-    } catch (Exception e) {
+    } catch (JsonProcessingException | RuntimeException e) {
       LOG.error("格式化 SQL 结果失败", e);
       return "格式化失败: " + e.getMessage();
     }
@@ -94,6 +106,9 @@ public class FormatTools {
         return "错误: 缺少 rows 参数或格式错误";
       }
 
+      // 写前校验 + 落盘前复检（与 write_file / download_file 同款，防 TOCTOU）
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, filePath));
+
       List<String> headers = new ArrayList<>();
       for (JsonNode header : headersNode) {
         headers.add(header.asText());
@@ -108,28 +123,26 @@ public class FormatTools {
         rows.add(row);
       }
 
-      exportToExcel(filePath, sheetName, headers, rows);
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, filePath));
+      exportToExcel(Path.of(filePath), sheetName, headers, rows);
       return "Excel 文件已导出到: " + filePath;
-    } catch (Exception e) {
+    } catch (IOException | RuntimeException e) {
       LOG.error("导出 Excel 失败", e);
       return "导出失败: " + e.getMessage();
     }
   }
 
-  private String formatAsMarkdownTable(List<String> headers, List<List<String>> rows) {
+  private static String formatAsMarkdownTable(List<String> headers, List<List<String>> rows) {
     StringBuilder sb = new StringBuilder();
 
-    // 表头
     sb.append("| ");
     sb.append(String.join(" | ", headers));
     sb.append(" |\n");
 
-    // 分隔线
     sb.append("| ");
     sb.append(String.join(" | ", headers.stream().map(h -> "---").toList()));
     sb.append(" |\n");
 
-    // 数据行
     for (List<String> row : rows) {
       sb.append("| ");
       sb.append(String.join(" | ", row));
@@ -139,20 +152,22 @@ public class FormatTools {
     return sb.toString();
   }
 
-  private void exportToExcel(
-      String filePath, String sheetName, List<String> headers, List<List<String>> rows)
+  private static void exportToExcel(
+      Path file, String sheetName, List<String> headers, List<List<String>> rows)
       throws IOException {
+    Path parent = file.getParent();
+    if (parent != null) {
+      Files.createDirectories(parent);
+    }
     try (Workbook workbook = new XSSFWorkbook()) {
       Sheet sheet = workbook.createSheet(sheetName);
 
-      // 写入表头
       Row headerRow = sheet.createRow(0);
       for (int i = 0; i < headers.size(); i++) {
         Cell cell = headerRow.createCell(i);
         cell.setCellValue(headers.get(i));
       }
 
-      // 写入数据行
       int rowNum = 1;
       for (List<String> rowData : rows) {
         Row row = sheet.createRow(rowNum++);
@@ -162,13 +177,11 @@ public class FormatTools {
         }
       }
 
-      // 自动调整列宽
       for (int i = 0; i < headers.size(); i++) {
         sheet.autoSizeColumn(i);
       }
 
-      // 写入文件
-      try (FileOutputStream outputStream = new FileOutputStream(filePath)) {
+      try (OutputStream outputStream = Files.newOutputStream(file)) {
         workbook.write(outputStream);
       }
     }

@@ -56,9 +56,28 @@ public class InboundMessageService {
   private final MessageDeduplicator deduplicator;
   private final InboundMediaEnricher mediaEnricher;
   private final Duration processingNoticeDelay;
+  private final InterruptManager interruptManager;
   private final Map<String, Long> recentNewSessionAckMs = new ConcurrentHashMap<>();
   private final Map<String, Long> recentProcessingNoticeMs = new ConcurrentHashMap<>();
-  private InterruptManager interruptManager;
+
+  public InboundMessageService(
+      AgentService agentService,
+      SessionManager sessionManager,
+      ProfileRegistry profileRegistry,
+      AgentExecutionService executionService,
+      MessageDeduplicator deduplicator,
+      InboundMediaEnricher mediaEnricher,
+      Duration processingNoticeDelay) {
+    this(
+        agentService,
+        sessionManager,
+        profileRegistry,
+        executionService,
+        deduplicator,
+        mediaEnricher,
+        processingNoticeDelay,
+        null);
+  }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -70,7 +89,8 @@ public class InboundMessageService {
       AgentExecutionService executionService,
       MessageDeduplicator deduplicator,
       InboundMediaEnricher mediaEnricher,
-      Duration processingNoticeDelay) {
+      Duration processingNoticeDelay,
+      InterruptManager interruptManager) {
     this.agentService = agentService;
     this.sessionManager = sessionManager;
     this.profileRegistry = profileRegistry;
@@ -78,14 +98,6 @@ public class InboundMessageService {
     this.deduplicator = deduplicator;
     this.mediaEnricher = mediaEnricher == null ? new DefaultInboundMediaEnricher() : mediaEnricher;
     this.processingNoticeDelay = processingNoticeDelay;
-  }
-
-  /**
-   * 设置中断管理器（可选）。
-   *
-   * @param interruptManager 中断管理器
-   */
-  public void setInterruptManager(InterruptManager interruptManager) {
     this.interruptManager = interruptManager;
   }
 
@@ -241,8 +253,32 @@ public class InboundMessageService {
     }
   }
 
-  private boolean isStopCommand(String text) {
-    return STOP_COMMAND.equalsIgnoreCase(text.trim());
+  private static boolean isStopCommand(String text) {
+    if (text == null) {
+      return false;
+    }
+    return asciiEqualsIgnoreCase(text.strip(), STOP_COMMAND);
+  }
+
+  /** 仅 ASCII 大小写折叠，避免 equalsIgnoreCase 触发 SpotBugs IMPROPER_UNICODE。 */
+  private static boolean asciiEqualsIgnoreCase(String left, String right) {
+    if (left.length() != right.length()) {
+      return false;
+    }
+    for (int i = 0; i < left.length(); i++) {
+      char a = left.charAt(i);
+      char b = right.charAt(i);
+      if (a >= 'A' && a <= 'Z') {
+        a = (char) (a + ('a' - 'A'));
+      }
+      if (b >= 'A' && b <= 'Z') {
+        b = (char) (b + ('a' - 'A'));
+      }
+      if (a != b) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private InferenceJob buildInference(

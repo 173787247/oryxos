@@ -787,7 +787,8 @@ public class OryxOsRuntime {
     registry.registerAnnotated(new UtilTools()); // current_time / json_extract（纯计算，无沙箱）
     registry.registerAnnotated(
         new WebSearchTools(sandbox, new DuckDuckGoSearchProvider(restClient, sandbox)));
-    registry.registerAnnotated(new FormatTools()); // format_sql / export_excel（数据格式化）
+    registry.registerAnnotated(
+        new FormatTools(sandbox)); // format_sql / export_excel（写路径过 FILE 白名单）
     // chat → ConsoleUserInteraction；serve/gateway → UnsupportedUserInteraction（见 userInteraction
     // bean）
     registry.registerAnnotated(new InteractionTools(userInteraction));
@@ -904,9 +905,7 @@ public class OryxOsRuntime {
       ProviderService providerService,
       ToolExecutor toolExecutor,
       InterruptManager interruptManager) {
-    ReActLoop loop = new ReActLoop(promptBuilder, providerService, toolExecutor);
-    loop.setInterruptManager(interruptManager);
-    return loop;
+    return new ReActLoop(promptBuilder, providerService, toolExecutor, interruptManager);
   }
 
   @Bean
@@ -983,17 +982,15 @@ public class OryxOsRuntime {
       AgentExecutionService agentExecutionService,
       io.oryxos.core.channel.MessageDeduplicator messageDeduplicator,
       InterruptManager interruptManager) {
-    io.oryxos.core.channel.InboundMessageService service =
-        new io.oryxos.core.channel.InboundMessageService(
-            agentService,
-            sessionManager,
-            profileRegistry,
-            agentExecutionService,
-            messageDeduplicator,
-            new io.oryxos.core.channel.DefaultInboundMediaEnricher(),
-            java.time.Duration.ofSeconds(15)); // 「处理中」提示阈值（Edge Case：先行告知）
-    service.setInterruptManager(interruptManager);
-    return service;
+    return new io.oryxos.core.channel.InboundMessageService(
+        agentService,
+        sessionManager,
+        profileRegistry,
+        agentExecutionService,
+        messageDeduplicator,
+        new io.oryxos.core.channel.DefaultInboundMediaEnricher(),
+        java.time.Duration.ofSeconds(15), // 「处理中」提示阈值（Edge Case：先行告知）
+        interruptManager);
   }
 
   /** 渠道出站守卫：渠道自建 HTTP 不被沙箱自动拦截，经此显式复用 http 域名白名单（宪法 VI / 017 R7）。 */

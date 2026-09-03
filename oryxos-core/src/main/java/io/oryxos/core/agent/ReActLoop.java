@@ -27,26 +27,26 @@ public class ReActLoop {
   private final PromptBuilder promptBuilder;
   private final ProviderService providerService;
   private final ToolExecutor toolExecutor;
-  private InterruptManager interruptManager;
+  private final InterruptManager interruptManager;
+
+  public ReActLoop(
+      PromptBuilder promptBuilder, ProviderService providerService, ToolExecutor toolExecutor) {
+    this(promptBuilder, providerService, toolExecutor, null);
+  }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification =
-          "promptBuilder/toolExecutor 为 Spring 装配的共享单例（020 起带策略 setter 故为可变类），"
+          "promptBuilder/toolExecutor/interruptManager 为 Runtime 装配的共享单例，"
               + "构造注入存同一引用正是意图（镜像既有 SuppressFBWarnings 模式）。")
   public ReActLoop(
-      PromptBuilder promptBuilder, ProviderService providerService, ToolExecutor toolExecutor) {
+      PromptBuilder promptBuilder,
+      ProviderService providerService,
+      ToolExecutor toolExecutor,
+      InterruptManager interruptManager) {
     this.promptBuilder = promptBuilder;
     this.providerService = providerService;
     this.toolExecutor = toolExecutor;
-  }
-
-  /**
-   * 设置中断管理器（可选）。
-   *
-   * @param interruptManager 中断管理器
-   */
-  public void setInterruptManager(InterruptManager interruptManager) {
     this.interruptManager = interruptManager;
   }
 
