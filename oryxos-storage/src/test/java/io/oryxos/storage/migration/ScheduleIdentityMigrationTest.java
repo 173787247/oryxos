@@ -1,4 +1,4 @@
-package io.oryxos.storage;
+package io.oryxos.storage.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.sqlite.SQLiteDataSource;
 
-class ScheduleSchemaUpgradeTest {
+class ScheduleIdentityMigrationTest {
 
   @TempDir Path tempDir;
 
@@ -33,7 +33,7 @@ class ScheduleSchemaUpgradeTest {
                ('orphan', 'session-2', '2026-08-14T02:00:00Z', 0, 'gone', 456)
         """);
 
-    new ScheduleSchemaUpgrade(dataSource).upgrade();
+    migrate(new ScheduleIdentityMigration(), dataSource);
 
     try (Connection connection = dataSource.getConnection()) {
       assertThat(count(connection, "scheduled_tasks")).isEqualTo(1);
@@ -88,9 +88,8 @@ class ScheduleSchemaUpgradeTest {
         VALUES ('daily', 'alpha', '0 0 9 * * *', 1, 0, '2026-08-14T01:00:00Z')
         """);
 
-    ScheduleSchemaUpgrade upgrade = new ScheduleSchemaUpgrade(dataSource);
-    upgrade.upgrade();
-    upgrade.upgrade();
+    migrate(new ScheduleIdentityMigration(), dataSource);
+    migrate(new ScheduleIdentityMigration(), dataSource);
 
     try (Connection connection = dataSource.getConnection()) {
       assertThat(count(connection, "scheduled_tasks")).isEqualTo(1);
@@ -111,7 +110,7 @@ class ScheduleSchemaUpgradeTest {
             '0 0 9 * * *', 1, 2, '2026-08-14T01:00:00Z')
         """);
 
-    new ScheduleSchemaUpgrade(dataSource).upgrade();
+    migrate(new ScheduleIdentityMigration(), dataSource);
 
     try (Connection connection = dataSource.getConnection();
         Statement statement = connection.createStatement();
@@ -133,7 +132,7 @@ class ScheduleSchemaUpgradeTest {
         "CREATE TABLE scheduled_tasks (schedule_id TEXT PRIMARY KEY, profile_name TEXT NOT NULL)",
         "CREATE TABLE task_executions (id INTEGER PRIMARY KEY, task_id TEXT NOT NULL)");
 
-    assertThatThrownBy(() -> new ScheduleSchemaUpgrade(dataSource).upgrade())
+    assertThatThrownBy(() -> migrate(new ScheduleIdentityMigration(), dataSource))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("Unsupported scheduled-task schema");
   }
@@ -146,7 +145,7 @@ class ScheduleSchemaUpgradeTest {
         "CREATE TABLE scheduled_tasks (schedule_id TEXT, profile_name TEXT, schedule_key TEXT, display_name TEXT, cron TEXT, zone TEXT, message TEXT, enabled BOOLEAN, retired BOOLEAN, next_run_at TEXT, last_run_at TEXT, last_status TEXT, run_count INTEGER, updated_at TEXT)",
         "CREATE TABLE task_executions (id INTEGER, schedule_id TEXT, legacy_task_key TEXT, legacy_migrated BOOLEAN, session_id TEXT, started_at TEXT, success BOOLEAN, error_message TEXT, duration_ms INTEGER)");
 
-    assertThatThrownBy(() -> new ScheduleSchemaUpgrade(dataSource).upgrade())
+    assertThatThrownBy(() -> migrate(new ScheduleIdentityMigration(), dataSource))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("Unsupported scheduled-task schema");
   }
@@ -251,6 +250,29 @@ class ScheduleSchemaUpgradeTest {
         names.add(resultSet.getString("name"));
       }
       return names;
+    }
+  }
+
+  private static void migrate(BaseSqliteMigration migration, SQLiteDataSource dataSource)
+      throws Exception {
+    try (Connection connection = dataSource.getConnection()) {
+      migration.migrate(connection);
+    }
+  }
+
+  private static void runBaseline(SQLiteDataSource dataSource) throws Exception {
+    String schema;
+    try (var in =
+        BaseSqliteMigration.class.getResourceAsStream("/db/migration/sqlite/V1__baseline.sql")) {
+      schema = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+    try (Connection connection = dataSource.getConnection();
+        Statement statement = connection.createStatement()) {
+      for (String sql : schema.split(";")) {
+        if (!sql.isBlank()) {
+          statement.execute(sql);
+        }
+      }
     }
   }
 }

@@ -10,16 +10,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /** 课件《第18节》验收 harness：SessionManagerTest——会话口径（幂等/隔离/id 单点）在此钉死。 */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@SqliteJpaTest
 class SessionManagerTest {
 
   @TempDir static Path dbDir;
@@ -27,11 +22,6 @@ class SessionManagerTest {
   @DynamicPropertySource
   static void sqliteFile(DynamicPropertyRegistry registry) {
     registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("manager-test.db"));
-    registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-    registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-    registry.add(
-        "spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-    registry.add("spring.sql.init.mode", () -> "always");
   }
 
   @Autowired private SessionRepository repository;

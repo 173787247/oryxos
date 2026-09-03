@@ -20,6 +20,8 @@ server:
   forward-headers-strategy: framework
 
 # ── 持久化 / 并发 ───────────────────────────────────────
+# 两档（025 可插拔存储）：默认 SQLite 零配置单机档；换 PostgreSQL 只需改 url + 账密——
+# 库类型按 url 自动识别（驱动/方言/迁移脚本自动切换，无需再配别的），表结构启动时自动迁移。
 spring:
   datasource:
     url: jdbc:sqlite:oryxos.db  # SQLite 数据文件（会话 + 审计表），相对启动目录
@@ -27,6 +29,11 @@ spring:
       data-source-properties:
         journal_mode: WAL        # 允许读写并发，避免默认 rollback journal 放大锁竞争
         busy_timeout: 5000       # 短暂写锁时最多等待 5 秒，而不是立即报 database is locked
+    # ↑ SQLite 专属两项在 PG 下自动失效，无需删除。
+    # PostgreSQL 部署选项（多副本 / 高并发写；PG 14+）——取消注释并按企业库填写：
+    # url: jdbc:postgresql://db.example.com:5432/oryxos
+    # username: oryxos
+    # password: ${ORYXOS_DB_PASSWORD}   # 凭证走环境变量注入，不明文写在这里
   threads:
     virtual:
       enabled: true             # 宪法七：Java 21 虚拟线程扛并发，不引入异步框架

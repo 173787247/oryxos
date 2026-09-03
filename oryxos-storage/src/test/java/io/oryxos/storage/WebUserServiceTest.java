@@ -11,11 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -23,21 +20,18 @@ import org.springframework.test.context.DynamicPropertySource;
  * 012-web-auth 验收 harness：WebUserServiceTest——账号管理口径（哈希非明文、校验对错、禁用失效、 重名/弱密码/用户名非法）在此钉死。镜像
  * SessionManagerTest 的 @DataJpaTest + @DynamicPropertySource 模式。
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@SqliteJpaTest
 class WebUserServiceTest {
 
   @TempDir static Path dbDir;
 
   @DynamicPropertySource
   static void sqliteProperties(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("webauth-test.db"));
-    registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-    registry.add("spring.jpa.hibernate.ddl-auto", () -> "none"); // 不许 Hibernate 自动建表
     registry.add(
-        "spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-    registry.add("spring.sql.init.mode", () -> "always"); // 建表走手工 schema.sql
+        "spring.datasource.url",
+        () ->
+            "jdbc:sqlite:"
+                + dbDir.resolve("webauth-test.db")); // 不许 Hibernate 自动建表 // 建表走手工 schema.sql
   }
 
   @Autowired private WebUserRepository repository;

@@ -9,17 +9,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /** memory_entries 手工建表 + LIMIT/LIKE 查询（16 节 SQLite 文件库模式）。 */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@SqliteJpaTest
 class MemoryEntryRepositoryTest {
 
   @TempDir static Path dbDir;
@@ -27,11 +22,6 @@ class MemoryEntryRepositoryTest {
   @DynamicPropertySource
   static void sqliteFile(DynamicPropertyRegistry registry) {
     registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("memory-test.db"));
-    registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-    registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-    registry.add(
-        "spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-    registry.add("spring.sql.init.mode", () -> "always");
   }
 
   @Autowired private MemoryEntryRepository repository;

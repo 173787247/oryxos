@@ -12,16 +12,11 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /** 022 US1/US2：注册表收口加解密透明性、迁移幂等、密钥守卫拒启、坏行隔离。 */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@SqliteJpaTest
 class SecretStorageTest {
 
   @TempDir static Path dbDir;
@@ -31,12 +26,9 @@ class SecretStorageTest {
 
   @DynamicPropertySource
   static void sqliteProperties(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("secret.db"));
-    registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-    registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
     registry.add(
-        "spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-    registry.add("spring.sql.init.mode", () -> "always"); // 建表走手工 schema.sql
+        "spring.datasource.url",
+        () -> "jdbc:sqlite:" + dbDir.resolve("secret.db")); // 建表走手工 schema.sql
   }
 
   @Autowired LlmProviderRepository providerRepository;

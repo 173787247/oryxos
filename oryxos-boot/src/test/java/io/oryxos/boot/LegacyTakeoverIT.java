@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.cli.OryxOsRuntime;
 import io.oryxos.core.agent.AgentScheduler;
-import io.oryxos.storage.ScheduleSchemaUpgrade;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,14 +20,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
-/** Verifies that a real application start upgrades a recognized pre-scheduleId SQLite database. */
-class ScheduleSchemaUpgradeIntegrationTest {
+/**
+ * 025 存量接管集成测试（原 ScheduleSchemaUpgradeIntegrationTest 扩展）：任意历史状态的存量 SQLite 库 零配置启动即被 Flyway 幂等序列
+ * V1~V5 收敛——legacy 调度表重建、审计/记忆/通知渠道补列、数据完好； 二次重启迁移历史无新增（幂等接管，SC-001/FR-004）。
+ */
+class LegacyTakeoverIT {
 
   @Test
-  @DisplayName("startup upgrades legacy schedule tables without losing task or execution rows")
-  void startupUpgradesLegacySchemaAndPreservesRows() throws Exception {
+  @DisplayName("startup converges a legacy database via Flyway without losing rows")
+  void startupConvergesLegacySchemaAndPreservesRows() throws Exception {
     Path root = seedWorkspace();
-    Path database = root.resolve("legacy-schedules.db");
+    Path database = root.resolve("legacy-takeover.db");
     String dbUrl = "jdbc:sqlite:" + database;
     createLegacyDatabase(dbUrl);
 
@@ -37,10 +39,16 @@ class ScheduleSchemaUpgradeIntegrationTest {
       // this fixture deliberately uses WebApplicationType.NONE to avoid binding a server port.
       assertNotNull(context.getBean(AgentScheduler.class));
       assertEquals(dbUrl, jdbcUrl(context.getBean(DataSource.class)));
-      context.getBean(ScheduleSchemaUpgrade.class).upgrade();
       assertNewSchemaAndPreservedRows(dbUrl);
     }
+    long historyRows = flywayHistoryRows(dbUrl);
+    assertTrue(historyRows >= 5, "expected baseline + V1~V5 in history, got " + historyRows);
 
+    // 二次重启：不重复执行接管动作，迁移历史无新增（SC-001）
+    try (ConfigurableApplicationContext context = boot(root, dbUrl)) {
+      assertNotNull(context.getBean(AgentScheduler.class));
+    }
+    assertEquals(historyRows, flywayHistoryRows(dbUrl));
     assertNewSchemaAndPreservedRows(dbUrl);
   }
 
@@ -60,6 +68,7 @@ class ScheduleSchemaUpgradeIntegrationTest {
             "--spring.main.web-application-type=none");
   }
 
+  /** 存量库 fixture：legacy 调度表 + 缺 trace/profile/cost 列的审计表 + 缺 agent_name 的记忆表 + 缺 config 的渠道表。 */
   private static void createLegacyDatabase(String dbUrl) throws Exception {
     try (Connection connection = DriverManager.getConnection(dbUrl);
         Statement statement = connection.createStatement()) {
@@ -107,6 +116,52 @@ class ScheduleSchemaUpgradeIntegrationTest {
             task_id, session_id, started_at, success, error_message, duration_ms)
           VALUES ('daily', 'legacy-session', '2025-12-31T00:00:00Z', 1, NULL, 42)
           """);
+      statement.execute(
+          """
+          CREATE TABLE llm_calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id VARCHAR(255) NOT NULL,
+            provider VARCHAR(64) NOT NULL,
+            model VARCHAR(128) NOT NULL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            success BOOLEAN NOT NULL,
+            error_message TEXT,
+            duration_ms INTEGER NOT NULL,
+            created_at TIMESTAMP NOT NULL
+          )
+          """);
+      statement.execute(
+          "INSERT INTO llm_calls (session_id, provider, model, success, duration_ms, created_at)"
+              + " VALUES ('s-1', 'deepseek', 'deepseek-chat', 1, 100, '2025-12-31T00:00:00Z')");
+      statement.execute(
+          """
+          CREATE TABLE memory_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope VARCHAR(16) NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL
+          )
+          """);
+      statement.execute(
+          "INSERT INTO memory_entries (scope, content, created_at)"
+              + " VALUES ('ARCHIVAL', 'legacy memory', '2025-12-31T00:00:00Z')");
+      statement.execute(
+          """
+          CREATE TABLE notify_channels (
+            name VARCHAR(128) PRIMARY KEY,
+            type VARCHAR(32) NOT NULL,
+            url TEXT NOT NULL,
+            description TEXT,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+          )
+          """);
+      statement.execute(
+          "INSERT INTO notify_channels (name, type, url, created_at, updated_at)"
+              + " VALUES ('ops', 'webhook', 'https://example.com/hook',"
+              + " '2025-12-31T00:00:00Z', '2025-12-31T00:00:00Z')");
     }
   }
 
@@ -120,6 +175,16 @@ class ScheduleSchemaUpgradeIntegrationTest {
       assertTrue(columnExists(statement, "task_executions", "legacy_migrated"));
       assertEquals(1, count(statement, "scheduled_tasks"));
       assertEquals(1, count(statement, "task_executions"));
+
+      // V2：审计补列；V3：记忆补列；V5：渠道补列——存量行全部完好
+      assertTrue(columnExists(statement, "llm_calls", "trace_id"));
+      assertTrue(columnExists(statement, "llm_calls", "cost_micros"));
+      assertTrue(columnExists(statement, "llm_calls", "profile_name"));
+      assertTrue(columnExists(statement, "memory_entries", "agent_name"));
+      assertTrue(columnExists(statement, "notify_channels", "config"));
+      assertEquals(1, count(statement, "llm_calls"));
+      assertEquals(1, count(statement, "memory_entries"));
+      assertEquals(1, count(statement, "notify_channels"));
 
       try (ResultSet task =
           statement.executeQuery(
@@ -146,6 +211,17 @@ class ScheduleSchemaUpgradeIntegrationTest {
     }
   }
 
+  private static long flywayHistoryRows(String dbUrl) throws Exception {
+    try (Connection connection = DriverManager.getConnection(dbUrl);
+        Statement statement = connection.createStatement();
+        ResultSet rows =
+            statement.executeQuery(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1")) {
+      assertTrue(rows.next());
+      return rows.getLong(1);
+    }
+  }
+
   private static boolean columnExists(Statement statement, String table, String column)
       throws Exception {
     try (ResultSet rows = statement.executeQuery("PRAGMA table_info(" + table + ")")) {
@@ -166,7 +242,7 @@ class ScheduleSchemaUpgradeIntegrationTest {
   }
 
   private static Path seedWorkspace() throws IOException {
-    Path root = Files.createTempDirectory("oryxos-legacy-schedule-upgrade");
+    Path root = Files.createTempDirectory("oryxos-legacy-takeover");
     Files.createDirectories(root.resolve("memory"));
     Files.createDirectories(root.resolve("agents").resolve("legacy-agent"));
     Files.writeString(

@@ -11,9 +11,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -21,9 +18,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * 012-web-auth US3 验收 harness：WebSessionServiceTest——session 创建/查有效/过期惰性清/登出 钉死。 镜像
  * WebUserServiceTest 的 @DataJpaTest + @DynamicPropertySource 模式。
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@SqliteJpaTest
 class WebSessionServiceTest {
 
   @TempDir static Path dbDir;
@@ -32,11 +27,6 @@ class WebSessionServiceTest {
   static void sqliteProperties(DynamicPropertyRegistry registry) {
     registry.add(
         "spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("websession-test.db"));
-    registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-    registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-    registry.add(
-        "spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-    registry.add("spring.sql.init.mode", () -> "always");
   }
 
   @Autowired private WebSessionRepository repository;

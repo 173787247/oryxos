@@ -1,4 +1,4 @@
-package io.oryxos.storage;
+package io.oryxos.storage.migration;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -11,10 +11,14 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import javax.sql.DataSource;
 
-/** One-time, structure-detected migration for the original scheduler tables. */
-public final class ScheduleSchemaUpgrade {
+/**
+ * V4（原 ScheduleSchemaUpgrade 平移，28 节）：调度表结构检测式收敛——三分支状态机：当前结构仅补执行索引； pre-retirement 结构补 retired
+ * 列；legacy 结构整表重建（task_id → 随机 schedule_id 键映射 + 行数对账）。 结构无法识别（非本产品所建或被手工改动）时抛异常拒启，绝不带病修改数据。
+ *
+ * <p>与原类唯一的行为差异：手写 BEGIN IMMEDIATE/COMMIT/ROLLBACK 移除——Flyway 以事务包裹整个迁移， 异常上抛即整体回滚，对账失败同样回滚。
+ */
+final class ScheduleIdentityMigration extends BaseSqliteMigration {
 
   private static final Set<String> LEGACY_TASK_COLUMNS =
       Set.of(
@@ -60,55 +64,37 @@ public final class ScheduleSchemaUpgrade {
           "error_message",
           "duration_ms");
 
-  private final DataSource dataSource;
-
-  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-      value = "EI_EXPOSE_REP2",
-      justification =
-          "The injected DataSource is an intentionally shared connection factory and cannot be defensively copied.")
-  public ScheduleSchemaUpgrade(DataSource dataSource) {
-    this.dataSource = dataSource;
+  ScheduleIdentityMigration() {
+    super("4", "schedule identity");
   }
 
-  /** Upgrade a recognized old schema, skip the current schema, and reject any other shape. */
-  public void upgrade() {
-    try (Connection connection = dataSource.getConnection()) {
-      Set<String> taskColumns = scheduledTaskColumns(connection);
-      Set<String> executionColumns = taskExecutionColumns(connection);
-      if (taskColumns.isEmpty() && executionColumns.isEmpty()) {
-        return;
-      }
-      if (isCurrent(connection, taskColumns, executionColumns)) {
-        ensureExecutionIndex(connection);
-        return;
-      }
-      if (isPreRetirementCurrent(connection, taskColumns, executionColumns)) {
-        addRetiredColumn(connection);
-        ensureExecutionIndex(connection);
-        return;
-      }
-      if (!isLegacy(taskColumns, executionColumns)) {
-        throw unsupported(taskColumns, executionColumns);
-      }
-      rebuildLegacyTables(connection);
-    } catch (SQLException e) {
-      throw new IllegalStateException("Failed to upgrade scheduled-task schema", e);
+  @Override
+  void migrate(Connection connection) throws SQLException {
+    Set<String> taskColumns = columns(connection, "scheduled_tasks");
+    Set<String> executionColumns = columns(connection, "task_executions");
+    if (taskColumns.isEmpty() && executionColumns.isEmpty()) {
+      return;
     }
+    if (isCurrent(connection, taskColumns, executionColumns)) {
+      ensureExecutionIndex(connection);
+      return;
+    }
+    if (isPreRetirementCurrent(connection, taskColumns, executionColumns)) {
+      execute(
+          connection, "ALTER TABLE scheduled_tasks ADD COLUMN retired BOOLEAN NOT NULL DEFAULT 0");
+      ensureExecutionIndex(connection);
+      return;
+    }
+    if (!isLegacy(taskColumns, executionColumns)) {
+      throw unsupported(taskColumns, executionColumns);
+    }
+    rebuildLegacyTables(connection);
   }
 
   private static void ensureExecutionIndex(Connection connection) throws SQLException {
-    try (Statement statement = connection.createStatement()) {
-      statement.execute(
-          "CREATE INDEX IF NOT EXISTS idx_task_executions_schedule ON task_executions (schedule_id)");
-    }
-  }
-
-  /** Extends the first scheduleId schema without a migration-version table. */
-  private static void addRetiredColumn(Connection connection) throws SQLException {
-    try (Statement statement = connection.createStatement()) {
-      statement.execute(
-          "ALTER TABLE scheduled_tasks ADD COLUMN retired BOOLEAN NOT NULL DEFAULT 0");
-    }
+    execute(
+        connection,
+        "CREATE INDEX IF NOT EXISTS idx_task_executions_schedule ON task_executions (schedule_id)");
   }
 
   private static boolean isCurrent(
@@ -184,10 +170,7 @@ public final class ScheduleSchemaUpgrade {
   }
 
   private static void rebuildLegacyTables(Connection connection) throws SQLException {
-    boolean begun = false;
     try (Statement statement = connection.createStatement()) {
-      statement.execute("BEGIN IMMEDIATE");
-      begun = true;
       long taskRowCount = scheduledTaskRowCount(connection);
       long executionRowCount = taskExecutionRowCount(connection);
       createReplacementTables(statement);
@@ -200,12 +183,6 @@ public final class ScheduleSchemaUpgrade {
       statement.execute(
           "CREATE INDEX idx_task_executions_schedule ON task_executions (schedule_id)");
       verifyRowCounts(connection, taskRowCount, executionRowCount);
-      statement.execute("COMMIT");
-    } catch (SQLException e) {
-      if (begun) {
-        rollback(connection);
-      }
-      throw e;
     }
   }
 
@@ -315,28 +292,6 @@ public final class ScheduleSchemaUpgrade {
     }
   }
 
-  private static Set<String> scheduledTaskColumns(Connection connection) throws SQLException {
-    Set<String> columns = new HashSet<>();
-    try (Statement statement = connection.createStatement();
-        ResultSet rows = statement.executeQuery("PRAGMA table_info(scheduled_tasks)")) {
-      while (rows.next()) {
-        columns.add(rows.getString("name"));
-      }
-    }
-    return columns;
-  }
-
-  private static Set<String> taskExecutionColumns(Connection connection) throws SQLException {
-    Set<String> columns = new HashSet<>();
-    try (Statement statement = connection.createStatement();
-        ResultSet rows = statement.executeQuery("PRAGMA table_info(task_executions)")) {
-      while (rows.next()) {
-        columns.add(rows.getString("name"));
-      }
-    }
-    return columns;
-  }
-
   private static long scheduledTaskRowCount(Connection connection) throws SQLException {
     try (Statement statement = connection.createStatement();
         ResultSet rows = statement.executeQuery("SELECT COUNT(*) FROM scheduled_tasks")) {
@@ -372,14 +327,6 @@ public final class ScheduleSchemaUpgrade {
               + expectedExecutionRows
               + " -> "
               + actualExecutionRows);
-    }
-  }
-
-  private static void rollback(Connection connection) {
-    try (Statement rollback = connection.createStatement()) {
-      rollback.execute("ROLLBACK");
-    } catch (SQLException ignored) {
-      // The original exception has the actionable context.
     }
   }
 }

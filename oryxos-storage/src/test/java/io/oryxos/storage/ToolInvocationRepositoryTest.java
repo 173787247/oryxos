@@ -14,28 +14,20 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /** 第17节 harness 补充：ToolInvocationRepositoryTest——建表必须走手工 schema.sql（同 16 节口径）。 */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@SqliteJpaTest
 class ToolInvocationRepositoryTest {
 
   @TempDir static Path dbDir;
 
   @DynamicPropertySource
   static void sqliteProperties(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + dbDir.resolve("test.db"));
-    registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-    registry.add("spring.jpa.hibernate.ddl-auto", () -> "none"); // 不许 Hibernate 自动建表
     registry.add(
-        "spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-    registry.add("spring.sql.init.mode", () -> "always"); // 建表走手工 schema.sql
+        "spring.datasource.url",
+        () -> "jdbc:sqlite:" + dbDir.resolve("test.db")); // 不许 Hibernate 自动建表 // 建表走手工 schema.sql
   }
 
   @Autowired ToolInvocationRepository repository;

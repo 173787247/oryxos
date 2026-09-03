@@ -1,7 +1,8 @@
-package io.oryxos.storage;
+package io.oryxos.storage.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.oryxos.storage.MemoryEntry;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -12,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.sqlite.SQLiteDataSource;
 
-class MemorySchemaUpgradeTest {
+class MemoryAgentColumnMigrationTest {
 
   @TempDir Path tempDir;
 
@@ -32,7 +33,7 @@ class MemorySchemaUpgradeTest {
         "INSERT INTO memory_entries (scope, content, created_at)"
             + " VALUES ('ARCHIVAL', '存量记忆一条', '2026-08-01T00:00:00Z')");
 
-    new MemorySchemaUpgrade(dataSource).upgrade();
+    migrate(new MemoryAgentColumnMigration(), dataSource);
 
     try (Connection connection = dataSource.getConnection();
         Statement statement = connection.createStatement();
@@ -59,9 +60,8 @@ class MemorySchemaUpgradeTest {
         )
         """);
 
-    MemorySchemaUpgrade upgrade = new MemorySchemaUpgrade(dataSource);
-    upgrade.upgrade();
-    upgrade.upgrade(); // 第二次必须无副作用地通过
+    migrate(new MemoryAgentColumnMigration(), dataSource);
+    migrate(new MemoryAgentColumnMigration(), dataSource); // 第二次必须无副作用地通过
 
     try (Connection connection = dataSource.getConnection();
         Statement statement = connection.createStatement();
@@ -77,8 +77,8 @@ class MemorySchemaUpgradeTest {
 
   @Test
   void legacyDatabaseSurvivesRealStartupOrder() throws Exception {
-    // 还原真实启动顺序：存量旧结构库 → 全量 schema.sql（Spring 脚本初始化）→ MemorySchemaUpgrade。
-    // 回归背景：idx_memory_agent 曾写在 schema.sql 里，在补列之前执行直接炸掉整个启动（SC-003）。
+    // 还原真实启动顺序：存量旧结构库 → V1 基线（幂等全量建表）→ V3 补列。
+    // 回归背景：idx_memory_agent 曾写在基线脚本里，在补列之前执行直接炸掉整个启动（SC-003）。
     SQLiteDataSource dataSource = dataSource("startup-order.db");
     execute(
         dataSource,
@@ -94,7 +94,8 @@ class MemorySchemaUpgradeTest {
             + " VALUES ('ARCHIVAL', '存量条目', '2026-08-01T00:00:00Z')");
 
     String schema;
-    try (var in = MemorySchemaUpgradeTest.class.getResourceAsStream("/schema.sql")) {
+    try (var in =
+        BaseSqliteMigration.class.getResourceAsStream("/db/migration/sqlite/V1__baseline.sql")) {
       schema = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
     }
     try (Connection connection = dataSource.getConnection();
@@ -106,7 +107,7 @@ class MemorySchemaUpgradeTest {
       }
     }
 
-    new MemorySchemaUpgrade(dataSource).upgrade();
+    migrate(new MemoryAgentColumnMigration(), dataSource);
 
     try (Connection connection = dataSource.getConnection();
         Statement statement = connection.createStatement();
@@ -121,7 +122,7 @@ class MemorySchemaUpgradeTest {
   void missingTableIsSkipped() throws Exception {
     SQLiteDataSource dataSource = dataSource("fresh.db");
 
-    new MemorySchemaUpgrade(dataSource).upgrade(); // 新装库：schema.sql 负责全量建表，升级器不动
+    migrate(new MemoryAgentColumnMigration(), dataSource); // 表不存在的防御分支：正常序列 V1 必先建表
 
     try (Connection connection = dataSource.getConnection();
         Statement statement = connection.createStatement();
@@ -157,5 +158,28 @@ class MemorySchemaUpgradeTest {
       }
     }
     return names;
+  }
+
+  private static void migrate(BaseSqliteMigration migration, SQLiteDataSource dataSource)
+      throws Exception {
+    try (Connection connection = dataSource.getConnection()) {
+      migration.migrate(connection);
+    }
+  }
+
+  private static void runBaseline(SQLiteDataSource dataSource) throws Exception {
+    String schema;
+    try (var in =
+        BaseSqliteMigration.class.getResourceAsStream("/db/migration/sqlite/V1__baseline.sql")) {
+      schema = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+    try (Connection connection = dataSource.getConnection();
+        Statement statement = connection.createStatement()) {
+      for (String sql : schema.split(";")) {
+        if (!sql.isBlank()) {
+          statement.execute(sql);
+        }
+      }
+    }
   }
 }

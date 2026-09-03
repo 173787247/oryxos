@@ -1,5 +1,8 @@
+-- V1 基线（025-pluggable-storage）：原 schema.sql 原样平移。全部 CREATE TABLE IF NOT EXISTS 幂等——
+-- 存量库（baseline-version=0 接管）与新库走同一序列；后加列与其索引归 V2~V5 Java migration（原升级类平移）。
+-- 表结构唯一权威是 db/migration/{vendor} 迁移目录，禁用 hibernate.ddl-auto=update（宪法 VIII）。
+
 -- llm_calls：LLM 调用审计（宪法 V：Day One 落库）
--- SQLite ALTER TABLE 能力弱：本脚本是表结构唯一权威，禁用 hibernate.ddl-auto=update
 CREATE TABLE IF NOT EXISTS llm_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id VARCHAR(255) NOT NULL,
@@ -17,8 +20,8 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls (session_id);
--- idx_llm_calls_profile (profile_name) / idx_llm_calls_trace (trace_id) 由 AuditSchemaUpgrade 创建：
--- 本脚本先于升级器执行，存量库此刻还没有这些列，在这里建索引会让整个应用启动失败（idx_memory_agent 教训）。
+-- idx_llm_calls_profile (profile_name) / idx_llm_calls_trace (trace_id) 由 V2 迁移创建：
+-- 存量库跑到本脚本时还没有这些后加列，在这里建索引会让启动失败（idx_memory_agent 教训）。
 
 -- tool_invocations：工具调用审计（宪法 V：Day One 落库，成功要记、失败也要记）
 CREATE TABLE IF NOT EXISTS tool_invocations (
@@ -36,7 +39,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_session ON tool_invocations (session_id);
--- idx_tool_invocations_profile (profile_name) / idx_tool_invocations_trace (trace_id) 由 AuditSchemaUpgrade 创建（同上）。
+-- idx_tool_invocations_profile (profile_name) / idx_tool_invocations_trace (trace_id) 由 V2 迁移创建（同上）。
 
 -- sessions：会话元数据 + JSON 序列化的对话历史（18 节）
 -- session_id 由 SessionManager 按 channel:user:profile 唯一拼接（全库唯一拼接点，H4④）
@@ -101,12 +104,12 @@ CREATE TABLE IF NOT EXISTS agent_executions (
     duration_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_agent_executions_agent ON agent_executions (agent_name);
--- idx_agent_executions_trace (trace_id) 由 AuditSchemaUpgrade 创建（同上，021）。
+-- idx_agent_executions_trace (trace_id) 由 V2 迁移创建（同上，021）。
 
 -- memory_entries：长期记忆条目（SqliteMemoryStore 后端，22 节）
 -- scope=CORE 全量注入不截断；scope=ARCHIVAL 归档只带最近 N 条（查询 LIMIT，非删除）
 -- agent_name（015 FR-014）：修复 sqlite 档作用域缺口，记忆跟 Agent 走；存量行由
--- MemorySchemaUpgrade 幂等补列并归 '__global__' 占位（与 markdown 档全局回退语义对齐）
+-- V3 迁移幂等补列并归 '__global__' 占位（与 markdown 档全局回退语义对齐）
 CREATE TABLE IF NOT EXISTS memory_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     agent_name VARCHAR(128) NOT NULL DEFAULT '__global__',
@@ -115,8 +118,8 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries (scope);
--- idx_memory_agent (agent_name, scope) 由 MemorySchemaUpgrade 创建：本脚本先于升级器执行，
--- 存量库此刻还没有 agent_name 列，在这里建索引会让整个应用启动失败（SC-003 教训）。
+-- idx_memory_agent (agent_name, scope) 由 V3 迁移创建：存量库跑到本脚本时还没有 agent_name 列，
+-- 在这里建索引会让整个应用启动失败（SC-003 教训）。
 
 -- memory_vectors：归档记忆条目的向量索引（015）——派生数据，可从记忆本体全量重建，删了不伤本体。
 -- entry_hash = sha256(agent|scope|条目原文)，跨后端档统一寻址；embedding 为 float32[] 小端序 BLOB

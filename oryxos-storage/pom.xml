@@ -36,6 +36,28 @@
             <groupId>org.hibernate.orm</groupId>
             <artifactId>hibernate-community-dialects</artifactId>
         </dependency>
+        <!-- 025-pluggable-storage: 表结构唯一真相源 db/migration/{vendor}（宪法 VIII 预留的 Flyway 口）。
+             SQLite 支持内置于 flyway-core（flyway-database-sqlite 构件不存在，2026-09 实证）；
+             PG 支持自 Flyway 10 拆分为独立插件。三者均打进 fat jar：PG 是部署选项，即开即用不换包。 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+        <!-- 嵌入式 PG：本机与 CI 同构的「同套用例两库全绿」载体（research R5，docker 不可用环境唯一可行路径） -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>2.0.7</version>
+            <scope>test</scope>
+        </dependency>
         <!-- 012-web-auth: 密码哈希用 DelegatingPasswordEncoder（{bcrypt} 前缀），单 jar，非 spring-boot-starter-security 全套 -->
         <dependency>
             <groupId>org.springframework.security</groupId>

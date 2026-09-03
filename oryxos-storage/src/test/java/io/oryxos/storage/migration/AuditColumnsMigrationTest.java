@@ -1,4 +1,4 @@
-package io.oryxos.storage;
+package io.oryxos.storage.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.sqlite.SQLiteDataSource;
 
-class AuditSchemaUpgradeTest {
+class AuditColumnsMigrationTest {
 
   @TempDir Path tempDir;
 
@@ -27,7 +27,8 @@ class AuditSchemaUpgradeTest {
         legacyAgentExecutions(),
         legacyLlmCallRow());
 
-    new AuditSchemaUpgrade(dataSource).upgrade();
+    runBaseline(dataSource); // 真实序列：V1 先行（补齐其余表与 llm_pricing），V2 收敛后加列
+    migrate(new AuditColumnsMigration(), dataSource);
 
     try (Connection connection = dataSource.getConnection()) {
       assertThat(columns(connection, "llm_calls"))
@@ -49,9 +50,9 @@ class AuditSchemaUpgradeTest {
     SQLiteDataSource dataSource = dataSource("repeat.db");
     execute(dataSource, legacyLlmCalls(), legacyToolInvocations());
 
-    AuditSchemaUpgrade upgrade = new AuditSchemaUpgrade(dataSource);
-    upgrade.upgrade();
-    upgrade.upgrade(); // 第二次必须无副作用
+    runBaseline(dataSource);
+    migrate(new AuditColumnsMigration(), dataSource);
+    migrate(new AuditColumnsMigration(), dataSource); // 第二次必须无副作用
 
     try (Connection connection = dataSource.getConnection()) {
       assertThat(columns(connection, "llm_calls"))
@@ -66,7 +67,8 @@ class AuditSchemaUpgradeTest {
     try (Connection connection = dataSource.getConnection();
         Statement statement = connection.createStatement()) {
       String schema;
-      try (var in = AuditSchemaUpgradeTest.class.getResourceAsStream("/schema.sql")) {
+      try (var in =
+          BaseSqliteMigration.class.getResourceAsStream("/db/migration/sqlite/V1__baseline.sql")) {
         schema = new String(in.readAllBytes(), StandardCharsets.UTF_8);
       }
       for (String sql : schema.split(";")) {
@@ -76,7 +78,7 @@ class AuditSchemaUpgradeTest {
       }
     }
 
-    new AuditSchemaUpgrade(dataSource).upgrade();
+    migrate(new AuditColumnsMigration(), dataSource);
 
     assertThat(indexNames(dataSource, "llm_calls"))
         .contains("idx_llm_calls_profile", "idx_llm_calls_trace");
@@ -191,5 +193,28 @@ class AuditSchemaUpgradeTest {
       }
     }
     return names;
+  }
+
+  private static void migrate(BaseSqliteMigration migration, SQLiteDataSource dataSource)
+      throws Exception {
+    try (Connection connection = dataSource.getConnection()) {
+      migration.migrate(connection);
+    }
+  }
+
+  private static void runBaseline(SQLiteDataSource dataSource) throws Exception {
+    String schema;
+    try (var in =
+        BaseSqliteMigration.class.getResourceAsStream("/db/migration/sqlite/V1__baseline.sql")) {
+      schema = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+    try (Connection connection = dataSource.getConnection();
+        Statement statement = connection.createStatement()) {
+      for (String sql : schema.split(";")) {
+        if (!sql.isBlank()) {
+          statement.execute(sql);
+        }
+      }
+    }
   }
 }
