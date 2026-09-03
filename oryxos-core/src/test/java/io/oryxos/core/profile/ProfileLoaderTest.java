@@ -1,6 +1,7 @@
 package io.oryxos.core.profile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -741,5 +742,160 @@ class ProfileLoaderTest {
 
     assertTrue(ex.getMessage().contains("evening"), ex.getMessage());
     assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
+  }
+
+  @Test
+  void persona段_七字段解析且sampleStyle蛇形键映射() throws IOException {
+    write(
+        "persona.yaml",
+        """
+        name: p
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          name: 老张
+          role: 运维专家
+          traits: 严谨、可靠
+          tone: 简洁
+          values: 诚实
+          boundaries: 不越权
+          sample_style: 先结论后依据
+        """);
+
+    Profile.Persona persona = loader().loadAll().get("p").orElseThrow().persona();
+
+    assertEquals("老张", persona.name());
+    assertEquals("运维专家", persona.role());
+    assertEquals("严谨、可靠", persona.traits());
+    assertEquals("简洁", persona.tone());
+    assertEquals("诚实", persona.values());
+    assertEquals("不越权", persona.boundaries());
+    assertEquals("先结论后依据", persona.sampleStyle()); // sample_style → sampleStyle
+  }
+
+  @Test
+  void 无persona段_返回null_向后兼容() throws IOException {
+    write("nopersona.yaml", "name: nopersona\nprovider:\n  name: deepseek\n  model: m\n");
+
+    Profile profile = loader().loadAll().get("nopersona").orElseThrow();
+
+    assertNull(profile.persona()); // 契约二：老 Agent 零改变
+  }
+
+  @Test
+  void persona段缺name或role_校验异常() throws IOException {
+    write(
+        "bad-persona.yaml",
+        """
+        name: bp
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          role: 只有角色
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-persona.yaml")));
+
+    assertTrue(ex.getMessage().contains("name/role"));
+  }
+
+  @Test
+  void persona段sampleStyle可空() throws IOException {
+    write(
+        "min-persona.yaml",
+        """
+        name: mp
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          name: 助手
+          role: 乐于助人的助手
+        """);
+
+    Profile.Persona persona = loader().loadAll().get("mp").orElseThrow().persona();
+
+    assertNotNull(persona);
+    assertNull(persona.sampleStyle());
+  }
+
+  // —— 023：provider.fallback 有序备用列表解析 ——
+
+  @Test
+  void fallback两候选_按序解析() throws IOException {
+    write(
+        "fb.yaml",
+        """
+        name: fb-agent
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: kimi
+              model: moonshot-v1-8k
+            - name: deepseek
+              model: deepseek-reasoner
+        """);
+
+    Profile profile = loader().loadAll().get("fb-agent").orElseThrow();
+
+    assertEquals(
+        java.util.List.of(
+            new Profile.ProviderRef.FallbackRef("kimi", "moonshot-v1-8k"),
+            new Profile.ProviderRef.FallbackRef("deepseek", "deepseek-reasoner")),
+        profile.provider().fallbacks()); // 顺序即声明序
+  }
+
+  @Test
+  void fallback候选缺model_加载失败跳过该文件() throws IOException {
+    write(
+        "bad-fb.yaml",
+        """
+        name: bad-fb
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: kimi
+        """);
+
+    assertTrue(loader().loadAll().get("bad-fb").isEmpty()); // 坏文件 ERROR 跳过（与主 provider 校验同口径）
+  }
+
+  @Test
+  void fallback候选引用未知provider_WARN但加载成功() throws IOException {
+    write(
+        "unknown-fb.yaml",
+        """
+        name: unknown-fb
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: ghost-provider
+              model: some-model
+        """);
+
+    Profile profile = loader().loadAll().get("unknown-fb").orElseThrow();
+
+    // 候选可用性是运行时属性：保留声明、调用时跳过（tools 未注册口径）
+    assertEquals(
+        java.util.List.of(new Profile.ProviderRef.FallbackRef("ghost-provider", "some-model")),
+        profile.provider().fallbacks());
+  }
+
+  @Test
+  void 无fallback字段_列表为空_旧YAML零变化() throws IOException {
+    write("plain.yaml", FULL_YAML);
+
+    Profile profile = loader().loadAll().get("ops-agent").orElseThrow();
+
+    assertTrue(profile.provider().fallbacks().isEmpty());
+    assertEquals("deepseek", profile.provider().name()); // 既有解析不受影响
   }
 }

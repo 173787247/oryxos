@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -101,8 +102,7 @@ public class ChannelConfigLoader {
               asString(entry.get("app_id")),
               asString(entry.get("app_secret")),
               asString(entry.get("agent")),
-              entry.get("enabled") == null
-                  || Boolean.parseBoolean(String.valueOf(entry.get("enabled"))));
+              asEnabled(entry.get("enabled"), asString(entry.get("name"))));
       config.validateShape();
       if (!seen.add(config.name())) {
         throw new IllegalArgumentException("channels.yaml 渠道名重复: " + config.name());
@@ -166,6 +166,46 @@ public class ChannelConfigLoader {
     }
     matcher.appendTail(sb);
     return sb.toString();
+  }
+
+  /**
+   * {@code enabled} 缺省 true；接受 YAML 布尔、常见字符串/数字真值。{@code Boolean.parseBoolean("yes")} 恒为
+   * false，会静默关断渠道。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "enabled truthy tokens are ASCII (true/yes/on/1); Locale.ROOT lowercasing is the correct case-fold.")
+  private static boolean asEnabled(Object value, String channelName) {
+    if (value == null) {
+      return true;
+    }
+    if (value instanceof Boolean enabled) {
+      return enabled;
+    }
+    if (value instanceof Number number) {
+      int n = number.intValue();
+      if (n == 1) {
+        return true;
+      }
+      if (n == 0) {
+        return false;
+      }
+      throw invalidEnabled(channelName, value);
+    }
+    if (value instanceof String text) {
+      return switch (text.trim().toLowerCase(Locale.ROOT)) {
+        case "true", "yes", "on", "1" -> true;
+        case "false", "no", "off", "0" -> false;
+        default -> throw invalidEnabled(channelName, text);
+      };
+    }
+    throw invalidEnabled(channelName, value);
+  }
+
+  private static IllegalArgumentException invalidEnabled(String channelName, Object value) {
+    String who = channelName == null || channelName.isBlank() ? "渠道" : "渠道 " + channelName;
+    return new IllegalArgumentException(who + " 的 enabled 必须是布尔值: " + value);
   }
 
   private static String asString(Object value) {

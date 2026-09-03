@@ -6,7 +6,9 @@ import io.oryxos.core.provider.ProviderRequest;
 import io.oryxos.core.provider.ProviderResponse;
 import io.oryxos.core.provider.ProviderService;
 import io.oryxos.core.provider.ToolCallRequest;
+import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
+import java.util.List;
 
 /**
  * ReAct 主循环——Agent 的大脑（宪法 I：自实现，不用框架 Agent 封装）。
@@ -36,7 +38,7 @@ public class ReActLoop {
   }
 
   public String run(Session session, String userMessage, Profile profile) {
-    return run(session, userMessage, profile, StreamListener.NOOP);
+    return run(session, userMessage, List.of(), profile, StreamListener.NOOP);
   }
 
   /**
@@ -44,7 +46,17 @@ public class ReActLoop {
    * {@code chatStream} 逐段回调 token，工具执行前后回调 start/end。回调全部同步、 循环调度逻辑零变化（宪法 I 的定制点，宪法 VII 的同步模型不动摇）。
    */
   public String run(Session session, String userMessage, Profile profile, StreamListener listener) {
-    session.appendUser(userMessage);
+    return run(session, userMessage, List.of(), profile, listener);
+  }
+
+  /** 带入站图片等 media 的运行：media 写入本轮 user 消息，供 provider 映射为 multimodal UserMessage。 */
+  public String run(
+      Session session,
+      String userMessage,
+      List<Message.MediaPart> media,
+      Profile profile,
+      StreamListener listener) {
+    session.appendUser(userMessage, media);
     // 最大轮数兜底（坑一）：模型可能反复要调工具永不收敛，转够强制退出
     for (int i = 0; i < profile.settings().maxIterations(); i++) {
       ProviderRequest prompt = promptBuilder.build(session, profile);

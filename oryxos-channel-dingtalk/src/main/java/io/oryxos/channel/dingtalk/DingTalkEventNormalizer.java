@@ -2,7 +2,10 @@ package io.oryxos.channel.dingtalk;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.oryxos.core.channel.ChatKind;
+import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -22,6 +25,7 @@ public class DingTalkEventNormalizer {
   private static final String CONVERSATION_SINGLE = "1";
   private static final String CONVERSATION_GROUP = "2";
   private static final String MSG_TEXT = "text";
+  private static final String MSG_PICTURE = "picture";
   private static final String FIELD_IN_AT_LIST = "isInAtList";
   private static final Pattern LEADING_AT = Pattern.compile("^@\\S+\\s*");
 
@@ -60,12 +64,15 @@ public class DingTalkEventNormalizer {
     String msgtype = text(body, "msgtype");
     boolean textual = MSG_TEXT.equals(msgtype);
     String content = "";
+    List<InboundAttachment> attachments = new ArrayList<>();
     if (textual) {
       content = body.path("text").path("content").asText("");
       if (group) {
         content = LEADING_AT.matcher(content).replaceFirst("");
       }
       content = content.strip();
+    } else if (MSG_PICTURE.equals(msgtype)) {
+      extractPictureAttachment(body.path("content")).ifPresent(attachments::add);
     }
     return Optional.of(
         new InboundMessage(
@@ -77,7 +84,28 @@ public class DingTalkEventNormalizer {
             conversationId,
             content,
             textual,
-            group));
+            group,
+            attachments));
+  }
+
+  private static Optional<InboundAttachment> extractPictureAttachment(JsonNode content) {
+    if (content == null || content.isMissingNode()) {
+      return Optional.empty();
+    }
+    String picUrl = content.path("picURL").asText(null);
+    if (picUrl != null && !picUrl.isBlank()) {
+      return Optional.of(InboundAttachment.imageUrl(picUrl));
+    }
+    // 官方 Stream 图片：content.downloadCode / pictureDownloadCode（无直链 URL）
+    String downloadCode = content.path("downloadCode").asText(null);
+    if (downloadCode != null && !downloadCode.isBlank()) {
+      return Optional.of(InboundAttachment.imageReference(downloadCode));
+    }
+    String pictureDownloadCode = content.path("pictureDownloadCode").asText(null);
+    if (pictureDownloadCode != null && !pictureDownloadCode.isBlank()) {
+      return Optional.of(InboundAttachment.imageReference(pictureDownloadCode));
+    }
+    return Optional.empty();
   }
 
   private static String text(JsonNode node, String field) {

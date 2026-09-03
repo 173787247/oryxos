@@ -67,6 +67,53 @@ class McpConfigLoaderTest {
   }
 
   @Test
+  @DisplayName("headers/env 非映射时 fail-loud，缺省仍为空 map")
+  void envAndHeadersMustBeMaps() throws IOException {
+    write(
+        """
+        servers:
+          - name: gh
+            transport: sse
+            url: https://example.com/mcp
+            headers: "Authorization: Bearer secret"
+        """);
+    IllegalArgumentException headersEx =
+        assertThrows(
+            IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+    assertTrue(headersEx.getMessage().contains("headers"));
+    assertTrue(headersEx.getMessage().contains("映射"));
+
+    write(
+        """
+        servers:
+          - name: local
+            transport: stdio
+            command: echo
+            env: []
+        """);
+    IllegalArgumentException envEx =
+        assertThrows(
+            IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+    assertTrue(envEx.getMessage().contains("env"));
+    assertTrue(envEx.getMessage().contains("映射"));
+
+    write(
+        """
+        servers:
+          - name: ok
+            transport: stdio
+            command: echo
+            env: {}
+            headers:
+              Authorization: "Bearer ${TOKEN}"
+        """);
+    List<io.oryxos.core.mcp.McpServerConfig> ok = new McpConfigLoader(configFile()).loadRaw();
+    assertEquals(1, ok.size());
+    assertTrue(ok.get(0).env().isEmpty());
+    assertEquals("Bearer ${TOKEN}", ok.get(0).headers().get("Authorization"));
+  }
+
+  @Test
   @DisplayName("YAML 1.1 布尔词 yes 不得被 String.valueOf 改成 name=true")
   void rejectsYamlBooleanWordAsName() throws Exception {
     write(

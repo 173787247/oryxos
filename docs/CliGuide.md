@@ -190,6 +190,10 @@ curl -H "X-API-Key: oryx_..." http://localhost:8080/api/v1/profiles
 
 每次消息处理生成唯一 trace ID：REST 响应体（`data.traceId`）、SSE 流首 `trace` 事件、执行历史行里都能拿到。用户报障时报上这个 ID，管理员在管理台「报表」页输入即可回放本轮完整链路（每次 LLM 调用与工具执行的时间序、耗时、token 与成本合计），或直接查 `GET /api/v1/audit/trace/{traceId}`；服务日志里同一 ID 经 MDC 贯穿，`grep <traceId>` 可与审计互查。时间线里的工具参数/结果摘要经内置规则脱敏（API key、口令类字段掩码），库中保留原文供特权排障。
 
+### 4.10 Provider 失败切换与监控指标（023）
+
+Agent 的 `AGENT.md` provider 节可声明 `fallback:` 有序备用列表（每项 name+model，引用已注册 Provider）——主 Provider 网络故障/超时/限流/凭证失效时该次调用自动按序切换备用，终端无感知；每次尝试都留审计、切换有 WARN 日志（带 traceId 可互查）。运维将 `/actuator/prometheus` 接入企业 Prometheus/Grafana 即可看到 `oryxos_` 前缀业务指标（LLM 调用/耗时/token/工具/策略拦截/切换计数）并配置告警（如「fallback 切换次数突增」）。
+
 ---
 
 ## 5. 配置与凭证

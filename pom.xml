@@ -62,6 +62,7 @@
 
     <modules>
         <module>oryxos-core</module>
+        <module>oryxos-persona</module>
         <module>oryxos-provider</module>
         <module>oryxos-memory</module>
         <module>oryxos-knowledge</module>
@@ -91,6 +92,11 @@
             <dependency>
                 <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-persona</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

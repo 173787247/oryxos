@@ -94,6 +94,23 @@ class EmailNotifyAdapterTest {
   }
 
   @Test
+  @DisplayName("Session 属性：SMTP 建连/读/写三段超时已设置（Jakarta Mail 缺省无限阻塞会永久卡住 ReAct 轮）")
+  void sessionPropertiesIncludeTimeouts() throws Exception {
+    EmailNotifyAdapter adapter = new EmailNotifyAdapter(new PermissiveSandbox());
+
+    try (MockedStatic<Transport> transport = mockStatic(Transport.class)) {
+      adapter.send(target(Map.of()), "hello");
+      ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
+      transport.verify(() -> Transport.send(captor.capture()));
+
+      Properties props = captor.getValue().getSession().getProperties();
+      assertEquals("10000", props.getProperty("mail.smtp.connectiontimeout"));
+      assertEquals("10000", props.getProperty("mail.smtp.timeout"));
+      assertEquals("10000", props.getProperty("mail.smtp.writetimeout"));
+    }
+  }
+
+  @Test
   @DisplayName("认证：配置 username 时显式开启 mail.smtp.auth（否则不发 AUTH → 530 未认证）")
   void authEnabledWhenUsernamePresent() throws Exception {
     EmailNotifyAdapter adapter = new EmailNotifyAdapter(new PermissiveSandbox());

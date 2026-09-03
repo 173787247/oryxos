@@ -5,7 +5,9 @@ import io.oryxos.tool.sandbox.LocalProcessStarter;
 import io.oryxos.tool.sandbox.ProcessStarter;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
 import java.time.Duration;
@@ -34,6 +36,12 @@ public class ShellTools {
 
   /** 默认超时：30 秒。 */
   static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
+
+  /**
+   * 输出保留上限：stdout/stderr 全文会原样回灌模型上下文，白名单内命令（如 cat 大日志）可无界输出撑爆内存与 context
+   * window。超限部分**继续排空但丢弃**——停止读取会让子进程管道写阻塞、被误判超时。
+   */
+  static final int MAX_OUTPUT_BYTES = 64 * 1024;
 
   /** 排空子进程输出的虚拟线程执行器（宪法 VII）：流读取是 IO 等待，虚拟线程天然适配。 */
   @SuppressWarnings("PMD.ThreadPoolCreationRule") // Java 21 虚拟线程无池参数可配，非 P3C 针对的固定线程池反模式。
@@ -79,8 +87,8 @@ public class ShellTools {
     try {
       Process process = processStarter.start(command);
       // 先起并发排空再 waitFor：管道不被写满阻塞，waitFor 只在「命令真没跑完」时超时
-      Future<byte[]> stdout = DRAINER.submit(() -> process.getInputStream().readAllBytes());
-      Future<byte[]> stderr = DRAINER.submit(() -> process.getErrorStream().readAllBytes());
+      Future<BoundedOutput> stdout = DRAINER.submit(() -> drainBounded(process.getInputStream()));
+      Future<BoundedOutput> stderr = DRAINER.submit(() -> drainBounded(process.getErrorStream()));
       boolean finished;
       try {
         finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
@@ -95,11 +103,14 @@ public class ShellTools {
             "命令超时（" + timeout.toSeconds() + "s）被终止: " + commandExecutable);
       }
       try {
+        BoundedOutput err = stderr.get();
         if (process.exitValue() != 0) {
-          String err = new String(stderr.get(), outputCharset);
-          throw new IllegalStateException("命令退出码 " + process.exitValue() + ": " + err.trim());
+          String errText = new String(err.retained, outputCharset).trim();
+          throw new IllegalStateException(
+              "命令退出码 " + process.exitValue() + ": " + errText + truncationNote(err));
         }
-        return new String(stdout.get(), outputCharset);
+        BoundedOutput out = stdout.get();
+        return new String(out.retained, outputCharset) + truncationNote(out);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
@@ -136,5 +147,41 @@ public class ShellTools {
   private static void killTree(Process process) {
     process.descendants().forEach(ProcessHandle::destroyForcibly);
     process.destroyForcibly();
+  }
+
+  /** 有界排空：全程读取（保管道不阻塞），只保留前 {@link #MAX_OUTPUT_BYTES} 字节。截断点可能切开多字节字符， 解码时落为替换符——尾部紧邻截断标注，可接受。 */
+  private static BoundedOutput drainBounded(InputStream in) throws IOException {
+    ByteArrayOutputStream retained = new ByteArrayOutputStream();
+    byte[] buffer = new byte[8192];
+    boolean truncated = false;
+    int n;
+    while ((n = in.read(buffer)) != -1) {
+      if (truncated) {
+        continue; // 已超限：继续排空但丢弃
+      }
+      int room = MAX_OUTPUT_BYTES - retained.size();
+      if (n <= room) {
+        retained.write(buffer, 0, n);
+      } else {
+        retained.write(buffer, 0, room);
+        truncated = true;
+      }
+    }
+    return new BoundedOutput(retained.toByteArray(), truncated);
+  }
+
+  private static String truncationNote(BoundedOutput output) {
+    return output.truncated ? "\n…（输出超过 " + (MAX_OUTPUT_BYTES / 1024) + "KB，已截断）" : "";
+  }
+
+  /** 一路输出（stdout 或 stderr）的保留结果。 */
+  private static final class BoundedOutput {
+    private final byte[] retained;
+    private final boolean truncated;
+
+    private BoundedOutput(byte[] retained, boolean truncated) {
+      this.retained = retained;
+      this.truncated = truncated;
+    }
   }
 }

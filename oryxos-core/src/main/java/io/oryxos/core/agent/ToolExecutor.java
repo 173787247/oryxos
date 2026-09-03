@@ -55,6 +55,14 @@ public class ToolExecutor {
         toolPolicy == null ? io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL : toolPolicy;
   }
 
+  /** 023 业务指标（装配期注入，setToolPolicy 同款惯例）；未装配保持 NOOP 零破坏。 */
+  private io.oryxos.core.metrics.MetricsRecorder metrics =
+      io.oryxos.core.metrics.MetricsRecorder.NOOP;
+
+  public void setMetricsRecorder(io.oryxos.core.metrics.MetricsRecorder metrics) {
+    this.metrics = metrics == null ? io.oryxos.core.metrics.MetricsRecorder.NOOP : metrics;
+  }
+
   /** 31 节：注入 MCP 工具归属表 + ProfileRegistry，用以按调用方 Agent 的 mcp_servers 声明做白名单校验。 */
   public ToolExecutor(
       Map<String, OryxTool> tools,
@@ -139,6 +147,11 @@ public class ToolExecutor {
         }
       } catch (RuntimeException auditFailure) {
         LOG.error("工具调用审计落库失败（结果照常返回）: tool={}", sanitize(call.name()), auditFailure);
+      }
+      try {
+        metrics.recordToolInvocation(call.name(), result.success()); // 023：指标异常不伤主链路
+      } catch (RuntimeException ignored) {
+        // FR-010
       }
       // 021 日志与审计互查（SC-007）：处理路径关键日志点——MDC 自动携带 traceId，不记参数/结果（防敏感泄漏）
       LOG.info(
@@ -238,6 +251,14 @@ public class ToolExecutor {
       }
     } catch (RuntimeException auditFailure) {
       LOG.error("工具调用失败的审计落库也失败（失败结果照常返回）: tool={}", sanitize(call.name()), auditFailure);
+    }
+    try {
+      metrics.recordToolInvocation(call.name(), false); // 023：失败（含被拦）也计数
+      if (blockedBy != null) {
+        metrics.recordPolicyBlock(call.name());
+      }
+    } catch (RuntimeException ignored) {
+      // FR-010：指标失败静默
     }
     return ToolResult.error(errorMessage, false);
   }

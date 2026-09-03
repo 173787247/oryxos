@@ -6,6 +6,7 @@ import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.core.notify.NotifyChannelRegistry;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
+import io.oryxos.core.profile.ProfileValidationException;
 import io.oryxos.core.provider.ProviderRequest;
 import io.oryxos.core.provider.ProviderService;
 import io.oryxos.core.skill.AgentSkillBindingService;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.DumperOptions.FlowStyle;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.error.YAMLException;
 
 /**
  * Agent 生命周期编排（第 30 节）：三条录入（API create / WorkspaceWatcher 事件 / 启动扫描）都汇到同一段 {@link
@@ -43,6 +45,9 @@ import org.yaml.snakeyaml.Yaml;
 public class AgentLifecycleService {
 
   private static final String PARENT_PATH_SEGMENT = "..";
+
+  /** 025：AGENT.md frontmatter 里人格段的键。 */
+  private static final String PERSONA_KEY = "persona";
 
   /** 脚手架正文：frontmatter 由 {@link #scaffoldFrontmatter} 经 SnakeYAML dump，避免用户输入拆行注入键。 */
   private static final String AGENT_MD_BODY =
@@ -465,8 +470,40 @@ public class AgentLifecycleService {
   }
 
   /** 更新：覆写 AGENT.md；先注销旧定时、再注册新的（旧 cron 不会跟新 cron 一起跑）。 */
+  /** 025：暴露默认 provider（导入器用它兜底 frontmatter 的 provider）。 */
+  public String defaultProvider() {
+    return defaultProvider;
+  }
+
   public Profile update(String name, String agentMarkdown) {
     return saveFiles(name, Map.of("AGENT.md", agentMarkdown), null);
+  }
+
+  /**
+   * 025：把导入产物当成和手工建 Agent 一样的输入，走同一道校验链——name 冲突先拒（同 {@link #create}），再委托 {@link #saveFiles}
+   * （agentLoader.parse 先校验 → writeAll → deriveProfile → register，失败回滚）。
+   *
+   * <p>只创建、不覆盖（产品约定）：同名已有 Agent 拒绝导入并提示先删再导——直接覆盖会吞掉用户对同名 Agent 的定制（Skill 绑定 / 人格编辑 /
+   * 基本信息），代价不可逆。要换成新内容先 {@link #delete} 同名 Agent，再导入。
+   */
+  public Profile importAgent(String name, String agentMarkdown) {
+    if (profileRegistry.exists(name)) {
+      throw new IllegalArgumentException("Agent 已存在: " + name + "，导入只创建不覆盖，请先删除同名 Agent 再导入");
+    }
+    return saveFiles(name, Map.of("AGENT.md", agentMarkdown), null);
+  }
+
+  /**
+   * 校验一段 {@code AGENT.md} 能否被底座解析（dry-run，不落盘、不注册）：复用 {@link AgentLoader#parse} 的纯内存校验 （与 {@link
+   * #saveFiles} 的写前预校验同一套逻辑、同一异常）。供 import-preview 展示可解析性——校验失败不抛异常， 结果体现在 {@link
+   * AgentValidation#valid()} = false + 可读 message 里。
+   */
+  public AgentValidation validateAgent(String name, String markdown) {
+    try {
+      return AgentValidation.ok(agentLoader.parse(markdown, name));
+    } catch (ProfileValidationException | YAMLException e) {
+      return AgentValidation.fail(e.getMessage());
+    }
   }
 
   /**
@@ -513,6 +550,71 @@ public class AgentLifecycleService {
     String newMarkdown = assembleMarkdown(fm, parsed.body());
     agentLoader.parse(newMarkdown, name); // 预校验：非法定义直接抛，不破坏原文件
     return update(name, newMarkdown);
+  }
+
+  /**
+   * 025：只重写 AGENT.md frontmatter 的 persona 段，正文与未提及的 frontmatter 字段原样保留。 name/role 必填；先合成新 markdown
+   * 并用 {@link AgentLoader#parse} 预校验（非法→抛，不破坏原文件），通过再走 {@link #update} 重写+重注册。
+   */
+  public Profile updatePersona(String name, Profile.Persona persona) {
+    if (persona == null
+        || persona.name() == null
+        || persona.name().isBlank()
+        || persona.role() == null
+        || persona.role().isBlank()) {
+      throw new IllegalArgumentException("persona 段缺少 name/role 字段");
+    }
+    String raw = agentStore.read(name);
+    AgentMarkdown.Parsed parsed = AgentMarkdown.split(raw);
+    Map<String, Object> fm = new LinkedHashMap<>(parsed.frontmatter());
+    fm.put(PERSONA_KEY, personaMap(persona)); // Map 键唯一，put 覆盖即「移除旧 persona 键 + 放入新块」
+    String newMarkdown = assembleMarkdown(fm, parsed.body());
+    agentLoader.parse(newMarkdown, name); // 预校验：非法定义直接抛，不破坏原文件
+    return update(name, newMarkdown);
+  }
+
+  /** persona → 七字段 YAML Map（name/role 恒在，其余非空才写，避免 dump 出 {@code : null}）。 */
+  private static Map<String, Object> personaMap(Profile.Persona p) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("name", p.name());
+    m.put("role", p.role());
+    putIfNonBlank(m, "traits", p.traits());
+    putIfNonBlank(m, "tone", p.tone());
+    putIfNonBlank(m, "values", p.values());
+    putIfNonBlank(m, "boundaries", p.boundaries());
+    putIfNonBlank(m, "sample_style", p.sampleStyle());
+    return m;
+  }
+
+  private static void putIfNonBlank(Map<String, Object> map, String key, String value) {
+    if (value != null && !value.isBlank()) {
+      map.put(key, value);
+    }
+  }
+
+  /** 025：一段 AGENT.md 缺 persona 段时兜底填入默认人格（契约三）；已有 persona 不覆盖（用户/模型已写）。 */
+  public String ensurePersona(String markdown) {
+    AgentMarkdown.Parsed parsed = AgentMarkdown.split(markdown);
+    if (parsed.frontmatter().containsKey(PERSONA_KEY)) {
+      return markdown;
+    }
+    Map<String, Object> fm = new LinkedHashMap<>(parsed.frontmatter());
+    fm.put(PERSONA_KEY, defaultPersona(fm));
+    return assembleMarkdown(fm, parsed.body());
+  }
+
+  /** 默认人格（契约三兜底）：有下限、不惊艳——保证每个 Agent 出生就有人设，真正的人格靠用户改。 */
+  private static Map<String, Object> defaultPersona(Map<String, Object> fm) {
+    String agentName = fm.get("name") == null ? null : String.valueOf(fm.get("name"));
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("name", agentName == null || agentName.isBlank() ? "助手" : agentName);
+    p.put("role", "乐于助人的助手");
+    p.put("traits", "专业、可靠、条理清晰");
+    p.put("tone", "简洁友好，不啰嗦");
+    p.put("values", "诚实准确，不确定就明说；不编造事实");
+    p.put("boundaries", "不执行未授权的高风险操作；不泄露敏感信息");
+    p.put("sample_style", "先给结论，再给依据；复杂内容用列表或表格");
+    return p;
   }
 
   /** 把改好的 frontmatter Map + 正文重新拼成 AGENT.md（与 {@link AgentMarkdown#split} 的围栏约定一致）。 */

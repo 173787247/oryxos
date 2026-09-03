@@ -652,20 +652,23 @@ session list
 
 ## 10. 项目工程结构
 
-OryxOS 是 Maven 多模块项目，由 11 个模块组成：
+OryxOS 是 Maven 多模块项目，由 14 个模块组成：
 
 | 模块名 | 职责 |
 |--------|------|
-| `oryxos-core` | 核心抽象和接口：`OryxTool` 接口、`Session`、`Profile`、`ContextLoader`、`AgentLoader`（扫 `.oryxos/agents/`、`deriveProfile`）、`ReActLoop`、`PromptBuilder`、`ToolExecutor`、`AgentService`、`AgentScheduler`（定时触发）、`AgentLifecycleService`（扩展阶段，编排"定义一个 Agent（Agent 目录落盘 + 派生 Profile + 注册 + Scheduler）"） |
+| `oryxos-core` | 核心抽象和接口：`OryxTool` 接口、`Session`、`Profile`（含 025 的 `Persona` 七字段人格：name/role/traits/tone/values/boundaries/sample_style）、`ContextLoader`、`AgentLoader`（扫 `.oryxos/agents/`、`deriveProfile`）、`ReActLoop`、`PromptBuilder`、`ToolExecutor`、`AgentService`、`AgentScheduler`（定时触发）、`AgentLifecycleService`（扩展阶段，编排"定义一个 Agent（Agent 目录落盘 + 派生 Profile + 注册 + Scheduler）"，025 起含 persona 编辑、agency-agents 专家导入与校验链） |
+| `oryxos-persona` | 人格库（025，copy-in 模板库）：`PersonaPresetCatalog`（12 个内置人格预设随 jar 内置，只读）+ `PersonaStore`/`PersonaService`（`.oryxos/personas/` 自定义人格 CRUD，复用 `oryxos-core` 的 `RealPathBoundary` 白名单与 `AgentMarkdown.split` frontmatter 投影）。人格库只做模板复制（copy-in），不做按名引用的人格市场 |
 | `oryxos-provider` | 核心能力一：`ProviderService`、Function Calling 适配、Provider 配置（provider name 到 `ChatModel` 显式映射） |
 | `oryxos-memory` | 核心能力三：`MemoryService` 统一门面、`LongTermMemory`、`MemoryTools`（`save_memory` / `recall_memory`） |
 | `oryxos-knowledge` | 知识库（014）：内置本地后端 `LocalKnowledgeBackend`（知识标准操作契约的第一个插件）、解析/切分/向量化索引流水线（两段式 + 双缓冲）、双路召回 + RRF 融合检索、`ChunkStore` 可插拔向量存储（默认 SQLite）、`KnowledgeTools`（`retrieve_knowledge`）。契约与绑定服务在 `oryxos-core/knowledge/`（依赖倒置），依赖 core + storage |
 | `oryxos-tool` | 核心能力四：内置 Tool（`FileTools`、`ShellTools`、`HttpTools`、`NotifyTools`）、`McpClientService`、`McpToolAdapter`、`ToolRegistry`、`Sandbox` 接口 + `WhitelistSandbox` 实现、`NotifyChannelAdapter` 接口 + `WebhookNotifyAdapter` 实现（三合一模块） |
 | `oryxos-channel-cli` | CLI Channel：`CliChannel`、`oryxos chat` 命令实现 |
 | `oryxos-channel-feishu` | 飞书 IM 入站渠道（017）：官方 `oapi-sdk` 长连接接收 `im.message.receive_v1` 事件（免公网回调、免验签）、`FeishuEventNormalizer`（@ 机器人判定与剥离、非文本识别）、`FeishuMessageSender`（出站过沙箱白名单、超长分段、reply 引用原消息）、`FeishuChannelAdapter`（连接生命周期与自动重连状态）。入站渠道契约（`InboundChannelAdapter`/`InboundMessage`）与共享编排（`InboundMessageService`：去重/路由/私聊群聊分流/审计）、配置热更（`ChannelConfigLoader`/`ChannelAdminService`，`.oryxos/channels.yaml`）在 `oryxos-core/channel/`（依赖倒置）；新增 IM 渠道只加适配器模块，契约行为由参数化测试集（桩档 + 飞书档）钉死 |
-| `oryxos-web` | 核心能力五：`WebServer`、6 个 `ApiController`、`GlobalExceptionHandler`、OpenAPI 文档 |
+| `oryxos-channel-wecom` | 企微智能机器人入站渠道（对称飞书）：`WeComWsClient` 长连接收消息（免公网回调）、`WeComEventNormalizer`（@ 判定/剥离）、`WeComMessageSender`（出站过沙箱、分段）、`WeComChannelAdapter`（连接生命周期与自动重连）。契约与共享编排同飞书，复用 `oryxos-core/channel/` |
+| `oryxos-channel-dingtalk` | 钉钉机器人入站渠道（对称飞书/企微）：`DingTalkStreamClient` Stream 长连接收消息、`DingTalkEventNormalizer`（@ 判定/剥离）、`DingTalkMessageSender`（出站过沙箱、分段）、`DingTalkChannelAdapter`（断线自动重连）。契约与共享编排同飞书/企微，复用 `oryxos-core/channel/` |
+| `oryxos-web` | 核心能力五：`WebServer`、6 个 `ApiController`、`GlobalExceptionHandler`、OpenAPI 文档（025 起含 `/api/v1/personas` 人格库 5 端点与 `/api/v1/agents/import-preview`、`/api/v1/agents/import` 导入端点） |
 | `oryxos-storage` | 持久化层：SQLite、`SessionRepository`、`ToolInvocationRepository`、`LlmCallRepository` |
-| `oryxos-cli` | 命令行入口：Picocli 主入口、12 个子命令、`ConfigLoader` |
+| `oryxos-cli` | 命令行入口：Picocli 主入口、13 个子命令、`ConfigLoader`（025 起加 `agent import` 子命令） |
 | `oryxos-boot` | Spring Boot 启动模块：主类、自动配置、依赖聚合 |
 
 模块之间通过接口解耦。扩展阶段加新 Channel 或新 Tool 实现只加新模块不改 core，所有 Channel 模块底层都调 `oryxos-web` 的 Agent 接口。

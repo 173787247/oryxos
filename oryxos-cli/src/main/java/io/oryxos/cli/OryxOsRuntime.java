@@ -42,6 +42,9 @@ import io.oryxos.memory.Mem0MemoryStore;
 import io.oryxos.memory.MemoryServiceImpl;
 import io.oryxos.memory.SqliteMemoryStore;
 import io.oryxos.memory.builtin.MemoryTools;
+import io.oryxos.persona.PersonaPresetCatalog;
+import io.oryxos.persona.PersonaService;
+import io.oryxos.persona.PersonaStore;
 import io.oryxos.provider.ProviderChatModelFactory;
 import io.oryxos.provider.ProviderRegistryBootstrap;
 import io.oryxos.provider.ProviderRegistryValidator;
@@ -123,8 +126,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -231,12 +236,24 @@ public class OryxOsRuntime {
     return migration;
   }
 
+  /** 023：业务指标——serve 场景（actuator 在类路径且有 MeterRegistry）落 Micrometer；chat 等无监控上下文 NOOP 兜底。 */
+  @Bean
+  io.oryxos.core.metrics.MetricsRecorder metricsRecorder(
+      org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>
+          meterRegistry) {
+    io.micrometer.core.instrument.MeterRegistry registry = meterRegistry.getIfAvailable();
+    return registry == null
+        ? io.oryxos.core.metrics.MetricsRecorder.NOOP
+        : new MicrometerMetricsRecorder(registry);
+  }
+
   @Bean
   ProviderService providerService(
       ProviderRegistry providerRegistry,
       LlmCallAuditor auditor,
       PricingStore pricingStore,
-      AuditSchemaUpgrade auditSchemaUpgrade) {
+      AuditSchemaUpgrade auditSchemaUpgrade,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     auditSchemaUpgrade.upgrade(); // 幂等：存量库补列 + 建 llm_pricing 表
     // 动态解析（31 节）：按名从注册表取参数、经工厂即时建/缓存 ChatModel（宪法 III 显式映射，只是运行时可变）
     ProviderChatModelFactory factory = new ProviderChatModelFactory();
@@ -245,7 +262,8 @@ public class OryxOsRuntime {
         def -> factory.buildOne(def.name(), def.apiKey(), def.baseUrl()),
         new ToolSchemaAdapter(),
         auditor,
-        pricingStore);
+        pricingStore,
+        metricsRecorder); // 023：LLM 调用/token/切换指标
   }
 
   @Bean
@@ -288,7 +306,26 @@ public class OryxOsRuntime {
     return new AgentStore(oryxosRoot());
   }
 
-  /** 30 节：Agent 生命周期编排。创建脚手架的 AGENT.md 模板里 provider 缺省取最终注册表按名称排序后的第一项。 */
+  /** 025 人格库：默认人格预设目录（12 个 agency-agents-zh 专家源文件随 jar 内置，Web/CLI 导入的预置内容种子）。 */
+  @Bean
+  PersonaPresetCatalog personaPresetCatalog() {
+    return new PersonaPresetCatalog();
+  }
+
+  /** 025 人格库：自定义人格的工作区 store（{@code .oryxos/personas/} 扁平 .md，只放用户自建，不播种内置）。 */
+  @Bean
+  PersonaStore personaStore() {
+    return new PersonaStore(oryxosRoot());
+  }
+
+  /** 025 人格库：只读内置 + 可 CRUD 自定义的统一编排（copy-in 模板库，仍非按名引用的人格市场）。 */
+  @Bean
+  PersonaService personaService(
+      PersonaPresetCatalog personaPresetCatalog, PersonaStore personaStore) {
+    return new PersonaService(personaPresetCatalog, personaStore);
+  }
+
+  /** 30 节：Agent 生命周期编排。创建脚手架的 AGENT.md 模板里 provider 缺省取最终注册表按名称大小写不敏感的最小项。 */
   @Bean
   AgentLifecycleService agentLifecycleService(
       AgentLoader agentLoader,
@@ -310,8 +347,9 @@ public class OryxOsRuntime {
         providerRegistry.list().stream()
             .map(ProviderDef::name)
             .filter(name -> name != null && !name.isBlank())
-            .sorted()
-            .findFirst()
+            // 大小写不敏感取最小项：ASCII 排序会先排大写，让「大写开头的本地 provider（如 Qwen3.8-27B-gptq-w4a16）」
+            // 顶掉真正的默认 deepseek——这里统一按大小写无关的最小名取确定性默认。
+            .min(String::compareToIgnoreCase)
             .orElse(null);
     // 生成用 provider 缺省取最终注册表的确定性默认；显式 oryxos.author.provider 仍按原行为覆盖。
     String genProvider =
@@ -354,6 +392,21 @@ public class OryxOsRuntime {
     executor.setDaemon(true); // chat 跑完进程要能退出；serve/gateway 常驻靠主线程保活
     executor.initialize();
     return executor;
+  }
+
+  /**
+   * #332：ContextClosedEvent 先于 SmartLifecycle 停机发布（AbstractApplicationContext.doClose 顺序）， 在此关闭两个
+   * WatchService → 监听循环退出 → 执行器「运行中任务数」归零 → 其 stop 回调即时触发， 生命周期停机不再等满 30s latch 超时。不关的话
+   * watchService.take() 无事件/中断/关闭三者不醒。
+   */
+  @Bean
+  ApplicationListener<ContextClosedEvent> watcherGracefulShutdown(
+      WorkspaceWatcher workspaceWatcher,
+      io.oryxos.knowledge.watch.KnowledgeWatcher knowledgeWatcher) {
+    return event -> {
+      workspaceWatcher.stop();
+      knowledgeWatcher.stop();
+    };
   }
 
   /** 30 节：实时监听 .oryxos/agents/——守护线程上跑监听循环，启动后的变更走同一段 register。 */
@@ -848,11 +901,13 @@ public class OryxOsRuntime {
       ToolRegistry toolRegistry,
       ProfileRegistry profileRegistry,
       ToolInvocationAuditor auditor,
-      io.oryxos.core.policy.ToolPolicyService toolPolicyService) {
+      io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
     ToolExecutor executor =
         new ToolExecutor(tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
+    executor.setMetricsRecorder(metricsRecorder); // 023：工具调用/策略拦截指标
     return executor;
   }
 
@@ -941,6 +996,7 @@ public class OryxOsRuntime {
         profileRegistry,
         agentExecutionService,
         messageDeduplicator,
+        new io.oryxos.core.channel.DefaultInboundMediaEnricher(),
         java.time.Duration.ofSeconds(15)); // 「处理中」提示阈值（Edge Case：先行告知）
   }
 

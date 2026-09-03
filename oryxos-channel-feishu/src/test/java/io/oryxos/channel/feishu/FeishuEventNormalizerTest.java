@@ -76,13 +76,15 @@ class FeishuEventNormalizerTest {
   }
 
   @Test
-  @DisplayName("私聊图片：textual=false，内容为空（FR-009 能力说明由编排回复）")
+  @DisplayName("私聊图片：textual=false，附带 image_key 附件")
   void p2pImage() {
     Optional<InboundMessage> out =
         normalizer.normalize(event("p2p", "image", "{\"image_key\":\"img_x\"}"));
     assertTrue(out.isPresent());
     assertFalse(out.get().textual());
     assertEquals("", out.get().content());
+    assertEquals(1, out.get().attachments().size());
+    assertEquals("img_x", out.get().attachments().get(0).reference());
   }
 
   @Test
