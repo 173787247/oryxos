@@ -23,12 +23,17 @@ spring:
   jpa:
     database-platform: org.hibernate.community.dialect.SQLiteDialect
     hibernate:
-      # 宪法 VIII：表结构唯一权威是手工 schema.sql；create-drop 会在重启时毁掉全部数据（18 节纠正）
+      # 宪法 VIII：表结构唯一权威是 db/migration/{vendor} 迁移目录（025 起 Flyway 管理）；
+      # create-drop 会在重启时毁掉全部数据（18 节纠正）
       ddl-auto: none
     show-sql: false
-  sql:
-    init:
-      mode: always   # 启动执行 schema.sql（CREATE TABLE IF NOT EXISTS，幂等）
+  # 025-pluggable-storage：表结构收编 Flyway。{vendor} 按 datasource url 自动展开
+  # （sqlite / postgresql）；baseline-version=0 让存量库与新库走同一条幂等迁移序列
+  # V1~V5（V1 = 原 schema.sql，V2~V5 = 原四个手工升级类的平移），零 baseline 分叉。
+  flyway:
+    locations: classpath:db/migration/{vendor}
+    baseline-on-migrate: true
+    baseline-version: 0
 
 server:
   port: 8080

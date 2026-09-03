@@ -13,7 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 落库凭证的启动迁移与密钥守卫（022，AuditSchemaUpgrade 同位）：
+ * 落库凭证的启动迁移与密钥守卫（022；025 起排在 Flyway 迁移之后）：
  *
  * <ul>
  *   <li>迁移：扫描 providers.api_key 与 notify_channels.config 敏感项——明文（非空且无 enc:v1: 前缀）加密回写并计数， 日志「已加密 N
@@ -45,12 +45,7 @@ public final class SecretMigration {
     this.cipher = cipher;
   }
 
-  /**
-   * 启动执行：先守卫（密钥不匹配尽早拦截），后迁移明文。
-   *
-   * <p>notify_channels 的 config 列在极老库上由 NotifyChannelSchemaMigration（CommandLineRunner，
-   * 晚于本迁移）补齐——列未就绪时渠道表扫描 WARN 跳过、下次启动自愈；此时库中也不可能存在渠道密文， providers 守卫不受影响，拒启语义完整。
-   */
+  /** 启动执行：先守卫（密钥不匹配尽早拦截），后迁移明文。025 起表结构先由 Flyway 收敛（V5 保证 config 列就绪），本迁移只做数据面。 */
   public void run() {
     List<String> undecryptable = new ArrayList<>();
     int ciphertextCount = guard(undecryptable);
@@ -81,7 +76,7 @@ public final class SecretMigration {
         }
       }
     }
-    for (NotifyChannel channel : channels()) {
+    for (NotifyChannel channel : channelRepository.findAll()) {
       for (Map.Entry<String, String> entry : readConfig(channel.getConfig()).entrySet()) {
         if (cipher.isEncrypted(entry.getValue())) {
           ciphertextCount++;
@@ -92,18 +87,6 @@ public final class SecretMigration {
       }
     }
     return ciphertextCount;
-  }
-
-  /** 极老库 config 列未就绪时返回空表（WARN 跳过，下次启动自愈）；见 {@link #run()} 注释。 */
-  private List<NotifyChannel> channels() {
-    try {
-      return channelRepository.findAll();
-    } catch (org.springframework.dao.DataAccessException e) {
-      LOG.warn(
-          "notify_channels 尚未就绪（{}），本次启动跳过该表的凭证迁移，下次启动自愈",
-          sanitize(e.getMostSpecificCause().getMessage()));
-      return List.of();
-    }
   }
 
   /** 明文敏感值 → 加密回写；前缀判别保证幂等。 */
@@ -117,7 +100,7 @@ public final class SecretMigration {
         migrated++;
       }
     }
-    for (NotifyChannel channel : channels()) {
+    for (NotifyChannel channel : channelRepository.findAll()) {
       Map<String, String> config = readConfig(channel.getConfig());
       boolean changed = false;
       Map<String, String> out = new LinkedHashMap<>();

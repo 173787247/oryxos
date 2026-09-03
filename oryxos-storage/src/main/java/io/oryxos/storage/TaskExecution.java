@@ -8,7 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** task_executions：定时任务每次执行的历史（28 节，成功失败都记）——表结构以手工 schema.sql 为唯一权威。 */
+/** task_executions：定时任务每次执行的历史（28 节，成功失败都记）——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "task_executions")
 public class TaskExecution {

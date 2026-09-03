@@ -12,7 +12,7 @@ import java.time.Instant;
 /**
  * memory_vectors 行（015 记忆检索升级）——归档记忆条目的向量索引，派生数据、可从记忆本体全量重建。 embedding 为 float32[] 小端序
  * BLOB（编解码由上层复用 014 实现）；entry_hash = sha256(agent|scope|条目原文) 跨后端档统一寻址；仅 ARCHIVAL
- * 条目产生行（FR-005）。表结构以手工 schema.sql 为唯一权威。
+ * 条目产生行（FR-005）。表结构以 db/migration 迁移目录为唯一权威。
  */
 @Entity
 @Table(name = "memory_vectors")

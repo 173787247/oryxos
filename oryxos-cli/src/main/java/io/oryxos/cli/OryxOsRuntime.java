@@ -54,7 +54,6 @@ import io.oryxos.provider.ToolSchemaAdapter;
 import io.oryxos.storage.AgentExecutionRepository;
 import io.oryxos.storage.ApiKeyRepository;
 import io.oryxos.storage.ApiKeyService;
-import io.oryxos.storage.AuditSchemaUpgrade;
 import io.oryxos.storage.JpaAgentExecutionStore;
 import io.oryxos.storage.JpaLlmCallAuditor;
 import io.oryxos.storage.JpaNotifyChannelRegistry;
@@ -70,7 +69,6 @@ import io.oryxos.storage.LlmProviderRepository;
 import io.oryxos.storage.MemoryEntryRepository;
 import io.oryxos.storage.NotifyChannelRepository;
 import io.oryxos.storage.SandboxWhitelistRepository;
-import io.oryxos.storage.ScheduleSchemaUpgrade;
 import io.oryxos.storage.ScheduledTaskRepository;
 import io.oryxos.storage.SessionRepository;
 import io.oryxos.storage.TaskExecutionRepository;
@@ -120,7 +118,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
@@ -209,13 +206,6 @@ public class OryxOsRuntime {
     return new JpaPricingStore(repository);
   }
 
-  /** 016 审计看板：llm_calls/tool_invocations 补列 + 建 llm_pricing 表（幂等，先跑 schema.sql）。 */
-  @Bean
-  @DependsOn("dataSourceScriptDatabaseInitializer")
-  AuditSchemaUpgrade auditSchemaUpgrade(DataSource dataSource) {
-    return new AuditSchemaUpgrade(dataSource);
-  }
-
   /** 022：落库凭证加解密——主密钥两档解析（ORYXOS_MASTER_KEY 优先，缺省 {oryxos.root}/master.key 首启自动生成）。 */
   @Bean
   io.oryxos.core.secret.SecretCipher secretCipher() {
@@ -223,9 +213,9 @@ public class OryxOsRuntime {
         new io.oryxos.core.secret.MasterKeyResolver(oryxosRoot()).resolve());
   }
 
-  /** 022：存量明文迁移 + 密钥守卫（幂等；密钥不匹配拒启指路）。数据源就绪后执行，AuditSchemaUpgrade 同位。 */
+  /** 022：存量明文迁移 + 密钥守卫（幂等；密钥不匹配拒启指路）。025 起表结构由 Flyway 收敛，迁移完才跑。 */
   @Bean
-  @DependsOn("dataSourceScriptDatabaseInitializer")
+  @DependsOn("flywayInitializer")
   io.oryxos.storage.SecretMigration secretMigration(
       LlmProviderRepository providerRepository,
       NotifyChannelRepository channelRepository,
@@ -252,9 +242,7 @@ public class OryxOsRuntime {
       ProviderRegistry providerRegistry,
       LlmCallAuditor auditor,
       PricingStore pricingStore,
-      AuditSchemaUpgrade auditSchemaUpgrade,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
-    auditSchemaUpgrade.upgrade(); // 幂等：存量库补列 + 建 llm_pricing 表
     // 动态解析（31 节）：按名从注册表取参数、经工厂即时建/缓存 ChatModel（宪法 III 显式映射，只是运行时可变）
     ProviderChatModelFactory factory = new ProviderChatModelFactory();
     return new SpringAiProviderServiceImpl(
@@ -662,20 +650,12 @@ public class OryxOsRuntime {
     return RestClient.builder().requestFactory(toolHttpRequestFactory()).build();
   }
 
-  /** 015 FR-014：memory_entries 幂等补 agent_name 列（照 ScheduleSchemaUpgrade 先例，先跑 schema.sql）。 */
-  @Bean
-  @DependsOn("dataSourceScriptDatabaseInitializer")
-  io.oryxos.storage.MemorySchemaUpgrade memorySchemaUpgrade(DataSource dataSource) {
-    return new io.oryxos.storage.MemorySchemaUpgrade(dataSource);
-  }
-
   /** 长期记忆后端：按 memory.backend 选一档（默认 markdown）——这是第 21/22 节"接口墙"的装配落点。 */
   @Bean
   LongTermMemoryStore longTermMemoryStore(
       @org.springframework.beans.factory.annotation.Value("${memory.backend:markdown}")
           String backend,
       MemoryEntryRepository memoryEntryRepository,
-      io.oryxos.storage.MemorySchemaUpgrade memorySchemaUpgrade,
       RestClient restClient,
       @org.springframework.beans.factory.annotation.Value("${memory.mem0.base-url:}")
           String mem0BaseUrl,
@@ -683,7 +663,6 @@ public class OryxOsRuntime {
           String mem0UserId,
       @org.springframework.beans.factory.annotation.Value("${memory.mem0.api-key:}")
           String mem0ApiKey) {
-    memorySchemaUpgrade.upgrade(); // 幂等：存量库补列，新装/已升级库 no-op
     return switch (backend) {
       case "sqlite" -> new SqliteMemoryStore(memoryEntryRepository);
       case "mem0" ->
@@ -1053,24 +1032,10 @@ public class OryxOsRuntime {
     return scheduler;
   }
 
-  /** 28 节：定时任务状态与执行历史落 SQLite（重启不丢），并支撑管理台的查看/立即执行/启用停用。 */
-  /**
-   * Runs after schema.sql and before any scheduler store or scheduler bean can observe the tables.
-   * The upgrader derives idempotence solely from the live SQLite columns; it has no migration
-   * table.
-   */
-  @Bean
-  @DependsOn("dataSourceScriptDatabaseInitializer")
-  ScheduleSchemaUpgrade scheduleSchemaUpgrade(DataSource dataSource) {
-    return new ScheduleSchemaUpgrade(dataSource);
-  }
-
+  /** 28 节：定时任务状态与执行历史落库（重启不丢），并支撑管理台的查看/立即执行/启用停用。 */
   @Bean
   ScheduledTaskStore scheduledTaskStore(
-      ScheduleSchemaUpgrade scheduleSchemaUpgrade,
-      ScheduledTaskRepository taskRepository,
-      TaskExecutionRepository executionRepository) {
-    scheduleSchemaUpgrade.upgrade();
+      ScheduledTaskRepository taskRepository, TaskExecutionRepository executionRepository) {
     return new JpaScheduledTaskStore(taskRepository, executionRepository);
   }
 

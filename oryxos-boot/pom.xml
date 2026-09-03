@@ -91,6 +91,13 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 025：PG 全链路 smoke 的嵌入式 PG（research R5：本机与 CI 同构、零外部依赖） -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>2.0.7</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

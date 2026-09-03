@@ -7,7 +7,9 @@
 # 升级换镜像不丢数据。零 key 即可启动，Provider 在管理台 http://localhost:8080/admin/ 配置；
 # 也可挂载自己的 config/application.yml（见下 volumes 注释）。
 #
-# 注意：SQLite 单机存储 ⇒ 只能单副本。多副本需要分布式存储（路线图方向 A），别用多容器横向扩。
+# 注意：默认 SQLite 单机存储 ⇒ 只能单副本。025 起可在 /data/config/application.yml 把 datasource
+# 指向企业 PostgreSQL（url + 账密，库类型自动识别）获得共享存储；多副本的正确性保障（session 租约等）
+# 随 026 交付，在此之前仍建议单副本运行。
 services:
   oryxos:
     image: ghcr.io/oryx-labs/oryxos:latest

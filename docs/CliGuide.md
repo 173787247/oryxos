@@ -110,7 +110,7 @@ oryxos init
 oryxos status
 ```
 
-输出工作区是否初始化、Profile/Skill 数量、SQLite 库是否已创建。排查"为什么 chat 不认我的 Agent"先看这里。
+输出工作区是否初始化、Profile/Skill 数量、数据库指向（SQLite 显示文件是否已创建；外部 PostgreSQL 显示连接指向）。排查"为什么 chat 不认我的 Agent"先看这里。
 
 ### 4.3 chat——交互式对话（核心命令）
 
@@ -195,6 +195,13 @@ curl -H "X-API-Key: oryx_..." http://localhost:8080/api/v1/profiles
 Agent 的 `AGENT.md` provider 节可声明 `fallback:` 有序备用列表（每项 name+model，引用已注册 Provider）——主 Provider 网络故障/超时/限流/凭证失效时该次调用自动按序切换备用，终端无感知；每次尝试都留审计、切换有 WARN 日志（带 traceId 可互查）。运维将 `/actuator/prometheus` 接入企业 Prometheus/Grafana 即可看到 `oryxos_` 前缀业务指标（LLM 调用/耗时/token/工具/策略拦截/切换计数）并配置告警（如「fallback 切换次数突增」）。
 
 ---
+
+### 4.11 数据库选型（025）——SQLite 默认档与 PostgreSQL 部署选项
+
+- **默认零配置**：什么都不配就是单机 SQLite（`oryxos.db` 相对启动目录），行为与历史版本一致；升级后首次启动自动把表结构接管进 Flyway 迁移管理（`flyway_schema_history` 表），数据无损、重启不重复。
+- **切 PostgreSQL**（多副本/高并发写，PG 14+）：编辑 `config/application.yml` 的 `spring.datasource`——只需 `url`（`jdbc:postgresql://主机:5432/库名`）+ `username` + `password: ${ORYXOS_DB_PASSWORD}`（凭证走环境变量）。库类型按 url 自动识别，驱动/方言/迁移脚本自动切换，无需配置其他任何项。
+- **报错口径**：连接不上、认证失败、权限不足、迁移失败四类各自报错可区分且拒绝启动，不会静默退回 SQLite。
+- 轻命令（`status` / `session list` / `knowledge list`）与服务读同一份配置，两种库同口径工作。
 
 ## 5. 配置与凭证
 

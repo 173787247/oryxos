@@ -8,7 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** agent_executions：Agent 维度每次执行的历史（第 32 节）——表结构以手工 schema.sql 为唯一权威。 */
+/** agent_executions：Agent 维度每次执行的历史（第 32 节）——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "agent_executions")
 public class AgentExecutionEntity {

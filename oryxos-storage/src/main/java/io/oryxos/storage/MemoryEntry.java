@@ -10,8 +10,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 长期记忆条目（SqliteMemoryStore 后端，22 节）——表结构以手工 schema.sql 为唯一权威。 agent_name（015 FR-014）：记忆跟 Agent 走；无
- * Agent 上下文时归 '__global__'（与 markdown 档全局回退语义对齐）。
+ * 长期记忆条目（SqliteMemoryStore 后端，22 节）——表结构以 db/migration 迁移目录为唯一权威。 agent_name（015 FR-014）：记忆跟 Agent
+ * 走；无 Agent 上下文时归 '__global__'（与 markdown 档全局回退语义对齐）。
  */
 @Entity
 @Table(name = "memory_entries")

@@ -10,7 +10,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 工具策略规则（020-tool-policy）——表结构以手工 schema.sql 为唯一权威。
+ * 工具策略规则（020-tool-policy）——表结构以 db/migration 迁移目录为唯一权威。
  *
  * <p>rule_type：GLOBAL_DENY（agent_name 为空）/ AGENT_EXEMPT / AGENT_DENY；pattern 为工具精确名或 MCP server
  * 通配（server:*）。created_by 记录规则来源（配置即责任的最低追溯口径）。

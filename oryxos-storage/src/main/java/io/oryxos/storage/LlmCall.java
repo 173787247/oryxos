@@ -9,7 +9,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** llm_calls 审计记录——表结构以手工 schema.sql 为唯一权威。 */
+/** llm_calls 审计记录——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "llm_calls")
 public class LlmCall {
