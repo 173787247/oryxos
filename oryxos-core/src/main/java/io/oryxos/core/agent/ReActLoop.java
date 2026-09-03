@@ -21,20 +21,33 @@ public class ReActLoop {
   /** 转满最大轮数的强制收尾答复（课件字面量，harness 断言点）。 */
   static final String MAX_ITERATIONS_REPLY = "达到最大轮数，已停止";
 
+  /** 用户手动中断的收尾答复。 */
+  static final String INTERRUPTED_REPLY = "已收到停止指令，推理已中断";
+
   private final PromptBuilder promptBuilder;
   private final ProviderService providerService;
   private final ToolExecutor toolExecutor;
+  private final InterruptManager interruptManager;
+
+  public ReActLoop(
+      PromptBuilder promptBuilder, ProviderService providerService, ToolExecutor toolExecutor) {
+    this(promptBuilder, providerService, toolExecutor, null);
+  }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification =
-          "promptBuilder/toolExecutor 为 Spring 装配的共享单例（020 起带策略 setter 故为可变类），"
+          "promptBuilder/toolExecutor/interruptManager 为 Runtime 装配的共享单例，"
               + "构造注入存同一引用正是意图（镜像既有 SuppressFBWarnings 模式）。")
   public ReActLoop(
-      PromptBuilder promptBuilder, ProviderService providerService, ToolExecutor toolExecutor) {
+      PromptBuilder promptBuilder,
+      ProviderService providerService,
+      ToolExecutor toolExecutor,
+      InterruptManager interruptManager) {
     this.promptBuilder = promptBuilder;
     this.providerService = providerService;
     this.toolExecutor = toolExecutor;
+    this.interruptManager = interruptManager;
   }
 
   public String run(Session session, String userMessage, Profile profile) {
@@ -59,6 +72,12 @@ public class ReActLoop {
     session.appendUser(userMessage, media);
     // 最大轮数兜底（坑一）：模型可能反复要调工具永不收敛，转够强制退出
     for (int i = 0; i < profile.settings().maxIterations(); i++) {
+      // 检查中断标志
+      if (interruptManager != null && interruptManager.isInterrupted(session.sessionId())) {
+        interruptManager.clear(session.sessionId());
+        return INTERRUPTED_REPLY;
+      }
+
       ProviderRequest prompt = promptBuilder.build(session, profile);
       // sessionId 随调用传递：llm_calls 审计按 session 关联；流式与否审计同口径（FR-012）
       ProviderResponse response =
