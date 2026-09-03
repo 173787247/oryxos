@@ -9,7 +9,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** REST API 机器调用凭证（018-rest-api-key）——表结构以手工 schema.sql 为唯一权威。只存哈希不存明文。 */
+/** REST API 机器调用凭证（018-rest-api-key）——表结构以 db/migration 迁移目录为唯一权威。只存哈希不存明文。 */
 @Entity
 @Table(name = "api_keys")
 public class ApiKey {

@@ -11,7 +11,7 @@ import java.time.Instant;
 
 /**
  * knowledge_chunks 行（014 知识库）——embedding 为 float32[] BLOB（小端序编码由上层负责）； dim + embedding_model
- * 支撑一致性校验（FR-014）。表结构以手工 schema.sql 为唯一权威。
+ * 支撑一致性校验（FR-014）。表结构以 db/migration 迁移目录为唯一权威。
  */
 @Entity
 @Table(name = "knowledge_chunks")

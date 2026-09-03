@@ -18,7 +18,7 @@ OryxOS 是用 Java 实现的面向企业场景的 **Distributed AI Agent OS**。
 | HTTP 服务 | Spring MVC + Java 21 Virtual Thread |
 | 命令行 | Picocli |
 | YAML 解析 | SnakeYAML |
-| 持久化 | SQLite + Spring Data JPA |
+| 持久化 | SQLite（默认零配置）/ PostgreSQL 14+（部署选项，url 自动识别）+ Spring Data JPA；表结构由 Flyway 管理（`db/migration/{vendor}/`） |
 | 日志 | Logback + SLF4J（结构化 JSON） |
 | 构建 | Maven 多模块 |
 
@@ -258,7 +258,7 @@ settings:
 | `duration_ms` | BIGINT | 调用耗时 |
 | `created_at` | TIMESTAMP | 调用时间 |
 
-> **SQLite 迁移注意**：`hibernate.ddl-auto=update` 在 SQLite 上 `ALTER TABLE` 支持很弱。表结构变更时**不要**依赖 Hibernate 自动迁移，手动维护建表脚本或引入 Flyway。
+> **表结构变更（025 起 Flyway 管理）**：迁移脚本在 `oryxos-storage` 的 `db/migration/sqlite/` 与 `db/migration/postgresql/` 双轨目录，同一变更两 vendor 各写一份（同版本号）、只增不改；025~028 期间只做加列/加表/加索引类前向兼容变更。**不要**依赖 `hibernate.ddl-auto=update`（保持 `none`）；V1~V5 是存量收敛序列（幂等），V6 起写非幂等干净 SQL——history 表保证恰好一次。
 
 ---
 
@@ -417,7 +417,7 @@ provider:
 | Provider 靠类型扫描区分 | 多 Provider 时路由错乱 | 改用显式 `Map<String, ChatModel>` 映射 |
 | `AGENT.md` / 子指令放进 Tool 模块 | Agent 目录被当 Tool 注册，执行时报错 | 归 `ContextLoader`：正文注入 system prompt，子指令/脚本经 read_file/shell 按需取 |
 | 审计表只写日志不落库 | 扩展阶段审计功能需要反解析日志 | `tool_invocations` + `llm_calls` 核心阶段就写入 SQLite |
-| 用 `hibernate.ddl-auto=update` 迁移表结构 | SQLite ALTER TABLE 报错 | 手动维护建表脚本或引入 Flyway |
+| 用 `hibernate.ddl-auto=update` 迁移表结构 | SQLite ALTER TABLE 报错 | 写 Flyway 迁移脚本（`db/migration/{vendor}/` 双轨各一份，只增不改） |
 | 在 ReAct Loop 里用异步 | 复杂度激增，Virtual Thread 优势消失 | 保持同步阻塞，Virtual Thread 自动处理 IO 等待 |
 | `MEMORY.md` 超过 4000 字不截断 | 注入 system prompt 超 context window | `LongTermMemory.truncateIfNeeded()` 超阈值保留最近内容 |
 | Tool 模块拆成多个 | 模块间依赖混乱 | 内置 Tool + MCP Client 合并为一个 `oryxos-tool` 模块 |

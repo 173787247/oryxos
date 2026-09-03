@@ -10,7 +10,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** knowledge_documents 行（014 知识库）——表结构以手工 schema.sql 为唯一权威。 */
+/** knowledge_documents 行（014 知识库）——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "knowledge_documents")
 public class KnowledgeDocumentEntity {

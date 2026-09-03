@@ -13,7 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 落库凭证的启动迁移与密钥守卫（022，AuditSchemaUpgrade 同位）：
+ * 落库凭证的启动迁移与密钥守卫（022；025 起排在 Flyway 迁移之后）：
  *
  * <ul>
  *   <li>迁移：扫描 providers.api_key 与 notify_channels.config 敏感项——明文（非空且无 enc:v1: 前缀）加密回写并计数， 日志「已加密 N

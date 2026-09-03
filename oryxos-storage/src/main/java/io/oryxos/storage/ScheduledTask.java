@@ -6,7 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** scheduled_tasks：定时任务登记 + 运行状态（28 节）——表结构以手工 schema.sql 为唯一权威。 */
+/** scheduled_tasks：定时任务登记 + 运行状态（28 节）——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "scheduled_tasks")
 public class ScheduledTask {

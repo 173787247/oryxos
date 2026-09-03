@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import javax.sql.DataSource;
@@ -124,6 +125,64 @@ class PostgresStorageE2ETest {
         () -> {
           try (ConfigurableApplicationContext ignored = boot(root, "wrong-user")) {
             // 不应到达：错误凭证必须拒启（SC-008），绝不静默降级回 SQLite
+          }
+        });
+  }
+
+  @Test
+  @DisplayName("unreachable database url refuses startup")
+  void unreachableUrlRefusesStartup() throws Exception {
+    Path root = seedWorkspace();
+    assertThrows(
+        Exception.class,
+        () -> {
+          try (ConfigurableApplicationContext ignored =
+              new SpringApplicationBuilder(OryxOsRuntime.class)
+                  .run(
+                      "--oryxos.root=" + root,
+                      "--oryxos.providers[0].name=mock",
+                      // 未监听端口：立即 connection refused（SC-008 连接失败类）
+                      "--spring.datasource.url=jdbc:postgresql://localhost:1/oryxos",
+                      "--spring.datasource.username=postgres",
+                      "--spring.datasource.hikari.initialization-fail-timeout=1",
+                      "--spring.main.web-application-type=none")) {
+            // 不应到达：不可达库必须拒启
+          }
+        });
+  }
+
+  @Test
+  @DisplayName("account without create privilege refuses startup at migration")
+  void readOnlyAccountRefusesStartup() throws Exception {
+    Path root = seedWorkspace();
+    try (Connection connection = postgres.getPostgresDatabase().getConnection();
+        Statement statement = connection.createStatement()) {
+      statement.execute("CREATE DATABASE limited_db");
+      statement.execute("CREATE USER limited WITH PASSWORD 'limited'");
+    }
+    try (Connection connection =
+            DriverManager.getConnection(
+                "jdbc:postgresql://localhost:" + postgres.getPort() + "/limited_db?user=postgres");
+        Statement statement = connection.createStatement()) {
+      statement.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
+      statement.execute("REVOKE CREATE ON SCHEMA public FROM limited");
+    }
+    assertThrows(
+        Exception.class,
+        () -> {
+          try (ConfigurableApplicationContext ignored =
+              new SpringApplicationBuilder(OryxOsRuntime.class)
+                  .run(
+                      "--oryxos.root=" + root,
+                      "--oryxos.providers[0].name=mock",
+                      "--spring.datasource.url="
+                          + "jdbc:postgresql://localhost:"
+                          + postgres.getPort()
+                          + "/limited_db",
+                      "--spring.datasource.username=limited",
+                      "--spring.datasource.password=limited",
+                      "--spring.main.web-application-type=none")) {
+            // 不应到达：无建表权限必须在迁移期拒启（SC-008 权限类）
           }
         });
   }
