@@ -24,6 +24,8 @@
         <spring-ai.version>1.1.8</spring-ai.version>
         <picocli.version>4.7.6</picocli.version>
         <sqlite-jdbc.version>3.53.2.1</sqlite-jdbc.version>
+        <!-- 025：覆盖 Boot BOM 的 42.7.11——CVE-2026-54291（CVSS 8.2）修复于 42.7.12（OSV 实证），OWASP 门禁线 8.0 -->
+        <postgresql.version>42.7.12</postgresql.version>
         <pdfbox.version>3.0.8</pdfbox.version>
         <oapi-sdk.version>2.8.5</oapi-sdk.version>
 
