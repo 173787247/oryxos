@@ -14,6 +14,7 @@ public final class InboundMediaRoots {
 
   private static final Logger LOG = LoggerFactory.getLogger(InboundMediaRoots.class);
   private static final String INBOUND_MEDIA = "inbound-media";
+  private static final int MAX_SEGMENT_LEN = 96;
 
   private InboundMediaRoots() {}
 
@@ -54,8 +55,8 @@ public final class InboundMediaRoots {
       return "x";
     }
     String cleaned = raw.replaceAll("[^a-zA-Z0-9._-]", "_");
-    if (cleaned.length() > 96) {
-      cleaned = cleaned.substring(0, 96);
+    if (cleaned.length() > MAX_SEGMENT_LEN) {
+      cleaned = cleaned.substring(0, MAX_SEGMENT_LEN);
     }
     return cleaned.isBlank() ? "x" : cleaned;
   }
