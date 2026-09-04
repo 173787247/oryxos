@@ -101,8 +101,8 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
       value = "IMPROPER_UNICODE",
       justification = "仅对 ASCII 音频扩展名做 Locale.ROOT 小写匹配，不参与安全/身份比较")
   static String whisperFileName(Path audioFile, byte[] bodyBytes) {
-    String name =
-        audioFile.getFileName() == null ? FALLBACK_AUDIO_NAME : audioFile.getFileName().toString();
+    Path fileName = audioFile.getFileName();
+    String name = fileName == null ? FALLBACK_AUDIO_NAME : fileName.toString();
     String lower = name.toLowerCase(java.util.Locale.ROOT);
     if (lower.endsWith(EXT_OGG)
         || lower.endsWith(EXT_OGA)
