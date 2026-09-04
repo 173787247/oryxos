@@ -28,8 +28,8 @@
 
 - [ ] T011 [US1] MessageDeduplicator 抽接口（oryxos-core/src/main/java/io/oryxos/core/channel/MessageDeduplicator.java 保留 markIfFirst 签名）+ InMemoryMessageDeduplicator 平移现状实现；三渠道适配器（FeishuChannelAdapter/WeComChannelAdapter/DingTalkChannelAdapter）与 InboundMessageService 的类型声明改接口（行为零变）
 - [ ] T012 [P] [US1] 新建 oryxos-core/src/main/java/io/oryxos/core/channel/SharedReceiptDeduplicator.java：进程内一级缓存（复用 InMemory 结构）+ 未见过则 CoordinationStore.markReceipt 判重；单测（本地命中不落库、跨实例语义走 store 桩）
-- [ ] T013 [US1] oryxos-core/src/main/java/io/oryxos/core/agent/AgentService.java 接线（R1/R3）：sessionLocks 锁内 turnCoordinator.acquire(sessionKey)（等待超时抛既有超时口径异常）→ 登记持有线程 → 既有流程 → saveIfUnchanged 前 lease.stillHeld() 硬校验（失败抛弃写回走轮次失败路径）→ finally release+unlock；processStateless 零改动
-- [ ] T014 [US1] 新建 oryxos-boot/src/test/java/io/oryxos/boot/SessionOwnershipIT.java：双上下文+共享 zonky PG（025 双上下文手法 + cluster.enabled=true 不同 instance-id）——①同会话 20 条交替投两上下文（经 InboundMessageService 模拟渠道入站，017 契约手法）：恰好 20 答、历史有序、零 SessionUpdateConflictException；②同一事件重投两上下文：恰好一答；③30 独立会话并发全完成互不等待；④单机档（enabled=false 单上下文）同场景行为与现状一致
+- [ ] T013 [US1] oryxos-core/src/main/java/io/oryxos/core/agent/AgentService.java 接线（R1/R3）：sessionLocks 锁内 turnCoordinator.acquire(sessionKey)（等待超 wait-timeout 抛新 TurnWaitTimeoutException——core/cluster 下新异常；IM 路径 InboundMessageService catch 后回专门文案「上一条消息还在处理，请稍候再发」，Web 路径 GlobalExceptionHandler 映射 429）→ 登记持有线程 → 既有流程 → saveIfUnchanged 前 lease.stillHeld() 硬校验（失败抛弃写回走轮次失败路径）→ finally release+unlock；processStateless 零改动
+- [ ] T014 [US1] 新建 oryxos-boot/src/test/java/io/oryxos/boot/SessionOwnershipIT.java：双上下文+共享 zonky PG（025 双上下文手法 + cluster.enabled=true 不同 instance-id）——①同会话 20 条交替投两上下文（经 InboundMessageService 模拟渠道入站，017 契约手法）：恰好 20 答、历史有序、零 SessionUpdateConflictException；②同一事件重投两上下文：恰好一答；③30 独立会话并发全完成互不等待；④单机档（enabled=false 单上下文）同场景行为与现状一致；⑤单上下文 + enabled=true：认领/续租/释放自洽、全流程正常（自己抢自己的，spec Edge Case）
 - [ ] T015 [US1] Checkpoint：US1 独立可验收（T014 全绿 + T010 复跑全绿）
 
 ## Phase 4: User Story 2 - 定时任务恰好一次（P1）
@@ -37,15 +37,15 @@
 **Goal**: 同一到点恰好一个副本执行；执行中崩溃不补发（FR-005、SC-002）
 **Independent Test**: 双上下文短周期任务 10 周期恰好 10 条执行记录
 
-- [ ] T016 [US2] oryxos-core/src/main/java/io/oryxos/core/agent/AgentScheduler.java 接线（R5）：runOnce 在 isEnabled 检查后调 CoordinationStore.claimFireTime(scheduleId, fireTime, owner)（fireTime=本次 cron 触发时刻），rowcount!=1 静默跳过（另一副本已认领）；runNow 不认领（手动触发语义，注释说明）；单机档（NOOP store 恒 true）行为不变
-- [ ] T017 [US2] 新建 oryxos-boot/src/test/java/io/oryxos/boot/ScheduleExactlyOnceIT.java：双上下文+PG 注册同一 Agent 短周期任务跑 10 周期——task_executions 恰好 10 条、每 fireTime 恰一条；kill 执行中上下文后该周期不被另一上下文补发、下周期正常执行
+- [ ] T016 [US2] oryxos-core/src/main/java/io/oryxos/core/agent/AgentScheduler.java 接线（R5）：runOnce 在 isEnabled 检查后调 CoordinationStore.claimFireTime(scheduleId, fireTime, owner)，rowcount!=1 静默跳过（另一副本已认领）；**fireTime MUST 取 CronTrigger 计算的理论触发时刻（scheduled execution time，各副本对同一 cron 必然同值）——绝非 Instant.now() 墙钟（各副本不同值会让 CAS 静默失效双发，A1）**，实现上把 trigger 计算的下次触发时刻穿透给 runOnce（或经 TriggerContext）；runNow 不认领（手动触发语义，注释说明）；单机档（NOOP store 恒 true）行为不变
+- [ ] T017 [US2] 新建 oryxos-boot/src/test/java/io/oryxos/boot/ScheduleExactlyOnceIT.java：双上下文+PG 注册同一 Agent 短周期任务跑 10 周期——task_executions 恰好 10 条、每 fireTime 恰一条；**另加 fireTime 同值断言：两上下文对同一周期计算出的理论触发时刻一致且认领恰一胜（A1 的 CAS 值来源验证）**；kill 执行中上下文后该周期不被另一上下文补发、下周期正常执行
 
 ## Phase 5: User Story 3 - 故障接管与运维可见性（P2）
 
 **Goal**: 崩溃轮失败留痕不重放、健康副本接下一轮、企微连接接管、实例可查（FR-004/007/008、SC-003/005/006）
 **Independent Test**: kill 持有上下文→轮标失败→下条消息健康上下文处理；/api/v1/instances 列存活
 
-- [ ] T018 [US3] 悬空轮失败留痕（R2/data-model 回收口径）：session_turn_leases 加 agent_execution_id 列（并入 T002 的 V6 脚本）；AgentService 认领成功后把当前 executionId 写入租约行（IM/管理台路径经 AgentExecutionService 传递，无 execution 的路径存空）；DbTurnCoordinator 抢过期成功时对前任租约的未完结 execution 调 AgentExecutionStore.finish(失败,"副本失联，轮次终止")——只补留痕不重放
+- [ ] T018 [US3] 悬空轮失败留痕（R2/data-model 回收口径）：session_turn_leases 加 agent_execution_id 列（并入 T002 的 V6 脚本）；AgentService 认领成功后把当前 executionId 写入租约行（IM/管理台路径经 AgentExecutionService 传递，无 execution 的路径存空）；DbTurnCoordinator 抢过期成功时对前任租约的未完结 execution 调 AgentExecutionStore.finish(失败,"副本失联，轮次终止")；**无 execution 的路径（Web 同步/SSE/CLI——崩溃时 HTTP 连接已断、用户已见错误）以回收事件结构化日志 + oryxos_leases_reclaimed_total 指标留痕兜底（I1 口径）**——只补留痕不重放
 - [ ] T019 [P] [US3] 心跳与清理落地（T009 骨架完成态）：heartbeat upsert instances、purgeExpired 批删超龄回执（>12h）与死实例行（>3×TTL）；结构化日志（认领/回收/续租失败三类，sessionId 脱敏 + CRLF sanitize 房规）
 - [ ] T020 [P] [US3] 新建 oryxos-web/src/main/java/io/oryxos/web/controller/InstanceApiController.java：GET /api/v1/instances——listInstances（含存活判定 last_heartbeat_at 距今 <3×TTL）+ activeTurnLeases（谁在处理哪个会话）；ApiResponse 既有口径 + 控制器测试
 - [ ] T021 [US3] 新建 oryxos-core/src/main/java/io/oryxos/core/channel/ChannelLeaseCoordinator.java + ChannelAdminService.startOne 接线（R6）：独连型渠道（企微 TYPE）在 cluster 模式下持 channel_leases 租约才 adapter.start()，未持有登记 STANDBY；后台循环竞争/续租，获租→start、失租→stop；飞书/钉钉不走属主；单机档零变化

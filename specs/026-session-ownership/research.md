@@ -32,7 +32,7 @@
 
 ## R5 调度恰好一次：scheduled_tasks 加 claim 两列的到点 CAS
 
-**Decision**: `scheduled_tasks` 加 `claimed_fire_time`（TIMESTAMP，可空）+ `claimed_by`（VARCHAR，可空）两列（V6 迁移，纯 SQL 加列两库通用）。runOnce 在既有 tryLock+generation+isEnabled 检查后增加到点认领：`UPDATE scheduled_tasks SET claimed_fire_time=:fire, claimed_by=:me WHERE schedule_id=:id AND (claimed_fire_time IS NULL OR claimed_fire_time < :fire)`，rowcount==1 即本副本执行、否则静默跳过（另一副本已认领本次到点）。fire_time = cron 计算出的本次触发时刻（各副本对同一 cron 算出同一值——CAS 值天然一致）。`runNow`（管理台手动触发）不认领：用户显式点击语义即执行，双副本下管理台单入口无并发到点问题。
+**Decision**: `scheduled_tasks` 加 `claimed_fire_time`（TIMESTAMP，可空）+ `claimed_by`（VARCHAR，可空）两列（V6 迁移，纯 SQL 加列两库通用）。runOnce 在既有 tryLock+generation+isEnabled 检查后增加到点认领：`UPDATE scheduled_tasks SET claimed_fire_time=:fire, claimed_by=:me WHERE schedule_id=:id AND (claimed_fire_time IS NULL OR claimed_fire_time < :fire)`，rowcount==1 即本副本执行、否则静默跳过（另一副本已认领本次到点）。fire_time = **CronTrigger 计算的理论触发时刻（scheduled execution time）**——各副本对同一 cron 必然同值故 CAS 值天然一致；MUST NOT 用 Instant.now() 墙钟（各副本不同值会让每个副本都「认领成功」，恰好一次静默失效）。`runNow`（管理台手动触发）不认领：用户显式点击语义即执行，双副本下管理台单入口无并发到点问题。
 
 **Rationale**: 零新表；以到点时刻为 CAS 值使「同一次到点」有天然标识；执行中崩溃不补发（认领已记录，无人重抢同一 fire_time）恰合 spec「不重放」。
 
