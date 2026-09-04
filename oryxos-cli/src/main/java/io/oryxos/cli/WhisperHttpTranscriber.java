@@ -1,8 +1,10 @@
 package io.oryxos.cli;
 
+import io.oryxos.core.channel.InboundMediaLimits;
 import io.oryxos.core.channel.InboundSpeechTranscriber;
 import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,7 +18,9 @@ import java.util.UUID;
 /**
  * OpenAI 兼容 Whisper 转写（{@code POST /v1/audio/transcriptions}）。 环境变量：{@code ORYXOS_ASR_API_KEY} 或
  * {@code OPENAI_API_KEY}；可选 {@code ORYXOS_ASR_BASE_URL} / {@code OPENAI_BASE_URL}（默认 {@code
- * https://api.openai.com}）。silk/amr 等非原生格式经 {@link FfmpegAudioConverter} 转 wav 后再上传。
+ * https://api.openai.com}）。silk/amr/视频音轨等经 {@link FfmpegAudioConverter} 转 wav 后再上传。
+ *
+ * <p>只读文件头做魔数判断，避免视频整文件 {@code readAllBytes}；上传前仍读取最终音频字节（通常已是抽轨 wav）。
  */
 public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
 
@@ -76,22 +80,27 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
     if (audioFile == null || !Files.isRegularFile(audioFile)) {
       throw new IOException("音频文件不存在: " + audioFile);
     }
-    byte[] header = Files.readAllBytes(audioFile);
-    if (header.length == 0) {
+    long fileSize = Files.size(audioFile);
+    if (fileSize == 0) {
       throw new IOException("音频文件为空");
     }
+    byte[] header = readHeader(audioFile);
     Path uploadPath = audioFile;
     Path tempWav = null;
     try {
-      if (FfmpegAudioConverter.needsFfmpegConversion(audioFile, header)) {
-        tempWav = audioConverter.toWhisperWav(audioFile);
+      boolean video = FfmpegAudioConverter.looksLikeVideo(audioFile);
+      if (video || FfmpegAudioConverter.needsFfmpegConversion(audioFile, header)) {
+        tempWav = audioConverter.toWhisperWav(audioFile, video);
         uploadPath = tempWav;
       } else if (!FfmpegAudioConverter.isWhisperNative(audioFile)
           && InboundMediaExt.isOggMagic(header)) {
-        // 占位名但内容是 Ogg：不转码，上传时改文件名
         uploadPath = audioFile;
       }
-      byte[] bodyBytes = uploadPath.equals(audioFile) ? header : Files.readAllBytes(uploadPath);
+      long uploadSize = Files.size(uploadPath);
+      if (uploadSize > InboundMediaLimits.MAX_ASR_UPLOAD_BYTES) {
+        throw new IOException("ASR 上传超过上限 " + InboundMediaLimits.MAX_ASR_UPLOAD_BYTES + " 字节");
+      }
+      byte[] bodyBytes = Files.readAllBytes(uploadPath);
       String boundary = "----oryxos" + UUID.randomUUID().toString().replace("-", "");
       String fileName = whisperFileName(uploadPath, bodyBytes);
       byte[] multipart = buildMultipart(boundary, fileName, bodyBytes);
@@ -128,6 +137,12 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
     }
   }
 
+  private static byte[] readHeader(Path file) throws IOException {
+    try (InputStream in = Files.newInputStream(file)) {
+      return in.readNBytes(InboundMediaLimits.HEADER_SNIFF_BYTES);
+    }
+  }
+
   /** Whisper 按上传文件名判格式：占位 .bin 但内容是 Ogg 时改成 .ogg；转码后的 wav 用固定名。 */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
@@ -157,8 +172,7 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
     return name;
   }
 
-  private static byte[] buildMultipart(String boundary, String fileName, byte[] fileBytes)
-      throws IOException {
+  private static byte[] buildMultipart(String boundary, String fileName, byte[] fileBytes) {
     String preamble =
         "--"
             + boundary

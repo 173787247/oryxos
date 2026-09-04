@@ -87,11 +87,20 @@ public class WeComEventNormalizer {
       }
       content = content.strip();
     } else if (MSG_VOICE.equals(msgtype)) {
-      content = body.path("voice").path("content").asText("");
+      JsonNode voice = body.path("voice");
+      content = voice.path("content").asText("");
       content = content == null ? "" : content.strip();
-      textual = !content.isBlank();
       if (!content.isBlank()) {
+        textual = true;
         content = "[语音转写] " + content;
+      } else {
+        Optional<InboundAttachment> audio = extractVoice(voice);
+        if (audio.isPresent()) {
+          attachments.add(audio.get());
+        } else {
+          textual = true;
+          content = "企微仅单聊提供 ASR；空转写请改发文字";
+        }
       }
     } else if (MSG_IMAGE.equals(msgtype)) {
       extractImage(body.path("image")).ifPresent(attachments::add);
@@ -132,6 +141,19 @@ public class WeComEventNormalizer {
           new InboundAttachment(InboundAttachment.TYPE_FILE, fileUrl, aesKey, fileName));
     }
     return Optional.of(InboundAttachment.fileUrl(fileUrl, fileName));
+  }
+
+  /** 空 ASR 时若有临时 URL，按文件同款带可选 aeskey 落 TYPE_AUDIO，供本地下载/转写。 */
+  private static Optional<InboundAttachment> extractVoice(JsonNode voice) {
+    String voiceUrl = voice.path("url").asText(null);
+    if (voiceUrl == null || voiceUrl.isBlank()) {
+      return Optional.empty();
+    }
+    String aesKey = voice.path("aeskey").asText(null);
+    if (aesKey != null && !aesKey.isBlank()) {
+      return Optional.of(new InboundAttachment(InboundAttachment.TYPE_AUDIO, voiceUrl, aesKey));
+    }
+    return Optional.of(InboundAttachment.audioUrl(voiceUrl));
   }
 
   private static Optional<InboundAttachment> extractVideo(JsonNode video) {

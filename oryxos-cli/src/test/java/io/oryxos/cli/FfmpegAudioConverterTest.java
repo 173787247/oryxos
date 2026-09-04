@@ -90,6 +90,33 @@ class FfmpegAudioConverterTest {
     assertFalse(FfmpegAudioConverter.needsFfmpegConversion(Path.of("a.bin"), ogg));
     assertTrue(FfmpegAudioConverter.needsFfmpegConversion(Path.of("a.bin"), silk));
     assertFalse(FfmpegAudioConverter.needsFfmpegConversion(Path.of("a.wav"), silk));
+    assertTrue(FfmpegAudioConverter.looksLikeVideo(Path.of("v.mp4")));
+  }
+
+  @Test
+  @DisplayName("视频抽轨传入 -vn 与 -t")
+  void videoExtractPassesVn() throws Exception {
+    Path mp4 = dir.resolve("clip.mp4");
+    Files.writeString(mp4, "fake-mp4");
+    AtomicReference<List<String>> seen = new AtomicReference<>();
+    FfmpegAudioConverter converter =
+        new FfmpegAudioConverter(
+            cmd -> {
+              seen.set(List.copyOf(cmd));
+              Path out = Path.of(cmd.get(cmd.size() - 1));
+              try {
+                Files.writeString(out, "RIFF....WAVEfmt ");
+              } catch (IOException e) {
+                throw new IllegalStateException(e);
+              }
+              return new SuccessfulProcess();
+            },
+            "ffmpeg-bin",
+            Duration.ofSeconds(5));
+    Path wav = converter.toWhisperWav(mp4, true);
+    assertTrue(seen.get().contains("-vn"));
+    assertTrue(seen.get().contains("-t"));
+    Files.deleteIfExists(wav);
   }
 
   private static final class SuccessfulProcess extends Process {
