@@ -108,7 +108,8 @@ final class WeComInboundImageResolver {
     String type = attachment.type();
     return InboundAttachment.TYPE_IMAGE.equals(type)
         || InboundAttachment.TYPE_FILE.equals(type)
-        || InboundAttachment.TYPE_AUDIO.equals(type);
+        || InboundAttachment.TYPE_AUDIO.equals(type)
+        || InboundAttachment.TYPE_VIDEO.equals(type);
   }
 
   static boolean hasImage(InboundMessage message) {
@@ -120,7 +121,8 @@ final class WeComInboundImageResolver {
       String type = attachment.type();
       if (InboundAttachment.TYPE_IMAGE.equals(type)
           || InboundAttachment.TYPE_FILE.equals(type)
-          || InboundAttachment.TYPE_AUDIO.equals(type)) {
+          || InboundAttachment.TYPE_AUDIO.equals(type)
+          || InboundAttachment.TYPE_VIDEO.equals(type)) {
         return true;
       }
     }
@@ -132,13 +134,14 @@ final class WeComInboundImageResolver {
     String aesKey = mediaAesKey(attachment);
     boolean fileLike =
         InboundAttachment.TYPE_FILE.equals(attachment.type())
-            || InboundAttachment.TYPE_AUDIO.equals(attachment.type());
+            || InboundAttachment.TYPE_AUDIO.equals(attachment.type())
+            || InboundAttachment.TYPE_VIDEO.equals(attachment.type());
     Exception last = null;
     for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
       try {
         Path path = writeToMediaRoot(messageId, remoteUrl, aesKey, fileLike);
         return new InboundAttachment(
-            attachment.type(), path.toAbsolutePath().toString(), remoteUrl);
+            attachment.type(), path.toAbsolutePath().toString(), remoteUrl, attachment.fileName());
       } catch (IOException | InterruptedException | RuntimeException e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();

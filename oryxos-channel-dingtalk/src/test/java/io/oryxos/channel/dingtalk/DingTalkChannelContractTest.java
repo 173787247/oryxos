@@ -30,8 +30,8 @@ class DingTalkChannelContractTest extends InboundMessageServiceContractTestBase 
 
   @Override
   protected InboundMessage nonTextualMessage(String messageId) {
-    // B7：仍不支持的类型（视频）；语音 audio 已支持（下载 + 可选 Whisper）
-    return normalizer.normalize(body(messageId, "1", "video", null, false)).orElseThrow();
+    // B7：无附件的非文本（空 location）；有 downloadCode 的 video 已作视频入站
+    return normalizer.normalize(body(messageId, "1", "location", null, false)).orElseThrow();
   }
 
   @Override

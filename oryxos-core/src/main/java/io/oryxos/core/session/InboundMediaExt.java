@@ -2,16 +2,19 @@ package io.oryxos.core.session;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.function.Predicate;
 
-/** 入站非图片文件的扩展名嗅探（PDF {@code %PDF}、Ogg/Opus {@code OggS}）。 与 {@link ImageMime} 分离。 */
+/** 入站非图片文件的扩展名嗅探（PDF、Ogg/Opus、Silk、AMR）。 与 {@link ImageMime} 分离。 */
 public final class InboundMediaExt {
 
   public static final String EXT_PDF = ".pdf";
   public static final String EXT_OGG = ".ogg";
+  public static final String EXT_SILK = ".silk";
+  public static final String EXT_AMR = ".amr";
   public static final String EXT_BIN = ".bin";
   public static final String EXT_FILE = ".file";
 
@@ -25,6 +28,12 @@ public final class InboundMediaExt {
   private static final byte OGG_B1 = 'g';
   private static final byte OGG_B2 = 'g';
   private static final byte OGG_B3 = 'S';
+
+  /** 腾讯/飞书常见 Silk：{@code #!SILK_V3}。 */
+  private static final byte[] SILK_MAGIC = "#!SILK_V3".getBytes(StandardCharsets.US_ASCII);
+
+  /** AMR-NB：{@code #!AMR\n}；AMR-WB：{@code #!AMR-WB\n}。 */
+  private static final byte[] AMR_MAGIC = "#!AMR".getBytes(StandardCharsets.US_ASCII);
 
   private InboundMediaExt() {}
 
@@ -58,6 +67,26 @@ public final class InboundMediaExt {
         && header[3] == OGG_B3;
   }
 
+  /** 本地文件头是否为 Silk。 */
+  public static boolean isSilkMagic(Path file) {
+    return magicMatches(file, SILK_MAGIC.length, InboundMediaExt::isSilkMagic);
+  }
+
+  /** 字节头是否为 Silk（{@code #!SILK_V3}）。 */
+  public static boolean isSilkMagic(byte[] header) {
+    return startsWith(header, SILK_MAGIC);
+  }
+
+  /** 本地文件头是否为 AMR。 */
+  public static boolean isAmrMagic(Path file) {
+    return magicMatches(file, AMR_MAGIC.length, InboundMediaExt::isAmrMagic);
+  }
+
+  /** 字节头是否为 AMR / AMR-WB（{@code #!AMR} 前缀）。 */
+  public static boolean isAmrMagic(byte[] header) {
+    return startsWith(header, AMR_MAGIC);
+  }
+
   /**
    * 路径/文件名是否按后缀像 PDF（不读内容）。
    *
@@ -88,7 +117,25 @@ public final class InboundMediaExt {
     if (isOggMagic(file)) {
       return EXT_OGG;
     }
+    if (isSilkMagic(file)) {
+      return EXT_SILK;
+    }
+    if (isAmrMagic(file)) {
+      return EXT_AMR;
+    }
     return null;
+  }
+
+  private static boolean startsWith(byte[] header, byte[] magic) {
+    if (header == null || header.length < magic.length) {
+      return false;
+    }
+    for (int i = 0; i < magic.length; i++) {
+      if (header[i] != magic[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static boolean magicMatches(Path file, int len, Predicate<byte[]> check) {

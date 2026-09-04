@@ -169,8 +169,8 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
 
   /** 供单测校验退避间隔，不触网。 */
   static long reconnectDelayMs(int attempt) {
-    int capped = Math.min(Math.max(attempt, 0), RECONNECT_MAX_SHIFT);
-    return Math.min(RECONNECT_BASE_MS * (1L << capped), RECONNECT_MAX_MS);
+    return io.oryxos.core.channel.ReconnectBackoff.delayMs(
+        attempt, RECONNECT_BASE_MS, RECONNECT_MAX_MS, RECONNECT_MAX_SHIFT);
   }
 
   private void connectLocked() throws Exception {

@@ -88,17 +88,23 @@ final class FeishuInboundImageResolver {
     String type = attachment.type();
     return InboundAttachment.TYPE_IMAGE.equals(type)
         || InboundAttachment.TYPE_FILE.equals(type)
-        || InboundAttachment.TYPE_AUDIO.equals(type);
+        || InboundAttachment.TYPE_AUDIO.equals(type)
+        || InboundAttachment.TYPE_VIDEO.equals(type);
   }
 
   private InboundAttachment downloadOrKeep(String messageId, InboundAttachment attachment) {
     String fileKey = attachment.reference();
     boolean fileLike =
         InboundAttachment.TYPE_FILE.equals(attachment.type())
-            || InboundAttachment.TYPE_AUDIO.equals(attachment.type());
+            || InboundAttachment.TYPE_AUDIO.equals(attachment.type())
+            || InboundAttachment.TYPE_VIDEO.equals(attachment.type());
     String resourceType = fileLike ? RESOURCE_TYPE_FILE : RESOURCE_TYPE_IMAGE;
     String kind =
-        InboundAttachment.TYPE_AUDIO.equals(attachment.type()) ? "语音" : (fileLike ? "文件" : "图片");
+        InboundAttachment.TYPE_AUDIO.equals(attachment.type())
+            ? "语音"
+            : (InboundAttachment.TYPE_VIDEO.equals(attachment.type())
+                ? "视频"
+                : (fileLike ? "文件" : "图片"));
     Exception last = null;
     for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
       try {
@@ -124,7 +130,8 @@ final class FeishuInboundImageResolver {
           return attachment;
         }
         Path path = writeToMediaRoot(messageId, fileKey, resp, fileLike);
-        return new InboundAttachment(attachment.type(), path.toAbsolutePath().toString(), fileKey);
+        return new InboundAttachment(
+            attachment.type(), path.toAbsolutePath().toString(), fileKey, attachment.fileName());
       } catch (Exception e) {
         last = e;
         if (attempt < DOWNLOAD_ATTEMPTS && isTransientTimeout(e)) {

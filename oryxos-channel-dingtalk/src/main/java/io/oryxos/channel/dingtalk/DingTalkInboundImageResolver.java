@@ -139,7 +139,8 @@ final class DingTalkInboundImageResolver {
     String type = attachment.type();
     if (!InboundAttachment.TYPE_IMAGE.equals(type)
         && !InboundAttachment.TYPE_FILE.equals(type)
-        && !InboundAttachment.TYPE_AUDIO.equals(type)) {
+        && !InboundAttachment.TYPE_AUDIO.equals(type)
+        && !InboundAttachment.TYPE_VIDEO.equals(type)) {
       return false;
     }
     boolean hasUrl = attachment.url() != null && !attachment.url().isBlank();
@@ -147,8 +148,10 @@ final class DingTalkInboundImageResolver {
     if (hasRef && !hasUrl) {
       return true;
     }
-    // 文件/语音远程 URL 必须落盘，供 enricher 给出本地路径（语音再转写）
-    return (InboundAttachment.TYPE_FILE.equals(type) || InboundAttachment.TYPE_AUDIO.equals(type))
+    // 文件/语音/视频远程 URL 必须落盘，供 enricher 给出本地路径（语音/音轨再转写）
+    return (InboundAttachment.TYPE_FILE.equals(type)
+            || InboundAttachment.TYPE_AUDIO.equals(type)
+            || InboundAttachment.TYPE_VIDEO.equals(type))
         && hasUrl
         && ImageMime.isHttpUrl(attachment.url().strip());
   }
@@ -162,7 +165,8 @@ final class DingTalkInboundImageResolver {
       String type = attachment.type();
       if (InboundAttachment.TYPE_IMAGE.equals(type)
           || InboundAttachment.TYPE_FILE.equals(type)
-          || InboundAttachment.TYPE_AUDIO.equals(type)) {
+          || InboundAttachment.TYPE_AUDIO.equals(type)
+          || InboundAttachment.TYPE_VIDEO.equals(type)) {
         return true;
       }
     }
@@ -183,7 +187,10 @@ final class DingTalkInboundImageResolver {
         String downloadUrl = resolveDownloadUrl(token, downloadCode);
         Path file = writeToMediaRoot(messageId, downloadCode, downloadUrl);
         return new InboundAttachment(
-            attachment.type(), file.toAbsolutePath().toString(), downloadCode);
+            attachment.type(),
+            file.toAbsolutePath().toString(),
+            downloadCode,
+            attachment.fileName());
       } catch (IOException | InterruptedException | RuntimeException e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();
@@ -222,7 +229,8 @@ final class DingTalkInboundImageResolver {
             attachment.reference() == null || attachment.reference().isBlank()
                 ? remoteUrl
                 : attachment.reference();
-        return new InboundAttachment(attachment.type(), file.toAbsolutePath().toString(), ref);
+        return new InboundAttachment(
+            attachment.type(), file.toAbsolutePath().toString(), ref, attachment.fileName());
       } catch (IOException | InterruptedException | RuntimeException e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();

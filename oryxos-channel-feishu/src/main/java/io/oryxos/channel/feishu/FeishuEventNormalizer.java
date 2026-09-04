@@ -33,6 +33,7 @@ public class FeishuEventNormalizer {
   private static final String MSG_TYPE_IMAGE = "image";
   private static final String MSG_TYPE_FILE = "file";
   private static final String MSG_TYPE_AUDIO = "audio";
+  private static final String MSG_TYPE_MEDIA = "media";
   private static final String MENTIONED_TYPE_BOT = "bot";
 
   private final String channelName;
@@ -67,6 +68,20 @@ public class FeishuEventNormalizer {
     String content =
         textual ? stripMentions(extractText(message.getContent()), message.getMentions()) : "";
     List<InboundAttachment> attachments = extractAttachments(message);
+    if (!textual
+        && attachments.isEmpty()
+        && message.getMessageType() != null
+        && !message.getMessageType().isBlank()
+        && !MSG_TYPE_TEXT.equals(message.getMessageType())
+        && !MSG_TYPE_IMAGE.equals(message.getMessageType())
+        && !MSG_TYPE_FILE.equals(message.getMessageType())
+        && !MSG_TYPE_AUDIO.equals(message.getMessageType())
+        && !MSG_TYPE_MEDIA.equals(message.getMessageType())) {
+      LOG.info(
+          "飞书收到暂不支持的消息类型 message_type={} message_id={}",
+          sanitize(message.getMessageType()),
+          sanitize(message.getMessageId()));
+    }
     return Optional.of(
         new InboundMessage(
             CHANNEL_TYPE,
@@ -90,7 +105,9 @@ public class FeishuEventNormalizer {
       }
       return List.of(InboundAttachment.imageReference(imageKey));
     }
-    if (MSG_TYPE_FILE.equals(msgType) || MSG_TYPE_AUDIO.equals(msgType)) {
+    if (MSG_TYPE_FILE.equals(msgType)
+        || MSG_TYPE_AUDIO.equals(msgType)
+        || MSG_TYPE_MEDIA.equals(msgType)) {
       String fileKey = extractFileKey(message.getContent());
       if (fileKey == null || fileKey.isBlank()) {
         return List.of();
@@ -98,7 +115,12 @@ public class FeishuEventNormalizer {
       if (MSG_TYPE_AUDIO.equals(msgType)) {
         return List.of(InboundAttachment.audioReference(fileKey));
       }
-      return List.of(InboundAttachment.fileReference(fileKey));
+      if (MSG_TYPE_MEDIA.equals(msgType)) {
+        String fileName = extractJsonStringField(message.getContent(), "file_name");
+        return List.of(InboundAttachment.videoReference(fileKey, fileName));
+      }
+      String fileName = extractJsonStringField(message.getContent(), "file_name");
+      return List.of(InboundAttachment.fileReference(fileKey, fileName));
     }
     return List.of();
   }
@@ -189,5 +211,9 @@ public class FeishuEventNormalizer {
     }
     // 剥离后可能留下多余空白，压缩为单空格
     return result.replaceAll("\\s+", " ").strip();
+  }
+
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }

@@ -1,6 +1,7 @@
 package io.oryxos.cli;
 
 import io.oryxos.core.channel.InboundSpeechTranscriber;
+import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,7 +16,7 @@ import java.util.UUID;
 /**
  * OpenAI 兼容 Whisper 转写（{@code POST /v1/audio/transcriptions}）。 环境变量：{@code ORYXOS_ASR_API_KEY} 或
  * {@code OPENAI_API_KEY}；可选 {@code ORYXOS_ASR_BASE_URL} / {@code OPENAI_BASE_URL}（默认 {@code
- * https://api.openai.com}）。
+ * https://api.openai.com}）。silk/amr 等非原生格式经 {@link FfmpegAudioConverter} 转 wav 后再上传。
  */
 public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
 
@@ -28,6 +29,7 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
   private static final String TRAILING_SLASH = "/";
   private static final String FALLBACK_AUDIO_NAME = "audio.bin";
   private static final String VOICE_OGG_NAME = "voice.ogg";
+  private static final String VOICE_WAV_NAME = "voice.wav";
   private static final String EXT_OGG = ".ogg";
   private static final String EXT_OGA = ".oga";
   private static final String EXT_MP3 = ".mp3";
@@ -35,15 +37,24 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
   private static final String EXT_M4A = ".m4a";
   private static final String EXT_WEBM = ".webm";
   private static final String EXT_FLAC = ".flac";
+  private static final String EXT_SILK = ".silk";
+  private static final String EXT_AMR = ".amr";
 
   private final String apiKey;
   private final String baseUrl;
   private final HttpClient httpClient;
+  private final FfmpegAudioConverter audioConverter;
 
   WhisperHttpTranscriber(String apiKey, String baseUrl, HttpClient httpClient) {
+    this(apiKey, baseUrl, httpClient, new FfmpegAudioConverter());
+  }
+
+  WhisperHttpTranscriber(
+      String apiKey, String baseUrl, HttpClient httpClient, FfmpegAudioConverter audioConverter) {
     this.apiKey = apiKey;
     this.baseUrl = trimTrailingSlash(baseUrl);
     this.httpClient = httpClient;
+    this.audioConverter = audioConverter == null ? new FfmpegAudioConverter() : audioConverter;
   }
 
   /** 未配置密钥时返回 null（enricher 降级为「未配置 ASR」提示）。 */
@@ -65,38 +76,59 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
     if (audioFile == null || !Files.isRegularFile(audioFile)) {
       throw new IOException("音频文件不存在: " + audioFile);
     }
-    byte[] bodyBytes = Files.readAllBytes(audioFile);
-    if (bodyBytes.length == 0) {
+    byte[] header = Files.readAllBytes(audioFile);
+    if (header.length == 0) {
       throw new IOException("音频文件为空");
     }
-    String boundary = "----oryxos" + UUID.randomUUID().toString().replace("-", "");
-    String fileName = whisperFileName(audioFile, bodyBytes);
-    byte[] multipart = buildMultipart(boundary, fileName, bodyBytes);
-    HttpRequest request =
-        HttpRequest.newBuilder()
-            .uri(URI.create(baseUrl + PATH))
-            .timeout(TIMEOUT)
-            .header("Authorization", "Bearer " + apiKey)
-            .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-            .POST(HttpRequest.BodyPublishers.ofByteArray(multipart))
-            .build();
-    HttpResponse<String> response =
-        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    if (response.statusCode() < HTTP_STATUS_OK_MIN
-        || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
-      String body = response.body();
-      String preview =
-          body == null
-              ? ""
-              : body.substring(0, Math.min(ERROR_BODY_PREVIEW_MAX, body.length()))
-                  .replace('\n', ' ')
-                  .replace('\r', ' ');
-      throw new IOException("Whisper HTTP " + response.statusCode() + ": " + preview);
+    Path uploadPath = audioFile;
+    Path tempWav = null;
+    try {
+      if (FfmpegAudioConverter.needsFfmpegConversion(audioFile, header)) {
+        tempWav = audioConverter.toWhisperWav(audioFile);
+        uploadPath = tempWav;
+      } else if (!FfmpegAudioConverter.isWhisperNative(audioFile)
+          && InboundMediaExt.isOggMagic(header)) {
+        // 占位名但内容是 Ogg：不转码，上传时改文件名
+        uploadPath = audioFile;
+      }
+      byte[] bodyBytes = uploadPath.equals(audioFile) ? header : Files.readAllBytes(uploadPath);
+      String boundary = "----oryxos" + UUID.randomUUID().toString().replace("-", "");
+      String fileName = whisperFileName(uploadPath, bodyBytes);
+      byte[] multipart = buildMultipart(boundary, fileName, bodyBytes);
+      HttpRequest request =
+          HttpRequest.newBuilder()
+              .uri(URI.create(baseUrl + PATH))
+              .timeout(TIMEOUT)
+              .header("Authorization", "Bearer " + apiKey)
+              .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+              .POST(HttpRequest.BodyPublishers.ofByteArray(multipart))
+              .build();
+      HttpResponse<String> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() < HTTP_STATUS_OK_MIN
+          || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
+        String body = response.body();
+        String preview =
+            body == null
+                ? ""
+                : body.substring(0, Math.min(ERROR_BODY_PREVIEW_MAX, body.length()))
+                    .replace('\n', ' ')
+                    .replace('\r', ' ');
+        throw new IOException("Whisper HTTP " + response.statusCode() + ": " + preview);
+      }
+      return extractText(response.body());
+    } finally {
+      if (tempWav != null && !tempWav.equals(audioFile)) {
+        try {
+          Files.deleteIfExists(tempWav);
+        } catch (IOException ignored) {
+          // best-effort
+        }
+      }
     }
-    return extractText(response.body());
   }
 
-  /** Whisper 按上传文件名判格式：占位 .bin 但内容是 Ogg 时改成 .ogg。 */
+  /** Whisper 按上传文件名判格式：占位 .bin 但内容是 Ogg 时改成 .ogg；转码后的 wav 用固定名。 */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
       justification = "仅对 ASCII 音频扩展名做 Locale.ROOT 小写匹配，不参与安全/身份比较")
@@ -113,8 +145,14 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
         || lower.endsWith(EXT_FLAC)) {
       return name;
     }
-    if (io.oryxos.core.session.InboundMediaExt.isOggMagic(bodyBytes)) {
+    if (InboundMediaExt.isOggMagic(bodyBytes)) {
       return VOICE_OGG_NAME;
+    }
+    if (lower.endsWith(EXT_SILK)
+        || lower.endsWith(EXT_AMR)
+        || InboundMediaExt.isSilkMagic(bodyBytes)
+        || InboundMediaExt.isAmrMagic(bodyBytes)) {
+      return VOICE_WAV_NAME;
     }
     return name;
   }
@@ -148,7 +186,6 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
     if (json == null || json.isBlank()) {
       throw new IOException("Whisper 响应为空");
     }
-    // 最小解析：{"text":"..."}，避免为 ASR 拉 Jackson 进 cli 装配面
     String marker = "\"text\"";
     int i = json.indexOf(marker);
     if (i < 0) {
