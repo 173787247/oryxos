@@ -30,7 +30,8 @@ class WeComChannelContractTest extends InboundMessageServiceContractTestBase {
 
   @Override
   protected InboundMessage nonTextualMessage(String messageId) {
-    return normalizer.normalize(body(messageId, "single", "voice", null, null)).orElseThrow();
+    // B7：仍不支持的类型（视频）；语音已支持（平台 ASR）
+    return normalizer.normalize(body(messageId, "single", "video", null, null)).orElseThrow();
   }
 
   @Override

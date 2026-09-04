@@ -7,6 +7,7 @@ import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.session.ImageMime;
+import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -136,7 +137,9 @@ final class DingTalkInboundImageResolver {
 
   static boolean needsDownload(InboundAttachment attachment) {
     String type = attachment.type();
-    if (!InboundAttachment.TYPE_IMAGE.equals(type) && !InboundAttachment.TYPE_FILE.equals(type)) {
+    if (!InboundAttachment.TYPE_IMAGE.equals(type)
+        && !InboundAttachment.TYPE_FILE.equals(type)
+        && !InboundAttachment.TYPE_AUDIO.equals(type)) {
       return false;
     }
     boolean hasUrl = attachment.url() != null && !attachment.url().isBlank();
@@ -144,8 +147,8 @@ final class DingTalkInboundImageResolver {
     if (hasRef && !hasUrl) {
       return true;
     }
-    // 文件远程 URL 必须落盘，供 enricher 给出本地路径给 read_file
-    return InboundAttachment.TYPE_FILE.equals(type)
+    // 文件/语音远程 URL 必须落盘，供 enricher 给出本地路径（语音再转写）
+    return (InboundAttachment.TYPE_FILE.equals(type) || InboundAttachment.TYPE_AUDIO.equals(type))
         && hasUrl
         && ImageMime.isHttpUrl(attachment.url().strip());
   }
@@ -157,7 +160,9 @@ final class DingTalkInboundImageResolver {
   static boolean hasDownloadableMedia(InboundMessage message) {
     for (InboundAttachment attachment : message.attachments()) {
       String type = attachment.type();
-      if (InboundAttachment.TYPE_IMAGE.equals(type) || InboundAttachment.TYPE_FILE.equals(type)) {
+      if (InboundAttachment.TYPE_IMAGE.equals(type)
+          || InboundAttachment.TYPE_FILE.equals(type)
+          || InboundAttachment.TYPE_AUDIO.equals(type)) {
         return true;
       }
     }
@@ -328,16 +333,28 @@ final class DingTalkInboundImageResolver {
     Files.createDirectories(dir);
     Path target = dir.resolve(safeSegment(downloadCode) + ext);
     Files.write(target, bytes);
-    if (DEFAULT_EXTENSION.equals(ext)) {
+    if (DEFAULT_EXTENSION.equals(ext) || InboundMediaExt.EXT_FILE.equalsIgnoreCase(ext)) {
       String sniffed = ImageMime.probeFile(target);
       String betterExt = ImageMime.extensionFor(sniffed);
-      if (!DEFAULT_EXTENSION.equals(betterExt) && !betterExt.equals(ext)) {
+      if (!DEFAULT_EXTENSION.equals(betterExt)
+          && !betterExt.equals(ext)
+          && ImageMime.hasRecognizedMagic(target)) {
         Path renamed = dir.resolve(safeSegment(downloadCode) + betterExt);
         try {
           Files.move(target, renamed);
           return renamed;
         } catch (IOException moveFailed) {
           LOG.debug("钉钉图片重命名扩展名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+        }
+      }
+      String pdfExt = InboundMediaExt.betterFileExtension(target, ext);
+      if (pdfExt != null) {
+        Path renamed = dir.resolve(safeSegment(downloadCode) + pdfExt);
+        try {
+          Files.move(target, renamed);
+          return renamed;
+        } catch (IOException moveFailed) {
+          LOG.debug("钉钉文件 PDF 扩展名重命名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
         }
       }
     }

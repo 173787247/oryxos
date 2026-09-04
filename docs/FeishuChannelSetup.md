@@ -51,7 +51,9 @@
 
 ## 六、飞书侧：把机器人用起来
 
-- **私聊**：飞书搜索机器人名字（或工作台找到应用）→ 直接发消息。
+- **私聊**：飞书搜索机器人名字（或工作台找到应用）→ 直接发文本、图片、文件或语音。
+- **群聊**：把机器人拉进群后 `@机器人 + 问题`（或图片/文件/语音）。
+- **语音**：`message_type=audio` 经 `file_key` 落盘；配置 `OPENAI_API_KEY`（Whisper）后转写进 Agent。飞书音频常为 silk，若 Whisper 报格式错可先用 ffmpeg 转 wav（后续可再自动化）。
 - **群聊**：测试群 → 群设置 →「**群机器人**」→「添加机器人」→ 选择应用；之后 `@机器人 + 问题` 触发。群里**不 @** 机器人的消息 OryxOS 完全不读、不留任何记录。
 
 ## 七、OryxOS 侧：配置与启动
@@ -99,7 +101,7 @@
 | status 为 ERROR：`app_secret 未配置或环境变量未解析` | 启动 shell 里没有 `FEISHU_APP_SECRET`；`source` env 文件后重启或经 REST 重建渠道 |
 | status 为 ERROR：`绑定的 Agent xxx 不存在` | `channels.yaml` 的 `agent` 必须是 `.oryxos/agents/` 下的目录名 |
 | 长连接建立失败 | 确认出方向可达 `open.feishu.cn:443`（HTTPS + WebSocket）；无需任何入方向端口 |
-| 收到「当前仅支持文本、图片或文件」 | 语音 / 视频等仍不在范围；**图片与文件已支持**（图走 Vision；文件落盘后提示 `read_file`）。若仍出现：确认事件含 image/file，且渠道进程可出站访问 `open.feishu.cn` |
+| 收到「当前仅支持文本、图片、文件或语音」 | **视频等仍不在范围**；文本/图片/文件/语音已支持（图走 Vision；文件落盘后 `read_file`；企微语音用平台转写，飞书/钉钉语音下载后可选 Whisper）。 |
 | 多个 Agent 接入 | 一应用一 Agent；再建一个飞书应用 + `channels.yaml` 加一个条目 |
 
 ## 九、审计口径

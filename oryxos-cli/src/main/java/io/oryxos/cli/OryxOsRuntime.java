@@ -988,7 +988,8 @@ public class OryxOsRuntime {
         profileRegistry,
         agentExecutionService,
         messageDeduplicator,
-        new io.oryxos.core.channel.DefaultInboundMediaEnricher(),
+        new io.oryxos.core.channel.DefaultInboundMediaEnricher(
+            io.oryxos.cli.WhisperHttpTranscriber.fromEnv()),
         java.time.Duration.ofSeconds(15), // 「处理中」提示阈值（Edge Case：先行告知）
         interruptManager);
   }

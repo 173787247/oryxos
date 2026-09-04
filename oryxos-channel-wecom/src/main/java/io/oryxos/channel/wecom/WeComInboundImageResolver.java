@@ -3,6 +3,7 @@ package io.oryxos.channel.wecom;
 import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.session.ImageMime;
+import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -105,7 +106,9 @@ final class WeComInboundImageResolver {
       return false;
     }
     String type = attachment.type();
-    return InboundAttachment.TYPE_IMAGE.equals(type) || InboundAttachment.TYPE_FILE.equals(type);
+    return InboundAttachment.TYPE_IMAGE.equals(type)
+        || InboundAttachment.TYPE_FILE.equals(type)
+        || InboundAttachment.TYPE_AUDIO.equals(type);
   }
 
   static boolean hasImage(InboundMessage message) {
@@ -115,7 +118,9 @@ final class WeComInboundImageResolver {
   static boolean hasDownloadableMedia(InboundMessage message) {
     for (InboundAttachment attachment : message.attachments()) {
       String type = attachment.type();
-      if (InboundAttachment.TYPE_IMAGE.equals(type) || InboundAttachment.TYPE_FILE.equals(type)) {
+      if (InboundAttachment.TYPE_IMAGE.equals(type)
+          || InboundAttachment.TYPE_FILE.equals(type)
+          || InboundAttachment.TYPE_AUDIO.equals(type)) {
         return true;
       }
     }
@@ -125,11 +130,13 @@ final class WeComInboundImageResolver {
   private InboundAttachment downloadOrKeep(String messageId, InboundAttachment attachment) {
     String remoteUrl = attachment.url().strip();
     String aesKey = mediaAesKey(attachment);
-    boolean file = InboundAttachment.TYPE_FILE.equals(attachment.type());
+    boolean fileLike =
+        InboundAttachment.TYPE_FILE.equals(attachment.type())
+            || InboundAttachment.TYPE_AUDIO.equals(attachment.type());
     Exception last = null;
     for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
       try {
-        Path path = writeToMediaRoot(messageId, remoteUrl, aesKey, file);
+        Path path = writeToMediaRoot(messageId, remoteUrl, aesKey, fileLike);
         return new InboundAttachment(
             attachment.type(), path.toAbsolutePath().toString(), remoteUrl);
       } catch (IOException | InterruptedException | RuntimeException e) {
@@ -219,8 +226,29 @@ final class WeComInboundImageResolver {
           }
         }
       }
+    } else {
+      Path renamedPdf = tryRenamePdf(dir, stem, target, ext);
+      if (renamedPdf != null) {
+        return renamedPdf;
+      }
     }
     return target;
+  }
+
+  /** 文件占位扩展名且内容为 PDF 时改为 {@code .pdf}；失败返回 null。 */
+  private static Path tryRenamePdf(Path dir, String stem, Path target, String ext) {
+    String better = InboundMediaExt.betterFileExtension(target, ext);
+    if (better == null) {
+      return null;
+    }
+    Path renamed = dir.resolve(stem + better);
+    try {
+      Files.move(target, renamed);
+      return renamed;
+    } catch (IOException moveFailed) {
+      LOG.debug("企微文件 PDF 扩展名重命名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+      return null;
+    }
   }
 
   private static final String HOST_LOOPBACK_IP = "127.0.0.1";

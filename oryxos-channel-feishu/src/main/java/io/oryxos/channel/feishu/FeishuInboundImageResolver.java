@@ -6,6 +6,7 @@ import com.lark.oapi.service.im.v1.model.GetMessageResourceResp;
 import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.session.ImageMime;
+import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -85,14 +86,19 @@ final class FeishuInboundImageResolver {
       return false;
     }
     String type = attachment.type();
-    return InboundAttachment.TYPE_IMAGE.equals(type) || InboundAttachment.TYPE_FILE.equals(type);
+    return InboundAttachment.TYPE_IMAGE.equals(type)
+        || InboundAttachment.TYPE_FILE.equals(type)
+        || InboundAttachment.TYPE_AUDIO.equals(type);
   }
 
   private InboundAttachment downloadOrKeep(String messageId, InboundAttachment attachment) {
     String fileKey = attachment.reference();
-    boolean file = InboundAttachment.TYPE_FILE.equals(attachment.type());
-    String resourceType = file ? RESOURCE_TYPE_FILE : RESOURCE_TYPE_IMAGE;
-    String kind = file ? "文件" : "图片";
+    boolean fileLike =
+        InboundAttachment.TYPE_FILE.equals(attachment.type())
+            || InboundAttachment.TYPE_AUDIO.equals(attachment.type());
+    String resourceType = fileLike ? RESOURCE_TYPE_FILE : RESOURCE_TYPE_IMAGE;
+    String kind =
+        InboundAttachment.TYPE_AUDIO.equals(attachment.type()) ? "语音" : (fileLike ? "文件" : "图片");
     Exception last = null;
     for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
       try {
@@ -117,7 +123,7 @@ final class FeishuInboundImageResolver {
               sanitize(resp == null ? null : resp.getMsg()));
           return attachment;
         }
-        Path path = writeToMediaRoot(messageId, fileKey, resp, file);
+        Path path = writeToMediaRoot(messageId, fileKey, resp, fileLike);
         return new InboundAttachment(attachment.type(), path.toAbsolutePath().toString(), fileKey);
       } catch (Exception e) {
         last = e;
@@ -183,7 +189,7 @@ final class FeishuInboundImageResolver {
       }
       throw new IOException("入站文件超过上限 " + MAX_FILE_BYTES + " 字节");
     }
-    // 图片常无后缀：用魔数改扩展名；文件保留平台文件名后缀
+    // 图片常无后缀：用魔数改扩展名；文件无后缀时嗅探 PDF
     if (!fileAttachment && DEFAULT_EXTENSION.equals(ext)) {
       String sniffed = ImageMime.probeFile(target);
       String betterExt = ImageMime.extensionFor(sniffed);
@@ -194,6 +200,17 @@ final class FeishuInboundImageResolver {
           return renamed;
         } catch (IOException moveFailed) {
           LOG.debug("飞书图片重命名扩展名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+        }
+      }
+    } else if (fileAttachment) {
+      String better = InboundMediaExt.betterFileExtension(target, ext);
+      if (better != null) {
+        Path renamed = dir.resolve(safeSegment(fileKey) + better);
+        try {
+          Files.move(target, renamed);
+          return renamed;
+        } catch (IOException moveFailed) {
+          LOG.debug("飞书文件 PDF 扩展名重命名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
         }
       }
     }

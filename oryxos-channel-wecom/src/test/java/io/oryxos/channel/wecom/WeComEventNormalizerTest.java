@@ -92,6 +92,23 @@ class WeComEventNormalizerTest {
   }
 
   @Test
+  @DisplayName("语音消息 → 平台转写文本进 content")
+  void voiceMessageUsesPlatformAsr() throws Exception {
+    ObjectNode body = mapper.createObjectNode();
+    body.put("msgid", "m-voice");
+    body.put("chattype", "single");
+    body.put("msgtype", "voice");
+    body.putObject("from").put("userid", "u1");
+    body.putObject("voice").put("content", "明天开会吗");
+
+    InboundMessage msg = normalizer.normalize(body).orElseThrow();
+    assertTrue(msg.textual());
+    assertTrue(msg.processable());
+    assertTrue(msg.content().contains("明天开会吗"));
+    assertTrue(msg.attachments().isEmpty());
+  }
+
+  @Test
   @DisplayName("缺字段 → empty")
   void missingFields() throws Exception {
     ObjectNode body = mapper.createObjectNode();
