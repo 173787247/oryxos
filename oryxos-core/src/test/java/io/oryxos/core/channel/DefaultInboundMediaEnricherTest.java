@@ -57,4 +57,67 @@ class DefaultInboundMediaEnricherTest {
             List.of(InboundAttachment.imageReference("img_abc")));
     assertTrue(enricher.toAgentInput(msg).contains("img_abc"));
   }
+
+  @Test
+  @DisplayName("文件本地路径转为 Agent 可消费说明")
+  void fileLocalPathAttachment() {
+    InboundMessage msg =
+        new InboundMessage(
+            "feishu",
+            "ops-feishu",
+            "m4",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(InboundAttachment.fileUrl("C:/tmp/report.pdf")));
+    String input = enricher.toAgentInput(msg);
+    assertTrue(input.contains("report.pdf"));
+    assertTrue(input.contains("文件"));
+    assertTrue(input.contains("read_file"));
+  }
+
+  @Test
+  @DisplayName("语音本地路径：无 ASR 时提示配置")
+  void audioWithoutAsr() {
+    InboundMessage msg =
+        new InboundMessage(
+            "feishu",
+            "ops-feishu",
+            "m5",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(InboundAttachment.audioUrl("C:/tmp/voice.ogg")));
+    String input = enricher.toAgentInput(msg);
+    assertTrue(input.contains("voice.ogg"));
+    assertTrue(input.contains("语音"));
+    assertTrue(input.contains("未配置语音转写"));
+  }
+
+  @Test
+  @DisplayName("语音本地路径：有 ASR 时注入转写")
+  void audioWithAsr() {
+    DefaultInboundMediaEnricher withAsr = new DefaultInboundMediaEnricher(path -> "明天几点开会");
+    InboundMessage msg =
+        new InboundMessage(
+            "dingtalk",
+            "ops-dingtalk",
+            "m6",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(InboundAttachment.audioUrl("C:/tmp/voice.ogg")));
+    String input = withAsr.toAgentInput(msg);
+    assertTrue(input.contains("明天几点开会"));
+    assertTrue(input.contains("转写"));
+  }
 }

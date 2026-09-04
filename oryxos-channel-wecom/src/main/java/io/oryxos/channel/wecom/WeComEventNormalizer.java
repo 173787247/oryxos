@@ -26,6 +26,8 @@ public class WeComEventNormalizer {
   private static final String CHAT_GROUP = "group";
   private static final String MSG_TEXT = "text";
   private static final String MSG_IMAGE = "image";
+  private static final String MSG_FILE = "file";
+  private static final String MSG_VOICE = "voice";
   private static final Pattern LEADING_AT = Pattern.compile("^@\\S+\\s*");
 
   private final String channelName;
@@ -67,6 +69,14 @@ public class WeComEventNormalizer {
         content = LEADING_AT.matcher(content).replaceFirst("");
       }
       content = content.strip();
+    } else if (MSG_VOICE.equals(msgtype)) {
+      // 企微智能机器人：平台已 ASR，voice.content 即转写文本（仅单聊）
+      content = body.path("voice").path("content").asText("");
+      content = content == null ? "" : content.strip();
+      textual = !content.isBlank();
+      if (!content.isBlank()) {
+        content = "[语音转写] " + content;
+      }
     } else if (MSG_IMAGE.equals(msgtype)) {
       String imageUrl = body.path("image").path("url").asText(null);
       if (imageUrl != null && !imageUrl.isBlank()) {
@@ -76,6 +86,16 @@ public class WeComEventNormalizer {
           attachments.add(new InboundAttachment(InboundAttachment.TYPE_IMAGE, imageUrl, aesKey));
         } else {
           attachments.add(InboundAttachment.imageUrl(imageUrl));
+        }
+      }
+    } else if (MSG_FILE.equals(msgtype)) {
+      String fileUrl = body.path("file").path("url").asText(null);
+      if (fileUrl != null && !fileUrl.isBlank()) {
+        String aesKey = body.path("file").path("aeskey").asText(null);
+        if (aesKey != null && !aesKey.isBlank()) {
+          attachments.add(new InboundAttachment(InboundAttachment.TYPE_FILE, fileUrl, aesKey));
+        } else {
+          attachments.add(InboundAttachment.fileUrl(fileUrl));
         }
       }
     }

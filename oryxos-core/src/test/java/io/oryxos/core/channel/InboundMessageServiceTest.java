@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.startsWith;
@@ -215,6 +216,31 @@ class InboundMessageServiceTest {
 
     verify(agentService).process(eq(session), anyString(), anyList());
     assertEquals("图片已收到", adapter.sent().get(0).text());
+  }
+
+  @Test
+  @DisplayName("B7c: 文件附件消息进入 Agent 编排")
+  void fileAttachmentProcessed() {
+    InboundMessage file =
+        new InboundMessage(
+            "stub",
+            "stub-chan",
+            "m-5c",
+            ChatKind.P2P,
+            "user-1",
+            "chat-p2p",
+            "",
+            false,
+            false,
+            java.util.List.of(InboundAttachment.fileUrl("C:/tmp/report.pdf")));
+    Session session = new Session("stub:user-1:" + AGENT, AGENT);
+    when(sessionManager.getOrCreate("stub", "user-1", AGENT)).thenReturn(session);
+    when(agentService.process(eq(session), anyString(), anyList())).thenReturn("文件已收到");
+
+    service.onMessage(file, adapter);
+
+    verify(agentService).process(eq(session), contains("report.pdf"), anyList());
+    assertEquals("文件已收到", adapter.sent().get(0).text());
   }
 
   @Test

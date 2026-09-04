@@ -73,6 +73,42 @@ class WeComEventNormalizerTest {
   }
 
   @Test
+  @DisplayName("文件消息 → TYPE_FILE 附件（url + 可选 aeskey）")
+  void fileMessage() throws Exception {
+    ObjectNode body = mapper.createObjectNode();
+    body.put("msgid", "m3f");
+    body.put("chattype", "single");
+    body.put("msgtype", "file");
+    body.putObject("from").put("userid", "u1");
+    body.putObject("file").put("url", "https://file.example/a.pdf").put("aeskey", "FILEAES");
+
+    InboundMessage msg = normalizer.normalize(body).orElseThrow();
+    assertFalse(msg.textual());
+    assertTrue(msg.processable());
+    assertEquals(1, msg.attachments().size());
+    assertEquals("file", msg.attachments().get(0).type());
+    assertEquals("https://file.example/a.pdf", msg.attachments().get(0).url());
+    assertEquals("FILEAES", msg.attachments().get(0).reference());
+  }
+
+  @Test
+  @DisplayName("语音消息 → 平台转写文本进 content")
+  void voiceMessageUsesPlatformAsr() throws Exception {
+    ObjectNode body = mapper.createObjectNode();
+    body.put("msgid", "m-voice");
+    body.put("chattype", "single");
+    body.put("msgtype", "voice");
+    body.putObject("from").put("userid", "u1");
+    body.putObject("voice").put("content", "明天开会吗");
+
+    InboundMessage msg = normalizer.normalize(body).orElseThrow();
+    assertTrue(msg.textual());
+    assertTrue(msg.processable());
+    assertTrue(msg.content().contains("明天开会吗"));
+    assertTrue(msg.attachments().isEmpty());
+  }
+
+  @Test
   @DisplayName("缺字段 → empty")
   void missingFields() throws Exception {
     ObjectNode body = mapper.createObjectNode();

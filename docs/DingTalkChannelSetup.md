@@ -45,9 +45,11 @@
 
 ## 三、使用方式
 
-- **单聊**：在钉钉中打开该机器人会话，直接发文本或图片。
-- **群聊**：将机器人拉入群后 `@机器人 + 问题`（或图片）；平台只推送 `isInAtList=true` 的群消息。
+- **单聊**：在钉钉中打开该机器人会话，直接发文本、图片、文件或语音。
+- **群聊**：将机器人拉入群后 `@机器人 + 问题`（或图片/文件）；平台只推送 `isInAtList=true` 的群消息。
 - **图片**：Stream 回调常见 `downloadCode`（无直链）。渠道会调用开放平台「下载机器人接收消息的文件内容」换临时 URL 并落盘，再交给 Vision；`robotCode` 默认等于 ClientId（`app_id`）。
+- **文件**：同样经 `downloadCode`（或直链）落盘到 `.oryxos/inbound-media/`，正文提示本地路径供 `read_file`（**文本型 PDF 可抽正文**）；不走 Vision。
+- **语音**：`msgtype=audio` 经 `downloadCode` 落盘；配置 `OPENAI_API_KEY`（或 `ORYXOS_ASR_API_KEY`）后用 Whisper 转写进 Agent。
 
 ## 四、与飞书/企微的差异（运维须知）
 
@@ -57,7 +59,7 @@
 | 连接 | SDK 长连接 | `openws.work.weixin.qq.com` WS | `api.dingtalk.com` Stream WS |
 | 回复 | im API（post + md） | 长连接 `aibot_send_msg` | `sessionWebhook` POST markdown |
 | 进度提示 | 交互卡片原地 PATCH | 占位 + 至多一条工具进度 + 终态 | 占位 + 至多一条工具进度 + 终态 |
-| 入站图 | message_id + image_key 下载 | COS URL + AES 落盘 | `downloadCode` → 临时 URL 落盘 |
+| 入站图/文件 | message_id + image_key/file_key 下载 | COS URL + AES 落盘 | `downloadCode` → 临时 URL 落盘 |
 | 群 @ 关联 | open_id / mentioned | `quote.msgid` | `at.atUserIds`（非真引用线程） |
 | 命令 | `/new`（私聊）；`/stop`（私聊/群聊进行中任务） | 同 | 同 |
 
@@ -65,4 +67,4 @@
 
 - HTTP 回调 + 加解密旧模式
 - 逐 token 刷屏 / 模板卡片 HITL
-- 语音 / 视频 / 文件入站（仅图片 + 文本）
+- 视频入站；未配置 Whisper 时飞书/钉钉语音仅落盘无法听懂内容
