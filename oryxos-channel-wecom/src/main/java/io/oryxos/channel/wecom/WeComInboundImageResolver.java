@@ -1,13 +1,17 @@
 package io.oryxos.channel.wecom;
 
 import io.oryxos.core.channel.InboundAttachment;
+import io.oryxos.core.channel.InboundMediaHttp;
+import io.oryxos.core.channel.InboundMediaJanitor;
+import io.oryxos.core.channel.InboundMediaLimits;
+import io.oryxos.core.channel.InboundMediaPaths;
 import io.oryxos.core.channel.InboundMessage;
+import io.oryxos.core.channel.LimitedMediaWriter;
 import io.oryxos.core.session.ImageMime;
 import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,15 +32,9 @@ final class WeComInboundImageResolver {
   private static final Logger LOG = LoggerFactory.getLogger(WeComInboundImageResolver.class);
 
   private static final String DEFAULT_EXTENSION = ".bin";
-  private static final String FALLBACK_SEGMENT = "x";
   private static final String SAFE_EXTENSION_PATTERN = "\\.[a-z0-9]{1,8}";
-  private static final char PATH_SAFE_REPLACEMENT = '_';
-  private static final int MAX_SEGMENT_LEN = 96;
   private static final int DOWNLOAD_ATTEMPTS = 2;
-  private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
   private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(60);
-  private static final int HTTP_STATUS_OK_MIN = 200;
-  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final String SCHEME_HTTPS = "https";
   private static final String SCHEME_HTTP = "http";
   private static final String HOST_SUFFIX_MYQCLOUD = ".myqcloud.com";
@@ -48,29 +46,43 @@ final class WeComInboundImageResolver {
   private final Path mediaRoot;
   private final String channelName;
   private final boolean trustLoopback;
+  private final InboundMediaJanitor janitor;
 
   WeComInboundImageResolver(Path mediaRoot, String channelName) {
     this(
-        HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build(),
+        InboundMediaHttp.newNoRedirectClient(HTTP_TIMEOUT),
         mediaRoot,
         channelName,
-        false);
+        false,
+        InboundMediaJanitor.fromEnv());
   }
 
   WeComInboundImageResolver(HttpClient httpClient, Path mediaRoot, String channelName) {
-    this(httpClient, mediaRoot, channelName, false);
+    this(httpClient, mediaRoot, channelName, false, InboundMediaJanitor.fromEnv());
   }
 
   /** 单测：允许 127.0.0.1 / localhost 以便本地 HttpServer 验证落盘。 */
   WeComInboundImageResolver(
       HttpClient httpClient, Path mediaRoot, String channelName, boolean trustLoopback) {
+    this(httpClient, mediaRoot, channelName, trustLoopback, InboundMediaJanitor.fromEnv());
+  }
+
+  /** 单测可注入 janitor。 */
+  WeComInboundImageResolver(
+      HttpClient httpClient,
+      Path mediaRoot,
+      String channelName,
+      boolean trustLoopback,
+      InboundMediaJanitor janitor) {
     this.httpClient = httpClient;
     this.mediaRoot = mediaRoot;
     this.channelName = channelName;
     this.trustLoopback = trustLoopback;
+    this.janitor = janitor == null ? InboundMediaJanitor.fromEnv() : janitor;
   }
 
   InboundMessage resolve(InboundMessage message) {
+    janitor.sweepIfDue(mediaRoot);
     if (message.attachments().isEmpty()) {
       return message;
     }
@@ -142,7 +154,7 @@ final class WeComInboundImageResolver {
         Path path = writeToMediaRoot(messageId, remoteUrl, aesKey, fileLike);
         return new InboundAttachment(
             attachment.type(), path.toAbsolutePath().toString(), remoteUrl, attachment.fileName());
-      } catch (IOException | InterruptedException | RuntimeException e) {
+      } catch (Exception e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();
         }
@@ -178,27 +190,26 @@ final class WeComInboundImageResolver {
   }
 
   private Path writeToMediaRoot(String messageId, String remoteUrl, String aesKey, boolean file)
-      throws IOException, InterruptedException {
+      throws Exception {
     URI uri = URI.create(remoteUrl);
     if (!isAllowedMediaUri(uri)) {
       throw new IllegalStateException("拒绝非企微图床临时下载地址: " + sanitize(uri.getHost()));
     }
-    HttpRequest request = HttpRequest.newBuilder().uri(uri).timeout(HTTP_TIMEOUT).GET().build();
     HttpResponse<byte[]> response =
-        httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-    if (response.statusCode() < HTTP_STATUS_OK_MIN
-        || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
-      throw new IllegalStateException("下载临时文件 HTTP " + response.statusCode());
-    }
+        InboundMediaHttp.getFollowingAllowlist(
+            httpClient, uri, HTTP_TIMEOUT, this::isAllowedMediaUri);
     byte[] bytes = response.body();
     if (bytes == null || bytes.length == 0) {
       throw new IllegalStateException("下载临时文件为空");
     }
-    if (bytes.length > MAX_FILE_BYTES) {
-      throw new IllegalStateException("入站文件超过上限 " + MAX_FILE_BYTES + " 字节");
+    if (bytes.length > InboundMediaLimits.MAX_FILE_BYTES) {
+      throw new IllegalStateException("入站文件超过上限 " + InboundMediaLimits.MAX_FILE_BYTES + " 字节");
     }
     if (aesKey != null) {
       bytes = WeComMediaAesDecrypt.decrypt(bytes, aesKey);
+      if (bytes.length > InboundMediaLimits.MAX_FILE_BYTES) {
+        throw new IllegalStateException("入站文件超过上限 " + InboundMediaLimits.MAX_FILE_BYTES + " 字节");
+      }
     } else if (!file && !ImageMime.hasRecognizedMagic(bytes)) {
       throw new IllegalStateException("下载内容非明文图片且消息缺 aeskey，无法解密");
     }
@@ -207,7 +218,8 @@ final class WeComInboundImageResolver {
     Files.createDirectories(dir);
     String stem = safeSegment(Integer.toHexString(remoteUrl.hashCode()));
     Path target = dir.resolve(stem + ext);
-    Files.write(target, bytes);
+    janitor.ensureQuotaOrThrow(mediaRoot);
+    LimitedMediaWriter.writeLimited(bytes, target, InboundMediaLimits.MAX_FILE_BYTES);
     if (!file) {
       if (!ImageMime.hasRecognizedMagic(target)) {
         try {
@@ -321,17 +333,7 @@ final class WeComInboundImageResolver {
   }
 
   static String safeSegment(String raw) {
-    if (raw == null || raw.isBlank()) {
-      return FALLBACK_SEGMENT;
-    }
-    String cleaned = raw.replaceAll("[^a-zA-Z0-9._-]", String.valueOf(PATH_SAFE_REPLACEMENT));
-    if (cleaned.length() > MAX_SEGMENT_LEN) {
-      cleaned = cleaned.substring(0, MAX_SEGMENT_LEN);
-    }
-    if (cleaned.isBlank() || cleaned.chars().allMatch(ch -> ch == PATH_SAFE_REPLACEMENT)) {
-      return FALLBACK_SEGMENT;
-    }
-    return cleaned;
+    return InboundMediaPaths.safeSegment(raw);
   }
 
   private static String asciiLower(String value) {
@@ -346,8 +348,7 @@ final class WeComInboundImageResolver {
   }
 
   private static String sanitize(String value) {
-    return value == null
-        ? ""
-        : value.replace('\r', PATH_SAFE_REPLACEMENT).replace('\n', PATH_SAFE_REPLACEMENT);
+    // 内联替换：SpotBugs CRLF_INJECTION_LOGS 需在本类内可见的 \r/\n 清洗
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }

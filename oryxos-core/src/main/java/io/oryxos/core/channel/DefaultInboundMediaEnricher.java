@@ -1,5 +1,6 @@
 package io.oryxos.core.channel;
 
+import io.oryxos.core.metrics.MetricsRecorder;
 import io.oryxos.core.session.ImageMime;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -28,19 +29,36 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
   private static final String AUDIO_ASR_FAIL = "\n语音转写失败: ";
   private static final String VIDEO_WITH_URL = "[用户发送了一段视频]\n本地路径: ";
   private static final String VIDEO_WITH_REF = "[用户发送了一段视频]\n视频资源: ";
-  private static final String VIDEO_HINT = "\n视频已落盘；可用工具处理本地文件（不自动理解画面）。";
+  private static final String VIDEO_HINT =
+      "\n视频已落盘；可用工具处理本地文件（不自动理解画面；音轨 ASR 可用 ORYXOS_VIDEO_ASR=0 关闭）。";
   private static final String VIDEO_AUDIO_PREFIX = "\n音轨转写: ";
+  private static final String VIDEO_AUDIO_FFMPEG =
+      "\n音轨转写失败（需 ffmpeg 抽轨，请安装 ffmpeg 或设置 ORYXOS_FFMPEG）: ";
+  private static final String VIDEO_AUDIO_NO_ASR =
+      "\n未配置音轨转写（设置 OPENAI_API_KEY 或 ORYXOS_ASR_API_KEY）。";
   private static final String VIDEO_AUDIO_FAIL = "\n音轨转写失败: ";
+  private static final String VIDEO_ASR_DISABLED = "\n音轨转写已关闭（ORYXOS_VIDEO_ASR=0）。";
   private static final String MARKER_FFMPEG = "需安装 ffmpeg";
+  private static final String MEDIA_AUDIO = "audio";
+  private static final String MEDIA_VIDEO = "video";
 
   private final InboundSpeechTranscriber speechTranscriber;
+  private final MetricsRecorder metrics;
+  private final boolean videoAsrEnabled;
 
   public DefaultInboundMediaEnricher() {
-    this(null);
+    this(null, MetricsRecorder.NOOP);
   }
 
   public DefaultInboundMediaEnricher(InboundSpeechTranscriber speechTranscriber) {
+    this(speechTranscriber, MetricsRecorder.NOOP);
+  }
+
+  public DefaultInboundMediaEnricher(
+      InboundSpeechTranscriber speechTranscriber, MetricsRecorder metrics) {
     this.speechTranscriber = speechTranscriber;
+    this.metrics = metrics == null ? MetricsRecorder.NOOP : metrics;
+    this.videoAsrEnabled = resolveVideoAsrEnabled();
   }
 
   @Override
@@ -59,9 +77,9 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
       } else if (InboundAttachment.TYPE_FILE.equals(attachment.type())) {
         parts.add(enrichFile(attachment));
       } else if (InboundAttachment.TYPE_AUDIO.equals(attachment.type())) {
-        parts.add(enrichAudio(attachment));
+        parts.add(enrichAudio(attachment, message.channelType()));
       } else if (InboundAttachment.TYPE_VIDEO.equals(attachment.type())) {
-        parts.add(enrichVideo(attachment));
+        parts.add(enrichVideo(attachment, message.channelType()));
       }
     }
     return String.join("\n\n", parts).strip();
@@ -85,7 +103,7 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
     return sb.toString();
   }
 
-  private String enrichAudio(InboundAttachment attachment) {
+  private String enrichAudio(InboundAttachment attachment, String channel) {
     String path =
         attachment.url() != null && !attachment.url().isBlank()
             ? attachment.url().strip()
@@ -97,11 +115,15 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
       try {
         String text = speechTranscriber.transcribe(Path.of(attachment.url().strip()));
         if (text != null && !text.isBlank()) {
+          metrics.recordInboundAsr(channel, MEDIA_AUDIO, true, "ok");
           return AUDIO_PREFIX + text.strip();
         }
+        metrics.recordInboundAsr(channel, MEDIA_AUDIO, false, "empty");
       } catch (Exception e) {
         LOG.warn("入站语音转写失败: {}", sanitize(e.getMessage()));
         String detail = sanitize(e.getMessage());
+        String reason = isFfmpegRelated(detail) ? "ffmpeg" : "whisper";
+        metrics.recordInboundAsr(channel, MEDIA_AUDIO, false, reason);
         if (isFfmpegRelated(detail)) {
           return AUDIO_PATH + path + AUDIO_FFMPEG + detail;
         }
@@ -109,12 +131,13 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
       }
     }
     if (speechTranscriber == null) {
+      metrics.recordInboundAsr(channel, MEDIA_AUDIO, false, "no_asr");
       return AUDIO_PATH + path + AUDIO_NO_ASR;
     }
     return AUDIO_PATH + path;
   }
 
-  private String enrichVideo(InboundAttachment attachment) {
+  private String enrichVideo(InboundAttachment attachment, String channel) {
     StringBuilder sb = new StringBuilder();
     String path =
         attachment.url() != null && !attachment.url().isBlank()
@@ -126,15 +149,31 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
         sb.append(FILE_NAME_LINE).append(attachment.fileName().strip());
       }
       sb.append(VIDEO_HINT);
-      if (speechTranscriber != null && !ImageMime.isHttpUrl(attachment.url())) {
+      if (!videoAsrEnabled) {
+        sb.append(VIDEO_ASR_DISABLED);
+        metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "disabled");
+      } else if (speechTranscriber == null) {
+        sb.append(VIDEO_AUDIO_NO_ASR);
+        metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "no_asr");
+      } else if (!ImageMime.isHttpUrl(attachment.url())) {
         try {
           String text = speechTranscriber.transcribe(Path.of(attachment.url().strip()));
           if (text != null && !text.isBlank()) {
             sb.append(VIDEO_AUDIO_PREFIX).append(text.strip());
+            metrics.recordInboundAsr(channel, MEDIA_VIDEO, true, "ok");
+          } else {
+            metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "empty");
           }
         } catch (Exception e) {
           LOG.warn("入站视频音轨转写失败: {}", sanitize(e.getMessage()));
-          sb.append(VIDEO_AUDIO_FAIL).append(sanitize(e.getMessage()));
+          String detail = sanitize(e.getMessage());
+          String reason = isFfmpegRelated(detail) ? "ffmpeg" : "whisper";
+          metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, reason);
+          if (isFfmpegRelated(detail)) {
+            sb.append(VIDEO_AUDIO_FFMPEG).append(detail);
+          } else {
+            sb.append(VIDEO_AUDIO_FAIL).append(detail);
+          }
         }
       }
     } else if (attachment.reference() != null && !attachment.reference().isBlank()) {
@@ -144,6 +183,19 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
       }
     }
     return sb.toString();
+  }
+
+  static boolean resolveVideoAsrEnabled() {
+    String raw = System.getenv("ORYXOS_VIDEO_ASR");
+    if (raw == null || raw.isBlank()) {
+      return true;
+    }
+    String v = raw.strip();
+    return !(v.equals("0") || equalsIgnoreAscii(v, "false") || equalsIgnoreAscii(v, "off"));
+  }
+
+  private static boolean equalsIgnoreAscii(String a, String b) {
+    return a.length() == b.length() && a.regionMatches(true, 0, b, 0, b.length());
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(

@@ -981,7 +981,8 @@ public class OryxOsRuntime {
       ProfileRegistry profileRegistry,
       AgentExecutionService agentExecutionService,
       io.oryxos.core.channel.MessageDeduplicator messageDeduplicator,
-      InterruptManager interruptManager) {
+      InterruptManager interruptManager,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     return new io.oryxos.core.channel.InboundMessageService(
         agentService,
         sessionManager,
@@ -989,8 +990,8 @@ public class OryxOsRuntime {
         agentExecutionService,
         messageDeduplicator,
         new io.oryxos.core.channel.DefaultInboundMediaEnricher(
-            io.oryxos.cli.WhisperHttpTranscriber.fromEnv()),
-        java.time.Duration.ofSeconds(15), // 「处理中」提示阈值（Edge Case：先行告知）
+            io.oryxos.cli.WhisperHttpTranscriber.fromEnv(), metricsRecorder),
+        java.time.Duration.ofSeconds(15), // 「处理中」提示延迟（Edge Case：先行告知）
         interruptManager);
   }
 

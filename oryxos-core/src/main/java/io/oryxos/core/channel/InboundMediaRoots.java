@@ -15,7 +15,6 @@ public final class InboundMediaRoots {
   private static final Logger LOG = LoggerFactory.getLogger(InboundMediaRoots.class);
   private static final String INBOUND_MEDIA = "inbound-media";
   private static final String FALLBACK_TEMP_PREFIX = "oryxos-inbound-media-";
-  private static final int MAX_SEGMENT_LEN = 96;
 
   private InboundMediaRoots() {}
 
@@ -52,17 +51,11 @@ public final class InboundMediaRoots {
   }
 
   static String safeSegment(String raw) {
-    if (raw == null || raw.isBlank()) {
-      return "x";
-    }
-    String cleaned = raw.replaceAll("[^a-zA-Z0-9._-]", "_");
-    if (cleaned.length() > MAX_SEGMENT_LEN) {
-      cleaned = cleaned.substring(0, MAX_SEGMENT_LEN);
-    }
-    return cleaned.isBlank() ? "x" : cleaned;
+    return InboundMediaPaths.safeSegment(raw);
   }
 
   private static String sanitize(String value) {
+    // 内联替换：SpotBugs CRLF_INJECTION_LOGS 需在本类内可见的 \r/\n 清洗
     return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }
