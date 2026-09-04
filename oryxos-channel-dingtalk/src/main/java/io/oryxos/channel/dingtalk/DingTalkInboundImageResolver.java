@@ -333,7 +333,8 @@ final class DingTalkInboundImageResolver {
     Files.createDirectories(dir);
     Path target = dir.resolve(safeSegment(downloadCode) + ext);
     Files.write(target, bytes);
-    if (DEFAULT_EXTENSION.equals(ext) || InboundMediaExt.EXT_FILE.equalsIgnoreCase(ext)) {
+    // ext 经 asciiLower；用 equals 避免 equalsIgnoreCase 触发 SpotBugs IMPROPER_UNICODE
+    if (DEFAULT_EXTENSION.equals(ext) || InboundMediaExt.EXT_FILE.equals(ext)) {
       String sniffed = ImageMime.probeFile(target);
       String betterExt = ImageMime.extensionFor(sniffed);
       if (!DEFAULT_EXTENSION.equals(betterExt)
