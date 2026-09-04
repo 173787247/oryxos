@@ -102,6 +102,10 @@ public final class InboundMediaExt {
     }
   }
 
+  /** SpotBugs：仅对 ASCII 占位扩展名做 Locale.ROOT 小写匹配。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification = "仅对 ASCII 扩展名 .bin/.file 做 Locale.ROOT 小写匹配，不参与安全/身份比较")
   private static boolean isPlaceholderExt(String ext) {
     if (ext == null || ext.isBlank()) {
       return true;

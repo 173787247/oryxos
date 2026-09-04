@@ -83,6 +83,9 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
   }
 
   /** Whisper 按上传文件名判格式：占位 .bin 但内容是 Ogg 时改成 .ogg。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification = "仅对 ASCII 音频扩展名做 Locale.ROOT 小写匹配，不参与安全/身份比较")
   static String whisperFileName(Path audioFile, byte[] bodyBytes) {
     String name =
         audioFile.getFileName() == null ? "audio.bin" : audioFile.getFileName().toString();
