@@ -1,8 +1,8 @@
 package io.oryxos.core.channel;
 
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -170,13 +170,16 @@ public final class PlaceholderProgressStream implements InboundProgressStream {
     if (heartbeatMs <= 0L) {
       return;
     }
-    heartbeatScheduler =
-        Executors.newSingleThreadScheduledExecutor(
+    ScheduledThreadPoolExecutor pool =
+        new ScheduledThreadPoolExecutor(
+            1,
             r -> {
               Thread t = new Thread(r, "oryxos-im-progress-hb");
               t.setDaemon(true);
               return t;
             });
+    pool.setRemoveOnCancelPolicy(true);
+    heartbeatScheduler = pool;
     heartbeatFuture =
         heartbeatScheduler.schedule(
             () -> {

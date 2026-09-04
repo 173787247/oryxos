@@ -133,7 +133,7 @@ final class FeishuInboundImageResolver {
           LOG.warn(
               "飞书渠道 {} 下载{}失败（messageId={}, key={}, code={}, msg={}），保留原引用",
               sanitize(channelName),
-              kind,
+              sanitize(kind),
               sanitize(messageId),
               sanitize(fileKey),
               resp == null ? -1 : resp.getCode(),
@@ -149,7 +149,7 @@ final class FeishuInboundImageResolver {
           LOG.warn(
               "飞书渠道 {} 下载{}超时重试 {}/{}（messageId={}, key={}）：{}",
               sanitize(channelName),
-              kind,
+              sanitize(kind),
               attempt,
               DOWNLOAD_ATTEMPTS,
               sanitize(messageId),
@@ -163,7 +163,7 @@ final class FeishuInboundImageResolver {
     LOG.warn(
         "飞书渠道 {} 下载{}异常（messageId={}, key={}）：{}，保留原引用",
         sanitize(channelName),
-        kind,
+        sanitize(kind),
         sanitize(messageId),
         sanitize(fileKey),
         sanitize(last == null ? null : last.getMessage()));
@@ -262,6 +262,7 @@ final class FeishuInboundImageResolver {
   }
 
   private static String sanitize(String value) {
-    return InboundMediaPaths.sanitizeLog(value);
+    // 内联替换：SpotBugs CRLF_INJECTION_LOGS 需在本类内可见的 \r/\n 清洗
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }

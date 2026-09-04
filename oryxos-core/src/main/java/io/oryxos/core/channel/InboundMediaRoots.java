@@ -55,6 +55,7 @@ public final class InboundMediaRoots {
   }
 
   private static String sanitize(String value) {
-    return InboundMediaPaths.sanitizeLog(value);
+    // 内联替换：SpotBugs CRLF_INJECTION_LOGS 需在本类内可见的 \r/\n 清洗
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }

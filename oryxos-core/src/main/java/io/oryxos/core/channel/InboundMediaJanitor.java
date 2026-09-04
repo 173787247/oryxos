@@ -80,16 +80,14 @@ public final class InboundMediaJanitor {
                   DirStat stat = statDir(dir);
                   if (stat.newestMtime().isBefore(cutoff)) {
                     deleteRecursively(dir);
-                    LOG.info(
-                        "入站媒体 TTL 清理: {}",
-                        InboundMediaPaths.sanitizeLog(dir.getFileName().toString()));
+                    LOG.info("入站媒体 TTL 清理: {}", InboundMediaPaths.sanitizeLog(pathLabel(dir)));
                   } else {
                     dirs.add(stat);
                   }
                 } catch (IOException e) {
                   LOG.debug(
                       "入站媒体目录扫描失败 {}: {}",
-                      InboundMediaPaths.sanitizeLog(String.valueOf(dir.getFileName())),
+                      InboundMediaPaths.sanitizeLog(pathLabel(dir)),
                       InboundMediaPaths.sanitizeLog(e.getMessage()));
                 }
               });
@@ -114,12 +112,20 @@ public final class InboundMediaJanitor {
         total -= stat.bytes();
         LOG.info(
             "入站媒体配额清理: {} ({} bytes)",
-            InboundMediaPaths.sanitizeLog(stat.path().getFileName().toString()),
+            InboundMediaPaths.sanitizeLog(pathLabel(stat.path())),
             stat.bytes());
       } catch (IOException e) {
         LOG.debug("入站媒体配额删除失败: {}", InboundMediaPaths.sanitizeLog(e.getMessage()));
       }
     }
+  }
+
+  private static String pathLabel(Path path) {
+    if (path == null) {
+      return "";
+    }
+    Path name = path.getFileName();
+    return name == null ? path.toString() : name.toString();
   }
 
   /** 写盘前粗检：根已超配额则先 sweep，仍超则抛错。 */
