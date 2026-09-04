@@ -22,6 +22,19 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
   private static final Duration TIMEOUT = Duration.ofSeconds(120);
   private static final String DEFAULT_BASE = "https://api.openai.com";
   private static final String PATH = "/v1/audio/transcriptions";
+  private static final int HTTP_STATUS_OK_MIN = 200;
+  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
+  private static final int ERROR_BODY_PREVIEW_MAX = 200;
+  private static final String TRAILING_SLASH = "/";
+  private static final String FALLBACK_AUDIO_NAME = "audio.bin";
+  private static final String VOICE_OGG_NAME = "voice.ogg";
+  private static final String EXT_OGG = ".ogg";
+  private static final String EXT_OGA = ".oga";
+  private static final String EXT_MP3 = ".mp3";
+  private static final String EXT_WAV = ".wav";
+  private static final String EXT_M4A = ".m4a";
+  private static final String EXT_WEBM = ".webm";
+  private static final String EXT_FLAC = ".flac";
 
   private final String apiKey;
   private final String baseUrl;
@@ -69,12 +82,13 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
             .build();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+    if (response.statusCode() < HTTP_STATUS_OK_MIN
+        || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
       String body = response.body();
       String preview =
           body == null
               ? ""
-              : body.substring(0, Math.min(200, body.length()))
+              : body.substring(0, Math.min(ERROR_BODY_PREVIEW_MAX, body.length()))
                   .replace('\n', ' ')
                   .replace('\r', ' ');
       throw new IOException("Whisper HTTP " + response.statusCode() + ": " + preview);
@@ -88,19 +102,19 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
       justification = "仅对 ASCII 音频扩展名做 Locale.ROOT 小写匹配，不参与安全/身份比较")
   static String whisperFileName(Path audioFile, byte[] bodyBytes) {
     String name =
-        audioFile.getFileName() == null ? "audio.bin" : audioFile.getFileName().toString();
+        audioFile.getFileName() == null ? FALLBACK_AUDIO_NAME : audioFile.getFileName().toString();
     String lower = name.toLowerCase(java.util.Locale.ROOT);
-    if (lower.endsWith(".ogg")
-        || lower.endsWith(".oga")
-        || lower.endsWith(".mp3")
-        || lower.endsWith(".wav")
-        || lower.endsWith(".m4a")
-        || lower.endsWith(".webm")
-        || lower.endsWith(".flac")) {
+    if (lower.endsWith(EXT_OGG)
+        || lower.endsWith(EXT_OGA)
+        || lower.endsWith(EXT_MP3)
+        || lower.endsWith(EXT_WAV)
+        || lower.endsWith(EXT_M4A)
+        || lower.endsWith(EXT_WEBM)
+        || lower.endsWith(EXT_FLAC)) {
       return name;
     }
     if (io.oryxos.core.session.InboundMediaExt.isOggMagic(bodyBytes)) {
-      return "voice.ogg";
+      return VOICE_OGG_NAME;
     }
     return name;
   }
@@ -186,7 +200,7 @@ public final class WhisperHttpTranscriber implements InboundSpeechTranscriber {
       return DEFAULT_BASE;
     }
     String s = url.strip();
-    while (s.endsWith("/")) {
+    while (s.endsWith(TRAILING_SLASH)) {
       s = s.substring(0, s.length() - 1);
     }
     return s;
