@@ -45,11 +45,12 @@
 
 ## 三、使用方式
 
-- **单聊**：在钉钉中打开该机器人会话，直接发文本、图片、文件或语音。
-- **群聊**：将机器人拉入群后 `@机器人 + 问题`（或图片/文件）；平台只推送 `isInAtList=true` 的群消息。
+- **单聊**：在钉钉中打开该机器人会话，直接发文本、图片、文件、语音或视频。
+- **群聊**：将机器人拉入群后 `@机器人 + 问题`（或图片/文件/视频）；平台只推送 `isInAtList=true` 的群消息。
 - **图片**：Stream 回调常见 `downloadCode`（无直链）。渠道会调用开放平台「下载机器人接收消息的文件内容」换临时 URL 并落盘，再交给 Vision；`robotCode` 默认等于 ClientId（`app_id`）。
 - **文件**：同样经 `downloadCode`（或直链）落盘到 `.oryxos/inbound-media/`，正文提示本地路径供 `read_file`（**文本型 PDF 可抽正文**）；不走 Vision。
-- **语音**：`msgtype=audio` 经 `downloadCode` 落盘；配置 `OPENAI_API_KEY`（或 `ORYXOS_ASR_API_KEY`）后用 Whisper 转写进 Agent。
+- **语音**：`msgtype=audio` 经 `downloadCode` 落盘；配置 `OPENAI_API_KEY`（或 `ORYXOS_ASR_API_KEY`）后用 Whisper 转写进 Agent。非 Whisper 原生格式（如 silk/amr）会经本机 `ffmpeg`（`PATH` / `ORYXOS_FFMPEG`）转 wav；未安装则转写失败并提示。
+- **视频**：`msgtype=video` 经 `downloadCode` 落盘；有 Whisper + ffmpeg 时可抽音轨转写（不理解画面）。
 
 ## 四、与飞书/企微的差异（运维须知）
 
@@ -67,4 +68,4 @@
 
 - HTTP 回调 + 加解密旧模式
 - 逐 token 刷屏 / 模板卡片 HITL
-- 视频入站；未配置 Whisper 时飞书/钉钉语音仅落盘无法听懂内容
+- 视频画面理解 / 抽帧 Vision；未配置 Whisper / 未安装 ffmpeg 时飞书/钉钉非原生语音与视频音轨仅落盘无法听懂内容

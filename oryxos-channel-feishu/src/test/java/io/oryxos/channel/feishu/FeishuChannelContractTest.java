@@ -50,8 +50,8 @@ class FeishuChannelContractTest extends InboundMessageServiceContractTestBase {
 
   @Override
   protected InboundMessage nonTextualMessage(String messageId) {
-    // B7：仍不支持的类型（视频）；语音 audio 已支持（下载 + 可选 Whisper）
-    return normalizer.normalize(event(messageId, "p2p", "media", "{}", null)).orElseThrow();
+    // B7：无附件的非文本（空 media）；有 file_key 的 media 已作视频入站
+    return normalizer.normalize(event(messageId, "p2p", "sticker", "{}", null)).orElseThrow();
   }
 
   @Override

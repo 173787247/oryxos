@@ -37,6 +37,24 @@ class InboundMediaExtTest {
   }
 
   @Test
+  @DisplayName("Silk 魔数识别为 .silk")
+  void detectsSilkMagic() throws IOException {
+    Path silk = dir.resolve("voice.bin");
+    Files.write(silk, "#!SILK_V3....".getBytes(StandardCharsets.US_ASCII));
+    assertTrue(InboundMediaExt.isSilkMagic(silk));
+    assertEquals(InboundMediaExt.EXT_SILK, InboundMediaExt.betterFileExtension(silk, ".bin"));
+  }
+
+  @Test
+  @DisplayName("AMR 魔数识别为 .amr")
+  void detectsAmrMagic() throws IOException {
+    Path amr = dir.resolve("voice.bin");
+    Files.write(amr, "#!AMR\n....".getBytes(StandardCharsets.US_ASCII));
+    assertTrue(InboundMediaExt.isAmrMagic(amr));
+    assertEquals(InboundMediaExt.EXT_AMR, InboundMediaExt.betterFileExtension(amr, ".bin"));
+  }
+
+  @Test
   @DisplayName("非 PDF 占位扩展名保持")
   void nonPdfPlaceholder() throws IOException {
     Path other = dir.resolve("b.bin");

@@ -28,6 +28,7 @@ public class DingTalkEventNormalizer {
   private static final String MSG_PICTURE = "picture";
   private static final String MSG_FILE = "file";
   private static final String MSG_AUDIO = "audio";
+  private static final String MSG_VIDEO = "video";
   private static final String FIELD_IN_AT_LIST = "isInAtList";
   private static final Pattern LEADING_AT = Pattern.compile("^@\\S+\\s*");
 
@@ -79,6 +80,10 @@ public class DingTalkEventNormalizer {
       extractFileAttachment(body.path("content")).ifPresent(attachments::add);
     } else if (MSG_AUDIO.equals(msgtype)) {
       extractAudioAttachment(body.path("content")).ifPresent(attachments::add);
+    } else if (MSG_VIDEO.equals(msgtype)) {
+      extractVideoAttachment(body.path("content")).ifPresent(attachments::add);
+    } else if (msgtype != null && !msgtype.isBlank()) {
+      LOG.info("钉钉收到暂不支持的消息类型 msgtype={} msgId={}", sanitize(msgtype), sanitize(msgId));
     }
     return Optional.of(
         new InboundMessage(
@@ -118,16 +123,20 @@ public class DingTalkEventNormalizer {
     if (content == null || content.isMissingNode()) {
       return Optional.empty();
     }
+    String fileName = content.path("fileName").asText(null);
+    if (fileName == null || fileName.isBlank()) {
+      fileName = content.path("file_name").asText(null);
+    }
     String fileUrl = content.path("downloadUrl").asText(null);
     if (fileUrl == null || fileUrl.isBlank()) {
       fileUrl = content.path("fileUrl").asText(null);
     }
     if (fileUrl != null && !fileUrl.isBlank()) {
-      return Optional.of(InboundAttachment.fileUrl(fileUrl));
+      return Optional.of(InboundAttachment.fileUrl(fileUrl, fileName));
     }
     String downloadCode = content.path("downloadCode").asText(null);
     if (downloadCode != null && !downloadCode.isBlank()) {
-      return Optional.of(InboundAttachment.fileReference(downloadCode));
+      return Optional.of(InboundAttachment.fileReference(downloadCode, fileName));
     }
     return Optional.empty();
   }
@@ -146,6 +155,25 @@ public class DingTalkEventNormalizer {
     }
     if (fileUrl != null && !fileUrl.isBlank()) {
       return Optional.of(InboundAttachment.audioUrl(fileUrl));
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<InboundAttachment> extractVideoAttachment(JsonNode content) {
+    if (content == null || content.isMissingNode()) {
+      return Optional.empty();
+    }
+    String fileName = content.path("fileName").asText(null);
+    String downloadCode = content.path("downloadCode").asText(null);
+    if (downloadCode != null && !downloadCode.isBlank()) {
+      return Optional.of(InboundAttachment.videoReference(downloadCode, fileName));
+    }
+    String fileUrl = content.path("downloadUrl").asText(null);
+    if (fileUrl == null || fileUrl.isBlank()) {
+      fileUrl = content.path("fileUrl").asText(null);
+    }
+    if (fileUrl != null && !fileUrl.isBlank()) {
+      return Optional.of(InboundAttachment.videoUrl(fileUrl, fileName));
     }
     return Optional.empty();
   }

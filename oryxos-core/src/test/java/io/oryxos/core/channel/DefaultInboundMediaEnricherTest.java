@@ -72,9 +72,10 @@ class DefaultInboundMediaEnricherTest {
             "",
             false,
             false,
-            List.of(InboundAttachment.fileUrl("C:/tmp/report.pdf")));
+            List.of(InboundAttachment.fileUrl("C:/tmp/report.pdf", "季度报告.pdf")));
     String input = enricher.toAgentInput(msg);
     assertTrue(input.contains("report.pdf"));
+    assertTrue(input.contains("季度报告.pdf"));
     assertTrue(input.contains("文件"));
     assertTrue(input.contains("read_file"));
   }
@@ -119,5 +120,79 @@ class DefaultInboundMediaEnricherTest {
     String input = withAsr.toAgentInput(msg);
     assertTrue(input.contains("明天几点开会"));
     assertTrue(input.contains("转写"));
+  }
+
+  @Test
+  @DisplayName("ASR ffmpeg 缺失用专用文案")
+  void audioAsrFfmpegMissing() {
+    DefaultInboundMediaEnricher withAsr =
+        new DefaultInboundMediaEnricher(
+            path -> {
+              throw new java.io.IOException("需安装 ffmpeg（ORYXOS_FFMPEG 或 PATH）");
+            });
+    InboundMessage msg =
+        new InboundMessage(
+            "feishu",
+            "ops-feishu",
+            "m7",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(InboundAttachment.audioUrl("C:/tmp/voice.silk")));
+    String input = withAsr.toAgentInput(msg);
+    assertTrue(input.contains("ffmpeg"));
+    assertTrue(input.contains("voice.silk"));
+  }
+
+  @Test
+  @DisplayName("ASR Whisper HTTP 失败用通用转写失败文案")
+  void audioAsrWhisperHttpFail() {
+    DefaultInboundMediaEnricher withAsr =
+        new DefaultInboundMediaEnricher(
+            path -> {
+              throw new java.io.IOException("Whisper HTTP 400: Invalid file format");
+            });
+    InboundMessage msg =
+        new InboundMessage(
+            "feishu",
+            "ops-feishu",
+            "m8",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(InboundAttachment.audioUrl("C:/tmp/voice.ogg")));
+    String input = withAsr.toAgentInput(msg);
+    assertTrue(input.contains("语音转写失败"));
+    assertTrue(input.contains("Whisper HTTP"));
+  }
+
+  @Test
+  @DisplayName("视频本地路径提示落盘；有 ASR 时附音轨转写")
+  void videoWithOptionalAudioAsr() {
+    DefaultInboundMediaEnricher withAsr = new DefaultInboundMediaEnricher(path -> "视频里说开会");
+    InboundMessage msg =
+        new InboundMessage(
+            "feishu",
+            "ops-feishu",
+            "m9",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(InboundAttachment.videoUrl("C:/tmp/clip.mp4", "会议.mp4")));
+    String input = withAsr.toAgentInput(msg);
+    assertTrue(input.contains("视频"));
+    assertTrue(input.contains("clip.mp4"));
+    assertTrue(input.contains("会议.mp4"));
+    assertTrue(input.contains("音轨转写"));
+    assertTrue(input.contains("视频里说开会"));
   }
 }
