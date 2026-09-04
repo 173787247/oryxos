@@ -279,7 +279,7 @@ final class WeComInboundImageResolver {
     }
     return mediaHost.endsWith(HOST_SUFFIX_MYQCLOUD)
         || mediaHost.endsWith(HOST_SUFFIX_QCLOUD)
-        || mediaHost.equals(HOST_WEIXIN)
+        || HOST_WEIXIN.equals(mediaHost)
         || mediaHost.endsWith(HOST_SUFFIX_WEIXIN);
   }
 

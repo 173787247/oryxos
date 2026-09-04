@@ -384,7 +384,7 @@ final class DingTalkInboundImageResolver {
     if (mediaHost == null || mediaHost.isBlank()) {
       return false;
     }
-    return mediaHost.equals(HOST_DINGTALK)
+    return HOST_DINGTALK.equals(mediaHost)
         || mediaHost.endsWith(HOST_SUFFIX_DINGTALK)
         || mediaHost.endsWith(HOST_SUFFIX_ALICDN)
         || mediaHost.endsWith(HOST_SUFFIX_ALIYUNCS);
