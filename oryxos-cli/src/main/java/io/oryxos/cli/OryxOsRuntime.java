@@ -944,8 +944,12 @@ public class OryxOsRuntime {
 
   @Bean
   AgentService agentService(
-      ProfileRegistry profileRegistry, ReActLoop reActLoop, SessionManager sessionManager) {
-    return new AgentService(profileRegistry, reActLoop, sessionManager);
+      ProfileRegistry profileRegistry,
+      ReActLoop reActLoop,
+      SessionManager sessionManager,
+      io.oryxos.core.cluster.TurnCoordinator turnCoordinator) {
+    // 026：单机档 NOOP（零协调开销）、集群档 DB 租约——按 oryxos.cluster.enabled 装配
+    return new AgentService(profileRegistry, reActLoop, sessionManager, turnCoordinator);
   }
 
   @Bean
@@ -961,8 +965,13 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  io.oryxos.core.channel.MessageDeduplicator messageDeduplicator() {
-    return new io.oryxos.core.channel.MessageDeduplicator();
+  io.oryxos.core.channel.MessageDeduplicator messageDeduplicator(
+      io.oryxos.core.cluster.ClusterProperties cluster,
+      io.oryxos.core.cluster.CoordinationStore store) {
+    // 026：单机档进程内去重（现状）；集群档回执落共享库跨副本判重（两级：本地缓存 + DB 硬闸）
+    return cluster.isEnabled()
+        ? new io.oryxos.core.channel.SharedReceiptDeduplicator(store)
+        : new io.oryxos.core.channel.InMemoryMessageDeduplicator();
   }
 
   @Bean

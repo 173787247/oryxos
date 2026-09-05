@@ -35,6 +35,10 @@ public class InboundMessageService {
   static final String UNSUPPORTED_TYPE_REPLY = "当前仅支持文本提问，请用文字描述你的问题。";
   static final String AGENT_UNAVAILABLE_REPLY = "Agent 暂不可用（未找到绑定的 Agent），请联系管理员。";
   static final String FAILURE_REPLY = "抱歉，这次处理失败了，请稍后重试或联系管理员。";
+
+  /** 026：同会话跨副本排队等待超限（前一条消息处理超长）的专门反馈。 */
+  static final String TURN_BUSY_REPLY = "上一条消息还在处理中，请稍候片刻再发～";
+
   static final String PROCESSING_REPLY = "已收到，正在处理中，请稍候…";
   static final String NEW_SESSION_REPLY = "已开启新会话，之前的对话上下文已清空。";
   private static final String NEW_SESSION_COMMAND = "/new";
@@ -148,9 +152,14 @@ public class InboundMessageService {
           try {
             job.inference().run();
           } catch (RuntimeException e) {
-            // B6：失败以可读消息告知用户（不含堆栈），异常继续上抛让执行记录记为失败
+            // B6：失败以可读消息告知用户（不含堆栈），异常继续上抛让执行记录记为失败；
+            // 026：等待超限单独提示（用户稍候重发即可，不是系统故障）
             if (!job.streamed()) {
-              safeReply(replyVia, msg.chatId(), FAILURE_REPLY, replyTo);
+              String reply =
+                  e instanceof io.oryxos.core.cluster.TurnWaitTimeoutException
+                      ? TURN_BUSY_REPLY
+                      : FAILURE_REPLY;
+              safeReply(replyVia, msg.chatId(), reply, replyTo);
             }
             throw e;
           } finally {

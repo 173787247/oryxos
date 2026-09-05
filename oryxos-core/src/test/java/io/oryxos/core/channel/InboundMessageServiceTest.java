@@ -55,7 +55,7 @@ class InboundMessageServiceTest {
             sessionManager,
             profileRegistry,
             executionService,
-            new MessageDeduplicator(),
+            new InMemoryMessageDeduplicator(),
             null,
             Duration.ofMillis(120));
     when(profileRegistry.get(AGENT)).thenReturn(Optional.of(mock(Profile.class)));

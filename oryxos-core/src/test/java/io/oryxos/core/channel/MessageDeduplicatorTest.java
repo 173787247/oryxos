@@ -40,7 +40,7 @@ class MessageDeduplicatorTest {
   @Test
   @DisplayName("首次登记返回 true，重复返回 false")
   void firstThenDuplicate() {
-    MessageDeduplicator dedup = new MessageDeduplicator();
+    MessageDeduplicator dedup = new InMemoryMessageDeduplicator();
     assertTrue(dedup.markIfFirst("chan:m-1"));
     assertFalse(dedup.markIfFirst("chan:m-1"));
     assertTrue(dedup.markIfFirst("chan:m-2"));
@@ -49,7 +49,8 @@ class MessageDeduplicatorTest {
   @Test
   @DisplayName("超出容量时最老条目被 LRU 淘汰，可再次登记")
   void lruEviction() {
-    MessageDeduplicator dedup = new MessageDeduplicator(3, Duration.ofHours(12), Clock.systemUTC());
+    MessageDeduplicator dedup =
+        new InMemoryMessageDeduplicator(3, Duration.ofHours(12), Clock.systemUTC());
     assertTrue(dedup.markIfFirst("k1"));
     assertTrue(dedup.markIfFirst("k2"));
     assertTrue(dedup.markIfFirst("k3"));
@@ -62,7 +63,7 @@ class MessageDeduplicatorTest {
   @DisplayName("过 TTL 的登记过期，可再次登记")
   void ttlExpiry() {
     MutableClock clock = new MutableClock();
-    MessageDeduplicator dedup = new MessageDeduplicator(100, Duration.ofHours(12), clock);
+    MessageDeduplicator dedup = new InMemoryMessageDeduplicator(100, Duration.ofHours(12), clock);
     assertTrue(dedup.markIfFirst("k1"));
     clock.advance(Duration.ofHours(11));
     assertFalse(dedup.markIfFirst("k1")); // 未过期

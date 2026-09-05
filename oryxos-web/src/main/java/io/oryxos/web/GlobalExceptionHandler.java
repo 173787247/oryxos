@@ -94,6 +94,15 @@ public class GlobalExceptionHandler {
         .body(new ApiResponse<>(HttpStatus.CONFLICT.value(), ex.getMessage(), data));
   }
 
+  /** 429 — 同会话跨副本排队等待超限（026）：前一条消息处理超长，请稍候重发。 */
+  @ExceptionHandler(io.oryxos.core.cluster.TurnWaitTimeoutException.class)
+  public ResponseEntity<ApiResponse<Void>> handleTurnWaitTimeout(
+      io.oryxos.core.cluster.TurnWaitTimeoutException ex) {
+    LOG.warn("Turn wait timeout: {}", sanitize(ex.getMessage()));
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        .body(ApiResponse.error(HttpStatus.TOO_MANY_REQUESTS.value(), ex.getMessage()));
+  }
+
   /** 409 — 会话在执行期间已被另一请求更新，拒绝旧快照覆盖新历史。 */
   @ExceptionHandler(SessionUpdateConflictException.class)
   public ResponseEntity<ApiResponse<Void>> handleSessionUpdateConflict(
