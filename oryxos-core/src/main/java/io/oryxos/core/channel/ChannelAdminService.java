@@ -146,6 +146,9 @@ public class ChannelAdminService {
 
   private volatile ChannelLeaseCoordinator channelLeaseCoordinator;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "注入的协调器是装配层构造的共享组件（Spring Bean 语义），本就不应防御性拷贝。")
   public void setChannelLeaseCoordinator(ChannelLeaseCoordinator coordinator) {
     this.channelLeaseCoordinator = coordinator;
   }

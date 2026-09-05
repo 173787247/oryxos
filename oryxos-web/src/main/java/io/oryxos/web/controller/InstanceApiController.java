@@ -17,14 +17,14 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/v1/instances")
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
+    justification = "REST 控制器即端点（既有控制器同款豁免）；注入的 store 与配置是 Spring 共享 Bean。")
 public class InstanceApiController {
 
   private final CoordinationStore store;
   private final ClusterProperties cluster;
 
-  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-      value = "EI_EXPOSE_REP2",
-      justification = "注入的 store 与配置是 Spring 共享 Bean，本就不应防御性拷贝。")
   public InstanceApiController(CoordinationStore store, ClusterProperties cluster) {
     this.store = store;
     this.cluster = cluster;

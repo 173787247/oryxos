@@ -15,6 +15,9 @@ import org.springframework.scheduling.TaskScheduler;
  * 独连型渠道连接属主（026 R6，现阶段=企微单连接互踢语义）：持 channel_leases 租约的副本才建连，
  * 未持有者按心跳间隔持续竞争（属主死后其租约过期即被抢到、接管建连）；续租失败立即停连—— 两副本永不互踢。飞书/钉钉（集群随机投一型）不经此协调，各副本独立建连。单机档不装配。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "CRLF_INJECTION_LOGS",
+    justification = "本类全部日志占位符仅填经 sanitize 的 channelName（lambda 内合成方法工具无法定位方法级豁免）。")
 public class ChannelLeaseCoordinator {
 
   private static final Logger LOG = LoggerFactory.getLogger(ChannelLeaseCoordinator.class);
