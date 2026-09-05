@@ -28,6 +28,9 @@ public final class FfmpegAudioConverter {
   private static final int SAMPLE_RATE = 16_000;
   private static final int EXIT_COMMAND_NOT_FOUND = 127;
   private static final String EXT_WAV = ".wav";
+  private static final String EXT_MOV = ".mov";
+  private static final String EXT_MKV = ".mkv";
+  private static final String EXT_AVI = ".avi";
   private static final int STDERR_PREVIEW_MAX = 800;
 
   private final Function<List<String>, Process> processStarter;
@@ -193,10 +196,10 @@ public final class FfmpegAudioConverter {
     Path name = file.getFileName();
     if (name != null) {
       String lower = name.toString().toLowerCase(Locale.ROOT);
-      if (lower.endsWith(".mp4")
-          || lower.endsWith(".mov")
-          || lower.endsWith(".mkv")
-          || lower.endsWith(".avi")) {
+      if (lower.endsWith(InboundMediaExt.EXT_MP4)
+          || lower.endsWith(EXT_MOV)
+          || lower.endsWith(EXT_MKV)
+          || lower.endsWith(EXT_AVI)) {
         return true;
       }
     }
