@@ -53,6 +53,12 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private static final long READY_PROBE_TIMEOUT_MS = 50;
 
   /**
+   * WS 关闭限时。SDK {@code ws.Client.close()} 存在不返回的实现路径（2026-08 容器停机实测：SIGTERM 后被它拖满 ~30s 才完成关闭，裸
+   * {@code docker stop} 直接 SIGKILL），关闭动作放守护线程限时 join，超时放弃等待、停机链路继续。
+   */
+  private static final long WS_CLOSE_TIMEOUT_MS = 2_000;
+
+  /**
    * 入站图片下载超时。SDK {@code requestTimeout} 只设置 OkHttp {@code callTimeout}，仍保留默认 {@code
    * readTimeout=10s}，慢网/大图会在读 body 时 {@code client time out}。须自定义 transport 同时拉长 read/call。
    */
@@ -168,6 +174,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     }
   }
 
+  /** 停止：断开长连接（限时，见 {@link #closeQuietly}）并置位。SDK close 阻塞不再拖死 stopAll/进程停机。 */
   @Override
   public synchronized void stop() {
     com.lark.oapi.ws.Client ws = wsClient;
@@ -178,12 +185,36 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     state = ChannelStatus.State.DISCONNECTED;
   }
 
-  /** 关闭 WS 客户端，异常仅告警不上抛——断开路径的异常不影响调用方语义。 */
+  /**
+   * 关闭 WS 客户端：异常仅告警不上抛（断开路径的异常不影响调用方语义），且限时等待——SDK {@code close()} 阻塞时放弃等待、守护线程后台继续，{@code stop()}
+   * 不拖死 ChannelAdminService.stopAll 与进程停机链路。
+   */
   private void closeQuietly(com.lark.oapi.ws.Client ws) {
+    // 平台守护线程而非虚拟线程：SDK close 内部有 synchronized 路径（Client.disconnect），虚拟线程在此 pin 住 carrier
+    Thread closer =
+        Thread.ofPlatform()
+            .daemon(true) // 守护：被放弃的 close 不得阻止 JVM 退出
+            .name("oryxos-feishu-ws-close")
+            .unstarted(
+                () -> {
+                  try {
+                    ws.close();
+                  } catch (RuntimeException e) {
+                    LOG.warn(
+                        "飞书渠道 {} 断开时异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
+                  }
+                });
+    closer.start();
     try {
-      ws.close();
-    } catch (RuntimeException e) {
-      LOG.warn("飞书渠道 {} 断开时异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
+      closer.join(WS_CLOSE_TIMEOUT_MS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    if (closer.isAlive()) {
+      LOG.warn(
+          "飞书渠道 {} WS close {}ms 未返回，放弃等待（SDK close 阻塞，守护线程后台继续）",
+          sanitize(config.name()),
+          WS_CLOSE_TIMEOUT_MS);
     }
   }
 

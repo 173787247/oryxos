@@ -34,6 +34,11 @@ spring:
     locations: classpath:db/migration/{vendor}
     baseline-on-migrate: true
     baseline-version: 0
+  lifecycle:
+    # SmartLifecycle 停机阶段限时（默认 30s）：个别阶段卡住（如 executor「运行中任务数」不归零，
+    # #332 同类）时最多等 10s 就继续。注：destroy-method 回调不受此约束，长连接类资源须各自限时关闭
+    # （飞书渠道 WS close 限时见 FeishuChannelAdapter.closeQuietly）。
+    timeout-per-shutdown-phase: 10s
 
 server:
   port: 8080
