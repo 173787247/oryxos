@@ -1031,6 +1031,10 @@ public class OryxOsRuntime {
             io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
             resolved ->
                 new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
+                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
+            io.oryxos.channel.slack.SlackChannelAdapter.TYPE,
+            resolved ->
+                new io.oryxos.channel.slack.SlackChannelAdapter(
                     resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
   }
 
