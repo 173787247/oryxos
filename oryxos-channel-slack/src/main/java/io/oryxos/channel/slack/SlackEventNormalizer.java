@@ -23,6 +23,7 @@ public class SlackEventNormalizer {
   private static final String EVENT_APP_MENTION = "app_mention";
   private static final String CHANNEL_TYPE_IM = "im";
   private static final String CHANNEL_TYPE_MPIM = "mpim";
+  private static final String FIELD_BOT_ID = "bot_id";
   private static final Pattern MENTION = Pattern.compile("<@[A-Z0-9]+>\\s*");
 
   private final String channelName;
@@ -109,7 +110,7 @@ public class SlackEventNormalizer {
   }
 
   private static boolean isBotOrEdited(JsonNode event) {
-    if (event.hasNonNull("bot_id")) {
+    if (event.hasNonNull(FIELD_BOT_ID)) {
       return true;
     }
     String subtype = text(event, "subtype");

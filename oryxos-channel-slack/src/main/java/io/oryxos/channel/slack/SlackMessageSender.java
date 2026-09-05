@@ -27,6 +27,8 @@ public class SlackMessageSender {
   private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String FIELD_OK = "ok";
+  private static final String FIELD_ERROR = "error";
 
   private final HttpClient httpClient;
   private final OutboundGuard guard;
@@ -114,9 +116,9 @@ public class SlackMessageSender {
     if (root == null || !root.isObject()) {
       return;
     }
-    if (!root.path("ok").asBoolean(false)) {
+    if (!root.path(FIELD_OK).asBoolean(false)) {
       throw new IllegalStateException(
-          "Slack chat.postMessage 业务失败: " + sanitize(root.path("error").asText("unknown")));
+          "Slack chat.postMessage 业务失败: " + sanitize(root.path(FIELD_ERROR).asText("unknown")));
     }
   }
 

@@ -41,6 +41,9 @@ final class SlackSocketClient implements WebSocket.Listener {
   private static final String TYPE_EVENTS_API = "events_api";
   private static final String TYPE_HELLO = "hello";
   private static final String TYPE_DISCONNECT = "disconnect";
+  private static final String FIELD_OK = "ok";
+  private static final String FIELD_ERROR = "error";
+  private static final String FIELD_URL = "url";
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final String appToken;
@@ -255,11 +258,12 @@ final class SlackSocketClient implements WebSocket.Listener {
               + sanitize(response.body()));
     }
     JsonNode json = MAPPER.readTree(response.body());
-    if (!json.path("ok").asBoolean(false)) {
+    if (!json.path(FIELD_OK).asBoolean(false)) {
       throw new IllegalStateException(
-          "Slack apps.connections.open 业务失败: " + sanitize(json.path("error").asText("unknown")));
+          "Slack apps.connections.open 业务失败: "
+              + sanitize(json.path(FIELD_ERROR).asText("unknown")));
     }
-    String url = json.path("url").asText(null);
+    String url = json.path(FIELD_URL).asText(null);
     if (url == null || url.isBlank()) {
       throw new IllegalStateException("Slack apps.connections.open 响应缺少 url");
     }
