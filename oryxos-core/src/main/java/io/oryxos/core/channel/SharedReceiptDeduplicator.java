@@ -11,6 +11,13 @@ public class SharedReceiptDeduplicator implements MessageDeduplicator {
   private final InMemoryMessageDeduplicator localCache = new InMemoryMessageDeduplicator();
   private final CoordinationStore store;
 
+  private volatile io.oryxos.core.metrics.MetricsRecorder metrics =
+      io.oryxos.core.metrics.MetricsRecorder.NOOP;
+
+  public void setMetricsRecorder(io.oryxos.core.metrics.MetricsRecorder metrics) {
+    this.metrics = metrics;
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "注入的 CoordinationStore 是 Spring 共享 Bean，本就不应防御性拷贝。")
@@ -21,9 +28,19 @@ public class SharedReceiptDeduplicator implements MessageDeduplicator {
   @Override
   public boolean markIfFirst(String key) {
     if (!localCache.markIfFirst(key)) {
+      metrics.recordDuplicateDropped(channelOf(key));
       return false; // 本副本已见：热路径零 DB 访问
     }
     // 本地首见 → 共享回执硬闸（另一副本可能已处理过：平台超时重推跨副本）
-    return store.markReceipt(key);
+    boolean first = store.markReceipt(key);
+    if (!first) {
+      metrics.recordDuplicateDropped(channelOf(key));
+    }
+    return first;
+  }
+
+  private static String channelOf(String key) {
+    int colon = key.indexOf(':');
+    return colon > 0 ? key.substring(0, colon) : "unknown";
   }
 }

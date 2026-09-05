@@ -203,6 +203,14 @@ Agent 的 `AGENT.md` provider 节可声明 `fallback:` 有序备用列表（每�
 - **报错口径**：连接不上、认证失败、权限不足、迁移失败四类各自报错可区分且拒绝启动，不会静默退回 SQLite。
 - 轻命令（`status` / `session list` / `knowledge list`）与服务读同一份配置，两种库同口径工作。
 
+### 4.12 多副本部署（026）——两副本起步的正确性保障
+
+- **开关**：`oryxos.cluster.enabled=true`（默认 false=单机档一切现状）；每副本配唯一 `oryxos.cluster.instance-id`；数据库必须是共享 PostgreSQL（025 档）。
+- **用户可感知的保证**：同一会话消息按序恰好一答（跨副本排队与单机体验一致）；平台重推/用户重发只答一次；定时任务恰好执行一次；某副本崩溃后该轮标失败、下一条消息由健康副本接管（不自动重放，重发即恢复）；企微连接自动接管不互踢。
+- **运维**：`GET /api/v1/instances` 看副本存活与"谁在处理什么"；`oryxos_leases_*` / `oryxos_fence_conflicts_total` / `oryxos_duplicates_dropped_total` 指标可告警。
+- **误配拒启**：cluster 开着但配了 SQLite / markdown 记忆档 / memory 知识库 → 启动失败并指明改法（带病运行比失败更危险）。
+- 参数（有安全默认，一般不用动）：`lease-ttl` 30s / `heartbeat-interval` TTL/3 / `poll-interval` 500ms / `wait-timeout` 120s。
+
 ## 5. 配置与凭证
 
 ### 5.0 主密钥（022）——落库凭证的保险柜钥匙

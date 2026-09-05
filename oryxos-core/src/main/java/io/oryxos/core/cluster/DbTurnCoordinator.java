@@ -25,6 +25,13 @@ public class DbTurnCoordinator implements TurnCoordinator {
   /** 悬空轮留痕回调（可选装配）：抢过期成功时以前任的 executionId 调用——补失败记录，不重放。 */
   private volatile java.util.function.LongConsumer reclaimedExecutionHandler;
 
+  private volatile io.oryxos.core.metrics.MetricsRecorder metrics =
+      io.oryxos.core.metrics.MetricsRecorder.NOOP;
+
+  public void setMetricsRecorder(io.oryxos.core.metrics.MetricsRecorder metrics) {
+    this.metrics = metrics;
+  }
+
   public void setReclaimedExecutionHandler(java.util.function.LongConsumer handler) {
     this.reclaimedExecutionHandler = handler;
   }
@@ -55,8 +62,10 @@ public class DbTurnCoordinator implements TurnCoordinator {
         throw new IllegalStateException("等待会话轮次时被中断: " + sanitize(sessionId), e);
       }
     }
+    metrics.recordLeaseAcquired("turn");
     Long danglingExecution = store.lastReclaimedExecutionId();
     if (danglingExecution != null) {
+      metrics.recordLeaseReclaimed("turn");
       log.warn("回收过期轮次租约: session={} 前任悬空 execution={}", sanitize(sessionId), danglingExecution);
       java.util.function.LongConsumer handler = reclaimedExecutionHandler;
       if (handler != null) {
@@ -93,6 +102,7 @@ public class DbTurnCoordinator implements TurnCoordinator {
     if (!held) {
       lease.valid.set(false);
       cancelRenewal(lease);
+      metrics.recordFenceConflict("turn");
       log.warn(
           "轮次续租失败——租约已被回收，中断执行（fencing）: session={} owner={}",
           sanitize(lease.sessionId),

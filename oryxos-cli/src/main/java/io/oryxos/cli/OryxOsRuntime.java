@@ -967,11 +967,16 @@ public class OryxOsRuntime {
   @Bean
   io.oryxos.core.channel.MessageDeduplicator messageDeduplicator(
       io.oryxos.core.cluster.ClusterProperties cluster,
-      io.oryxos.core.cluster.CoordinationStore store) {
+      io.oryxos.core.cluster.CoordinationStore store,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     // 026：单机档进程内去重（现状）；集群档回执落共享库跨副本判重（两级：本地缓存 + DB 硬闸）
-    return cluster.isEnabled()
-        ? new io.oryxos.core.channel.SharedReceiptDeduplicator(store)
-        : new io.oryxos.core.channel.InMemoryMessageDeduplicator();
+    if (!cluster.isEnabled()) {
+      return new io.oryxos.core.channel.InMemoryMessageDeduplicator();
+    }
+    io.oryxos.core.channel.SharedReceiptDeduplicator dedup =
+        new io.oryxos.core.channel.SharedReceiptDeduplicator(store);
+    dedup.setMetricsRecorder(metricsRecorder);
+    return dedup;
   }
 
   @Bean
@@ -1018,7 +1023,8 @@ public class OryxOsRuntime {
       io.oryxos.core.channel.OutboundGuard channelOutboundGuard,
       io.oryxos.core.cluster.ClusterProperties clusterProps,
       io.oryxos.core.cluster.CoordinationStore coordinationStore,
-      ThreadPoolTaskScheduler taskScheduler) {
+      ThreadPoolTaskScheduler taskScheduler,
+      io.oryxos.core.metrics.MetricsRecorder channelMetricsRecorder) {
     io.oryxos.core.channel.ChannelAdminService service =
         new io.oryxos.core.channel.ChannelAdminService(
             channelConfigLoader,
@@ -1039,9 +1045,11 @@ public class OryxOsRuntime {
                         resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
     // 026：集群档下独连型渠道（企微）走属主协调——持租约副本建连，属主失效自动接管，永不互踢
     if (clusterProps.isEnabled()) {
-      service.setChannelLeaseCoordinator(
+      io.oryxos.core.channel.ChannelLeaseCoordinator leaseCoordinator =
           new io.oryxos.core.channel.ChannelLeaseCoordinator(
-              coordinationStore, clusterProps, taskScheduler));
+              coordinationStore, clusterProps, taskScheduler);
+      leaseCoordinator.setMetricsRecorder(channelMetricsRecorder);
+      service.setChannelLeaseCoordinator(leaseCoordinator);
     }
     return service;
   }
@@ -1078,12 +1086,14 @@ public class OryxOsRuntime {
       io.oryxos.core.cluster.ClusterProperties cluster,
       io.oryxos.core.cluster.CoordinationStore store,
       ThreadPoolTaskScheduler taskScheduler,
-      AgentExecutionStore agentExecutionStore) {
+      AgentExecutionStore agentExecutionStore,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     if (!cluster.isEnabled()) {
       return io.oryxos.core.cluster.TurnCoordinator.NOOP;
     }
     io.oryxos.core.cluster.DbTurnCoordinator coordinator =
         new io.oryxos.core.cluster.DbTurnCoordinator(store, cluster, taskScheduler);
+    coordinator.setMetricsRecorder(metricsRecorder);
     // 026：抢过期成功 = 前任副本失联——给其悬空轮补失败留痕（不重放，用户重发恢复）
     coordinator.setReclaimedExecutionHandler(
         executionId ->

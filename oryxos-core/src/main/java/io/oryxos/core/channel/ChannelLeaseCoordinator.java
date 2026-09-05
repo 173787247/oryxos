@@ -24,6 +24,13 @@ public class ChannelLeaseCoordinator {
   private final TaskScheduler scheduler;
   private final Map<String, ScheduledFuture<?>> loops = new ConcurrentHashMap<>();
 
+  private volatile io.oryxos.core.metrics.MetricsRecorder metrics =
+      io.oryxos.core.metrics.MetricsRecorder.NOOP;
+
+  public void setMetricsRecorder(io.oryxos.core.metrics.MetricsRecorder metrics) {
+    this.metrics = metrics;
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "注入的 store/scheduler/配置是 Spring 共享 Bean，本就不应防御性拷贝。")
@@ -75,9 +82,11 @@ public class ChannelLeaseCoordinator {
             : store.tryAcquireChannel(channelName, owner, ttl);
     if (held && !Boolean.TRUE.equals(isConnected.get())) {
       LOG.info("获得渠道连接属主，建立连接: channel={}", sanitize(channelName));
+      metrics.recordLeaseAcquired("channel");
       startConnection.run();
     } else if (!held && Boolean.TRUE.equals(isConnected.get())) {
       LOG.warn("渠道连接属主已失去（fencing），停止连接: channel={}", sanitize(channelName));
+      metrics.recordFenceConflict("channel");
       stopConnection.run();
     }
   }
