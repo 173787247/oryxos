@@ -15,11 +15,13 @@ public final class InboundMediaExt {
   public static final String EXT_OGG = ".ogg";
   public static final String EXT_SILK = ".silk";
   public static final String EXT_AMR = ".amr";
+  public static final String EXT_MP4 = ".mp4";
   public static final String EXT_BIN = ".bin";
   public static final String EXT_FILE = ".file";
 
   private static final int PDF_MAGIC_LEN = 4;
   private static final int OGG_MAGIC_LEN = 4;
+  private static final int MP4_FTYP_SCAN = 12;
   private static final byte PDF_B0 = '%';
   private static final byte PDF_B1 = 'P';
   private static final byte PDF_B2 = 'D';
@@ -28,6 +30,10 @@ public final class InboundMediaExt {
   private static final byte OGG_B1 = 'g';
   private static final byte OGG_B2 = 'g';
   private static final byte OGG_B3 = 'S';
+  private static final byte FTYP_B0 = 'f';
+  private static final byte FTYP_B1 = 't';
+  private static final byte FTYP_B2 = 'y';
+  private static final byte FTYP_B3 = 'p';
 
   /** 腾讯/飞书常见 Silk：{@code #!SILK_V3}。 */
   private static final byte[] SILK_MAGIC = "#!SILK_V3".getBytes(StandardCharsets.US_ASCII);
@@ -87,6 +93,22 @@ public final class InboundMediaExt {
     return startsWith(header, AMR_MAGIC);
   }
 
+  /** 本地文件头是否为 MP4/MOV 族（ISO BMFF {@code ftyp}）。 */
+  public static boolean isMp4Magic(Path file) {
+    return magicMatches(file, MP4_FTYP_SCAN, InboundMediaExt::isMp4Magic);
+  }
+
+  /** 字节头是否含 {@code ftyp}（常见偏移 4）。 */
+  public static boolean isMp4Magic(byte[] header) {
+    if (header == null || header.length < MP4_FTYP_SCAN) {
+      return false;
+    }
+    return header[4] == FTYP_B0
+        && header[5] == FTYP_B1
+        && header[6] == FTYP_B2
+        && header[7] == FTYP_B3;
+  }
+
   /**
    * 路径/文件名是否按后缀像 PDF（不读内容）。
    *
@@ -122,6 +144,9 @@ public final class InboundMediaExt {
     }
     if (isAmrMagic(file)) {
       return EXT_AMR;
+    }
+    if (isMp4Magic(file)) {
+      return EXT_MP4;
     }
     return null;
   }

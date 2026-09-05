@@ -135,4 +135,37 @@ class FeishuInboundImageResolverTest {
     String url = out.attachments().get(0).url();
     assertTrue(url.endsWith(".png"), url);
   }
+
+  @Test
+  @DisplayName("media 视频：优先用 attachment.fileName 落盘扩展名")
+  void videoUsesAttachmentFileNameExtension() throws Exception {
+    Client client = mock(Client.class, RETURNS_DEEP_STUBS);
+    GetMessageResourceResp resp = new GetMessageResourceResp();
+    resp.setCode(0);
+    resp.setMsg("ok");
+    resp.setFileName(null);
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+    data.write(new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '1'});
+    resp.setData(data);
+    when(client.im().messageResource().get(any())).thenReturn(resp);
+
+    FeishuInboundImageResolver resolver =
+        new FeishuInboundImageResolver(client, mediaRoot, "ops-feishu");
+    InboundMessage out =
+        resolver.resolve(
+            new InboundMessage(
+                "feishu",
+                "ops-feishu",
+                "om_vid",
+                ChatKind.P2P,
+                "ou_user",
+                "oc_chat",
+                "",
+                false,
+                false,
+                List.of(InboundAttachment.videoReference("file_vid_1", "clip.mp4"))));
+
+    String url = out.attachments().get(0).url();
+    assertTrue(url.endsWith(".mp4"), url);
+  }
 }

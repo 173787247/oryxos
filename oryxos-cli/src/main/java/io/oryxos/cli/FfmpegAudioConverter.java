@@ -1,6 +1,7 @@
 package io.oryxos.cli;
 
 import io.oryxos.core.channel.InboundMediaLimits;
+import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +28,9 @@ public final class FfmpegAudioConverter {
   private static final int SAMPLE_RATE = 16_000;
   private static final int EXIT_COMMAND_NOT_FOUND = 127;
   private static final String EXT_WAV = ".wav";
+  private static final String EXT_MOV = ".mov";
+  private static final String EXT_MKV = ".mkv";
+  private static final String EXT_AVI = ".avi";
   private static final int STDERR_PREVIEW_MAX = 800;
 
   private final Function<List<String>, Process> processStarter;
@@ -115,13 +119,20 @@ public final class FfmpegAudioConverter {
       throw new IOException(ERR_FFMPEG_MISSING + "（无法启动进程）");
     }
     try {
-      String stderr = readLimited(process.getErrorStream());
+      java.io.ByteArrayOutputStream errBuf = new java.io.ByteArrayOutputStream(STDERR_PREVIEW_MAX);
+      Thread errDrainer =
+          Thread.ofVirtual()
+              .name("oryxos-ffmpeg-stderr")
+              .start(() -> copyStderrPreview(process.getErrorStream(), errBuf));
       boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
       if (!finished) {
         process.destroyForcibly();
         deleteQuietly(output);
         throw new IOException(ERR_FFMPEG_FAILED + ": 超时");
       }
+      errDrainer.join(1_000L);
+      String stderr =
+          errBuf.toString(StandardCharsets.UTF_8).replace('\r', ' ').replace('\n', ' ').strip();
       int code = process.exitValue();
       if (code != 0) {
         deleteQuietly(output);
@@ -138,6 +149,24 @@ public final class FfmpegAudioConverter {
       Thread.currentThread().interrupt();
       deleteQuietly(output);
       throw new IOException(ERR_FFMPEG_FAILED + ": 中断", e);
+    }
+  }
+
+  private static void copyStderrPreview(InputStream in, java.io.ByteArrayOutputStream errBuf) {
+    if (in == null) {
+      return;
+    }
+    try {
+      byte[] chunk = new byte[256];
+      int n;
+      while ((n = in.read(chunk)) >= 0) {
+        int room = STDERR_PREVIEW_MAX - errBuf.size();
+        if (room > 0) {
+          errBuf.write(chunk, 0, Math.min(n, room));
+        }
+      }
+    } catch (IOException ignored) {
+      // best-effort：进程结束后流关闭属正常
     }
   }
 
@@ -165,14 +194,16 @@ public final class FfmpegAudioConverter {
       justification = "仅对 ASCII 视频扩展名做 Locale.ROOT 小写匹配")
   static boolean looksLikeVideo(Path file) {
     Path name = file.getFileName();
-    if (name == null) {
-      return false;
+    if (name != null) {
+      String lower = name.toString().toLowerCase(Locale.ROOT);
+      if (lower.endsWith(InboundMediaExt.EXT_MP4)
+          || lower.endsWith(EXT_MOV)
+          || lower.endsWith(EXT_MKV)
+          || lower.endsWith(EXT_AVI)) {
+        return true;
+      }
     }
-    String lower = name.toString().toLowerCase(Locale.ROOT);
-    return lower.endsWith(".mp4")
-        || lower.endsWith(".mov")
-        || lower.endsWith(".mkv")
-        || lower.endsWith(".avi");
+    return InboundMediaExt.isMp4Magic(file);
   }
 
   static boolean needsFfmpegConversion(Path file, byte[] header) {
@@ -201,18 +232,6 @@ public final class FfmpegAudioConverter {
         || lower.contains("cannot find");
   }
 
-  private static String readLimited(InputStream in) {
-    if (in == null) {
-      return "";
-    }
-    try {
-      byte[] buf = in.readNBytes(STDERR_PREVIEW_MAX);
-      return new String(buf, StandardCharsets.UTF_8).replace('\r', ' ').replace('\n', ' ').strip();
-    } catch (IOException e) {
-      return "";
-    }
-  }
-
   private static void deleteQuietly(Path path) {
     if (path == null) {
       return;
@@ -229,7 +248,10 @@ public final class FfmpegAudioConverter {
       justification = "argv 列表传给 ProcessBuilder，不经 shell；路径来自本地落盘文件")
   private static Process startProcess(List<String> command) {
     try {
-      return new ProcessBuilder(command).redirectInput(ProcessBuilder.Redirect.PIPE).start();
+      return new ProcessBuilder(command)
+          .redirectInput(ProcessBuilder.Redirect.PIPE)
+          .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+          .start();
     } catch (IOException e) {
       throw new IllegalStateException(e.getMessage(), e);
     }

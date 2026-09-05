@@ -28,9 +28,11 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
       "\n语音转写失败（格式需 ffmpeg 转码，请安装 ffmpeg 或设置 ORYXOS_FFMPEG）: ";
   private static final String AUDIO_ASR_FAIL = "\n语音转写失败: ";
   private static final String VIDEO_WITH_URL = "[用户发送了一段视频]\n本地路径: ";
+  private static final String VIDEO_WITH_REMOTE = "[用户发送了一段视频]\n远程临时链接（未落盘）: ";
   private static final String VIDEO_WITH_REF = "[用户发送了一段视频]\n视频资源: ";
   private static final String VIDEO_HINT =
       "\n视频已落盘；可用工具处理本地文件（不自动理解画面；音轨 ASR 可用 ORYXOS_VIDEO_ASR=0 关闭）。";
+  private static final String VIDEO_REMOTE_HINT = "\n下载落盘失败，仅保留平台临时 URL（通常数分钟过期）；无法对本机 ASR/抽轨。";
   private static final String VIDEO_AUDIO_PREFIX = "\n音轨转写: ";
   private static final String VIDEO_AUDIO_FFMPEG =
       "\n音轨转写失败（需 ffmpeg 抽轨，请安装 ffmpeg 或设置 ORYXOS_FFMPEG）: ";
@@ -144,35 +146,41 @@ public final class DefaultInboundMediaEnricher implements InboundMediaEnricher {
             ? attachment.url().strip()
             : (attachment.reference() != null ? attachment.reference().strip() : "");
     if (attachment.url() != null && !attachment.url().isBlank()) {
-      sb.append(VIDEO_WITH_URL).append(path);
+      boolean remote = ImageMime.isHttpUrl(attachment.url());
+      sb.append(remote ? VIDEO_WITH_REMOTE : VIDEO_WITH_URL).append(path);
       if (attachment.fileName() != null && !attachment.fileName().isBlank()) {
         sb.append(FILE_NAME_LINE).append(attachment.fileName().strip());
       }
-      sb.append(VIDEO_HINT);
-      if (!videoAsrEnabled) {
-        sb.append(VIDEO_ASR_DISABLED);
-        metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "disabled");
-      } else if (speechTranscriber == null) {
-        sb.append(VIDEO_AUDIO_NO_ASR);
-        metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "no_asr");
-      } else if (!ImageMime.isHttpUrl(attachment.url())) {
-        try {
-          String text = speechTranscriber.transcribe(Path.of(attachment.url().strip()));
-          if (text != null && !text.isBlank()) {
-            sb.append(VIDEO_AUDIO_PREFIX).append(text.strip());
-            metrics.recordInboundAsr(channel, MEDIA_VIDEO, true, "ok");
-          } else {
-            metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "empty");
-          }
-        } catch (Exception e) {
-          LOG.warn("入站视频音轨转写失败: {}", sanitize(e.getMessage()));
-          String detail = sanitize(e.getMessage());
-          String reason = isFfmpegRelated(detail) ? "ffmpeg" : "whisper";
-          metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, reason);
-          if (isFfmpegRelated(detail)) {
-            sb.append(VIDEO_AUDIO_FFMPEG).append(detail);
-          } else {
-            sb.append(VIDEO_AUDIO_FAIL).append(detail);
+      if (remote) {
+        sb.append(VIDEO_REMOTE_HINT);
+        metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "remote_url");
+      } else {
+        sb.append(VIDEO_HINT);
+        if (!videoAsrEnabled) {
+          sb.append(VIDEO_ASR_DISABLED);
+          metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "disabled");
+        } else if (speechTranscriber == null) {
+          sb.append(VIDEO_AUDIO_NO_ASR);
+          metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "no_asr");
+        } else {
+          try {
+            String text = speechTranscriber.transcribe(Path.of(attachment.url().strip()));
+            if (text != null && !text.isBlank()) {
+              sb.append(VIDEO_AUDIO_PREFIX).append(text.strip());
+              metrics.recordInboundAsr(channel, MEDIA_VIDEO, true, "ok");
+            } else {
+              metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, "empty");
+            }
+          } catch (Exception e) {
+            LOG.warn("入站视频音轨转写失败: {}", sanitize(e.getMessage()));
+            String detail = sanitize(e.getMessage());
+            String reason = isFfmpegRelated(detail) ? "ffmpeg" : "whisper";
+            metrics.recordInboundAsr(channel, MEDIA_VIDEO, false, reason);
+            if (isFfmpegRelated(detail)) {
+              sb.append(VIDEO_AUDIO_FFMPEG).append(detail);
+            } else {
+              sb.append(VIDEO_AUDIO_FAIL).append(detail);
+            }
           }
         }
       }

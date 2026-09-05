@@ -326,7 +326,21 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
       msg.ifPresent(
           m -> {
             sender.rememberChatType(m.chatId(), WeComEventNormalizer.chatTypeCode(body));
-            dispatchClaimed(m);
+            // 必须尽快离开 WS 回调线程：同步下载会堵住 webSocket.request(1)，心跳/后续帧全停，
+            // 且曾与 JDK HttpClient 超时失效叠加，视频下载可挂满数分钟。
+            Thread.ofVirtual()
+                .name("wecom-inbound")
+                .start(
+                    () -> {
+                      try {
+                        dispatchClaimed(m);
+                      } catch (RuntimeException e) {
+                        LOG.error(
+                            "企微渠道 {} 入站处理异常: {}",
+                            sanitize(config.name()),
+                            sanitize(e.getMessage()));
+                      }
+                    });
           });
     } catch (RuntimeException e) {
       LOG.error("企微渠道 {} 事件处理异常: {}", sanitize(config.name()), sanitize(e.getMessage()));

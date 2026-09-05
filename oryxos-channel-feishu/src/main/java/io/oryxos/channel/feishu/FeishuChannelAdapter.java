@@ -58,8 +58,10 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
    */
   private static final long API_CONNECT_TIMEOUT_SEC = 30;
 
-  private static final long API_READ_TIMEOUT_SEC = 180;
-  private static final long API_CALL_TIMEOUT_SEC = 180;
+  /** 视频/大文件 GetMessageResource 可能远慢于图片；过短会整段超时后只剩 file_key。 */
+  private static final long API_READ_TIMEOUT_SEC = 300;
+
+  private static final long API_CALL_TIMEOUT_SEC = 300;
 
   private final ChannelConfig config; // resolved 口径（凭证为真实值，仅存活内存）
   private final ProfileRegistry profileRegistry;
@@ -278,7 +280,10 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
 
   private static boolean isUnresolvedMediaAttachment(InboundAttachment attachment) {
     String type = attachment.type();
-    if (!InboundAttachment.TYPE_IMAGE.equals(type) && !InboundAttachment.TYPE_FILE.equals(type)) {
+    if (!InboundAttachment.TYPE_IMAGE.equals(type)
+        && !InboundAttachment.TYPE_FILE.equals(type)
+        && !InboundAttachment.TYPE_AUDIO.equals(type)
+        && !InboundAttachment.TYPE_VIDEO.equals(type)) {
       return false;
     }
     if (attachment.url() != null && !attachment.url().isBlank()) {

@@ -1,6 +1,11 @@
 package io.oryxos.core.channel;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -13,6 +18,9 @@ import java.util.function.Predicate;
  * 入站媒体 HTTP：默认 {@link HttpClient.Redirect#NEVER}，避免白名单仅验首次 URL 后被 302 打到内网。
  *
  * <p>若需跟随重定向，使用 {@link #getFollowingAllowlist}：每跳重验 Location host。
+ *
+ * <p>企微 COS 等场景优先 {@link #getBytesFollowingAllowlist}（{@code HttpURLConnection} 的 connect/read
+ * 超时更可靠；JDK {@code HttpClient} 在部分挂死链路上可能拖过 {@code request.timeout}）。
  */
 public final class InboundMediaHttp {
 
@@ -22,6 +30,10 @@ public final class InboundMediaHttp {
   private static final int HTTP_STATUS_REDIRECT_MAX_EXCLUSIVE = 400;
   private static final int MAX_REDIRECTS = 5;
   private static final String HEADER_LOCATION = "Location";
+  private static final String HEADER_USER_AGENT = "User-Agent";
+  private static final String USER_AGENT = "OryxOS-InboundMedia/1.0";
+  private static final int READ_BUFFER = 8192;
+  private static final int DEFAULT_TIMEOUT_MS = 60_000;
 
   private InboundMediaHttp() {}
 
@@ -83,6 +95,118 @@ public final class InboundMediaHttp {
       throw new IllegalStateException("下载临时文件 HTTP " + code);
     }
     throw new IllegalStateException("媒体下载重定向超过上限 " + MAX_REDIRECTS);
+  }
+
+  /**
+   * 用 {@link HttpURLConnection} 下载（硬 connect/read 超时），最多跟随 {@value #MAX_REDIRECTS} 次且每跳校验
+   * allowlist；响应体超过 {@code maxBytes} 则失败。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "URLCONNECTION_SSRF_FD",
+      justification =
+          "每跳 openConnection 前均经调用方 Predicate uriAllowed 校验；"
+              + "setInstanceFollowRedirects(false)，Location 解析后下一跳再验，不自动跟跳到内网。")
+  public static byte[] getBytesFollowingAllowlist(
+      URI start,
+      Duration connectTimeout,
+      Duration readTimeout,
+      long maxBytes,
+      Predicate<URI> uriAllowed)
+      throws IOException {
+    if (start == null || uriAllowed == null) {
+      throw new IllegalArgumentException("uri/allowlist 不可空");
+    }
+    if (maxBytes <= 0) {
+      throw new IllegalArgumentException("maxBytes 必须为正");
+    }
+    int connectMs = timeoutMillis(connectTimeout);
+    int readMs = timeoutMillis(readTimeout);
+    URI current = start;
+    for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (!uriAllowed.test(current)) {
+        throw new IOException("拒绝非允许域临时下载地址: " + InboundMediaPaths.sanitizeLog(hostOf(current)));
+      }
+      HttpURLConnection conn = openGet(current, connectMs, readMs);
+      try {
+        int code = conn.getResponseCode();
+        if (code >= HTTP_STATUS_OK_MIN && code < HTTP_STATUS_OK_MAX_EXCLUSIVE) {
+          return readLimitedBody(conn, maxBytes);
+        }
+        if (code >= HTTP_STATUS_REDIRECT_MIN && code < HTTP_STATUS_REDIRECT_MAX_EXCLUSIVE) {
+          String loc = conn.getHeaderField(HEADER_LOCATION);
+          if (loc == null || loc.isBlank()) {
+            throw new IOException("下载临时文件重定向缺 Location HTTP " + code);
+          }
+          try {
+            current = current.resolve(loc.strip());
+          } catch (IllegalArgumentException | IllegalStateException e) {
+            throw new IOException("下载临时文件重定向 Location 非法 HTTP " + code);
+          }
+          continue;
+        }
+        throw new IOException("下载临时文件 HTTP " + code);
+      } finally {
+        conn.disconnect();
+      }
+    }
+    throw new IOException("媒体下载重定向超过上限 " + MAX_REDIRECTS);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "URLCONNECTION_SSRF_FD",
+      justification =
+          "仅由 getBytesFollowingAllowlist 在 uriAllowed 通过后调用；禁自动重定向，"
+              + "避免 SpotBugs 将已校验 URI 的 openConnection 判为未防护 SSRF。")
+  private static HttpURLConnection openGet(URI uri, int connectMs, int readMs) throws IOException {
+    URL url;
+    try {
+      url = uri.toURL();
+    } catch (IllegalArgumentException | java.net.MalformedURLException e) {
+      throw new IOException("非法下载地址: " + InboundMediaPaths.sanitizeLog(hostOf(uri)), e);
+    }
+    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+    conn.setInstanceFollowRedirects(false);
+    conn.setConnectTimeout(connectMs);
+    conn.setReadTimeout(readMs);
+    conn.setRequestMethod("GET");
+    conn.setRequestProperty(HEADER_USER_AGENT, USER_AGENT);
+    conn.setUseCaches(false);
+    return conn;
+  }
+
+  private static byte[] readLimitedBody(HttpURLConnection conn, long maxBytes) throws IOException {
+    try (InputStream in = conn.getInputStream()) {
+      ByteArrayOutputStream buf =
+          new ByteArrayOutputStream(Math.min(READ_BUFFER * 8, (int) Math.min(maxBytes, 1 << 20)));
+      byte[] chunk = new byte[READ_BUFFER];
+      long total = 0;
+      int n;
+      while ((n = in.read(chunk)) >= 0) {
+        total += n;
+        if (total > maxBytes) {
+          throw new IOException("入站文件超过上限 " + maxBytes + " 字节");
+        }
+        buf.write(chunk, 0, n);
+      }
+      if (total == 0) {
+        throw new IOException("下载临时文件为空");
+      }
+      return buf.toByteArray();
+    }
+  }
+
+  private static int timeoutMillis(Duration timeout) {
+    if (timeout == null) {
+      return DEFAULT_TIMEOUT_MS;
+    }
+    long ms = timeout.toMillis();
+    if (ms <= 0) {
+      return DEFAULT_TIMEOUT_MS;
+    }
+    if (ms > Integer.MAX_VALUE) {
+      return Integer.MAX_VALUE;
+    }
+    return (int) ms;
   }
 
   private static Optional<URI> resolveRedirect(URI current, HttpResponse<?> response) {

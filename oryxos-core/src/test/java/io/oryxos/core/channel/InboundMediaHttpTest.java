@@ -112,4 +112,48 @@ class InboundMediaHttpTest {
                                 || uri.getPath().equals("/ok"))));
     assertTrue(ex.getMessage().contains("拒绝") || ex.getMessage().contains("非允许"));
   }
+
+  @Test
+  @DisplayName("UrlConnection allowlist 跟随同主机 302")
+  void urlConnectionFollowAllowlist() throws Exception {
+    byte[] body =
+        InboundMediaHttp.getBytesFollowingAllowlist(
+            URI.create(base + "/redir"),
+            Duration.ofSeconds(5),
+            Duration.ofSeconds(5),
+            1024,
+            uri -> "127.0.0.1".equals(uri.getHost()));
+    assertEquals("IMG", new String(body, StandardCharsets.UTF_8));
+  }
+
+  @Test
+  @DisplayName("UrlConnection 读超时应尽快失败")
+  void urlConnectionReadTimeout() {
+    server.createContext(
+        "/slow",
+        ex -> {
+          byte[] body = "SLOW".getBytes(StandardCharsets.UTF_8);
+          ex.sendResponseHeaders(200, body.length);
+          try {
+            Thread.sleep(3000);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+          try (OutputStream out = ex.getResponseBody()) {
+            out.write(body);
+          }
+        });
+    long started = System.nanoTime();
+    assertThrows(
+        Exception.class,
+        () ->
+            InboundMediaHttp.getBytesFollowingAllowlist(
+                URI.create(base + "/slow"),
+                Duration.ofSeconds(2),
+                Duration.ofMillis(400),
+                1024,
+                uri -> "127.0.0.1".equals(uri.getHost())));
+    long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+    assertTrue(elapsedMs < 2500, "read timeout should fail fast, took " + elapsedMs + "ms");
+  }
 }
