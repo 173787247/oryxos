@@ -7,10 +7,10 @@
 ## 一、Slack 侧：创建 App 并启用 Socket Mode
 
 1. 打开 [api.slack.com/apps](https://api.slack.com/apps)，Create New App → From scratch，选目标 Workspace。
-2. **OAuth & Permissions** → Bot Token Scopes 至少：`chat:write`、`im:history`、`app_mentions:read`、`channels:history`（按需）。
+2. **OAuth & Permissions** → Bot Token Scopes 至少：`chat:write`、`im:history`、`app_mentions:read`、`channels:history`、`files:read`（图片/文件入站）。
 3. **Socket Mode** → Enable → 生成 **App-Level Token**（`xapp-…`），scope 勾 `connections:write`。
-4. **Event Subscriptions** → Enable → Subscribe to bot events：`message.im`、`app_mention`。
-5. **Install to Workspace**，复制 **Bot User OAuth Token**（`xoxb-…`）。
+4. **Event Subscriptions** → Enable → Subscribe to bot events：`message.im`、`app_mention`（文件私聊走 `message.im` + `file_share`）。
+5. **Install to Workspace**（改 scopes 后需 **Reinstall**），复制 **Bot User OAuth Token**（`xoxb-…`）。
 6. 将 Bot 邀请进目标频道（群聊需 `@机器人`）。
 
    - ⚠️ 凭证只经环境变量注入 OryxOS，禁止写入仓库或明文配置文件。
@@ -45,8 +45,9 @@
 
 ## 三、使用方式
 
-- **私聊**：在 Slack 中打开该 Bot 的 DM，直接发文本。
+- **私聊**：在 Slack 中打开该 Bot 的 DM，直接发文本、图片或文件。
 - **群聊**：将 Bot 拉入频道后 `@Bot + 问题`（平台推送 `app_mention`）。
+- **图片 / 文件**：经 `url_private_download` 带 Bot Token 落盘到 `.oryxos/inbound-media/`（需 `files:read`）；图片可供 Vision，文件路径写入 Agent 提示。
 - **联网检索**：须在绑定 Agent 的 `AGENT.md` `tools:` 中加入 `web_search` 等，见 Tool 文档。
 
 ## 四、与飞书/企微/钉钉的差异
@@ -56,11 +57,11 @@
 | 凭证 | App ID / Secret | BotID / Secret | ClientId / Secret | Bot Token / App-Level Token |
 | 连接 | SDK 长连接 | 企微 WS | Stream WS | Socket Mode WSS |
 | 回复 | im API | 长连接发帧 | sessionWebhook | chat.postMessage |
-| MVP 媒体 | 图/文件/音视频 | 同 | 同 | **仅文本**（后续再补） |
+| MVP 媒体 | 图/文件/音视频 | 同 | 同 | **图片 + 文件**（语音/视频后续） |
 
 ## 五、非目标（本期不做）
 
-- 图片 / 文件 / 语音 / 视频入站
+- 语音 / 视频入站与 ASR
 - Block Kit / 斜杠命令 / HTTP Events 公网回调
 - MCP `@modelcontextprotocol/server-slack`（可另配）
 - Notify `type=slack`
