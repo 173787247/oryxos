@@ -196,7 +196,7 @@ tools:
   - fetch_webpage
 ```
 
-In the agent body, require calling `web_search` first for live facts. The core-stage provider is DuckDuckGo Instant Answer; **Chinese or time-sensitive queries often return empty**. Fall back to `fetch_webpage` (for example `https://html.duckduckgo.com/html/?q=` + a URL-encoded query) or `http_get` against a public API (weather via `api.open-meteo.com` is already in the default write-whitelist examples; reads do not need that whitelist).
+In the agent body, require calling `web_search` first for live facts. The core-stage provider is DuckDuckGo: **when Instant Answer JSON is empty (common for Chinese / time-sensitive queries), it automatically retries the HTML lite results page**. If still empty, fall back to `fetch_webpage` or `http_get` against a public API (e.g. weather via `api.open-meteo.com`).
 
 If a tool call fails the sandbox check, `ToolExecutor` returns a non-retryable `ToolResult` with a clear error message describing which whitelist was violated. The call is still recorded in `tool_invocations` with `success = false`.
 

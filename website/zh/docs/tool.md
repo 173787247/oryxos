@@ -196,7 +196,7 @@ tools:
   - fetch_webpage
 ```
 
-建议在正文里写明：需要实时信息时先调 `web_search`；核心阶段搜索走 DuckDuckGo Instant Answer，**中文或时效查询常返回空**——此时再用 `fetch_webpage`（如 `https://html.duckduckgo.com/html/?q=` + URL 编码关键词）或对公开 API 使用 `http_get`（例如天气用 `api.open-meteo.com`，该主机已在默认写白名单示例中，读路径本就不依赖白名单）。
+建议在正文里写明：需要实时信息时先调 `web_search`。核心阶段搜索走 DuckDuckGo：**Instant Answer JSON 为空时（中文/时效查询常见）会自动再请求 HTML 轻量结果页**；若仍为空，再用 `fetch_webpage` 或对公开 API 使用 `http_get`（例如天气用 `api.open-meteo.com`）。
 
 工具调用未通过沙箱校验时，`ToolExecutor` 返回不可重试的 `ToolResult`，并带有清晰的错误信息说明违反了哪条白名单。该调用仍会记录在 `tool_invocations` 里，`success = false`。
 

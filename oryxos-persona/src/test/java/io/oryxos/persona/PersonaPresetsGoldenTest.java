@@ -52,7 +52,12 @@ class PersonaPresetsGoldenTest {
   private String render(PersonaPresetCatalog.Preset p) {
     ParsedExpert expert = new AgencyAgentsParser().parse(catalog.sourceContent(p));
     return new AgencyAgentsImporter()
-        .toMarkdown(expert, "deepseek", Set.of("read_file", "shell", "notify"), p.key(), null);
+        .toMarkdown(
+            expert,
+            "deepseek",
+            Set.of("read_file", "shell", "notify", "web_search", "http_get", "fetch_webpage"),
+            p.key(),
+            null);
   }
 
   private static String readGolden(String key) {
