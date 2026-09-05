@@ -102,6 +102,8 @@ http:
     - oapi.dingtalk.com         # 钉钉 webhook 通知 + sessionWebhook 回复
     - slack.com                 # Slack Web API（connections.open / chat.postMessage）
     - "*.slack.com"             # Slack Socket Mode WSS（wss-primary / wss-backup 等）
+    - discord.com               # Discord REST API（发消息）
+    - gateway.discord.gg        # Discord Gateway WSS
     - api.open-meteo.com        # 天气 Agent 免 key 天气源（31 节 Demo 一）
     - hn.algolia.com            # 科技日报 Agent 新闻源（31 节 Demo 二）
     - api.github.com            # GitHub 日报脚本子进程网络（31 节 Demo 三）

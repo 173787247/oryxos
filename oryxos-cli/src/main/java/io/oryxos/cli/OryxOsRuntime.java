@@ -1035,6 +1035,10 @@ public class OryxOsRuntime {
             io.oryxos.channel.slack.SlackChannelAdapter.TYPE,
             resolved ->
                 new io.oryxos.channel.slack.SlackChannelAdapter(
+                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
+            io.oryxos.channel.discord.DiscordChannelAdapter.TYPE,
+            resolved ->
+                new io.oryxos.channel.discord.DiscordChannelAdapter(
                     resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
   }
 
