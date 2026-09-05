@@ -22,6 +22,13 @@ public class DbTurnCoordinator implements TurnCoordinator {
   private final ClusterProperties properties;
   private final TaskScheduler renewalScheduler;
 
+  /** 悬空轮留痕回调（可选装配）：抢过期成功时以前任的 executionId 调用——补失败记录，不重放。 */
+  private volatile java.util.function.LongConsumer reclaimedExecutionHandler;
+
+  public void setReclaimedExecutionHandler(java.util.function.LongConsumer handler) {
+    this.reclaimedExecutionHandler = handler;
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "注入的 store/scheduler 是 Spring 共享 Bean，本就不应防御性拷贝。")
@@ -51,6 +58,14 @@ public class DbTurnCoordinator implements TurnCoordinator {
     Long danglingExecution = store.lastReclaimedExecutionId();
     if (danglingExecution != null) {
       log.warn("回收过期轮次租约: session={} 前任悬空 execution={}", sanitize(sessionId), danglingExecution);
+      java.util.function.LongConsumer handler = reclaimedExecutionHandler;
+      if (handler != null) {
+        try {
+          handler.accept(danglingExecution);
+        } catch (RuntimeException e) {
+          log.warn("悬空轮失败留痕回写失败（不影响本轮认领）", e);
+        }
+      }
     }
     DbTurnLease lease = new DbTurnLease(sessionId, owner, Thread.currentThread());
     lease.renewalTask =

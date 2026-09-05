@@ -141,6 +141,15 @@ public class ChannelAdminService {
     }
   }
 
+  /** 026：独连型渠道类型（单连接互踢语义，需属主协调）；集群档由 setChannelLeaseCoordinator 装配。 */
+  private static final java.util.Set<String> EXCLUSIVE_CONNECTION_TYPES = java.util.Set.of("wecom");
+
+  private volatile ChannelLeaseCoordinator channelLeaseCoordinator;
+
+  public void setChannelLeaseCoordinator(ChannelLeaseCoordinator coordinator) {
+    this.channelLeaseCoordinator = coordinator;
+  }
+
   /** 单渠道上线：enabled=false 登记 DISABLED；启动失败登记 ERROR 点名原因，不上抛（不阻断其余渠道）。 */
   private void startOne(ChannelConfig resolved) {
     if (!resolved.enabled()) {
@@ -151,6 +160,12 @@ public class ChannelAdminService {
               resolved.agent(),
               ChannelStatus.State.DISABLED,
               null));
+      return;
+    }
+    // 026：集群档下独连型渠道（企微）交给属主协调——持租约副本建连，其余 STANDBY 待接管
+    ChannelLeaseCoordinator coordinator = channelLeaseCoordinator;
+    if (coordinator != null && EXCLUSIVE_CONNECTION_TYPES.contains(resolved.type())) {
+      startExclusive(resolved, coordinator);
       return;
     }
     try {
@@ -171,7 +186,53 @@ public class ChannelAdminService {
     }
   }
 
+  /** 独连型渠道的属主化上线（026）：先登记 STANDBY，属主循环拿到租约才真正建连。 */
+  private void startExclusive(ChannelConfig resolved, ChannelLeaseCoordinator coordinator) {
+    try {
+      validateForLaunch(resolved);
+      InboundChannelAdapter adapter = adapterFactories.get(resolved.type()).apply(resolved);
+      java.util.concurrent.atomic.AtomicBoolean connected =
+          new java.util.concurrent.atomic.AtomicBoolean(false);
+      registry.registerOffline(
+          new ChannelStatus(
+              resolved.name(),
+              resolved.type(),
+              resolved.agent(),
+              ChannelStatus.State.STANDBY,
+              null));
+      coordinator.manage(
+          resolved.name(),
+          () -> {
+            adapter.start();
+            connected.set(true);
+            registry.register(adapter);
+            LOG.info("独连型渠道 {} 已由本副本接管上线", sanitize(resolved.name()));
+          },
+          () -> {
+            adapter.stop();
+            connected.set(false);
+            registry.registerOffline(
+                new ChannelStatus(
+                    resolved.name(),
+                    resolved.type(),
+                    resolved.agent(),
+                    ChannelStatus.State.STANDBY,
+                    null));
+          },
+          connected::get);
+    } catch (RuntimeException e) {
+      LOG.error("独连型渠道 {} 属主化上线失败: {}", sanitize(resolved.name()), sanitize(e.getMessage()));
+      registry.registerOffline(
+          ChannelStatus.error(
+              resolved.name(), resolved.type(), resolved.agent(), sanitize(e.getMessage())));
+    }
+  }
+
   private void stopOne(String name) {
+    ChannelLeaseCoordinator coordinator = channelLeaseCoordinator;
+    if (coordinator != null) {
+      coordinator.unmanage(name);
+    }
     registry.get(name).ifPresent(InboundChannelAdapter::stop);
     registry.unregister(name);
   }

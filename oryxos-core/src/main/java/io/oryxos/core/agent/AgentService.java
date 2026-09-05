@@ -88,6 +88,10 @@ public class AgentService {
     // 全部触发源（CLI/定时/飞书/REST）经此收口，本轮所有审计落库与日志自动携带同一 traceId
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
       turnLease = turnCoordinator.acquire(sessionKey);
+      Long executionId = ExecutionContext.currentId();
+      if (executionId != null) {
+        turnLease.attachExecution(executionId); // 026：悬空轮失败留痕的关联键
+      }
       // Controller / Channel 在进入本锁前已拿到 Session；等待锁期间它可能过期，因此必须在锁内重读。
       Session activeSession = sessionManager.get(sessionKey).orElse(session);
       List<Message> expectedMessages = activeSession.messages();

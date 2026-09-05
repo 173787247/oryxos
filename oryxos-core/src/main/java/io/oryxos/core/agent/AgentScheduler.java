@@ -310,6 +310,9 @@ public class AgentScheduler {
     String error = null;
     long agentExecutionId = startAgentExecution(profile, startedAt);
     try {
+      if (agentExecutionId > 0) {
+        ExecutionContext.set(agentExecutionId); // 026：租约行关联 execution（悬空轮留痕）
+      }
       Session session =
           sessionManager.getOrCreate(SCHEDULER_CHANNEL, SCHEDULER_USER, profile.name());
       sessionId = session.sessionId();
@@ -319,6 +322,7 @@ public class AgentScheduler {
       error = exception.getMessage();
       LOG.error("Schedule {} failed", sanitizeLogValue(scheduleId), exception);
     } finally {
+      ExecutionContext.clear();
       recordExecution(schedule, scheduleId, sessionId, startedAt, success, error, start);
       finishAgentExecution(agentExecutionId, sessionId, success, error);
     }

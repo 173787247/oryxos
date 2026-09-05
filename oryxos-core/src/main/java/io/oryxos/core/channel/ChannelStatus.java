@@ -16,6 +16,8 @@ public record ChannelStatus(String name, String type, String agent, State state,
     CONNECTED,
     DISCONNECTED,
     DISABLED,
+    /** 026：独连型渠道待机——连接属主为另一副本，属主失效时本副本自动接管建连。 */
+    STANDBY,
     ERROR
   }
 

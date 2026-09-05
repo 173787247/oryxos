@@ -47,12 +47,14 @@ public class AgentExecutionService {
           boolean ok = false;
           String error = null;
           try (TraceContext.Scope scope = TraceContext.open(traceId)) {
+            ExecutionContext.set(id); // 026：供租约行关联 execution（悬空轮失败留痕）
             work.run();
             ok = true;
           } catch (RuntimeException e) {
             error = e.getMessage();
             LOG.error("Agent " + sanitize(agentName) + " 后台执行失败", e);
           } finally {
+            ExecutionContext.clear();
             safeFinish(id, sessionId, ok, error);
           }
         });

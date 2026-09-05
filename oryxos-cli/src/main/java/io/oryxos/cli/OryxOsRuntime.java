@@ -1015,24 +1015,35 @@ public class OryxOsRuntime {
       io.oryxos.core.channel.InboundChannelRegistry inboundChannelRegistry,
       ProfileRegistry profileRegistry,
       io.oryxos.core.channel.InboundMessageService inboundMessageService,
-      io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
-    return new io.oryxos.core.channel.ChannelAdminService(
-        channelConfigLoader,
-        inboundChannelRegistry,
-        profileRegistry,
-        Map.of(
-            io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.feishu.FeishuChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-            io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.wecom.WeComChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-            io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
+      io.oryxos.core.channel.OutboundGuard channelOutboundGuard,
+      io.oryxos.core.cluster.ClusterProperties clusterProps,
+      io.oryxos.core.cluster.CoordinationStore coordinationStore,
+      ThreadPoolTaskScheduler taskScheduler) {
+    io.oryxos.core.channel.ChannelAdminService service =
+        new io.oryxos.core.channel.ChannelAdminService(
+            channelConfigLoader,
+            inboundChannelRegistry,
+            profileRegistry,
+            Map.of(
+                io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
+                resolved ->
+                    new io.oryxos.channel.feishu.FeishuChannelAdapter(
+                        resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
+                io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
+                resolved ->
+                    new io.oryxos.channel.wecom.WeComChannelAdapter(
+                        resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
+                io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
+                resolved ->
+                    new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
+                        resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
+    // 026：集群档下独连型渠道（企微）走属主协调——持租约副本建连，属主失效自动接管，永不互踢
+    if (clusterProps.isEnabled()) {
+      service.setChannelLeaseCoordinator(
+          new io.oryxos.core.channel.ChannelLeaseCoordinator(
+              coordinationStore, clusterProps, taskScheduler));
+    }
+    return service;
   }
 
   /**
@@ -1066,10 +1077,19 @@ public class OryxOsRuntime {
   io.oryxos.core.cluster.TurnCoordinator turnCoordinator(
       io.oryxos.core.cluster.ClusterProperties cluster,
       io.oryxos.core.cluster.CoordinationStore store,
-      ThreadPoolTaskScheduler taskScheduler) {
-    return cluster.isEnabled()
-        ? new io.oryxos.core.cluster.DbTurnCoordinator(store, cluster, taskScheduler)
-        : io.oryxos.core.cluster.TurnCoordinator.NOOP;
+      ThreadPoolTaskScheduler taskScheduler,
+      AgentExecutionStore agentExecutionStore) {
+    if (!cluster.isEnabled()) {
+      return io.oryxos.core.cluster.TurnCoordinator.NOOP;
+    }
+    io.oryxos.core.cluster.DbTurnCoordinator coordinator =
+        new io.oryxos.core.cluster.DbTurnCoordinator(store, cluster, taskScheduler);
+    // 026：抢过期成功 = 前任副本失联——给其悬空轮补失败留痕（不重放，用户重发恢复）
+    coordinator.setReclaimedExecutionHandler(
+        executionId ->
+            agentExecutionStore.finish(
+                executionId, null, false, "副本失联，轮次终止（租约过期被接管）", java.time.Instant.now()));
+    return coordinator;
   }
 
   /** 026：心跳循环（仅集群档）——上报存活 + 惰性清理超龄回执与死实例行。 */
