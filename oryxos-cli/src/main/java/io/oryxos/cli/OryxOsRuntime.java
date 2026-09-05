@@ -1112,14 +1112,22 @@ public class OryxOsRuntime {
       AgentService agentService,
       SessionManager sessionManager,
       ScheduledTaskStore scheduledTaskStore,
-      AgentExecutionStore agentExecutionStore) {
-    return new AgentScheduler(
-        taskScheduler,
-        profileRegistry,
-        agentService,
-        sessionManager,
-        scheduledTaskStore,
-        agentExecutionStore);
+      AgentExecutionStore agentExecutionStore,
+      io.oryxos.core.cluster.ClusterProperties clusterProperties,
+      io.oryxos.core.cluster.CoordinationStore coordinationStore) {
+    AgentScheduler scheduler =
+        new AgentScheduler(
+            taskScheduler,
+            profileRegistry,
+            agentService,
+            sessionManager,
+            scheduledTaskStore,
+            agentExecutionStore);
+    // 026：集群档启用到点认领（恰好一次）；单机档不注入保持现状零协调写
+    if (clusterProperties.isEnabled()) {
+      scheduler.enableFireTimeClaim(coordinationStore, clusterProperties.owner());
+    }
+    return scheduler;
   }
 
   /** 32 节：Agent 执行历史落 SQLite（手动触发 + 定时触发都记，起止时间 / 状态）。 */
