@@ -33,3 +33,19 @@ channels:
   #   app_secret: ${SLACK_APP_TOKEN}      # App-Level Token (xapp-，需 connections:write)
   #   agent: ops-agent
   #   enabled: true
+
+  # Discord Gateway 长连接（见 docs/DiscordChannelSetup.md）
+  # - name: ops-discord
+  #   type: discord
+  #   app_id: ${DISCORD_BOT_TOKEN}            # Bot Token
+  #   app_secret: ${DISCORD_APPLICATION_ID}   # Application ID（@提及匹配）
+  #   agent: ops-agent
+  #   enabled: true
+
+  # Discord Gateway 长连接（见 docs/DiscordChannelSetup.md）
+  # - name: ops-discord
+  #   type: discord
+  #   app_id: ${DISCORD_BOT_TOKEN}            # Bot Token
+  #   app_secret: ${DISCORD_APPLICATION_ID}   # Application ID（频道 @Bot 匹配）
+  #   agent: ops-agent
+  #   enabled: true
