@@ -184,6 +184,8 @@ http:
 
 `web_search` / `http_get` / `fetch_webpage` 虽已在运行时全局注册，但 **只有写进该 Agent `AGENT.md` 的 `tools:` 才会出现在模型可调用列表**（见下方「工具注册表」过滤）。常见踩坑：渠道已 `CONNECTED`，用户说「搜一下」却从不调工具——多半是 frontmatter 里只有 `read_file` / `shell` / `notify`。
 
+管理台 / API **新建 Agent** 的脚手架默认已包含下列工具；存量 Agent 仍需手工补上：
+
 ```yaml
 tools:
   - read_file

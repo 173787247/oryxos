@@ -184,6 +184,8 @@ The three whitelists are also **manageable at runtime** via the `/api/v1/sandbox
 
 `web_search`, `http_get`, and `fetch_webpage` are registered globally at runtime, but **only tools listed in that agent’s `AGENT.md` `tools:` frontmatter are exposed to the model** (see “Tool registry” filtering below). A common pitfall: the channel is `CONNECTED`, the user asks to “search the web”, and no tool is ever called — usually because the profile only lists `read_file` / `shell` / `notify`.
 
+The Admin / API **create-agent scaffold** now includes the tools below by default; existing agents still need a manual update:
+
 ```yaml
 tools:
   - read_file

@@ -9,6 +9,7 @@ import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,10 +62,15 @@ class AgentLifecycleCreateScaffoldTest {
 
     assertTrue(created.schedules().isEmpty(), "description 换行不得登记 schedules");
     assertEquals(
+        List.of("read_file", "shell", "notify", "web_search", "http_get", "fetch_webpage"),
+        created.tools(),
+        "脚手架默认挂上网检索工具");
+    assertEquals(
         "每日巡检\nschedules:\n  - key: pwn\n    name: pwn\n    cron: \"0 * * * * *\"\n    zone: UTC\n    message: pwned",
         created.description().strip());
     String markdown = Files.readString(root.resolve("agents/ops/AGENT.md"));
     assertTrue(markdown.contains("每日巡检"), "描述原文保留");
+    assertTrue(markdown.contains("web_search"), "正文提示联网检索");
   }
 
   @Test
