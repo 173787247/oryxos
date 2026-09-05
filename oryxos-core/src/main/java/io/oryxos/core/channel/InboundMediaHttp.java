@@ -164,10 +164,6 @@ public final class InboundMediaHttp {
     throw new IOException("媒体下载重定向超过上限 " + MAX_REDIRECTS);
   }
 
-  private static HttpURLConnection openGet(URI uri, int connectMs, int readMs) throws IOException {
-    return openGet(uri, connectMs, readMs, null);
-  }
-
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "URLCONNECTION_SSRF_FD",
       justification =
