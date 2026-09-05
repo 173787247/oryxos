@@ -45,6 +45,7 @@
 - **语音**：智能机器人回调已含平台 ASR（`voice.content`），直接当用户问题编排；**仅单聊**。空转写且带 `voice.url` 时落盘并走 Whisper 兜底；否则明确提示改发文字。
 - **视频**：`msgtype=video` 经 COS URL（及可选 AES）落盘；配置 Whisper + ffmpeg 时可抽音轨转写（不理解画面；`ORYXOS_VIDEO_ASR=0` 可关）。
 - **媒体根**：优先 `.oryxos/inbound-media/{channel}/`（单文件 ≤100MB）；TTL/配额见 `ORYXOS_INBOUND_MEDIA_TTL_HOURS`（默认 24）与 `ORYXOS_INBOUND_MEDIA_MAX_MB`（默认 2048）。COS 下载禁用自动跟跳，重定向逐跳校验白名单。
+- **联网检索**：渠道只负责把消息交给绑定的 Agent。要让机器人「搜一下 / 查最新」，须在该 Agent 的 `AGENT.md` `tools:` 中显式加入 `web_search`（建议同时加 `http_get`、`fetch_webpage`），并在正文要求先调工具再答。详见 [Tool 体系 · 给 IM Agent 开联网检索](../website/zh/docs/tool.md)。
 
 ## 四、与飞书的差异（运维须知）
 

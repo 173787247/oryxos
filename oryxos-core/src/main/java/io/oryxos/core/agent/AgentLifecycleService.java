@@ -53,6 +53,7 @@ public class AgentLifecycleService {
   private static final String AGENT_MD_BODY =
       """
       在这里写这个 Agent 的任务指令（正文）。被触发时它会照做。
+      - 需要搜索 / 查最新 / 联网核实实时信息时：先调用 web_search；若结果为空再用 fetch_webpage 或 http_get，不要只凭训练知识编造；
       - 已绑定 Skill 的 name、description 与本地 SKILL.md 入口会自动列入提示；需要时再用 read_file 按需读正文；
       - 参考资料放 REFERENCE.md，拿不准时用 read_file 读；
       - 脚本放 scripts/，正文让 shell/python 跑，产出进上下文、代码不进；
@@ -95,8 +96,8 @@ public class AgentLifecycleService {
       1. AGENT.md 以 YAML frontmatter 开头结尾（--- 与 ---），frontmatter 必须含 name、description、identity(agent_name/prompt)、\
       provider(name/model)、tools、settings(max_iterations/max_history_turns)；有定时需求再加 schedules。
       2. name 必须是「{name}」；provider.name 必须是「{provider}」；model 必须是「{model}」（若该 provider 下没有这个 exact 模型名，就填该 provider 下合理的默认模型名）。
-      3. tools 只能从下面【可用工具】里按需挑选，**绝不允许编造清单以外的工具名**。常见映射：查网页/接口数据用 http_get / http_post；\
-      抓网页正文用 fetch_webpage；读写文件用 read_file / write_file；跑脚本用 shell。
+      3. tools 只能从下面【可用工具】里按需挑选，**绝不允许编造清单以外的工具名**。常见映射：搜索/查最新用 web_search；\
+      查网页/接口数据用 http_get / http_post；抓网页正文用 fetch_webpage；读写文件用 read_file / write_file；跑脚本用 shell。
       4. schedules 每条必须包含：key（Agent 内唯一的配置键）、name（展示名称）、cron（Spring 6 段 cron，如 "0 0 9 * * *" 表示每天 9 点）、\
       zone（时区，如 Asia/Shanghai）、message（到点发给 Agent 的触发语）。不要输出 legacy id、timezone、action 等字段。
       5. 通知：{notify}
@@ -424,7 +425,9 @@ public class AgentLifecycleService {
     providerMap.put("name", provider);
     providerMap.put("model", model);
     frontmatter.put("provider", providerMap);
-    frontmatter.put("tools", List.of("read_file", "shell", "notify"));
+    frontmatter.put(
+        "tools",
+        List.of("read_file", "shell", "notify", "web_search", "http_get", "fetch_webpage"));
     frontmatter.put("bootstrap", List.of("AGENTS.md"));
     Map<String, Object> settings = new LinkedHashMap<>();
     settings.put("max_iterations", Profile.Settings.defaults().maxIterations());
