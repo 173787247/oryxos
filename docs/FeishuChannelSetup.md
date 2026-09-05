@@ -53,7 +53,7 @@
 
 - **私聊**：飞书搜索机器人名字（或工作台找到应用）→ 直接发文本、图片、文件、语音或视频。
 - **群聊**：把机器人拉进群后 `@机器人 + 问题`（或图片/文件/语音/视频）。
-- **语音**：`message_type=audio` 经 `file_key` 落盘到 `.oryxos/inbound-media/`（≤50MB）；配置 `OPENAI_API_KEY`（或 `ORYXOS_ASR_API_KEY`）后 Whisper 转写进 Agent。飞书音频常为 silk：服务端若检测到 silk/amr（或非 Whisper 原生格式）会调用本机 `ffmpeg`（`PATH` 或 `ORYXOS_FFMPEG`）转成 wav 再上传；未安装 ffmpeg 时转写失败并提示安装。
+- **语音**：`message_type=audio` 经 `file_key` 落盘到 `.oryxos/inbound-media/`（≤100MB）；配置 `OPENAI_API_KEY`（或 `ORYXOS_ASR_API_KEY`）后 Whisper 转写进 Agent。飞书音频常为 silk：服务端若检测到 silk/amr（或非 Whisper 原生格式）会调用本机 `ffmpeg`（`PATH` 或 `ORYXOS_FFMPEG`）转成 wav 再上传；未安装 ffmpeg 时转写失败并提示安装。
 - **视频**：`message_type=media` 经 `file_key` 落盘；有 Whisper + ffmpeg 时可抽音轨转写（不理解画面；`ORYXOS_VIDEO_ASR=0` 可关）。
 - **媒体根 TTL/配额**：`ORYXOS_INBOUND_MEDIA_TTL_HOURS`（默认 24）、`ORYXOS_INBOUND_MEDIA_MAX_MB`（默认 2048）。
 - **群聊**：测试群 → 群设置 →「**群机器人**」→「添加机器人」→ 选择应用；之后 `@机器人 + 问题` 触发。群里**不 @** 机器人的消息 OryxOS 完全不读、不留任何记录。

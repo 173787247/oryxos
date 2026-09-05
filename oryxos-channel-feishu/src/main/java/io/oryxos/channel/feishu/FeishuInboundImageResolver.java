@@ -140,7 +140,7 @@ final class FeishuInboundImageResolver {
               sanitize(resp == null ? null : resp.getMsg()));
           return attachment;
         }
-        Path path = writeToMediaRoot(messageId, fileKey, resp, fileLike);
+        Path path = writeToMediaRoot(messageId, fileKey, resp, fileLike, attachment);
         return new InboundAttachment(
             attachment.type(), path.toAbsolutePath().toString(), fileKey, attachment.fileName());
       } catch (Exception e) {
@@ -188,10 +188,20 @@ final class FeishuInboundImageResolver {
   }
 
   private Path writeToMediaRoot(
-      String messageId, String fileKey, GetMessageResourceResp resp, boolean fileAttachment)
+      String messageId,
+      String fileKey,
+      GetMessageResourceResp resp,
+      boolean fileAttachment,
+      InboundAttachment attachment)
       throws IOException {
-    String fileName = resp.getFileName();
+    String fileName = firstNonBlank(resp.getFileName(), attachment.fileName());
     String ext = extensionOf(fileName);
+    if (DEFAULT_EXTENSION.equals(ext) && InboundAttachment.TYPE_VIDEO.equals(attachment.type())) {
+      ext = ".mp4";
+    } else if (DEFAULT_EXTENSION.equals(ext)
+        && InboundAttachment.TYPE_AUDIO.equals(attachment.type())) {
+      ext = ".ogg";
+    }
     Path dir = mediaRoot.resolve(safeSegment(messageId));
     Files.createDirectories(dir);
     Path target = dir.resolve(safeSegment(fileKey) + ext);
@@ -255,6 +265,16 @@ final class FeishuInboundImageResolver {
       return DEFAULT_EXTENSION;
     }
     return ext;
+  }
+
+  private static String firstNonBlank(String a, String b) {
+    if (a != null && !a.isBlank()) {
+      return a;
+    }
+    if (b != null && !b.isBlank()) {
+      return b;
+    }
+    return null;
   }
 
   static String safeSegment(String raw) {

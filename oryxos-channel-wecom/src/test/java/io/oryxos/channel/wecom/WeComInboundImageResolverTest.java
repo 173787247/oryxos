@@ -125,4 +125,44 @@ class WeComInboundImageResolverTest {
 
     assertEquals(remote, out.attachments().get(0).url());
   }
+
+  @Test
+  @DisplayName("视频无后缀 URL → 落盘默认 .mp4")
+  void videoWithoutExtensionGetsMp4() throws Exception {
+    byte[] ftyp =
+        new byte[] {
+          0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 1, 2, 3, 4, 5, 6, 7, 8
+        };
+    server.createContext(
+        "/vid",
+        exchange -> {
+          exchange.sendResponseHeaders(200, ftyp.length);
+          try (OutputStream out = exchange.getResponseBody()) {
+            out.write(ftyp);
+          }
+        });
+    String remote = baseUrl + "/vid";
+    WeComInboundImageResolver resolver =
+        new WeComInboundImageResolver(
+            HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(),
+            mediaRoot,
+            "ops-wecom",
+            true);
+    InboundMessage out =
+        resolver.resolve(
+            new InboundMessage(
+                "wecom",
+                "ops-wecom",
+                "msg-vid",
+                ChatKind.P2P,
+                "u1",
+                "chat-1",
+                "",
+                false,
+                false,
+                List.of(InboundAttachment.videoUrl(remote))));
+    String url = out.attachments().get(0).url();
+    assertTrue(url.endsWith(".mp4"), url);
+    assertTrue(Files.isRegularFile(Path.of(url)), url);
+  }
 }

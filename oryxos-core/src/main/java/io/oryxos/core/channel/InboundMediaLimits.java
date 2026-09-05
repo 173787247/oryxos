@@ -3,8 +3,8 @@ package io.oryxos.core.channel;
 /** 入站媒体大小与嗅探常量（三渠 Resolver / Whisper 共用）。 */
 public final class InboundMediaLimits {
 
-  /** 单文件下载上限（字节）。 */
-  public static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
+  /** 单文件下载上限（字节）。IM 视频（含企微 COS 密文）常超过 50MB；过小会在落盘前失败并只剩临时 URL。 */
+  public static final long MAX_FILE_BYTES = 100L * 1024 * 1024;
 
   /** 魔数嗅探读取上限（避免整文件进内存）。 */
   public static final int HEADER_SNIFF_BYTES = 64;

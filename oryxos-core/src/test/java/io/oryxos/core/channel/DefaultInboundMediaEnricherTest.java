@@ -195,4 +195,27 @@ class DefaultInboundMediaEnricherTest {
     assertTrue(input.contains("音轨转写"));
     assertTrue(input.contains("视频里说开会"));
   }
+
+  @Test
+  @DisplayName("视频仍为 http URL 时标明未落盘，不谎称已落盘")
+  void videoRemoteUrlNotClaimedLocal() {
+    InboundMessage msg =
+        new InboundMessage(
+            "wecom",
+            "ops-wecom",
+            "m10",
+            ChatKind.P2P,
+            "u1",
+            "c1",
+            "",
+            false,
+            false,
+            List.of(
+                InboundAttachment.videoUrl(
+                    "https://ww-aibot-img-1258476243.cos.ap-guangzhou.myqcloud.com/v")));
+    String input = new DefaultInboundMediaEnricher().toAgentInput(msg);
+    assertTrue(input.contains("未落盘"), input);
+    assertTrue(input.contains("临时"), input);
+    assertTrue(!input.contains("视频已落盘"), input);
+  }
 }
