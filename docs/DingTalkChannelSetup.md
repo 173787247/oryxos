@@ -52,6 +52,7 @@
 - **语音**：`msgtype=audio` 经 `downloadCode` 落盘；配置 `OPENAI_API_KEY`（或 `ORYXOS_ASR_API_KEY`）后用 Whisper 转写进 Agent。非 Whisper 原生格式（如 silk/amr）会经本机 `ffmpeg`（`PATH` / `ORYXOS_FFMPEG`）转 wav；未安装则转写失败并提示。
 - **视频**：`msgtype=video` 经 `downloadCode` 落盘；有 Whisper + ffmpeg 时可抽音轨转写（不理解画面；`ORYXOS_VIDEO_ASR=0` 可关）。
 - **媒体根**：`.oryxos/inbound-media/`（≤100MB）；TTL/配额：`ORYXOS_INBOUND_MEDIA_TTL_HOURS` / `ORYXOS_INBOUND_MEDIA_MAX_MB`。临时链下载禁用自动跟跳，重定向逐跳校验钉钉/OSS 白名单。
+- **联网检索**：渠道只负责把消息交给绑定的 Agent。要让机器人「搜一下 / 查最新」，须在该 Agent 的 `AGENT.md` `tools:` 中显式加入 `web_search`（建议同时加 `http_get`、`fetch_webpage`），并在正文要求先调工具再答。详见 [Tool 体系 · 给 IM Agent 开联网检索](../website/zh/docs/tool.md)。
 
 ## 四、与飞书/企微的差异（运维须知）
 

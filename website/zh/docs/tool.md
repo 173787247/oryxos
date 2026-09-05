@@ -180,6 +180,22 @@ http:
 
 这三个白名单也可在**运行期管理**——通过 `/api/v1/sandbox/whitelist` 接口和管理台，在 `FILE`、`SHELL`、`HTTP` 三类下增删条目，无需重启。
 
+### 给 IM / 业务 Agent 开联网检索
+
+`web_search` / `http_get` / `fetch_webpage` 虽已在运行时全局注册，但 **只有写进该 Agent `AGENT.md` 的 `tools:` 才会出现在模型可调用列表**（见下方「工具注册表」过滤）。常见踩坑：渠道已 `CONNECTED`，用户说「搜一下」却从不调工具——多半是 frontmatter 里只有 `read_file` / `shell` / `notify`。
+
+```yaml
+tools:
+  - read_file
+  - shell
+  - notify
+  - web_search
+  - http_get
+  - fetch_webpage
+```
+
+建议在正文里写明：需要实时信息时先调 `web_search`；核心阶段搜索走 DuckDuckGo Instant Answer，**中文或时效查询常返回空**——此时再用 `fetch_webpage`（如 `https://html.duckduckgo.com/html/?q=` + URL 编码关键词）或对公开 API 使用 `http_get`（例如天气用 `api.open-meteo.com`，该主机已在默认写白名单示例中，读路径本就不依赖白名单）。
+
 工具调用未通过沙箱校验时，`ToolExecutor` 返回不可重试的 `ToolResult`，并带有清晰的错误信息说明违反了哪条白名单。该调用仍会记录在 `tool_invocations` 里，`success = false`。
 
 不使用 `SecurityManager`。它从 JDK 17 起废弃，在 JDK 21 上已不可用。沙箱完全在应用层实现：工具代码运行前，`SandboxChecker` 已完成白名单校验。

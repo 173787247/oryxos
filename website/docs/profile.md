@@ -147,9 +147,13 @@ Built-in tool names:
 | `shell` | Execute a shell command (command whitelist enforced) |
 | `http_get` | HTTP GET request (default allow + SSRF blocklist) |
 | `http_post` | HTTP POST request (domain whitelist enforced) |
+| `fetch_webpage` | Fetch a page and extract readable text (default allow + SSRF) |
+| `web_search` | Web search (default allow + SSRF; must be listed in `tools:`) |
 | `save_memory` | Append a note to `MEMORY.md` |
 | `recall_memory` | Keyword search over `MEMORY.md` |
 | `notify` | Push a message to a notify channel referenced by name |
+
+> For Feishu / WeCom / DingTalk inbound agents that should answer “search the web” / live facts, list `web_search` in `tools:` (and usually `http_get` + `fetch_webpage`). A `CONNECTED` channel is not enough — unlisted tools never reach the model. See [Tool system](/docs/tool) (“Enabling web search for IM / business agents”).
 
 MCP tools from configured `mcp_servers` are available by their server-declared names (e.g. `github_create_pr`). Run `oryxos tool list` to see all registered names. See the [Tool system](/docs/tool) for details, including how the `notify` tool resolves a channel by name.
 

@@ -57,6 +57,7 @@
 - **视频**：`message_type=media` 经 `file_key` 落盘；有 Whisper + ffmpeg 时可抽音轨转写（不理解画面；`ORYXOS_VIDEO_ASR=0` 可关）。
 - **媒体根 TTL/配额**：`ORYXOS_INBOUND_MEDIA_TTL_HOURS`（默认 24）、`ORYXOS_INBOUND_MEDIA_MAX_MB`（默认 2048）。
 - **群聊**：测试群 → 群设置 →「**群机器人**」→「添加机器人」→ 选择应用；之后 `@机器人 + 问题` 触发。群里**不 @** 机器人的消息 OryxOS 完全不读、不留任何记录。
+- **联网检索**：渠道只负责把消息交给绑定的 Agent。要让机器人「搜一下 / 查最新」，须在该 Agent 的 `AGENT.md` `tools:` 中显式加入 `web_search`（建议同时加 `http_get`、`fetch_webpage`），并在正文要求先调工具再答。详见 [Tool 体系 · 给 IM Agent 开联网检索](../website/zh/docs/tool.md)。
 
 ## 七、OryxOS 侧：配置与启动
 
