@@ -97,9 +97,20 @@ public final class InboundMediaHttp {
     throw new IllegalStateException("媒体下载重定向超过上限 " + MAX_REDIRECTS);
   }
 
+  public static byte[] getBytesFollowingAllowlist(
+      URI start,
+      Duration connectTimeout,
+      Duration readTimeout,
+      long maxBytes,
+      Predicate<URI> uriAllowed)
+      throws IOException {
+    return getBytesFollowingAllowlist(
+        start, connectTimeout, readTimeout, maxBytes, uriAllowed, null);
+  }
+
   /**
-   * 用 {@link HttpURLConnection} 下载（硬 connect/read 超时），最多跟随 {@value #MAX_REDIRECTS} 次且每跳校验
-   * allowlist；响应体超过 {@code maxBytes} 则失败。
+   * 同 {@link #getBytesFollowingAllowlist(URI, Duration, Duration, long, Predicate)}，可附带请求头（如 Slack
+   * {@code Authorization: Bearer xoxb-}）。
    */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "URLCONNECTION_SSRF_FD",
@@ -111,7 +122,8 @@ public final class InboundMediaHttp {
       Duration connectTimeout,
       Duration readTimeout,
       long maxBytes,
-      Predicate<URI> uriAllowed)
+      Predicate<URI> uriAllowed,
+      java.util.Map<String, String> requestHeaders)
       throws IOException {
     if (start == null || uriAllowed == null) {
       throw new IllegalArgumentException("uri/allowlist 不可空");
@@ -126,7 +138,7 @@ public final class InboundMediaHttp {
       if (!uriAllowed.test(current)) {
         throw new IOException("拒绝非允许域临时下载地址: " + InboundMediaPaths.sanitizeLog(hostOf(current)));
       }
-      HttpURLConnection conn = openGet(current, connectMs, readMs);
+      HttpURLConnection conn = openGet(current, connectMs, readMs, requestHeaders);
       try {
         int code = conn.getResponseCode();
         if (code >= HTTP_STATUS_OK_MIN && code < HTTP_STATUS_OK_MAX_EXCLUSIVE) {
@@ -152,12 +164,18 @@ public final class InboundMediaHttp {
     throw new IOException("媒体下载重定向超过上限 " + MAX_REDIRECTS);
   }
 
+  private static HttpURLConnection openGet(URI uri, int connectMs, int readMs) throws IOException {
+    return openGet(uri, connectMs, readMs, null);
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "URLCONNECTION_SSRF_FD",
       justification =
           "仅由 getBytesFollowingAllowlist 在 uriAllowed 通过后调用；禁自动重定向，"
               + "避免 SpotBugs 将已校验 URI 的 openConnection 判为未防护 SSRF。")
-  private static HttpURLConnection openGet(URI uri, int connectMs, int readMs) throws IOException {
+  private static HttpURLConnection openGet(
+      URI uri, int connectMs, int readMs, java.util.Map<String, String> requestHeaders)
+      throws IOException {
     URL url;
     try {
       url = uri.toURL();
@@ -170,6 +188,13 @@ public final class InboundMediaHttp {
     conn.setReadTimeout(readMs);
     conn.setRequestMethod("GET");
     conn.setRequestProperty(HEADER_USER_AGENT, USER_AGENT);
+    if (requestHeaders != null) {
+      for (var e : requestHeaders.entrySet()) {
+        if (e.getKey() != null && !e.getKey().isBlank() && e.getValue() != null) {
+          conn.setRequestProperty(e.getKey(), e.getValue());
+        }
+      }
+    }
     conn.setUseCaches(false);
     return conn;
   }

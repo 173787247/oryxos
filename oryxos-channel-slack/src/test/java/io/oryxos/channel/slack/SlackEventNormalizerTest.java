@@ -1,11 +1,13 @@
 package io.oryxos.channel.slack;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.oryxos.core.channel.ChatKind;
+import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,8 +75,8 @@ class SlackEventNormalizerTest {
   }
 
   @Test
-  @DisplayName("bot_id / subtype 消息丢弃")
-  void botAndSubtypeDropped() {
+  @DisplayName("bot_id / 编辑 subtype 丢弃；file_share 保留")
+  void botAndSubtypeHandling() {
     ObjectNode bot = MAPPER.createObjectNode();
     bot.put("type", "message");
     bot.put("channel_type", "im");
@@ -94,5 +96,30 @@ class SlackEventNormalizerTest {
     edited.put("ts", "1.2");
     edited.put("text", "edited");
     assertTrue(normalizer.normalize(edited).isEmpty());
+  }
+
+  @Test
+  @DisplayName("file_share 私聊：解析图片附件")
+  void fileShareDm() {
+    ObjectNode event = MAPPER.createObjectNode();
+    event.put("type", "message");
+    event.put("subtype", "file_share");
+    event.put("channel_type", "im");
+    event.put("user", "U111");
+    event.put("channel", "D222");
+    event.put("ts", "1710000000.000400");
+    event.put("text", "");
+    var files = event.putArray("files");
+    var file = files.addObject();
+    file.put("name", "shot.png");
+    file.put("mimetype", "image/png");
+    file.put("url_private_download", "https://files.slack.com/files-pri/T-F/download/shot.png");
+    Optional<InboundMessage> msg = normalizer.normalize(event);
+    assertTrue(msg.isPresent());
+    InboundMessage m = msg.get();
+    assertEquals(1, m.attachments().size());
+    assertEquals(InboundAttachment.TYPE_IMAGE, m.attachments().get(0).type());
+    assertEquals("shot.png", m.attachments().get(0).fileName());
+    assertFalse(m.textual());
   }
 }

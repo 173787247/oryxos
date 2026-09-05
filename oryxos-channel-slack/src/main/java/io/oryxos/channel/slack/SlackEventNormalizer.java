@@ -2,17 +2,21 @@ package io.oryxos.channel.slack;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.oryxos.core.channel.ChatKind;
+import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Slack Events API 事件 → 归一化 {@link InboundMessage}（MVP：仅文本私聊 / 群 {@code app_mention}）。
+ * Slack Events API 事件 → 归一化 {@link InboundMessage}。
  *
- * <p>群聊只接受 {@code app_mention}；普通群消息丢弃。忽略 bot 自身消息与带 subtype 的系统编辑帧。
+ * <p>私聊 {@code message}（含 {@code file_share}）与群 {@code app_mention}；忽略 bot 自身与编辑/删除等 subtype。
  */
 public class SlackEventNormalizer {
 
@@ -24,6 +28,10 @@ public class SlackEventNormalizer {
   private static final String CHANNEL_TYPE_IM = "im";
   private static final String CHANNEL_TYPE_MPIM = "mpim";
   private static final String FIELD_BOT_ID = "bot_id";
+  private static final String FIELD_FILES = "files";
+  private static final String SUBTYPE_FILE_SHARE = "file_share";
+  private static final String MIME_IMAGE_PREFIX = "image/";
+  private static final Set<String> ALLOWED_SUBTYPES = Set.of(SUBTYPE_FILE_SHARE);
   private static final Pattern MENTION = Pattern.compile("<@[A-Z0-9]+>\\s*");
 
   private final String channelName;
@@ -52,7 +60,7 @@ public class SlackEventNormalizer {
   }
 
   private Optional<InboundMessage> normalizeAppMention(JsonNode event) {
-    if (isBotOrEdited(event)) {
+    if (shouldDrop(event)) {
       return Optional.empty();
     }
     String userId = text(event, "user");
@@ -63,6 +71,10 @@ public class SlackEventNormalizer {
       return Optional.empty();
     }
     String content = stripMentions(event.path("text").asText("")).strip();
+    List<InboundAttachment> attachments = extractFiles(event.path(FIELD_FILES));
+    if (content.isBlank() && attachments.isEmpty()) {
+      return Optional.empty();
+    }
     return Optional.of(
         new InboundMessage(
             CHANNEL_TYPE,
@@ -72,19 +84,18 @@ public class SlackEventNormalizer {
             userId,
             chatId,
             content,
+            !content.isBlank(),
             true,
-            true,
-            List.of()));
+            attachments));
   }
 
   private Optional<InboundMessage> normalizeMessage(JsonNode event) {
-    if (isBotOrEdited(event)) {
+    if (shouldDrop(event)) {
       return Optional.empty();
     }
     String channelType = text(event, "channel_type");
     boolean dm = CHANNEL_TYPE_IM.equals(channelType) || CHANNEL_TYPE_MPIM.equals(channelType);
     if (!dm) {
-      // 频道内普通 message 等 app_mention；避免重复处理
       return Optional.empty();
     }
     String userId = text(event, "user");
@@ -95,6 +106,10 @@ public class SlackEventNormalizer {
       return Optional.empty();
     }
     String content = event.path("text").asText("").strip();
+    List<InboundAttachment> attachments = extractFiles(event.path(FIELD_FILES));
+    if (content.isBlank() && attachments.isEmpty()) {
+      return Optional.empty();
+    }
     return Optional.of(
         new InboundMessage(
             CHANNEL_TYPE,
@@ -104,17 +119,48 @@ public class SlackEventNormalizer {
             userId,
             chatId,
             content,
-            true,
+            !content.isBlank(),
             false,
-            List.of()));
+            attachments));
   }
 
-  private static boolean isBotOrEdited(JsonNode event) {
+  /** 丢弃 bot 消息与不可处理的 subtype；保留空 subtype 与 {@code file_share}（图片/文件入站）。 */
+  static boolean shouldDrop(JsonNode event) {
     if (event.hasNonNull(FIELD_BOT_ID)) {
       return true;
     }
     String subtype = text(event, "subtype");
-    return subtype != null && !subtype.isBlank();
+    if (subtype == null || subtype.isBlank()) {
+      return false;
+    }
+    return !ALLOWED_SUBTYPES.contains(subtype);
+  }
+
+  static List<InboundAttachment> extractFiles(JsonNode files) {
+    List<InboundAttachment> out = new ArrayList<>();
+    if (files == null || !files.isArray()) {
+      return out;
+    }
+    for (JsonNode file : files) {
+      if (file == null || !file.isObject()) {
+        continue;
+      }
+      String url = text(file, "url_private_download");
+      if (url == null) {
+        url = text(file, "url_private");
+      }
+      if (url == null) {
+        continue;
+      }
+      String fileName = text(file, "name");
+      String mime = text(file, "mimetype");
+      if (mime != null && mime.toLowerCase(Locale.ROOT).startsWith(MIME_IMAGE_PREFIX)) {
+        out.add(new InboundAttachment(InboundAttachment.TYPE_IMAGE, url, null, fileName));
+      } else {
+        out.add(InboundAttachment.fileUrl(url, fileName));
+      }
+    }
+    return out;
   }
 
   static String stripMentions(String text) {
