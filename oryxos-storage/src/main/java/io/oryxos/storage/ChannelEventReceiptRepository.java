@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** 回执判重（026）：插入捕唯一约束冲突即重复；超龄行由心跳循环批删（原进程内 TTL 口径）。 */
 public interface ChannelEventReceiptRepository extends JpaRepository<ChannelEventReceipt, String> {
 
-  @Transactional
+  @Transactional(rollbackFor = Exception.class)
   @Modifying
   @Query(
       value =
@@ -18,7 +18,7 @@ public interface ChannelEventReceiptRepository extends JpaRepository<ChannelEven
       nativeQuery = true)
   void insertReceipt(String receiptKey, Instant firstSeenAt);
 
-  @Transactional
+  @Transactional(rollbackFor = Exception.class)
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query("DELETE FROM ChannelEventReceipt r WHERE r.firstSeenAt < :before")
   int deleteOlderThan(Instant before);

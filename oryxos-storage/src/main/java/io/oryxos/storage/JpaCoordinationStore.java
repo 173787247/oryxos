@@ -202,8 +202,9 @@ public class JpaCoordinationStore implements CoordinationStore {
       }
       if (cause instanceof java.sql.SQLException sql) {
         String state = sql.getSQLState();
-        if ((state != null && state.startsWith("23"))
-            || String.valueOf(sql.getMessage()).contains("SQLITE_CONSTRAINT")) {
+        boolean integrityState = state != null && state.startsWith("23");
+        boolean sqliteConstraint = String.valueOf(sql.getMessage()).contains("SQLITE_CONSTRAINT");
+        if (integrityState || sqliteConstraint) {
           return;
         }
       }

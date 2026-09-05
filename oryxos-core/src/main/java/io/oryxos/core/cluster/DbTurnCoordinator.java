@@ -59,6 +59,10 @@ public class DbTurnCoordinator implements TurnCoordinator {
     return lease;
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification =
+          "sessionId 经 sanitize 去 CRLF，owner 为内部构造的 instanceId@epoch 且同样 sanitize；工具不识别自定义净化。")
   private void renew(DbTurnLease lease) {
     if (!lease.valid.get()) {
       return;
@@ -77,7 +81,7 @@ public class DbTurnCoordinator implements TurnCoordinator {
       log.warn(
           "轮次续租失败——租约已被回收，中断执行（fencing）: session={} owner={}",
           sanitize(lease.sessionId),
-          lease.owner);
+          sanitize(lease.owner));
       lease.holderThread.interrupt();
     }
   }

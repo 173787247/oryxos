@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 public interface TurnLeaseRepository extends JpaRepository<TurnLeaseEntity, String> {
 
   /** 认领插入：native INSERT 保证真插入语义（JPA save 对自然主键实体走 merge，会静默覆写他人持有—— 契约测试抓到的坑）；主键冲突由调用方按约束违规捕获判定。 */
-  @Transactional
+  @Transactional(rollbackFor = Exception.class)
   @Modifying
   @Query(
       value =
@@ -22,7 +22,7 @@ public interface TurnLeaseRepository extends JpaRepository<TurnLeaseEntity, Stri
   void insertLease(String sessionId, String owner, Instant leaseUntil, Instant acquiredAt);
 
   /** 抢过期：只有 lease_until 已过（持有者死）才改写 owner——绝无无条件覆写路径。 */
-  @Transactional
+  @Transactional(rollbackFor = Exception.class)
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query(
       "UPDATE TurnLeaseEntity l SET l.owner = :owner, l.leaseUntil = :leaseUntil,"
@@ -31,7 +31,7 @@ public interface TurnLeaseRepository extends JpaRepository<TurnLeaseEntity, Stri
   int takeExpired(String sessionId, String owner, Instant leaseUntil, Instant now);
 
   /** 续租 fencing：owner 不符 rowcount=0 = 已被回收，执行方必须中止。 */
-  @Transactional
+  @Transactional(rollbackFor = Exception.class)
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query(
       "UPDATE TurnLeaseEntity l SET l.leaseUntil = :leaseUntil"
@@ -39,12 +39,12 @@ public interface TurnLeaseRepository extends JpaRepository<TurnLeaseEntity, Stri
   int renew(String sessionId, String owner, Instant leaseUntil);
 
   /** 释放：只删自己的。 */
-  @Transactional
+  @Transactional(rollbackFor = Exception.class)
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query("DELETE FROM TurnLeaseEntity l WHERE l.sessionId = :sessionId AND l.owner = :owner")
   int release(String sessionId, String owner);
 
-  @Transactional
+  @Transactional(rollbackFor = Exception.class)
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query(
       "UPDATE TurnLeaseEntity l SET l.agentExecutionId = :executionId"
