@@ -153,9 +153,13 @@ import org.springframework.web.context.WebApplicationContext;
   ShellSandboxProperties.class,
   HttpSandboxProperties.class,
   SmtpSandboxProperties.class,
-  ExecutionBackendProperties.class
+  ExecutionBackendProperties.class,
+  io.oryxos.core.cluster.ClusterProperties.class
 })
 public class OryxOsRuntime {
+
+  private static final org.slf4j.Logger LOG =
+      org.slf4j.LoggerFactory.getLogger(OryxOsRuntime.class);
 
   // 工作区根目录默认 ./.oryxos；可用属性 oryxos.root 覆盖（集成测试指向临时工作区，默认行为不变）。
   // 从 Spring Environment 解析（而非 JVM 静态捕获 System property）：使每个上下文各持自己的根，
@@ -668,7 +672,11 @@ public class OryxOsRuntime {
       case "mem0" ->
           new Mem0MemoryStore(
               restClient.mutate().baseUrl(mem0BaseUrl).build(), mem0UserId, mem0ApiKey);
-      default -> new MarkdownMemoryStore(oryxosRoot());
+      case "markdown" -> new MarkdownMemoryStore(oryxosRoot());
+        // 026 顺修：未知值曾静默回落 markdown——配置了却不生效比启动失败更危险（knowledge.store 同口径）
+      default ->
+          throw new IllegalStateException(
+              "未知的 memory.backend: " + backend + "（支持 markdown / sqlite / mem0）");
     };
   }
 
@@ -1030,6 +1038,54 @@ public class OryxOsRuntime {
     scheduler.setDaemon(true);
     scheduler.initialize();
     return scheduler;
+  }
+
+  /** 026：协调存储恒建（读操作单机档也可答）；写协调只在 cluster.enabled=true 生效。 */
+  @Bean
+  io.oryxos.core.cluster.CoordinationStore coordinationStore(
+      io.oryxos.storage.TurnLeaseRepository turnLeases,
+      io.oryxos.storage.ChannelEventReceiptRepository receipts,
+      io.oryxos.storage.ChannelLeaseRepository channelLeases,
+      io.oryxos.storage.InstanceHeartbeatRepository instances,
+      io.oryxos.storage.ScheduledTaskRepository scheduledTasks) {
+    return new io.oryxos.storage.JpaCoordinationStore(
+        turnLeases, receipts, channelLeases, instances, scheduledTasks);
+  }
+
+  /** 026：轮次互斥——单机档 NOOP（零协调写零变化），集群档 DB 租约（认领「正在执行的一轮」）。 */
+  @Bean
+  io.oryxos.core.cluster.TurnCoordinator turnCoordinator(
+      io.oryxos.core.cluster.ClusterProperties cluster,
+      io.oryxos.core.cluster.CoordinationStore store,
+      ThreadPoolTaskScheduler taskScheduler) {
+    return cluster.isEnabled()
+        ? new io.oryxos.core.cluster.DbTurnCoordinator(store, cluster, taskScheduler)
+        : io.oryxos.core.cluster.TurnCoordinator.NOOP;
+  }
+
+  /** 026：心跳循环（仅集群档）——上报存活 + 惰性清理超龄回执与死实例行。 */
+  @Bean
+  Object clusterHeartbeat(
+      io.oryxos.core.cluster.ClusterProperties cluster,
+      io.oryxos.core.cluster.CoordinationStore store,
+      ThreadPoolTaskScheduler taskScheduler) {
+    if (!cluster.isEnabled()) {
+      return new Object();
+    }
+    long epoch = java.lang.management.ManagementFactory.getRuntimeMXBean().getStartTime();
+    String instanceId = cluster.effectiveInstanceId();
+    java.time.Duration interval = cluster.effectiveHeartbeatInterval();
+    return taskScheduler.scheduleAtFixedRate(
+        () -> {
+          try {
+            store.heartbeat(instanceId, epoch);
+            store.purgeExpired(
+                java.time.Duration.ofHours(12), cluster.getLeaseTtl().multipliedBy(3));
+          } catch (RuntimeException e) {
+            LOG.warn("心跳/清理失败（下一周期重试）", e);
+          }
+        },
+        interval);
   }
 
   /** 28 节：定时任务状态与执行历史落库（重启不丢），并支撑管理台的查看/立即执行/启用停用。 */
