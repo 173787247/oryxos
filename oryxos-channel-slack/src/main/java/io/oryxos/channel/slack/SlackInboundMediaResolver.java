@@ -227,7 +227,7 @@ final class SlackInboundMediaResolver {
     if (dot < 0 || dot == path.length() - 1) {
       return null;
     }
-    String ext = path.substring(dot).toLowerCase(Locale.ROOT);
+    String ext = asciiLower(path.substring(dot));
     if (!ext.matches(SAFE_EXTENSION_PATTERN)) {
       return null;
     }
@@ -238,12 +238,24 @@ final class SlackInboundMediaResolver {
     if (uri == null || uri.getScheme() == null || uri.getHost() == null) {
       return false;
     }
-    String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+    String scheme = asciiLower(uri.getScheme());
     if (!SCHEME_HTTPS.equals(scheme)) {
       return false;
     }
-    String host = uri.getHost().toLowerCase(Locale.ROOT);
+    String host = asciiLower(uri.getHost());
     return HOST_SLACK.equals(host) || host.endsWith(HOST_SUFFIX_SLACK);
+  }
+
+  /** ASCII-only 小写，避免 SpotBugs IMPROPER_UNICODE（scheme/host/ext 均为 ASCII）。 */
+  private static String asciiLower(String value) {
+    char[] chars = value.toCharArray();
+    for (int i = 0; i < chars.length; i++) {
+      char c = chars[i];
+      if (c >= 'A' && c <= 'Z') {
+        chars[i] = (char) (c + ('a' - 'A'));
+      }
+    }
+    return new String(chars);
   }
 
   private static String safeSegment(String messageId) {
