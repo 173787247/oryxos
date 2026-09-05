@@ -101,6 +101,11 @@ public final class InboundMediaHttp {
    * 用 {@link HttpURLConnection} 下载（硬 connect/read 超时），最多跟随 {@value #MAX_REDIRECTS} 次且每跳校验
    * allowlist；响应体超过 {@code maxBytes} 则失败。
    */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "URLCONNECTION_SSRF_FD",
+      justification =
+          "每跳 openConnection 前均经调用方 Predicate uriAllowed 校验；"
+              + "setInstanceFollowRedirects(false)，Location 解析后下一跳再验，不自动跟跳到内网。")
   public static byte[] getBytesFollowingAllowlist(
       URI start,
       Duration connectTimeout,
@@ -147,6 +152,11 @@ public final class InboundMediaHttp {
     throw new IOException("媒体下载重定向超过上限 " + MAX_REDIRECTS);
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "URLCONNECTION_SSRF_FD",
+      justification =
+          "仅由 getBytesFollowingAllowlist 在 uriAllowed 通过后调用；禁自动重定向，"
+              + "避免 SpotBugs 将已校验 URI 的 openConnection 判为未防护 SSRF。")
   private static HttpURLConnection openGet(URI uri, int connectMs, int readMs) throws IOException {
     URL url;
     try {
