@@ -71,6 +71,14 @@ OryxOS 核心内置约两打工具——一组精心挑选的**通用原语**，
 | `feishu` | 飞书 / Lark 群机器人 webhook |
 | `wecom` | 企业微信群机器人 webhook |
 | `dingtalk` | 钉钉群机器人 webhook |
+| `slack` | Slack Incoming Webhook 或 Bot Token + channel_id |
+| `discord` | Discord Incoming Webhook 或 Bot Token + channel_id |
+| `telegram` | Telegram Bot API sendMessage |
+| `whatsapp` | WhatsApp Cloud API（会话窗 / 模板） |
+| `teams` | Microsoft Teams Incoming Webhook |
+| `gchat` | Google Chat Incoming Webhook |
+| `mattermost` | Mattermost Incoming Webhook |
+| `matrix` | Matrix Client-Server 发信 |
 | `webhook` | 通用 HTTP webhook |
 
 Agent 在其 **`AGENT.md` 正文**里用自然语言按名引用渠道——例如「调用 notify，把报告发到 `team-lark`」。**AGENT.md frontmatter 中没有 `notify_channels` 字段**；渠道在调用时从注册表解析，因此增加或改指渠道都不用动任何 Agent。

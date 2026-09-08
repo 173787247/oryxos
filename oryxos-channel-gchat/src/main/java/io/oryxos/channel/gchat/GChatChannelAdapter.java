@@ -1,0 +1,102 @@
+package io.oryxos.channel.gchat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.channel.ChannelConfig;
+import io.oryxos.core.channel.ChannelStatus;
+import io.oryxos.core.channel.InboundChannelAdapter;
+import io.oryxos.core.channel.InboundMessage;
+import io.oryxos.core.channel.InboundMessageService;
+import io.oryxos.core.channel.InboundWebhookHandler;
+import io.oryxos.core.channel.OutboundGuard;
+import io.oryxos.core.channel.WebhookRequest;
+import io.oryxos.core.channel.WebhookResponse;
+import io.oryxos.core.profile.ProfileRegistry;
+import java.util.Optional;
+
+/** Google Chat HTTP 端点入站。{@code app_id}=Bot 资源名（可选审计），{@code app_secret}=Chat API access token。 */
+public class GChatChannelAdapter implements InboundChannelAdapter, InboundWebhookHandler {
+
+  public static final String TYPE = "gchat";
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  private final ChannelConfig config;
+  private final ProfileRegistry profileRegistry;
+  private final InboundMessageService inboundMessageService;
+  private final OutboundGuard guard;
+
+  private volatile GChatEventNormalizer normalizer;
+  private volatile GChatMessageSender sender;
+  private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
+
+  public GChatChannelAdapter(
+      ChannelConfig config,
+      ProfileRegistry profileRegistry,
+      InboundMessageService inboundMessageService,
+      OutboundGuard guard) {
+    this.config = config;
+    this.profileRegistry = profileRegistry;
+    this.inboundMessageService = inboundMessageService;
+    this.guard = guard;
+  }
+
+  @Override
+  public String name() {
+    return config.name();
+  }
+
+  @Override
+  public String type() {
+    return TYPE;
+  }
+
+  @Override
+  public String boundAgent() {
+    return config.agent();
+  }
+
+  @Override
+  public synchronized void start() {
+    config.validateCredentialsResolved();
+    if (profileRegistry.get(config.agent()).isEmpty()) {
+      throw new IllegalArgumentException(
+          "渠道 " + config.name() + " 绑定的 Agent " + config.agent() + " 不存在");
+    }
+    guard.check(GChatMessageSender.API_BASE);
+    normalizer = new GChatEventNormalizer(config.name());
+    sender = new GChatMessageSender(guard, config.appSecret());
+    state = ChannelStatus.State.CONNECTED;
+  }
+
+  @Override
+  public synchronized void stop() {
+    state = ChannelStatus.State.DISCONNECTED;
+  }
+
+  @Override
+  public ChannelStatus status() {
+    return ChannelStatus.ok(name(), TYPE, boundAgent(), state);
+  }
+
+  @Override
+  public void sendReply(String chatId, String text, String replyToMessageId) {
+    GChatMessageSender current = sender;
+    if (current == null) {
+      throw new IllegalStateException("渠道 " + name() + " 尚未启动");
+    }
+    current.send(chatId, text, replyToMessageId);
+  }
+
+  @Override
+  public WebhookResponse onWebhook(WebhookRequest request) {
+    try {
+      JsonNode root = MAPPER.readTree(request.body().isBlank() ? "{}" : request.body());
+      Optional<InboundMessage> msg =
+          normalizer == null ? Optional.empty() : normalizer.normalize(root);
+      msg.ifPresent(m -> inboundMessageService.onMessage(m, this));
+      return WebhookResponse.ok();
+    } catch (Exception e) {
+      return WebhookResponse.text(400, "bad payload");
+    }
+  }
+}

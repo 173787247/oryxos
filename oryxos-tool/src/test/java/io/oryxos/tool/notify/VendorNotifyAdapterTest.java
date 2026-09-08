@@ -373,4 +373,78 @@ class VendorNotifyAdapterTest {
         () -> new FeishuNotifyAdapter(poster).send(new NotifyTarget("feishu", Map.of()), "hi"));
     assertEquals(0, received.size());
   }
+
+  @Test
+  @DisplayName("Slack Incoming Webhook：text 字段")
+  void slackWebhookBodyMatchesVendorContract() throws IOException {
+    new SlackNotifyAdapter(poster).send(new NotifyTarget("slack", Map.of("url", url())), "日报来了");
+    JsonNode body = lastBody();
+    assertEquals("日报来了", body.get("text").asText());
+  }
+
+  @Test
+  @DisplayName("Slack：缺 url 且缺 token/channel_id 点名拒绝")
+  void slackRejectsMissingTarget() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new SlackNotifyAdapter(poster).send(new NotifyTarget("slack", Map.of()), "hi"));
+    assertEquals(0, received.size());
+  }
+
+  @Test
+  @DisplayName("Discord Incoming Webhook：content 字段")
+  void discordWebhookBodyMatchesVendorContract() throws IOException {
+    new DiscordNotifyAdapter(poster)
+        .send(new NotifyTarget("discord", Map.of("url", url())), "日报来了");
+    JsonNode body = lastBody();
+    assertEquals("日报来了", body.get("content").asText());
+  }
+
+  @Test
+  @DisplayName("Discord：缺 url 且缺 token/channel_id 点名拒绝")
+  void discordRejectsMissingTarget() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new DiscordNotifyAdapter(poster).send(new NotifyTarget("discord", Map.of()), "hi"));
+    assertEquals(0, received.size());
+  }
+
+  @Test
+  @DisplayName("Telegram / Teams / Google Chat / Mattermost webhook 体")
+  void overseasWebhookBodies() throws IOException {
+    new TelegramNotifyAdapter(poster)
+        .send(new NotifyTarget("telegram", Map.of("url", url(), "chat_id", "1")), "hi");
+    assertEquals("hi", lastBody().get("text").asText());
+
+    new TeamsNotifyAdapter(poster).send(new NotifyTarget("teams", Map.of("url", url())), "hi");
+    assertEquals("hi", lastBody().get("text").asText());
+
+    new GoogleChatNotifyAdapter(poster).send(new NotifyTarget("gchat", Map.of("url", url())), "hi");
+    assertEquals("hi", lastBody().get("text").asText());
+
+    new MattermostNotifyAdapter(poster)
+        .send(new NotifyTarget("mattermost", Map.of("url", url())), "hi");
+    assertEquals("hi", lastBody().get("text").asText());
+  }
+
+  @Test
+  @DisplayName("WhatsApp Graph：messaging_product + text.body")
+  void whatsappGraphBody() throws IOException {
+    new WhatsAppNotifyAdapter(poster)
+        .send(
+            new NotifyTarget("whatsapp", Map.of("url", url(), "token", "tok", "to", "16315551181")),
+            "hello");
+    JsonNode body = lastBody();
+    assertEquals("whatsapp", body.get("messaging_product").asText());
+    assertEquals("hello", body.get("text").get("body").asText());
+  }
+
+  @Test
+  @DisplayName("Matrix：缺配置点名拒绝")
+  void matrixRejectsMissingTarget() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new MatrixNotifyAdapter(poster).send(new NotifyTarget("matrix", Map.of()), "hi"));
+    assertEquals(0, received.size());
+  }
 }

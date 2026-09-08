@@ -75,6 +75,12 @@
         <module>oryxos-channel-dingtalk</module>
         <module>oryxos-channel-slack</module>
         <module>oryxos-channel-discord</module>
+        <module>oryxos-channel-telegram</module>
+        <module>oryxos-channel-whatsapp</module>
+        <module>oryxos-channel-teams</module>
+        <module>oryxos-channel-gchat</module>
+        <module>oryxos-channel-mattermost</module>
+        <module>oryxos-channel-matrix</module>
         <module>oryxos-web</module>
         <module>oryxos-storage</module>
         <module>oryxos-cli</module>
@@ -151,6 +157,36 @@
             <dependency>
                 <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-channel-discord</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-telegram</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-whatsapp</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-teams</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-gchat</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-mattermost</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-matrix</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

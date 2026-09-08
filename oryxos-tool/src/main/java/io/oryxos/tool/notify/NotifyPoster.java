@@ -9,6 +9,7 @@ import io.oryxos.tool.sandbox.SandboxAction;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -33,7 +34,9 @@ public final class NotifyPoster {
   private static final int STATUS_SEE_OTHER = 303;
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String[] BUSINESS_CODE_FIELDS = {"errcode", "StatusCode", "code"};
-  private static final String[] BUSINESS_MESSAGE_FIELDS = {"errmsg", "msg", "message"};
+  private static final String[] BUSINESS_MESSAGE_FIELDS = {
+    "errmsg", "msg", "message", "description", "error"
+  };
 
   private final Sandbox sandbox;
   private final RestClient hopClient;
@@ -52,12 +55,19 @@ public final class NotifyPoster {
 
   /** POST JSON body 到 url；3xx 时跟随 Location，每跳先过沙箱。301/302/303 下一跳改为 GET 且不再带 body。 */
   public void postJson(String url, Object body) {
+    postJson(url, body, Map.of());
+  }
+
+  /** 同 {@link #postJson(String, Object)}，可带额外请求头（Bot Token 等）。 */
+  public void postJson(String url, Object body, Map<String, String> headers) {
     String current = url;
     HttpMethod hopMethod = HttpMethod.POST;
     Object hopBody = body;
+    Map<String, String> hopHeaders = headers == null ? Map.of() : headers;
     for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
       sandbox.enforce(new SandboxAction(ActionType.HTTP_REQUEST, current));
       RestClient.RequestBodySpec spec = hopClient.method(hopMethod).uri(current);
+      hopHeaders.forEach(spec::header);
       if (hopBody != null) {
         spec.contentType(MediaType.APPLICATION_JSON).body(hopBody);
       }
@@ -94,6 +104,11 @@ public final class NotifyPoster {
     }
     if (root == null || !root.isObject()) {
       return;
+    }
+    JsonNode okNode = root.get("ok");
+    if (okNode != null && okNode.isBoolean() && !okNode.asBoolean()) {
+      throw new IllegalStateException(
+          "通知推送业务失败 ok=false" + messageSuffix(root) + ": " + sanitizeUrl(url));
     }
     for (String field : BUSINESS_CODE_FIELDS) {
       JsonNode codeNode = root.get(field);

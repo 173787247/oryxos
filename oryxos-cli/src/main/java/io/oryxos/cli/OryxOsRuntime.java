@@ -93,12 +93,20 @@ import io.oryxos.tool.interaction.UserInteraction;
 import io.oryxos.tool.mcp.McpClientService;
 import io.oryxos.tool.mcp.McpConfigLoader;
 import io.oryxos.tool.notify.DingTalkNotifyAdapter;
+import io.oryxos.tool.notify.DiscordNotifyAdapter;
 import io.oryxos.tool.notify.EmailNotifyAdapter;
 import io.oryxos.tool.notify.FeishuNotifyAdapter;
+import io.oryxos.tool.notify.GoogleChatNotifyAdapter;
+import io.oryxos.tool.notify.MatrixNotifyAdapter;
+import io.oryxos.tool.notify.MattermostNotifyAdapter;
 import io.oryxos.tool.notify.NotifyChannelAdapter;
 import io.oryxos.tool.notify.NotifyPoster;
+import io.oryxos.tool.notify.SlackNotifyAdapter;
+import io.oryxos.tool.notify.TeamsNotifyAdapter;
+import io.oryxos.tool.notify.TelegramNotifyAdapter;
 import io.oryxos.tool.notify.WeComNotifyAdapter;
 import io.oryxos.tool.notify.WebhookNotifyAdapter;
+import io.oryxos.tool.notify.WhatsAppNotifyAdapter;
 import io.oryxos.tool.sandbox.CidfileProcessWrapper;
 import io.oryxos.tool.sandbox.DockerProcessStarter;
 import io.oryxos.tool.sandbox.ExecutionBackendProperties;
@@ -116,6 +124,7 @@ import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -794,13 +803,20 @@ public class OryxOsRuntime {
     registry.registerAnnotated(new InteractionTools(userInteraction));
     // notify（19 节 OryxTool 形态）直接注册——渠道实现按 channelType 路由；出网经 NotifyPoster 逐跳复检白名单
     NotifyPoster notifyPoster = new NotifyPoster(sandbox);
-    Map<String, NotifyChannelAdapter> notifyAdapters =
-        Map.of(
-            "webhook", new WebhookNotifyAdapter(notifyPoster),
-            "wecom", new WeComNotifyAdapter(notifyPoster),
-            "feishu", new FeishuNotifyAdapter(notifyPoster),
-            "dingtalk", new DingTalkNotifyAdapter(notifyPoster),
-            "email", new EmailNotifyAdapter(sandbox));
+    Map<String, NotifyChannelAdapter> notifyAdapters = new LinkedHashMap<>();
+    notifyAdapters.put("webhook", new WebhookNotifyAdapter(notifyPoster));
+    notifyAdapters.put("wecom", new WeComNotifyAdapter(notifyPoster));
+    notifyAdapters.put("feishu", new FeishuNotifyAdapter(notifyPoster));
+    notifyAdapters.put("dingtalk", new DingTalkNotifyAdapter(notifyPoster));
+    notifyAdapters.put("email", new EmailNotifyAdapter(sandbox));
+    notifyAdapters.put("slack", new SlackNotifyAdapter(notifyPoster));
+    notifyAdapters.put("discord", new DiscordNotifyAdapter(notifyPoster));
+    notifyAdapters.put("telegram", new TelegramNotifyAdapter(notifyPoster));
+    notifyAdapters.put("whatsapp", new WhatsAppNotifyAdapter(notifyPoster));
+    notifyAdapters.put("teams", new TeamsNotifyAdapter(notifyPoster));
+    notifyAdapters.put("gchat", new GoogleChatNotifyAdapter(notifyPoster));
+    notifyAdapters.put("mattermost", new MattermostNotifyAdapter(notifyPoster));
+    notifyAdapters.put("matrix", new MatrixNotifyAdapter(notifyPoster));
     registry.register(new NotifyTools(notifyAdapters, sandbox, notifyChannelRegistry));
     // 记忆工具：save_memory / recall_memory（补齐 20 节预留的两工具面），只认门面对后端无感
     registry.registerAnnotated(new MemoryTools(memoryService));
@@ -1015,31 +1031,68 @@ public class OryxOsRuntime {
       ProfileRegistry profileRegistry,
       io.oryxos.core.channel.InboundMessageService inboundMessageService,
       io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+    Map<
+            String,
+            java.util.function.Function<
+                io.oryxos.core.channel.ChannelConfig, io.oryxos.core.channel.InboundChannelAdapter>>
+        factories = new LinkedHashMap<>();
+    factories.put(
+        io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.feishu.FeishuChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.wecom.WeComChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.slack.SlackChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.slack.SlackChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.discord.DiscordChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.discord.DiscordChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.telegram.TelegramChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.telegram.TelegramChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.whatsapp.WhatsAppChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.whatsapp.WhatsAppChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.teams.TeamsChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.teams.TeamsChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.gchat.GChatChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.gchat.GChatChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.mattermost.MattermostChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.mattermost.MattermostChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.matrix.MatrixChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.matrix.MatrixChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
     return new io.oryxos.core.channel.ChannelAdminService(
-        channelConfigLoader,
-        inboundChannelRegistry,
-        profileRegistry,
-        Map.of(
-            io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.feishu.FeishuChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-            io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.wecom.WeComChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-            io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-            io.oryxos.channel.slack.SlackChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.slack.SlackChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-            io.oryxos.channel.discord.DiscordChannelAdapter.TYPE,
-            resolved ->
-                new io.oryxos.channel.discord.DiscordChannelAdapter(
-                    resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
+        channelConfigLoader, inboundChannelRegistry, profileRegistry, factories);
   }
 
   /**

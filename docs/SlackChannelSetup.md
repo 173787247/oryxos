@@ -62,6 +62,14 @@
 ## 五、非目标（本期不做）
 
 - 语音 / 视频入站与 ASR
-- Block Kit / 斜杠命令 / HTTP Events 公网回调
+- Block Kit / 斜杠命令 / HTTP Events 公网回调（入站仍走 Socket Mode）
 - MCP `@modelcontextprotocol/server-slack`（可另配）
-- Notify `type=slack`
+
+## 六、出站 Notify（026）
+
+管理台新建 Notify 渠道 `type: slack`：
+
+- Incoming Webhook：`url` 填 `https://hooks.slack.com/services/...`
+- 或 Bot Token：`token` + `channel_id`，走 `chat.postMessage`
+
+入站渠道与 Notify 渠道是两套配置；告警/定时任务打回 Slack 用 Notify。

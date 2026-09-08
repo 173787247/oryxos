@@ -38,14 +38,64 @@ channels:
   # - name: ops-discord
   #   type: discord
   #   app_id: ${DISCORD_BOT_TOKEN}            # Bot Token
-  #   app_secret: ${DISCORD_APPLICATION_ID}   # Application ID（@提及匹配）
+  #   app_secret: ${DISCORD_APPLICATION_ID}   # Application ID（频道 @Bot 匹配）
   #   agent: ops-agent
   #   enabled: true
 
-  # Discord Gateway 长连接（见 docs/DiscordChannelSetup.md）
-  # - name: ops-discord
-  #   type: discord
-  #   app_id: ${DISCORD_BOT_TOKEN}            # Bot Token
-  #   app_secret: ${DISCORD_APPLICATION_ID}   # Application ID（频道 @Bot 匹配）
+  # Telegram Bot API 长轮询（见 docs/TelegramChannelSetup.md）
+  # - name: ops-telegram
+  #   type: telegram
+  #   app_id: ${TELEGRAM_BOT_TOKEN}
+  #   app_secret: ${TELEGRAM_BOT_USERNAME}    # 群 @Bot 匹配，可不带 @
   #   agent: ops-agent
+  #   enabled: true
+
+  # WhatsApp Cloud API webhook（见 docs/WhatsAppChannelSetup.md）
+  # 回调：POST/GET /api/v1/channels/inbound/cs-whatsapp
+  # - name: cs-whatsapp
+  #   type: whatsapp
+  #   app_id: ${WHATSAPP_ACCESS_TOKEN}
+  #   app_secret: ${WHATSAPP_APP_SECRET}      # X-Hub-Signature-256
+  #   agent: cs-agent
+  #   extra:
+  #     verify_token: ${WHATSAPP_VERIFY_TOKEN}
+  #     phone_number_id: ${WHATSAPP_PHONE_NUMBER_ID}
+  #   enabled: true
+
+  # Microsoft Teams Azure Bot（见 docs/TeamsChannelSetup.md）
+  # - name: ops-teams
+  #   type: teams
+  #   app_id: ${TEAMS_APP_ID}
+  #   app_secret: ${TEAMS_APP_SECRET}
+  #   agent: ops-agent
+  #   extra:
+  #     tenant_id: ${TEAMS_TENANT_ID}
+  #   enabled: true
+
+  # Google Chat HTTP 端点（见 docs/GoogleChatChannelSetup.md）
+  # - name: ops-gchat
+  #   type: gchat
+  #   app_id: ${GCHAT_BOT_NAME}
+  #   app_secret: ${GCHAT_ACCESS_TOKEN}
+  #   agent: ops-agent
+  #   enabled: true
+
+  # Mattermost Outgoing Webhook（见 docs/MattermostChannelSetup.md）
+  # - name: ops-mattermost
+  #   type: mattermost
+  #   app_id: ${MATTERMOST_BOT_USERNAME}
+  #   app_secret: ${MATTERMOST_TOKEN}
+  #   agent: ops-agent
+  #   extra:
+  #     base_url: ${MATTERMOST_BASE_URL}
+  #   enabled: true
+
+  # Matrix /sync 长轮询（见 docs/MatrixChannelSetup.md）
+  # - name: ops-matrix
+  #   type: matrix
+  #   app_id: ${MATRIX_BOT_USER}              # @bot:homeserver
+  #   app_secret: ${MATRIX_ACCESS_TOKEN}
+  #   agent: ops-agent
+  #   extra:
+  #     homeserver: ${MATRIX_HOMESERVER}
   #   enabled: true

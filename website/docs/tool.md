@@ -71,6 +71,14 @@ Notify channels are managed as first-class resources — created, edited, and de
 | `feishu` | Feishu / Lark group webhook |
 | `wecom` | WeCom (企业微信) group webhook |
 | `dingtalk` | DingTalk group webhook |
+| `slack` | Slack incoming webhook or bot token + channel_id |
+| `discord` | Discord incoming webhook or bot token + channel_id |
+| `telegram` | Telegram Bot API sendMessage |
+| `whatsapp` | WhatsApp Cloud API (24h window / templates) |
+| `teams` | Microsoft Teams incoming webhook |
+| `gchat` | Google Chat incoming webhook |
+| `mattermost` | Mattermost incoming webhook |
+| `matrix` | Matrix Client-Server send |
 | `webhook` | Generic HTTP webhook |
 
 An agent references a channel **by name from its `AGENT.md` body**, in plain language — for example, "call notify and send the report to `team-lark`". There is **no `notify_channels` field in AGENT.md frontmatter**; the channel is resolved at call time from the registry, so channels can be added or re-pointed without touching any agent.

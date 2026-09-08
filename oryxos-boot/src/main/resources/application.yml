@@ -77,6 +77,11 @@ http:
     - media.discordapp.net  # Discord 入站媒体代理
     - "*.discordapp.com"    # Discord CDN 子域
     - "*.discordapp.net"    # Discord 媒体子域
+    - api.telegram.org      # Telegram Bot API
+    - graph.facebook.com    # WhatsApp Cloud API
+    - login.microsoftonline.com # Teams Bot Framework token
+    - "*.trafficmanager.net" # Teams serviceUrl
+    - chat.googleapis.com   # Google Chat API
     - api.open-meteo.com    # 天气 Agent（免 key 天气源，31 节 Demo 一）
     - hn.algolia.com        # 科技日报 Agent 新闻源（免 key JSON，31 节 Demo 二）
     - api.github.com        # GitHub 日报脚本走子进程网络；列此便于审计与将来收口（31 节 Demo 三 §信任边界）

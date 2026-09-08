@@ -237,4 +237,40 @@ class ChannelConfigLoaderTest {
     assertEquals("yes", ok.get(0).name());
     assertEquals("on", ok.get(0).agent());
   }
+
+  @Test
+  @DisplayName("extra 映射 raw 保留占位；save 回写 extra")
+  void extraRoundTripKeepsPlaceholders() throws Exception {
+    write(
+        """
+        channels:
+          - name: ops-teams
+            type: teams
+            app_id: ${TEAMS_APP_ID}
+            app_secret: ${TEAMS_APP_SECRET}
+            agent: ops-agent
+            extra:
+              tenant_id: ${TEAMS_TENANT_ID}
+        """);
+    ChannelConfigLoader loader = new ChannelConfigLoader(configFile());
+    ChannelConfig raw = loader.loadRaw().get(0);
+    assertEquals("${TEAMS_TENANT_ID}", raw.extra("tenant_id"));
+    loader.save(List.of(raw));
+    assertTrue(Files.readString(configFile()).contains("tenant_id"));
+    assertTrue(Files.readString(configFile()).contains("${TEAMS_TENANT_ID}"));
+
+    write(
+        """
+        channels:
+          - name: ops-teams
+            type: teams
+            app_id: ${PATH}
+            app_secret: ${PATH}
+            agent: ops-agent
+            extra:
+              tenant_id: ${PATH}
+        """);
+    ChannelConfig resolved = new ChannelConfigLoader(configFile()).load().get(0);
+    assertEquals(System.getenv("PATH"), resolved.extra("tenant_id"));
+  }
 }

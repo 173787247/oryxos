@@ -76,4 +76,10 @@
 - 视频画面理解 / 抽帧 Vision
 - Slash Commands / Interactions / Components
 - HTTP Interactions 公网回调
-- Notify `type=discord`
+
+## 六、出站 Notify（026）
+
+管理台新建 Notify 渠道 `type: discord`：
+
+- Incoming Webhook：`url` 填 `https://discord.com/api/webhooks/...`
+- 或 Bot Token：`token` + `channel_id`，走 `POST /channels/{id}/messages`

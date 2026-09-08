@@ -121,6 +121,26 @@ class ChannelApiControllerTest {
   }
 
   @Test
+  @DisplayName("list：extra 占位原样回显；明文 extra 掩码")
+  void listMasksExtraSecrets() throws Exception {
+    ChannelConfig withExtra =
+        new ChannelConfig(
+            "ops-teams",
+            "teams",
+            "${TEAMS_APP_ID}",
+            "${TEAMS_APP_SECRET}",
+            "ops-agent",
+            true,
+            java.util.Map.of("tenant_id", "${TEAMS_TENANT_ID}", "plain", "secret-value"));
+    when(admin.listRaw()).thenReturn(List.of(withExtra));
+
+    mvc.perform(get("/api/v1/channels"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].extra.tenant_id").value("${TEAMS_TENANT_ID}"))
+        .andExpect(jsonPath("$.data[0].extra.plain").value("******"));
+  }
+
+  @Test
   @DisplayName("delete：存在则断开并移除；不存在 404")
   void deleteFlow() throws Exception {
     when(admin.listRaw()).thenReturn(List.of(RAW));
