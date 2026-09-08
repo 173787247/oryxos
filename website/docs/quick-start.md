@@ -88,7 +88,7 @@ OryxOS ships with three demo agents under `.oryxos/agents/` that show the model 
 | `daily-tech-digest` | Pulls headlines from `hn.algolia.com`, reads an on-demand skill file, and notifies a digest |
 | `github-daily` | Runs a trusted local Python script via `shell` and notifies a GitHub trending report (requires explicitly allowing `python3`) |
 
-All three use provider `deepseek` / `deepseek-chat` and reference a notify channel by name.
+All three use provider `deepseek` / `deepseek-v4-flash` and reference a notify channel by name.
 
 > `github-daily` is an opt-in trusted-script demo. `python3` is deliberately absent from the default shell whitelist because an interpreter grants arbitrary code execution. Review the script before explicitly adding `python3`; do not enable it for untrusted agent input.
 
@@ -123,6 +123,19 @@ curl http://localhost:8080/api/v1/health
 ```
 
 Every API response is wrapped in this `{ code, message, data, timestamp }` envelope (`code: 0` = success).
+
+## Run with Docker
+
+Every release also ships a multi-arch container image (`linux/amd64` + `linux/arm64`) on GHCR — no Java 21 install, no tarball download:
+
+```bash
+docker run -d --name oryxos -p 8080:8080 -v oryxos-data:/data ghcr.io/oryx-labs/oryxos:latest
+curl http://localhost:8080/api/v1/health      # → {"code":0,…}
+```
+
+The container boots keyless (configure providers in the web console afterwards) and keeps **all state** — `config/`, the `.oryxos/` workspace, `oryxos.db`, logs — in the `/data` volume, so upgrading means pulling a new tag and recreating the container. The image runs as a non-root user and carries a built-in healthcheck against `/api/v1/health`; see `docker-compose.yml` at the repo root for a ready-to-use compose stack. To build the image locally from source: `make docker` (after `make build`).
+
+> Note: storage is single-node SQLite — run **one** container. Horizontal scaling requires the distributed storage track (roadmap A).
 
 ## What's next
 

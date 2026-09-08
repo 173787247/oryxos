@@ -69,6 +69,9 @@ oryxos chat --profile weather      # ⑤ 开聊
 | `oryxos provider list` | 轻 | 列出实例声明的 Provider |
 | `oryxos tool list` | 轻 | 列出可用工具（20 节起为实时清单） |
 | `oryxos session list` | 轻 | 列出会话概览 |
+| `oryxos apikey add <name>` | 轻 | 生成 REST API Key（明文仅显示一次） |
+| `oryxos apikey list` | 轻 | 列出 API Key（前缀/状态/最近使用，无明文） |
+| `oryxos apikey revoke <name>` | 轻 | 吊销 API Key（即时生效） |
 
 **轻/重的区别**：轻命令直接读写文件或只读查库，**不启动 Spring**、秒级返回（实测约 0.35s）；重命令要调模型、跑引擎，才付出 2~4 秒的完整运行时启动代价。判断标准就一条：这个命令要不要调模型/跑引擎。
 
@@ -107,7 +110,7 @@ oryxos init
 oryxos status
 ```
 
-输出工作区是否初始化、Profile/Skill 数量、SQLite 库是否已创建。排查"为什么 chat 不认我的 Agent"先看这里。
+输出工作区是否初始化、Profile/Skill 数量、数据库指向（SQLite 显示文件是否已创建；外部 PostgreSQL 显示连接指向）。排查"为什么 chat 不认我的 Agent"先看这里。
 
 ### 4.3 chat——交互式对话（核心命令）
 
@@ -117,6 +120,7 @@ oryxos chat --profile weather  # 用指定 Agent
 ```
 
 - 每行输入交给 ReAct 引擎处理，回复打印到终端；
+- **打字机输出（019）**：回复逐段实时打印而非静默等待后整段吐出；工具调用期间有 `[调用工具 xx …]` / `[工具 xx 完成]` 单行状态提示；Provider 不支持流式时自动回落为整段输出，无需任何配置；
 - **`/quit` 退出**（前后空白不影响）；Ctrl-D（EOF）等同退出；空行自动跳过；
 - 会话身份 = `渠道:用户:Agent` 三元组（渠道固定 `cli`，用户取系统用户名）。同一身份**永远续用同一条会话**，跨重启历史不丢；
 - 前置条件：Profile 存在、对应 Provider 的环境变量已配置（见 §5），否则启动即点名报错、不进入对话。
@@ -155,7 +159,61 @@ oryxos session list    # 会话概览：session_id / profile / status / last_act
 
 ---
 
+### 4.7 apikey 三件——REST API Key 管理（018）
+
+`oryxos.web.apikey.enabled=true` 时 `/api/v1/**` 启用机器调用认证（豁免 `/api/v1/health`、`/api/v1/auth/*`、OPTIONS 预检；`/admin/**` 不受影响）。Key 由这组命令管理：
+
+```bash
+oryxos apikey add ci-bot     # 生成 Key；明文只显示这一次，库中仅存 SHA-256 哈希
+oryxos apikey list           # NAME / PREFIX / STATUS / CREATED_AT / LAST_USED_AT（无明文）
+oryxos apikey revoke ci-bot  # 吊销，下一次请求即 401；其它 Key 不受影响
+```
+
+调用方任选一种请求头携带：
+
+```bash
+curl -H "Authorization: Bearer oryx_..." http://localhost:8080/api/v1/profiles
+curl -H "X-API-Key: oryx_..." http://localhost:8080/api/v1/profiles
+```
+
+注意：`add` 重名会报错不覆盖；`revoke` 已吊销的 Key 幂等提示；明文丢了只能吊销重发（无法找回）。建议与管理台认证（`oryxos.web.auth.enabled`）同时开启，否则管理台数据页无凭据可用（启动时会告警提示）。
+
+---
+
+### 4.8 工具策略（020）——管理台治理入口
+
+工具级 allow/deny 治理不走 CLI，入口在管理台「OS 运行时 → 工具策略」页（或 REST `/api/v1/tool-policy`）：全局禁用某工具、给指定 Agent 登记例外或定向收紧，变更即刻热更新生效。策略与沙箱白名单正交（策略管"能不能用工具"，沙箱管"工具能碰什么资源"）；被策略拒绝的调用在终端表现为 `[工具 xx 失败]` + 模型解释，审计里带 `blocked_by='policy'` 标记可筛。
+
+---
+
+### 4.9 审计 Trace（021）——报障定位与全链路回放
+
+每次消息处理生成唯一 trace ID：REST 响应体（`data.traceId`）、SSE 流首 `trace` 事件、执行历史行里都能拿到。用户报障时报上这个 ID，管理员在管理台「报表」页输入即可回放本轮完整链路（每次 LLM 调用与工具执行的时间序、耗时、token 与成本合计），或直接查 `GET /api/v1/audit/trace/{traceId}`；服务日志里同一 ID 经 MDC 贯穿，`grep <traceId>` 可与审计互查。时间线里的工具参数/结果摘要经内置规则脱敏（API key、口令类字段掩码），库中保留原文供特权排障。
+
+### 4.10 Provider 失败切换与监控指标（023）
+
+Agent 的 `AGENT.md` provider 节可声明 `fallback:` 有序备用列表（每项 name+model，引用已注册 Provider）——主 Provider 网络故障/超时/限流/凭证失效时该次调用自动按序切换备用，终端无感知；每次尝试都留审计、切换有 WARN 日志（带 traceId 可互查）。运维将 `/actuator/prometheus` 接入企业 Prometheus/Grafana 即可看到 `oryxos_` 前缀业务指标（LLM 调用/耗时/token/工具/策略拦截/切换计数）并配置告警（如「fallback 切换次数突增」）。
+
+---
+
+### 4.11 数据库选型（025）——SQLite 默认档与 PostgreSQL 部署选项
+
+- **默认零配置**：什么都不配就是单机 SQLite（`oryxos.db` 相对启动目录），行为与历史版本一致；升级后首次启动自动把表结构接管进 Flyway 迁移管理（`flyway_schema_history` 表），数据无损、重启不重复。
+- **切 PostgreSQL**（多副本/高并发写，PG 14+）：编辑 `config/application.yml` 的 `spring.datasource`——只需 `url`（`jdbc:postgresql://主机:5432/库名`）+ `username` + `password: ${ORYXOS_DB_PASSWORD}`（凭证走环境变量）。库类型按 url 自动识别，驱动/方言/迁移脚本自动切换，无需配置其他任何项。
+- **报错口径**：连接不上、认证失败、权限不足、迁移失败四类各自报错可区分且拒绝启动，不会静默退回 SQLite。
+- 轻命令（`status` / `session list` / `knowledge list`）与服务读同一份配置，两种库同口径工作。
+
 ## 5. 配置与凭证
+
+### 5.0 主密钥（022）——落库凭证的保险柜钥匙
+
+管理台/API 录入的第三方凭证（Provider API key、通知渠道的 SMTP 密码等敏感项）落库前经主密钥 AES-256-GCM 加密（`enc:v1:` 前缀），数据库文件单独外流（备份外传/误拷）不再等于凭证泄露。主密钥两档：
+
+- **本地试用**：什么都不用配——首次启动自动生成 `.oryxos/master.key`（仅属主可读 0600），全程无感。
+- **生产部署**：设置环境变量 `ORYXOS_MASTER_KEY`（`openssl rand -base64 32` 生成，K8s 走 Secret 注入），存在时优先于文件档。
+
+密钥丢失或不匹配时启动即报错并指路恢复（找回原密钥，或经管理台删除重录凭证——凭证均可在服务商处再生），绝不静默降级明文。威胁边界如实：本机制防**数据库文件单独外流**；文件档钥匙与库同目录，不防整机沦陷——生产环境请使用环境变量档。存量明文库升级后首次启动自动完成加密迁移（日志「已加密 N 条凭证」）。
+
 
 **凭证只走环境变量，绝不明文写进任何文件**（宪法约束）：
 

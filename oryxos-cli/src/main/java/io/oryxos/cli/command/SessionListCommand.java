@@ -1,9 +1,6 @@
 package io.oryxos.cli.command;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -25,21 +22,18 @@ public class SessionListCommand implements Runnable {
   @Command(name = "list", description = "列出会话", mixinStandardHelpOptions = true)
   static class ListCommand implements Runnable {
 
-    /** 与重命令 application.yml 的 datasource 保持同一相对路径——两边看到的必须是同一个库。 */
-    private static final String DB_FILE = "oryxos.db";
-
-    private static final String DB_URL = "jdbc:sqlite:" + DB_FILE + "?busy_timeout=5000";
-
     @Override
     public void run() {
-      if (!Files.exists(Path.of(DB_FILE))) {
-        System.out.println("暂无会话（" + DB_FILE + " 尚未创建）。");
+      // 与重命令读同一份 config/application.yml——两边看到的必须是同一个库（025：SQLite 或 PG）
+      LightDbConfig db = LightDbConfig.load();
+      if (db.sqliteFileMissing()) {
+        System.out.println("暂无会话（" + db.sqliteFile() + " 尚未创建）。");
         return;
       }
       String sql =
           "SELECT session_id, profile_name, status, last_active_at FROM sessions"
               + " ORDER BY last_active_at DESC";
-      try (Connection conn = DriverManager.getConnection(DB_URL);
+      try (Connection conn = db.connect();
           Statement stmt = conn.createStatement();
           ResultSet rs = stmt.executeQuery(sql)) {
         boolean any = false;

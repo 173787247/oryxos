@@ -73,7 +73,7 @@ class AgentMarkdownTest {
     assertEquals("---\nname: ops\n---\nbody", output);
     assertTrue(AgentMarkdown.hasLegacySkills(input));
     assertEquals(
-        "---\nname: renamed\n---\nbody",
+        "---\nname: \"renamed\"\n---\nbody",
         AgentMarkdown.replaceTopLevelScalar("---\n\"name\": old\n---\nbody", "name", "renamed"));
   }
 
@@ -81,11 +81,11 @@ class AgentMarkdownTest {
   @DisplayName("标量替换会更新重复键并在缺失时插入")
   void replaceTopLevelScalarUpdatesDuplicatesAndInsertsMissingKey() {
     assertEquals(
-        "---\nname: next\nname: next\n---\nbody",
+        "---\nname: \"next\"\nname: \"next\"\n---\nbody",
         AgentMarkdown.replaceTopLevelScalar(
             "---\nname: first\n\"name\": second\n---\nbody", "name", "next"));
     assertEquals(
-        "---\nname: next\ndescription: d\n---\nbody",
+        "---\nname: \"next\"\ndescription: d\n---\nbody",
         AgentMarkdown.replaceTopLevelScalar("---\ndescription: d\n---\nbody", "name", "next"));
   }
 }

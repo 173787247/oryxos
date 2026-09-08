@@ -71,6 +71,14 @@ OryxOS 核心内置约两打工具——一组精心挑选的**通用原语**，
 | `feishu` | 飞书 / Lark 群机器人 webhook |
 | `wecom` | 企业微信群机器人 webhook |
 | `dingtalk` | 钉钉群机器人 webhook |
+| `slack` | Slack Incoming Webhook 或 Bot Token + channel_id |
+| `discord` | Discord Incoming Webhook 或 Bot Token + channel_id |
+| `telegram` | Telegram Bot API sendMessage |
+| `whatsapp` | WhatsApp Cloud API（会话窗 / 模板） |
+| `teams` | Microsoft Teams Incoming Webhook |
+| `gchat` | Google Chat Incoming Webhook |
+| `mattermost` | Mattermost Incoming Webhook |
+| `matrix` | Matrix Client-Server 发信 |
 | `webhook` | 通用 HTTP webhook |
 
 Agent 在其 **`AGENT.md` 正文**里用自然语言按名引用渠道——例如「调用 notify，把报告发到 `team-lark`」。**AGENT.md frontmatter 中没有 `notify_channels` 字段**；渠道在调用时从注册表解析，因此增加或改指渠道都不用动任何 Agent。
@@ -179,6 +187,24 @@ http:
 ```
 
 这三个白名单也可在**运行期管理**——通过 `/api/v1/sandbox/whitelist` 接口和管理台，在 `FILE`、`SHELL`、`HTTP` 三类下增删条目，无需重启。
+
+### 给 IM / 业务 Agent 开联网检索
+
+`web_search` / `http_get` / `fetch_webpage` 虽已在运行时全局注册，但 **只有写进该 Agent `AGENT.md` 的 `tools:` 才会出现在模型可调用列表**（见下方「工具注册表」过滤）。常见踩坑：渠道已 `CONNECTED`，用户说「搜一下」却从不调工具——多半是 frontmatter 里只有 `read_file` / `shell` / `notify`。
+
+管理台 / API **新建 Agent** 的脚手架默认已包含下列工具；存量 Agent 仍需手工补上：
+
+```yaml
+tools:
+  - read_file
+  - shell
+  - notify
+  - web_search
+  - http_get
+  - fetch_webpage
+```
+
+建议在正文里写明：需要实时信息时先调 `web_search`。核心阶段搜索走 DuckDuckGo：**Instant Answer JSON 为空时（中文/时效查询常见）会自动再请求 HTML 轻量结果页**；若仍为空，再用 `fetch_webpage` 或对公开 API 使用 `http_get`（例如天气用 `api.open-meteo.com`）。
 
 工具调用未通过沙箱校验时，`ToolExecutor` 返回不可重试的 `ToolResult`，并带有清晰的错误信息说明违反了哪条白名单。该调用仍会记录在 `tool_invocations` 里，`success = false`。
 

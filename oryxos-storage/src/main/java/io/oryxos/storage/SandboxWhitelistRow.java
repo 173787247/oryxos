@@ -10,8 +10,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Sandbox 白名单持久化记录——表结构以手工 schema.sql 为唯一权威。(category, entry_value) 唯一；entry_value 存"入内存的规范形"（FILE
- * 为归一后的绝对路径），由 WhitelistSandbox 写穿前算好。
+ * Sandbox 白名单持久化记录——表结构以 db/migration 迁移目录为唯一权威。(category, entry_value) 唯一；entry_value
+ * 存"入内存的规范形"（FILE 为归一后的绝对路径），由 WhitelistSandbox 写穿前算好。
  */
 @Entity
 @Table(name = "sandbox_whitelist")

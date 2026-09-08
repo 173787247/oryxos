@@ -3,6 +3,7 @@ package io.oryxos.web.controller;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -232,6 +233,50 @@ class AuthApiControllerTest {
                 .cookie(new jakarta.servlet.http.Cookie("oryxos_session", "sid-123")))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value(401));
+  }
+
+  @Test
+  @DisplayName("login_轮换X-Forwarded-For不能绕过锁定")
+  void login_spoofedXForwardedFor_doesNotBypassLockout() throws Exception {
+    when(userService.verify("admin", "wrong")).thenReturn(false);
+    LoginAttemptService attempts = new LoginAttemptService();
+    MockMvc proxiedMvc =
+        MockMvcBuilders.standaloneSetup(
+                new AuthApiController(userService, sessionService, properties, attempts))
+            .addFilters(new org.springframework.web.filter.ForwardedHeaderFilter())
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+
+    for (int i = 0; i < 5; i++) {
+      proxiedMvc
+          .perform(
+              post("/api/v1/auth/login")
+                  .header("X-Forwarded-For", "1.1.1." + i)
+                  .with(
+                      request -> {
+                        request.setRemoteAddr("127.0.0.1");
+                        return request;
+                      })
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"username\":\"admin\",\"password\":\"wrong\"}"))
+          .andExpect(status().isUnauthorized());
+    }
+
+    proxiedMvc
+        .perform(
+            post("/api/v1/auth/login")
+                .header("X-Forwarded-For", "9.9.9.9")
+                .with(
+                    request -> {
+                      request.setRemoteAddr("127.0.0.1");
+                      return request;
+                    })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"admin\",\"password\":\"wrong\"}"))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(jsonPath("$.code").value(429));
+
+    verify(userService, times(5)).verify("admin", "wrong");
   }
 
   private static WebSession newSession(String username, String sessionId) {

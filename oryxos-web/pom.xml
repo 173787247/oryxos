@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.oryxos</groupId>
         <artifactId>oryxos</artifactId>
-        <version>0.1.2-RELEASE</version>
+        <version>0.1.4-RELEASE</version>
     </parent>
 
     <artifactId>oryxos-web</artifactId>
@@ -24,6 +24,11 @@
         <dependency>
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-core</artifactId>
+        </dependency>
+        <!-- 025-persona-library: PersonaApiController 调 PersonaService（人格库合并列表 + 自定义 CRUD）；web→persona 单向 -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-persona</artifactId>
         </dependency>
         <!-- 012-web-auth: BasicAuthFilter / AuthStartupCheck 调 WebUserService（账号校验）；web→storage 单向，无循环 -->
         <dependency>
@@ -57,6 +62,20 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 知识库端点测试用真实本地后端（内存存储档），只进测试路径 -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-knowledge</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 测试复用 core 的 SymlinkAssumptions 环境探针（软链/POSIX 用例在 Windows 无权限时优雅 skip） -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-core</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
             <scope>test</scope>
         </dependency>
     </dependencies>

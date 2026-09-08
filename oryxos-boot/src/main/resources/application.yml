@@ -23,12 +23,22 @@ spring:
   jpa:
     database-platform: org.hibernate.community.dialect.SQLiteDialect
     hibernate:
-      # 宪法 VIII：表结构唯一权威是手工 schema.sql；create-drop 会在重启时毁掉全部数据（18 节纠正）
+      # 宪法 VIII：表结构唯一权威是 db/migration/{vendor} 迁移目录（025 起 Flyway 管理）；
+      # create-drop 会在重启时毁掉全部数据（18 节纠正）
       ddl-auto: none
     show-sql: false
-  sql:
-    init:
-      mode: always   # 启动执行 schema.sql（CREATE TABLE IF NOT EXISTS，幂等）
+  # 025-pluggable-storage：表结构收编 Flyway。{vendor} 按 datasource url 自动展开
+  # （sqlite / postgresql）；baseline-version=0 让存量库与新库走同一条幂等迁移序列
+  # V1~V5（V1 = 原 schema.sql，V2~V5 = 原四个手工升级类的平移），零 baseline 分叉。
+  flyway:
+    locations: classpath:db/migration/{vendor}
+    baseline-on-migrate: true
+    baseline-version: 0
+  lifecycle:
+    # SmartLifecycle 停机阶段限时（默认 30s）：个别阶段卡住（如 executor「运行中任务数」不归零，
+    # #332 同类）时最多等 10s 就继续。注：destroy-method 回调不受此约束，长连接类资源须各自限时关闭
+    # （飞书渠道 WS close 限时见 FeishuChannelAdapter.closeQuietly）。
+    timeout-per-shutdown-phase: 10s
 
 server:
   port: 8080
@@ -54,7 +64,24 @@ shell:
 http:
   allowed_domains:
     - api.deepseek.com      # Provider 端点（精确匹配）
-    - "*.feishu.cn"         # 飞书 webhook（通配真子域）
+    - "*.feishu.cn"         # 飞书 webhook + SDK（open.feishu.cn）
+    - openws.work.weixin.qq.com # 企微智能机器人长连接入站
+    - qyapi.weixin.qq.com   # 企微群机器人 webhook 通知
+    - api.dingtalk.com      # 钉钉 Stream 网关（开连接）
+    - oapi.dingtalk.com     # 钉钉 webhook 通知 + sessionWebhook 回复
+    - slack.com             # Slack Web API（connections.open / chat.postMessage）
+    - "*.slack.com"         # Slack Socket Mode WSS（wss-primary / wss-backup 等）
+    - discord.com           # Discord REST API（发消息）
+    - gateway.discord.gg    # Discord Gateway WSS
+    - cdn.discordapp.com    # Discord 入站附件 CDN
+    - media.discordapp.net  # Discord 入站媒体代理
+    - "*.discordapp.com"    # Discord CDN 子域
+    - "*.discordapp.net"    # Discord 媒体子域
+    - api.telegram.org      # Telegram Bot API
+    - graph.facebook.com    # WhatsApp Cloud API
+    - login.microsoftonline.com # Teams Bot Framework token
+    - "*.trafficmanager.net" # Teams serviceUrl
+    - chat.googleapis.com   # Google Chat API
     - api.open-meteo.com    # 天气 Agent（免 key 天气源，31 节 Demo 一）
     - hn.algolia.com        # 科技日报 Agent 新闻源（免 key JSON，31 节 Demo 二）
     - api.github.com        # GitHub 日报脚本走子进程网络；列此便于审计与将来收口（31 节 Demo 三 §信任边界）
@@ -86,6 +113,8 @@ oryxos:
       realm: OryxOS
 
 # Observability: Actuator + Micrometer/Prometheus
+# /actuator/** 由 ApiKeyAuthFilter 保护（API Key 或管理台 session），health 探活子树豁免；
+# prometheus/metrics/info 无凭据一律 401，避免运行时与业务指标匿名泄露。
 management:
   endpoints:
     web:
@@ -95,18 +124,23 @@ management:
     health:
       probes:
         enabled: true
-      show-details: always
-      show-components: always
+      # 匿名探活只看聚合 UP/DOWN；组件/数据源/磁盘等详情需认证（when-authorized）
+      show-details: when-authorized
+      show-components: when-authorized
   metrics:
     tags:
       application: oryxos
 
 # OpenAPI / Swagger UI
+# 默认关闭：接口模型不向网络暴露。本地调试可临时开启：
+#   --springdoc.api-docs.enabled=true --springdoc.swagger-ui.enabled=true
 springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
   api-docs:
+    enabled: false
     path: /v3/api-docs
+  swagger-ui:
+    enabled: false
+    path: /swagger-ui.html
 
 # Log levels (formatting/appenders live in logback-spring.xml)
 logging:

@@ -1,7 +1,5 @@
 package io.oryxos.core.agent;
 
-import io.oryxos.core.memory.MemoryScope;
-import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Message;
@@ -24,14 +22,16 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>并发（review 高危 4）：同一会话（sessionId）的并发请求在此按会话串行化。web 的 send/invoke/trigger 与定时触发
  * 都可能并发操作同一会话（Session 无锁 ArrayList + JpaSessionManager.save 整段覆写），不加锁会 last-write-wins 丢消息。 锁是进程内、按
  * sessionId 隔离——跨会话并行不受影响（宪法 VII 虚拟线程并发仍成立）。进入锁后必须重读最新快照；保存时再由 SessionManager 做条件更新， 防止跨进程旧快照静默覆盖。
+ *
+ * <p>不再把「触发问答摘要」自动写入归档记忆：失败回答会带着问句原文进语义召回，轻量模型照抄形成失败自我固化（issue #206）。 执行留痕走 {@code
+ * tool_invocations}/{@code agent_executions}；真正要沉淀的事实由 Agent 显式 {@code save_memory}。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
     justification = "profileRegistry 是 Spring 注入的单例注册表，三种触发源共享同一引用正是意图（29 节起可运行时增删，必须同一份）。")
 public class AgentService {
 
-  private static final int MEMORY_LINE_MAX = 200;
-  private static final String STATELESS_EXECUTION_ID_PREFIX = "invoke-exec:";
+  private static final String STATELESS_EXECUTION_TAG = "invoke-exec";
 
   /** 会话 id → 该会话的串行锁。会话数是有限的（channel:user:profile 三元组），增长有界，可接受。 */
   private final ConcurrentMap<String, Lock> sessionLocks = new ConcurrentHashMap<>();
@@ -39,26 +39,39 @@ public class AgentService {
   private final ProfileRegistry profileRegistry;
   private final ReActLoop reActLoop;
   private final SessionManager sessionManager;
-  private final MemoryService memoryService;
 
   public AgentService(
-      ProfileRegistry profileRegistry,
-      ReActLoop reActLoop,
-      SessionManager sessionManager,
-      MemoryService memoryService) {
+      ProfileRegistry profileRegistry, ReActLoop reActLoop, SessionManager sessionManager) {
     this.profileRegistry = profileRegistry;
     this.reActLoop = reActLoop;
     this.sessionManager = sessionManager;
-    this.memoryService = memoryService;
   }
 
   public String process(Session session, String userMessage) {
+    return process(session, userMessage, List.of(), StreamListener.NOOP);
+  }
+
+  /** 带入站 media（图片 URL/本地路径）的会话处理。 */
+  public String process(Session session, String userMessage, List<Message.MediaPart> media) {
+    return process(session, userMessage, media, StreamListener.NOOP);
+  }
+
+  /** 带流式观察者的会话处理（019）：锁与 ProfileContext 语义不变，listener 只是透传给 ReActLoop。 */
+  public String process(Session session, String userMessage, StreamListener listener) {
+    return process(session, userMessage, List.of(), listener);
+  }
+
+  /** 带 media + 流式观察者的会话处理。 */
+  public String process(
+      Session session, String userMessage, List<Message.MediaPart> media, StreamListener listener) {
     // 同一会话的读写整段互斥；sessionId 理论上永不为 null（来自 SessionManager），mock 场景兜底防 NPE
     String sessionKey =
         session.sessionId() == null ? profileNameOrFallback(session) : session.sessionId();
     Lock lock = sessionLocks.computeIfAbsent(sessionKey, id -> new ReentrantLock());
     lock.lock();
-    try {
+    // 021：兜底开启 trace（controller 先开的场景复用同一 ID，owner=false 不清外层）；
+    // 全部触发源（CLI/定时/飞书/REST）经此收口，本轮所有审计落库与日志自动携带同一 traceId
+    try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
       // Controller / Channel 在进入本锁前已拿到 Session；等待锁期间它可能过期，因此必须在锁内重读。
       Session activeSession = sessionManager.get(sessionKey).orElse(session);
       List<Message> expectedMessages = activeSession.messages();
@@ -71,7 +84,14 @@ public class AgentService {
                           "Session 引用的 Profile 不存在: " + activeSession.profileName()));
       ProfileContext.set(profile); // 工具执行时靠它知道"当前是哪个 Agent"
       try {
-        String reply = reActLoop.run(activeSession, userMessage, profile);
+        List<Message.MediaPart> parts = media == null ? List.of() : media;
+        // 无 media 且 NOOP：走三参原入口，保持对 ReActLoop 的既有交互契约（现存测试按三参 stub/verify）
+        String reply;
+        if (parts.isEmpty() && listener == StreamListener.NOOP) {
+          reply = reActLoop.run(activeSession, userMessage, profile);
+        } else {
+          reply = reActLoop.run(activeSession, userMessage, parts, profile, listener);
+        }
         // 达到最大迭代上限时 ReAct 返回占位文本（不抛异常），这里检测并转为异常，
         // 让 triggerAsync 把执行记成失败状态（否则前端显示"执行成功"——错误引导用户）
         boolean exhausted = ReActLoop.MAX_ITERATIONS_REPLY.equals(reply);
@@ -81,7 +101,6 @@ public class AgentService {
         if (exhausted) {
           throw new AgentMaxIterationsExceededException(reply);
         }
-        recordTrigger(profile.name(), userMessage, reply); // 正常完成才记运行足迹
         return reply;
       } finally {
         ProfileContext.clear(); // 虚拟线程每请求独立，用完必须清
@@ -97,19 +116,66 @@ public class AgentService {
    * <p>单次请求内的 ReAct 多轮仍完整执行；审计沿用 Session 标识关联到本次执行，请求结束后临时消息丢弃。
    */
   public String processStateless(String agentName, String userMessage) {
+    return processStateless(
+        agentName, userMessage, STATELESS_EXECUTION_TAG + ":" + UUID.randomUUID());
+  }
+
+  /** 带流式观察者的无状态调用（019）：临时会话标识自动生成，其余语义同上。 */
+  public String processStateless(String agentName, String userMessage, StreamListener listener) {
+    return processStateless(
+        agentName, userMessage, STATELESS_EXECUTION_TAG + ":" + UUID.randomUUID(), listener);
+  }
+
+  /**
+   * 无状态调用（带完整临时会话标识）：{@code statelessSessionId} 由调用方生成并同时用于 {@code agent_executions} 关联，使审计三表可按同一
+   * id 串联、触发渠道可辨（017 FR-014：群聊问答传 "feishu-group:&lt;uuid&gt;" 形态， 审计可按 {@code session_id LIKE
+   * 'feishu%'} 查询）。仍不创建持久会话。
+   */
+  public String processStateless(String agentName, String userMessage, String statelessSessionId) {
+    return processStateless(
+        agentName, userMessage, List.of(), statelessSessionId, StreamListener.NOOP);
+  }
+
+  /** 无状态调用 + media（群聊入站图片等）。 */
+  public String processStateless(
+      String agentName,
+      String userMessage,
+      List<Message.MediaPart> media,
+      String statelessSessionId) {
+    return processStateless(agentName, userMessage, media, statelessSessionId, StreamListener.NOOP);
+  }
+
+  /** 无状态调用全参形态（019）：显式会话标识 + 流式观察者。 */
+  public String processStateless(
+      String agentName, String userMessage, String statelessSessionId, StreamListener listener) {
+    return processStateless(agentName, userMessage, List.of(), statelessSessionId, listener);
+  }
+
+  /** 无状态调用全参形态：会话标识 + media + 流式观察者。 */
+  public String processStateless(
+      String agentName,
+      String userMessage,
+      List<Message.MediaPart> media,
+      String statelessSessionId,
+      StreamListener listener) {
     Profile profile =
         profileRegistry
             .get(agentName)
             .orElseThrow(() -> new IllegalStateException("Agent 不存在: " + agentName));
-    Session session =
-        new Session(STATELESS_EXECUTION_ID_PREFIX + UUID.randomUUID(), profile.name());
+    Session session = new Session(statelessSessionId, profile.name());
     ProfileContext.set(profile);
-    try {
-      String reply = reActLoop.run(session, userMessage, profile);
+    // 021：同 process——兜底开启 trace，已开启则复用
+    try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
+      List<Message.MediaPart> parts = media == null ? List.of() : media;
+      String reply;
+      if (parts.isEmpty() && listener == StreamListener.NOOP) {
+        reply = reActLoop.run(session, userMessage, profile);
+      } else {
+        reply = reActLoop.run(session, userMessage, parts, profile, listener);
+      }
       if (ReActLoop.MAX_ITERATIONS_REPLY.equals(reply)) {
         throw new AgentMaxIterationsExceededException(reply);
       }
-      recordTrigger(profile.name(), userMessage, reply);
       return reply;
     } finally {
       ProfileContext.clear();
@@ -119,26 +185,5 @@ public class AgentService {
   private static String profileNameOrFallback(Session session) {
     String name = session.profileName();
     return name == null ? "(null-session)" : name;
-  }
-
-  /** 每次触发都往这个 Agent 的记忆归档区记一条运行足迹（这个 Agent 干过什么，事后可回看）。 */
-  private void recordTrigger(String agentName, String userMessage, String reply) {
-    String line = "触发「" + oneLine(userMessage) + "」⇒ " + oneLine(reply);
-    // remember 靠 ToolExecutionContext 定位 Agent（同工具写记忆的路径）：读写路径外要自己置入再清除
-    ToolExecutionContext.setAgentName(agentName);
-    try {
-      memoryService.remember(line, MemoryScope.ARCHIVAL);
-    } finally {
-      ToolExecutionContext.clear();
-    }
-  }
-
-  /** 记忆是逐行存的：把多行压成一行、超长截断，避免撑坏归档区的行结构。 */
-  private static String oneLine(String text) {
-    if (text == null || text.isBlank()) {
-      return "（空）";
-    }
-    String flat = text.replaceAll("\\s+", " ").strip();
-    return flat.length() > MEMORY_LINE_MAX ? flat.substring(0, MEMORY_LINE_MAX) + "…" : flat;
   }
 }

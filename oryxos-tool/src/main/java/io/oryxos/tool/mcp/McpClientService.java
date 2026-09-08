@@ -11,10 +11,10 @@ import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.tool.ToolRegistry;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,9 +39,11 @@ public class McpClientService {
   private final Function<McpServerConfig, McpSyncClient> clientFactory;
 
   // 运行时状态（供管理台状态查询 + disconnect 用）：server 名 -> 已连接的客户端 / 它注册过的工具名 / 上次失败原因。
-  private final Map<String, McpSyncClient> activeClients = new LinkedHashMap<>();
-  private final Map<String, List<String>> registeredTools = new LinkedHashMap<>();
-  private final Map<String, String> lastErrors = new LinkedHashMap<>();
+  // 写路径（connect/disconnect）经 McpServerAdminService 串行，但读路径 status() 无锁裸读——必须用并发 Map，
+  // 否则管理台查询与增删并发时 HashMap 结构修改中的 get 是未定义行为。
+  private final Map<String, McpSyncClient> activeClients = new ConcurrentHashMap<>();
+  private final Map<String, List<String>> registeredTools = new ConcurrentHashMap<>();
+  private final Map<String, String> lastErrors = new ConcurrentHashMap<>();
 
   public McpClientService(McpConfigLoader configLoader) {
     this(configLoader, McpClientService::connectDefault);
@@ -71,25 +73,30 @@ public class McpClientService {
       lastErrors.put(config.name(), msg);
       return;
     }
+    McpSyncClient client = null;
+    List<String> toolNames = new ArrayList<>();
     try {
-      McpSyncClient client = clientFactory.apply(config);
+      client = clientFactory.apply(config);
       client.initialize();
-      List<String> toolNames = new ArrayList<>();
-      client
-          .listTools()
-          .tools()
-          .forEach(
-              tool -> {
-                registry.registerMcpTool(config.name(), new McpToolAdapter(client, tool));
-                toolNames.add(tool.name());
-              });
+      for (var tool : client.listTools().tools()) {
+        registry.registerMcpTool(config.name(), new McpToolAdapter(client, tool));
+        toolNames.add(tool.name());
+      }
       activeClients.put(config.name(), client);
-      registeredTools.put(config.name(), toolNames);
+      registeredTools.put(config.name(), List.copyOf(toolNames));
       lastErrors.remove(config.name());
     } catch (RuntimeException e) {
-      // 外部依赖失联不拖垮自身启动——只 WARN，OryxOS 照常起（课件守点）
+      // 外部依赖失联不拖垮自身启动——只 WARN，OryxOS 照常起（课件守点）。
+      // listTools 中途失败（重名、协议错）时：已注册的工具必须卸掉，客户端必须关掉，否则
+      // 管理台显示未连接，Agent 仍能调到半截 MCP 工具，stdio 子进程也会泄漏。
+      for (String toolName : toolNames) {
+        registry.unregister(toolName);
+      }
+      closeQuietly(config.name(), client);
       LOG.warn("MCP server {} 连接失败，跳过它的工具: {}", s(config.name()), s(e.getMessage()));
-      lastErrors.put(config.name(), e.getMessage());
+      // ConcurrentHashMap 不收 null：异常无 message 时落异常类名
+      lastErrors.put(
+          config.name(), e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
     }
   }
 
@@ -99,15 +106,19 @@ public class McpClientService {
       registry.unregister(toolName);
     }
     registeredTools.remove(serverName);
-    McpSyncClient client = activeClients.remove(serverName);
-    if (client != null) {
-      try {
-        client.closeGracefully();
-      } catch (RuntimeException e) {
-        LOG.warn("MCP server {} 断开连接时出错（忽略）: {}", s(serverName), s(e.getMessage()));
-      }
-    }
+    closeQuietly(serverName, activeClients.remove(serverName));
     lastErrors.remove(serverName);
+  }
+
+  private static void closeQuietly(String serverName, McpSyncClient client) {
+    if (client == null) {
+      return;
+    }
+    try {
+      client.closeGracefully();
+    } catch (RuntimeException e) {
+      LOG.warn("MCP server {} 断开连接时出错（忽略）: {}", s(serverName), s(e.getMessage()));
+    }
   }
 
   /** 单个 server 的运行时状态：是否连上、给了哪些工具、失败原因。 */

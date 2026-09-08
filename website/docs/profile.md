@@ -52,7 +52,8 @@ bootstrap:
   - USER.md
 
 schedules:
-  - id: morning-check
+  - key: morning-check
+    name: Morning check
     cron: "0 0 8 * * *"
     zone: Asia/Shanghai
     message: Run the morning health check.
@@ -146,9 +147,13 @@ Built-in tool names:
 | `shell` | Execute a shell command (command whitelist enforced) |
 | `http_get` | HTTP GET request (default allow + SSRF blocklist) |
 | `http_post` | HTTP POST request (domain whitelist enforced) |
+| `fetch_webpage` | Fetch a page and extract readable text (default allow + SSRF) |
+| `web_search` | Web search (default allow + SSRF; must be listed in `tools:`) |
 | `save_memory` | Append a note to `MEMORY.md` |
 | `recall_memory` | Keyword search over `MEMORY.md` |
 | `notify` | Push a message to a notify channel referenced by name |
+
+> For Feishu / WeCom / DingTalk inbound agents that should answer “search the web” / live facts, list `web_search` in `tools:` (and usually `http_get` + `fetch_webpage`). A `CONNECTED` channel is not enough — unlisted tools never reach the model. See [Tool system](/docs/tool) (“Enabling web search for IM / business agents”).
 
 MCP tools from configured `mcp_servers` are available by their server-declared names (e.g. `github_create_pr`). Run `oryxos tool list` to see all registered names. See the [Tool system](/docs/tool) for details, including how the `notify` tool resolves a channel by name.
 
@@ -186,11 +191,12 @@ Bootstrap files are prepended to the system prompt in the order listed. They app
 
 ## Schedules
 
-`schedules` declares cron-triggered runs of the agent. Each entry fires the agent's body as the task at the given time. Scheduled tasks can also be listed, run on demand, and enabled/disabled through the `/api/v1/schedules` API and the admin console.
+`schedules` declares cron-triggered runs of the agent. Each entry requires an Agent-local `key` and a display `name`; OryxOS assigns a stable global `scheduleId` for runtime operations. Use `/api/v2/schedules` and the admin console for listing, running, history, and enable/disable.
 
 ```yaml
 schedules:
-  - id: morning-check
+  - key: morning-check
+    name: Morning check
     cron: "0 0 8 * * *"     # Spring cron: sec min hour day month weekday
     zone: Asia/Shanghai
     message: Run the morning health check.

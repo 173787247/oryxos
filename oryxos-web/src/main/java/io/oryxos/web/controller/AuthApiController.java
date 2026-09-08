@@ -7,6 +7,7 @@ import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.config.WebAuthProperties;
 import io.oryxos.web.controller.dto.AuthMeView;
 import io.oryxos.web.controller.dto.LoginRequest;
+import io.oryxos.web.security.ClientIp;
 import io.oryxos.web.security.LoginAttemptService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -82,7 +83,7 @@ public class AuthApiController {
           HttpStatus.BAD_REQUEST.value(), "username and password are required");
     }
     // 暴力破解防护：同「用户名|来源 IP」连续失败超限即 429，不碰密码校验（锁定期内也不给密码探针）。
-    String attemptKey = loginRequest.username() + "|" + request.getRemoteAddr();
+    String attemptKey = loginRequest.username() + "|" + ClientIp.peerAddress(request);
     if (loginAttemptService.isBlocked(attemptKey)) {
       response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
       return ApiResponse.error(HttpStatus.TOO_MANY_REQUESTS.value(), TOO_MANY_ATTEMPTS_MESSAGE);

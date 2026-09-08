@@ -117,7 +117,7 @@ OryxOS 在 `.oryxos/agents/` 下自带三个 Demo Agent 演示这套模型：
 | `daily-tech-digest` | 从 `hn.algolia.com` 拉头条，按需读取 skill 文件，推送科技日报 |
 | `github-daily` | 用 `shell` 跑受信任的本地 Python 脚本，推送 GitHub 热门日报（需显式允许 `python3`） |
 
-三者都用 Provider `deepseek` / `deepseek-chat`，并按名引用通知渠道。
+三者都用 Provider `deepseek` / `deepseek-v4-flash`，并按名引用通知渠道。
 
 > `github-daily` 是需要主动启用的受信任脚本 Demo。默认 shell 白名单刻意不包含 `python3`，因为解释器等同于任意代码执行能力。显式加入前请先审查脚本，不要对不受信任的 Agent 输入开放。
 
@@ -152,6 +152,19 @@ curl http://localhost:8080/api/v1/health
 ```
 
 每个 API 响应都包裹在 `{ code, message, data, timestamp }` 信封里（`code: 0` 表示成功）。
+
+## 用 Docker 运行
+
+每个版本同时在 GHCR 发布多架构容器镜像（`linux/amd64` + `linux/arm64`）——不用装 Java 21、不用下载 tar.gz：
+
+```bash
+docker run -d --name oryxos -p 8080:8080 -v oryxos-data:/data ghcr.io/oryx-labs/oryxos:latest
+curl http://localhost:8080/api/v1/health      # → {"code":0,…}
+```
+
+容器**零 key 即可启动**（随后在管理台配置 Provider），全部状态——`config/`、`.oryxos/` 工作区、`oryxos.db`、日志——都落在 `/data` 卷里，升级 = 拉新 tag 重建容器，数据不丢。镜像以非 root 用户运行，内置针对 `/api/v1/health` 的健康检查；开箱即用的 compose 栈见仓库根目录的 `docker-compose.yml`。从源码本地构建镜像：`make docker`（先 `make build`）。
+
+> 注意：存储是单机 SQLite——**只跑一个容器**。横向扩容需要分布式存储（路线图方向 A）。
 
 ## 下一步
 

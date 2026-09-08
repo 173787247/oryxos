@@ -6,6 +6,7 @@ import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.core.notify.NotifyChannelRegistry;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
+import io.oryxos.core.profile.ProfileValidationException;
 import io.oryxos.core.provider.ProviderRequest;
 import io.oryxos.core.provider.ProviderService;
 import io.oryxos.core.skill.AgentSkillBindingService;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.DumperOptions.FlowStyle;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.error.YAMLException;
 
 /**
  * Agent 生命周期编排（第 30 节）：三条录入（API create / WorkspaceWatcher 事件 / 启动扫描）都汇到同一段 {@link
@@ -44,29 +46,14 @@ public class AgentLifecycleService {
 
   private static final String PARENT_PATH_SEGMENT = "..";
 
-  private static final String AGENT_MD_TEMPLATE =
-      """
-      ---
-      name: {name}
-      description: {description}
-      identity:
-        agent_name: {name}
-        prompt: 你是一个乐于助人的助手。
-      provider:
-        name: {provider}
-        model: {model}
-      tools:
-        - read_file
-        - shell
-        - notify
-      bootstrap:
-        - AGENTS.md
-      settings:
-        max_iterations: 10
-        max_history_turns: 20
-      ---
+  /** 025：AGENT.md frontmatter 里人格段的键。 */
+  private static final String PERSONA_KEY = "persona";
 
+  /** 脚手架正文：frontmatter 由 {@link #scaffoldFrontmatter} 经 SnakeYAML dump，避免用户输入拆行注入键。 */
+  private static final String AGENT_MD_BODY =
+      """
       在这里写这个 Agent 的任务指令（正文）。被触发时它会照做。
+      - 需要搜索 / 查最新 / 联网核实实时信息时：先调用 web_search；若结果为空再用 fetch_webpage 或 http_get，不要只凭训练知识编造；
       - 已绑定 Skill 的 name、description 与本地 SKILL.md 入口会自动列入提示；需要时再用 read_file 按需读正文；
       - 参考资料放 REFERENCE.md，拿不准时用 read_file 读；
       - 脚本放 scripts/，正文让 shell/python 跑，产出进上下文、代码不进；
@@ -109,10 +96,10 @@ public class AgentLifecycleService {
       1. AGENT.md 以 YAML frontmatter 开头结尾（--- 与 ---），frontmatter 必须含 name、description、identity(agent_name/prompt)、\
       provider(name/model)、tools、settings(max_iterations/max_history_turns)；有定时需求再加 schedules。
       2. name 必须是「{name}」；provider.name 必须是「{provider}」；model 必须是「{model}」（若该 provider 下没有这个 exact 模型名，就填该 provider 下合理的默认模型名）。
-      3. tools 只能从下面【可用工具】里按需挑选，**绝不允许编造清单以外的工具名**。常见映射：查网页/接口数据用 http_get / http_post；\
-      抓网页正文用 fetch_webpage；读写文件用 read_file / write_file；跑脚本用 shell。
-      4. schedules 每条的字段只有：id（任务标识）、cron（Spring 6 段 cron，如 "0 0 9 * * *" 表示每天 9 点）、zone（时区，如 Asia/Shanghai）、\
-      message（到点发给 Agent 的触发语）。**不要用 timezone、action 等清单外字段名。**
+      3. tools 只能从下面【可用工具】里按需挑选，**绝不允许编造清单以外的工具名**。常见映射：搜索/查最新用 web_search；\
+      查网页/接口数据用 http_get / http_post；抓网页正文用 fetch_webpage；读写文件用 read_file / write_file；跑脚本用 shell。
+      4. schedules 每条必须包含：key（Agent 内唯一的配置键）、name（展示名称）、cron（Spring 6 段 cron，如 "0 0 9 * * *" 表示每天 9 点）、\
+      zone（时区，如 Asia/Shanghai）、message（到点发给 Agent 的触发语）。不要输出 legacy id、timezone、action 等字段。
       5. 通知：{notify}
       6. MCP：如果任务需要用到下面【可用 MCP Server】里"已连接"的某个 server 提供的能力，把该 server 名加进 frontmatter 的 \
       mcp_servers 列表，**并且**把它提供的具体工具名也加进 tools 列表（两者都要写，只写一个不生效）；未连接 / 清单外的 server \
@@ -124,6 +111,10 @@ public class AgentLifecycleService {
       例如需要抓 GitHub 榜单，就写一个 scripts/xxx.py 并在 AGENT.md 正文里用 shell 调它。
       9. 输出格式：多个文件时，每个文件前**单独一行**写分隔符 `===FILE: <相对路径>===`（第一个必须是 AGENT.md）；\
       若只需要 AGENT.md 可不用分隔符直接输出它。不要用 Markdown 代码围栏（```）包整个输出，也不要任何额外解释。
+      10. 知识库：下面【已有知识库】是本底座已创建的知识库清单。若需求与某个库的描述明确相关，允许在本次生成的 AGENT.md \
+      frontmatter 暂时输出顶层 knowledge 列表作为**生成建议 sidecar**（如 knowledge: [ops-manual]），并把 retrieve_knowledge \
+      加进 tools（前提是它在【可用工具】里）；后端会立即移除该字段，最终 AGENT.md 绝不保存 knowledge。需求无关就不要输出 \
+      knowledge 字段。**绝不编造清单外名称**。
 
       【可用工具】（tools 只能从这里选，禁止编造）
       {tools}
@@ -134,13 +125,16 @@ public class AgentLifecycleService {
       【可用 Skill】（仅用于生成建议 sidecar，禁止编造）
       {skills}
 
+      【已有知识库】（仅用于生成建议 sidecar，禁止编造）
+      {knowledge}
+
       【正确示例（仅示范字段与工具用法，name/provider 以上面规则为准）】
       {example}
 
       需求：
       """;
 
-  /** few-shot 范例：真实工具（http_get + notify）+ 正确 schedules 字段（id/cron/zone/message）。 */
+  /** few-shot 范例：真实工具（http_get + notify）+ 正确 schedules 字段（key/name/cron/zone/message）。 */
   private static final String AUTHOR_EXAMPLE =
       """
       ---
@@ -159,7 +153,8 @@ public class AgentLifecycleService {
         max_iterations: 10
         max_history_turns: 20
       schedules:
-        - id: morning-weather
+        - key: morning-weather
+          name: Morning weather
           cron: "0 0 9 * * *"
           zone: Asia/Shanghai
           message: 查询今天的天气并把穿搭提示发到团队群
@@ -195,6 +190,8 @@ public class AgentLifecycleService {
   private final SkillRegistry skillRegistry;
   private final AgentSkillBindingService skillBindings;
   private final SkillCatalog skillCatalog;
+  // 014：生成时把已有知识库名单（name → description）喂给作者模型（FR-018）；可空——旧调用方不带这个能力。
+  private final java.util.function.Supplier<Map<String, String>> knowledgeCandidates;
 
   public AgentLifecycleService(
       AgentLoader agentLoader,
@@ -295,6 +292,41 @@ public class AgentLifecycleService {
       SkillRegistry skillRegistry,
       AgentSkillBindingService skillBindings,
       SkillCatalog skillCatalog) {
+    this(
+        agentLoader,
+        profileRegistry,
+        agentScheduler,
+        agentStore,
+        providerService,
+        defaultProvider,
+        authorProvider,
+        authorModel,
+        tools,
+        notifyChannels,
+        mcpServerAdmin,
+        skillRegistry,
+        skillBindings,
+        skillCatalog,
+        null);
+  }
+
+  /** 014：注入知识库名单供给者，生成提示词里补上真实的「已有知识库」清单（FR-018）。 */
+  public AgentLifecycleService(
+      AgentLoader agentLoader,
+      ProfileRegistry profileRegistry,
+      AgentScheduler agentScheduler,
+      AgentStore agentStore,
+      ProviderService providerService,
+      String defaultProvider,
+      String authorProvider,
+      String authorModel,
+      Map<String, OryxTool> tools,
+      NotifyChannelRegistry notifyChannels,
+      McpServerAdmin mcpServerAdmin,
+      SkillRegistry skillRegistry,
+      AgentSkillBindingService skillBindings,
+      SkillCatalog skillCatalog,
+      java.util.function.Supplier<Map<String, String>> knowledgeCandidates) {
     this.agentLoader = agentLoader;
     this.profileRegistry = profileRegistry;
     this.agentScheduler = agentScheduler;
@@ -309,6 +341,7 @@ public class AgentLifecycleService {
     this.skillRegistry = skillRegistry;
     this.skillBindings = skillBindings;
     this.skillCatalog = skillCatalog;
+    this.knowledgeCandidates = knowledgeCandidates;
   }
 
   /**
@@ -368,15 +401,39 @@ public class AgentLifecycleService {
     Map<String, String> files = new LinkedHashMap<>();
     files.put(
         "AGENT.md",
-        AGENT_MD_TEMPLATE
-            .replace("{name}", name)
-            .replace("{description}", desc)
-            .replace("{provider}", provider)
-            .replace("{model}", model));
+        assembleMarkdown(scaffoldFrontmatter(name, desc, provider, model), AGENT_MD_BODY));
     files.put("scripts/example.py", SCRIPT_TEMPLATE);
     files.put("REFERENCE.md", REFERENCE_TEMPLATE);
     files.put("output/README.md", OUTPUT_README_TEMPLATE); // 建出产出目录（writeAll 建不了空目录，用占位说明落地）
     return files;
+  }
+
+  /**
+   * 脚手架 frontmatter 用 Map 再 dump，不用字符串替换。description / provider / model 来自管理台输入，直接拼进 YAML
+   * 会让换行变成新键（例如注入 {@code schedules}）。
+   */
+  private static Map<String, Object> scaffoldFrontmatter(
+      String name, String description, String provider, String model) {
+    Map<String, Object> frontmatter = new LinkedHashMap<>();
+    frontmatter.put("name", name);
+    frontmatter.put("description", description);
+    Map<String, Object> identity = new LinkedHashMap<>();
+    identity.put("agent_name", name);
+    identity.put("prompt", "你是一个乐于助人的助手。");
+    frontmatter.put("identity", identity);
+    Map<String, Object> providerMap = new LinkedHashMap<>();
+    providerMap.put("name", provider);
+    providerMap.put("model", model);
+    frontmatter.put("provider", providerMap);
+    frontmatter.put(
+        "tools",
+        List.of("read_file", "shell", "notify", "web_search", "http_get", "fetch_webpage"));
+    frontmatter.put("bootstrap", List.of("AGENTS.md"));
+    Map<String, Object> settings = new LinkedHashMap<>();
+    settings.put("max_iterations", Profile.Settings.defaults().maxIterations());
+    settings.put("max_history_turns", Profile.Settings.defaults().maxHistoryTurns());
+    frontmatter.put("settings", settings);
+    return frontmatter;
   }
 
   /** 注册一个 Agent 目录——API create、WorkspaceWatcher 事件、启动扫描三条录入共用同一段代码（FR-009）。 */
@@ -416,8 +473,40 @@ public class AgentLifecycleService {
   }
 
   /** 更新：覆写 AGENT.md；先注销旧定时、再注册新的（旧 cron 不会跟新 cron 一起跑）。 */
+  /** 025：暴露默认 provider（导入器用它兜底 frontmatter 的 provider）。 */
+  public String defaultProvider() {
+    return defaultProvider;
+  }
+
   public Profile update(String name, String agentMarkdown) {
     return saveFiles(name, Map.of("AGENT.md", agentMarkdown), null);
+  }
+
+  /**
+   * 025：把导入产物当成和手工建 Agent 一样的输入，走同一道校验链——name 冲突先拒（同 {@link #create}），再委托 {@link #saveFiles}
+   * （agentLoader.parse 先校验 → writeAll → deriveProfile → register，失败回滚）。
+   *
+   * <p>只创建、不覆盖（产品约定）：同名已有 Agent 拒绝导入并提示先删再导——直接覆盖会吞掉用户对同名 Agent 的定制（Skill 绑定 / 人格编辑 /
+   * 基本信息），代价不可逆。要换成新内容先 {@link #delete} 同名 Agent，再导入。
+   */
+  public Profile importAgent(String name, String agentMarkdown) {
+    if (profileRegistry.exists(name)) {
+      throw new IllegalArgumentException("Agent 已存在: " + name + "，导入只创建不覆盖，请先删除同名 Agent 再导入");
+    }
+    return saveFiles(name, Map.of("AGENT.md", agentMarkdown), null);
+  }
+
+  /**
+   * 校验一段 {@code AGENT.md} 能否被底座解析（dry-run，不落盘、不注册）：复用 {@link AgentLoader#parse} 的纯内存校验 （与 {@link
+   * #saveFiles} 的写前预校验同一套逻辑、同一异常）。供 import-preview 展示可解析性——校验失败不抛异常， 结果体现在 {@link
+   * AgentValidation#valid()} = false + 可读 message 里。
+   */
+  public AgentValidation validateAgent(String name, String markdown) {
+    try {
+      return AgentValidation.ok(agentLoader.parse(markdown, name));
+    } catch (ProfileValidationException | YAMLException e) {
+      return AgentValidation.fail(e.getMessage());
+    }
   }
 
   /**
@@ -464,6 +553,71 @@ public class AgentLifecycleService {
     String newMarkdown = assembleMarkdown(fm, parsed.body());
     agentLoader.parse(newMarkdown, name); // 预校验：非法定义直接抛，不破坏原文件
     return update(name, newMarkdown);
+  }
+
+  /**
+   * 025：只重写 AGENT.md frontmatter 的 persona 段，正文与未提及的 frontmatter 字段原样保留。 name/role 必填；先合成新 markdown
+   * 并用 {@link AgentLoader#parse} 预校验（非法→抛，不破坏原文件），通过再走 {@link #update} 重写+重注册。
+   */
+  public Profile updatePersona(String name, Profile.Persona persona) {
+    if (persona == null
+        || persona.name() == null
+        || persona.name().isBlank()
+        || persona.role() == null
+        || persona.role().isBlank()) {
+      throw new IllegalArgumentException("persona 段缺少 name/role 字段");
+    }
+    String raw = agentStore.read(name);
+    AgentMarkdown.Parsed parsed = AgentMarkdown.split(raw);
+    Map<String, Object> fm = new LinkedHashMap<>(parsed.frontmatter());
+    fm.put(PERSONA_KEY, personaMap(persona)); // Map 键唯一，put 覆盖即「移除旧 persona 键 + 放入新块」
+    String newMarkdown = assembleMarkdown(fm, parsed.body());
+    agentLoader.parse(newMarkdown, name); // 预校验：非法定义直接抛，不破坏原文件
+    return update(name, newMarkdown);
+  }
+
+  /** persona → 七字段 YAML Map（name/role 恒在，其余非空才写，避免 dump 出 {@code : null}）。 */
+  private static Map<String, Object> personaMap(Profile.Persona p) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("name", p.name());
+    m.put("role", p.role());
+    putIfNonBlank(m, "traits", p.traits());
+    putIfNonBlank(m, "tone", p.tone());
+    putIfNonBlank(m, "values", p.values());
+    putIfNonBlank(m, "boundaries", p.boundaries());
+    putIfNonBlank(m, "sample_style", p.sampleStyle());
+    return m;
+  }
+
+  private static void putIfNonBlank(Map<String, Object> map, String key, String value) {
+    if (value != null && !value.isBlank()) {
+      map.put(key, value);
+    }
+  }
+
+  /** 025：一段 AGENT.md 缺 persona 段时兜底填入默认人格（契约三）；已有 persona 不覆盖（用户/模型已写）。 */
+  public String ensurePersona(String markdown) {
+    AgentMarkdown.Parsed parsed = AgentMarkdown.split(markdown);
+    if (parsed.frontmatter().containsKey(PERSONA_KEY)) {
+      return markdown;
+    }
+    Map<String, Object> fm = new LinkedHashMap<>(parsed.frontmatter());
+    fm.put(PERSONA_KEY, defaultPersona(fm));
+    return assembleMarkdown(fm, parsed.body());
+  }
+
+  /** 默认人格（契约三兜底）：有下限、不惊艳——保证每个 Agent 出生就有人设，真正的人格靠用户改。 */
+  private static Map<String, Object> defaultPersona(Map<String, Object> fm) {
+    String agentName = fm.get("name") == null ? null : String.valueOf(fm.get("name"));
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("name", agentName == null || agentName.isBlank() ? "助手" : agentName);
+    p.put("role", "乐于助人的助手");
+    p.put("traits", "专业、可靠、条理清晰");
+    p.put("tone", "简洁友好，不啰嗦");
+    p.put("values", "诚实准确，不确定就明说；不编造事实");
+    p.put("boundaries", "不执行未授权的高风险操作；不泄露敏感信息");
+    p.put("sample_style", "先给结论，再给依据；复杂内容用列表或表格");
+    return p;
   }
 
   /** 把改好的 frontmatter Map + 正文重新拼成 AGENT.md（与 {@link AgentMarkdown#split} 的围栏约定一致）。 */
@@ -562,6 +716,8 @@ public class AgentLifecycleService {
             List.of(),
             List.of(),
             Profile.Settings.defaults());
+    Map<String, String> knowledgeBases =
+        knowledgeCandidates == null ? Map.of() : knowledgeCandidates.get();
     String prompt =
         AGENT_AUTHOR_PROMPT
                 .replace("{name}", name)
@@ -570,6 +726,7 @@ public class AgentLifecycleService {
                 .replace("{tools}", describeTools())
                 .replace("{mcp_servers}", describeMcpServers())
                 .replace("{skills}", describeSkills(candidates))
+                .replace("{knowledge}", describeKnowledge(knowledgeBases))
                 .replace("{required_skills}", requiredSkillsDirective(required))
                 .replace("{notify}", notifyDirective(channel))
                 .replace("{example}", AUTHOR_EXAMPLE)
@@ -579,11 +736,27 @@ public class AgentLifecycleService {
     if (text == null || text.isBlank()) {
       throw new IllegalStateException("模型未返回内容"); // → 503
     }
-    return parseGeneratedDraft(text, name, required, candidateNames);
+    return parseGeneratedDraft(text, name, required, candidateNames, knowledgeBases.keySet());
+  }
+
+  /** 已有知识库清单（name → description）注入生成提示词；空清单明确告知，避免模型猜测。 */
+  private static String describeKnowledge(Map<String, String> knowledgeBases) {
+    if (knowledgeBases.isEmpty()) {
+      return "（当前没有知识库，不要输出 knowledge 字段）";
+    }
+    StringBuilder text = new StringBuilder();
+    knowledgeBases.forEach(
+        (name, description) ->
+            text.append("- ").append(name).append("：").append(description).append('\n'));
+    return text.toString().strip();
   }
 
   private GeneratedAgentDraft parseGeneratedDraft(
-      String text, String name, List<String> required, Set<String> candidateNames) {
+      String text,
+      String name,
+      List<String> required,
+      Set<String> candidateNames,
+      Set<String> knowledgeNames) {
     // 多文件解析（模型自己决定要不要脚本/子指令）：按 ===FILE: path=== 切分；无分隔符则整段当 AGENT.md
     Map<String, String> files = parseGeneratedFiles(text);
     for (String path : files.keySet()) {
@@ -606,11 +779,24 @@ public class AgentLifecycleService {
     if (AgentMarkdown.hasLegacySkills(agentMarkdown)) {
       throw new IllegalArgumentException("生成结果中的顶层 skills 未能安全移除");
     }
+    // 014：knowledge 建议同为 sidecar——校验在清单内、随即从 AGENT.md 移除（frontmatter 不声明知识库，FR-002）
+    List<String> suggestedKnowledge =
+        AgentMarkdown.knowledgeSidecar(agentMarkdown).stream().distinct().toList();
+    for (String kb : suggestedKnowledge) {
+      if (!knowledgeNames.contains(kb)) {
+        throw new IllegalArgumentException("作者模型建议了不存在的知识库: " + kb);
+      }
+    }
+    agentMarkdown = AgentMarkdown.removeKnowledgeSidecar(agentMarkdown);
+    if (AgentMarkdown.hasKnowledgeSidecar(agentMarkdown)) {
+      throw new IllegalArgumentException("生成结果中的顶层 knowledge 未能安全移除");
+    }
     files.put("AGENT.md", agentMarkdown);
     agentLoader.parse(agentMarkdown, name); // 校验：解析不成合法定义就抛 ProfileValidationException（→400）
     Set<String> bindingSet = new java.util.TreeSet<>(required);
     bindingSet.addAll(suggested);
-    return new GeneratedAgentDraft(files, required, suggested, List.copyOf(bindingSet));
+    return new GeneratedAgentDraft(
+        files, required, suggested, List.copyOf(bindingSet), suggestedKnowledge);
   }
 
   private static boolean isIllegalGeneratedPath(Path relative) {

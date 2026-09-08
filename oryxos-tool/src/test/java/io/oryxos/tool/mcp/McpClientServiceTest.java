@@ -2,13 +2,20 @@ package io.oryxos.tool.mcp;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.oryxos.core.OryxTool;
+import io.oryxos.core.ToolResult;
 import io.oryxos.core.mcp.McpServerConfig;
+import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.tool.ToolRegistry;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -112,6 +119,74 @@ class McpClientServiceTest {
     assertTrue(configs.get(0).command().startsWith("npx"));
     assertTrue(configs.get(0).env().get("TOKEN").contains("${ORYX_TEST_UNSET_ENV}"), "缺失占位保留原样");
     assertTrue(new McpConfigLoader(dir.resolve("nope.yaml")).load().isEmpty());
+  }
+
+  @Test
+  @DisplayName("listTools 中途撞名：已注册 MCP 工具回滚，客户端关闭")
+  void listToolsFailure_unregistersPartialToolsAndClosesClient() throws IOException {
+    OryxTool builtin = stubTool("http_get");
+    ToolRegistry registry = new ToolRegistry();
+    registry.register(builtin);
+
+    McpSyncClient client = mock(McpSyncClient.class);
+    when(client.listTools())
+        .thenReturn(
+            new McpSchema.ListToolsResult(
+                List.of(mcpTool("unique_mcp_tool", "ok"), mcpTool("http_get", "collide")), null));
+    McpConfigLoader loader =
+        loaderWith("servers:\n  - name: leaky\n    transport: stdio\n    command: c\n");
+    McpClientService service = new McpClientService(loader, config -> client);
+
+    service.connectAll(registry);
+
+    assertFalse(registry.contains("unique_mcp_tool"), "中途失败不得留下半截 MCP 工具");
+    assertSame(builtin, registry.get("http_get").orElseThrow());
+    assertTrue(registry.mcpToolOwners().isEmpty());
+    verify(client).closeGracefully();
+
+    McpServerStatus status = service.status("leaky");
+    assertFalse(status.connected());
+    assertTrue(status.toolNames().isEmpty());
+    assertTrue(status.error() != null && status.error().contains("http_get"));
+  }
+
+  @Test
+  @DisplayName("initialize 失败也要关掉已构造的客户端")
+  void initializeFailure_closesClient() throws IOException {
+    McpSyncClient client = mock(McpSyncClient.class);
+    doThrow(new IllegalStateException("handshake failed")).when(client).initialize();
+    McpConfigLoader loader =
+        loaderWith("servers:\n  - name: dead\n    transport: stdio\n    command: c\n");
+    ToolRegistry registry = new ToolRegistry();
+
+    new McpClientService(loader, config -> client).connectAll(registry);
+
+    assertTrue(registry.all().isEmpty());
+    verify(client).closeGracefully();
+  }
+
+  private static OryxTool stubTool(String name) {
+    return new OryxTool() {
+      @Override
+      public String getName() {
+        return name;
+      }
+
+      @Override
+      public String getDescription() {
+        return name;
+      }
+
+      @Override
+      public String getInputSchema() {
+        return "{}";
+      }
+
+      @Override
+      public ToolResult execute(JsonNode input) {
+        return ToolResult.ok("ok");
+      }
+    };
   }
 
   @Test

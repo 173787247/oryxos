@@ -3,6 +3,7 @@ package io.oryxos.tool.sandbox;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -67,6 +68,7 @@ class WhitelistSandboxTest {
     @Test
     @DisplayName("白名单内软连接指向外部时，读与不存在目标写均拒绝")
     void symlinkEscapeIsBlocked(@TempDir Path allowed) throws IOException {
+      SymlinkAssumptions.assumeSymlinksSupported(allowed);
       Path outside = Files.createTempDirectory("oryxos-sandbox-outside-");
       Files.writeString(outside.resolve("secret.txt"), "secret");
       Files.createSymbolicLink(allowed.resolve("escape"), outside);
@@ -89,6 +91,7 @@ class WhitelistSandboxTest {
     @Test
     @DisplayName("合法 Agent Skill 软连接指向同一白名单根时可读")
     void controlledSkillSymlinkIsAllowed(@TempDir Path allowed) throws IOException {
+      SymlinkAssumptions.assumeSymlinksSupported(allowed);
       Path shared = allowed.resolve("skills/report");
       Path local = allowed.resolve("agents/ops/skills");
       Files.createDirectories(shared);
@@ -129,6 +132,7 @@ class WhitelistSandboxTest {
     @Test
     @DisplayName("白名单按真实最小根判断，链接的 lexical 位置不能扩大授权")
     void symlinkUsesRealTargetRoot(@TempDir Path workspace) throws IOException {
+      SymlinkAssumptions.assumeSymlinksSupported(workspace);
       Path shared = Files.createDirectories(workspace.resolve("skills/report"));
       Path local = Files.createDirectories(workspace.resolve("agents/ops/skills"));
       Files.writeString(shared.resolve("SKILL.md"), "body");
@@ -303,19 +307,48 @@ class WhitelistSandboxTest {
             "http://[::ffff:169.254.169.254]/x", // IPv4-mapped 云元数据
             "http://[64:ff9b::a9fe:a9fe]/x", // NAT64 well-known → 169.254.169.254
             "http://[64:ff9b::100.64.1.1]/x", // NAT64 → CGNAT
+            "http://[2002:a9fe:a9fe::1]/x", // 6to4 → 169.254.169.254
+            "http://[::a9fe:a9fe]/x", // IPv4-compatible → 169.254.169.254
+            "http://[2001::5601:5601]/x", // Teredo → 169.254.169.254
+            "http://[2001:db8::5efe:a9fe:a9fe]/x", // ISATAP → 169.254.169.254
+            "http://[2001:db8::200:5efe:a9fe:a9fe]/x", // ISATAP u-bit → 169.254.169.254
             "http://localhost/x"
           }) {
         assertThrows(
             SandboxViolationException.class,
-            () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, url)));
+            () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, url)),
+            () -> "should block: " + url);
       }
     }
 
     @Test
-    @DisplayName("NAT64 嵌入公网 IPv4 仍放行")
-    void nat64PublicIpv4Allowed() {
+    @DisplayName("NAT64 / 6to4 嵌入公网 IPv4 仍放行")
+    void embeddedPublicIpv4Allowed() {
       assertDoesNotThrow(
           () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[64:ff9b::8.8.8.8]/x")));
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[2002:808:808::1]/x")));
+    }
+
+    @Test
+    @DisplayName("Teredo 嵌入公网 IPv4 仍放行")
+    void teredoPublicIpv4Allowed() {
+      assertDoesNotThrow(
+          () -> sb.enforce(new SandboxAction(ActionType.HTTP_READ, "http://[2001::f7f7:f7f7]/x")));
+    }
+
+    @Test
+    @DisplayName("ISATAP 嵌入公网 IPv4 仍放行")
+    void isatapPublicIpv4Allowed() {
+      assertDoesNotThrow(
+          () ->
+              sb.enforce(
+                  new SandboxAction(ActionType.HTTP_READ, "http://[2001:db8::5efe:808:808]/x")));
+      assertDoesNotThrow(
+          () ->
+              sb.enforce(
+                  new SandboxAction(
+                      ActionType.HTTP_READ, "http://[2001:db8::200:5efe:808:808]/x")));
     }
   }
 

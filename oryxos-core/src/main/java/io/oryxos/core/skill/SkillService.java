@@ -276,7 +276,8 @@ public class SkillService {
    */
   private static String toSkillMarkdown(String name, String description, String body) {
     String text = body == null ? "" : body;
-    StringBuilder frontmatter = new StringBuilder("---\nname: ").append(name).append('\n');
+    StringBuilder frontmatter =
+        new StringBuilder("---\nname: ").append(AgentMarkdown.yamlDoubleQuoted(name)).append('\n');
     if (description != null && !description.isBlank()) {
       frontmatter.append("description: ").append(yamlQuote(description)).append('\n');
     }

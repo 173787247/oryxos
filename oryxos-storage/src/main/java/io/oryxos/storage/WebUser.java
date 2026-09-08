@@ -9,7 +9,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** 管理台 Basic Auth 账号——表结构以手工 schema.sql 为唯一权威。 */
+/** 管理台 Basic Auth 账号——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "web_users")
 public class WebUser {

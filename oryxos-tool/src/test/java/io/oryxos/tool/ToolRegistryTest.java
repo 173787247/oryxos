@@ -12,6 +12,7 @@ import io.oryxos.core.OryxTool;
 import io.oryxos.core.ToolResult;
 import io.oryxos.tool.mcp.McpToolAdapter;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.annotation.Tool;
@@ -105,5 +106,23 @@ class ToolRegistryTest {
     // 不多（shell 没混进来）不少（两个声明的都在）；未知名跳过不报错
     assertEquals(
         List.of("read_file", "http_get"), filtered.stream().map(OryxTool::getName).toList());
+  }
+
+  @Test
+  @DisplayName("asMap/mcpToolOwners 是活视图：事后注册立刻可见")
+  void asMapAndOwnersStayLiveAfterRegister() {
+    ToolRegistry registry = new ToolRegistry();
+    Map<String, OryxTool> view = registry.asMap();
+    Map<String, String> owners = registry.mcpToolOwners();
+
+    registry.registerMcpTool("github", mcpTool("github_search"));
+
+    assertTrue(view.containsKey("github_search"));
+    assertEquals("github", owners.get("github_search"));
+
+    registry.unregister("github_search");
+
+    assertTrue(view.isEmpty());
+    assertTrue(owners.isEmpty());
   }
 }

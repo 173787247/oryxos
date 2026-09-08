@@ -42,6 +42,11 @@ public class WorkspaceWatcher {
   private final Path agentsDir;
   private final Executor watcherExecutor;
 
+  /**
+   * start() 创建、stop() 关闭（volatile：start 在启动线程写、stop 在 Spring 关闭线程读）。 start 失败时保持 null，stop 静默跳过。
+   */
+  private volatile WatchService watchService;
+
   /** {@link WatchKey} → 被监听目录（根目录或某个 Agent 子目录），把事件解析回来源目录。 */
   private final Map<WatchKey, Path> watchedDirs = new ConcurrentHashMap<>();
 
@@ -70,7 +75,24 @@ public class WorkspaceWatcher {
       LOG.warn("WorkspaceWatcher 启动失败，实时监听不可用: {}", sanitize(e.getMessage()));
       return;
     }
+    this.watchService = watchService;
     watcherExecutor.execute(() -> loop(watchService));
+  }
+
+  /**
+   * 关闭 WatchService 令监听循环退出（take() 抛 ClosedWatchServiceException）。 必须在所属执行器的 SmartLifecycle
+   * 停止之前调用——执行器的 stop 回调要等「运行中任务数归零」 才触发（Spring 6.2 ExecutorLifecycleDelegate 语义），监听循环不退出就等满 30s
+   * 超时（#332）。 装配层以 ContextClosedEvent 监听器触发（该事件先于生命周期停机发布）。
+   */
+  public void stop() {
+    WatchService ws = watchService;
+    if (ws != null) {
+      try {
+        ws.close();
+      } catch (IOException e) {
+        LOG.warn("关闭 WorkspaceWatcher 失败: {}", sanitize(e.getMessage()));
+      }
+    }
   }
 
   /** 把目录注册进 WatchService 并记入映射；同一目录重复注册返回同一 {@link WatchKey}（幂等）。 */
@@ -87,6 +109,8 @@ public class WorkspaceWatcher {
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
+      } catch (java.nio.file.ClosedWatchServiceException e) {
+        return; // stop() 关闭了服务：正常退出路径（#332）
       }
       Path dir = watchedDirs.get(key);
       if (dir != null) {
@@ -112,6 +136,10 @@ public class WorkspaceWatcher {
   //  - 根目录事件：只认直接子目录的新增（补挂监听 + 试登记）与删除（注销）；
   //  - 子 Agent 目录事件：只认 AGENT.md 的增/改（登记或刷新）与删（注销）。
   /** 把一个目录事件翻成对某个 Agent 的登记/刷新/注销。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "AGENT.md is an ASCII reserved filename; equalsIgnoreCase matches case-insensitive filesystems.")
   void dispatch(WatchService watchService, Path dir, Path changed, WatchEvent.Kind<?> kind) {
     if (agentsDir.equals(dir)) {
       if (kind == ENTRY_CREATE && Files.isDirectory(changed)) {
@@ -123,7 +151,8 @@ public class WorkspaceWatcher {
       // 根目录层的 MODIFY 不处理：AGENT.md 变更由子目录自己的 watch 捕获
       return;
     }
-    if (!AGENT_FILE.equals(String.valueOf(changed.getFileName()))) {
+    // 大小写不敏感：macOS/Windows 上编辑器或 WatchService 可能上报 agent.md，须与 Workspace 写入口一致
+    if (!AGENT_FILE.equalsIgnoreCase(String.valueOf(changed.getFileName()))) {
       return; // 子目录里只有 AGENT.md 的变更牵动注册
     }
     if (kind == ENTRY_DELETE) {

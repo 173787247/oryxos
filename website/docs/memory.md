@@ -27,13 +27,13 @@ The current agent is resolved from the execution context — the `save_memory` /
 Every entry is written as a **timestamped** line, `- [yyyy-MM-dd HH:mm:ss] <content>`. A `MEMORY.md` file is organized into two sections:
 
 - `## 核心记忆` (**core**) — always injected in full, never truncated
-- `## 归档记忆` (**archival**) — the running footprint; truncated when it grows too large
+- `## 归档记忆` (**archival**) — entries the agent deliberately saves via `save_memory`; truncated when it grows too large
 
 `save_memory` targets one of these sections (`core` or `archival`). Recall and truncation operate on the **archival** section only; the core section is physically isolated and always kept intact.
 
-### Automatic trigger footprint
+### No automatic trigger footprint
 
-Every time an agent is triggered, OryxOS automatically appends one line to **that agent's archival memory** — a compact record of the user message and the reply. This gives each agent an auditable trail of what it has done, without the agent having to call `save_memory` itself.
+OryxOS does **not** auto-append a “user message ⇒ reply” line to archival memory after every trigger. Failed replies that echo the question would otherwise dominate semantic recall and lock the model into repeating the failure. Execution trails already live in `tool_invocations` / `agent_executions`; lasting facts should be written explicitly with `save_memory`.
 
 ## Long-term memory operations
 
@@ -111,7 +111,7 @@ These two files look similar but serve opposite purposes:
 
 | | `MEMORY.md` | `USER.md` |
 | --- | --- | --- |
-| Who writes it | The agent (via `save_memory`, plus the auto trigger footprint) | The user (manually) |
+| Who writes it | The agent (via `save_memory`) | The user (manually) |
 | OryxOS behavior | Read + write | Read only |
 | Contents | Agent's accumulated observations, learned facts, and run history | User's initial preferences and context |
 | Resets | Never (append-only; archival truncation only when too large) | Never (managed by user) |

@@ -10,8 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 登录暴力破解防护（纯内存，无后台线程——宪法七同步模型）：同一「用户名|来源 IP」连续失败 {@value #MAX_FAILURES} 次后锁 {@link
  * #LOCK_DURATION}，窗口内成功登录清零。
  *
- * <p>键取用户名+IP 组合而非单用户名：攻击者猜不中密码也能靠失败次数把合法账号锁死（拒绝服务）；组合键下锁的只是 该来源，合法用户从自己的 IP 登录不受影响。反代未传
- * X-Forwarded-For 时所有请求同 IP，退化为按用户名锁——可接受的兜底。
+ * <p>键取用户名+<strong>TCP 对端</strong>而非单用户名：攻击者猜不中密码也能靠失败次数把合法账号锁死（拒绝服务）；组合键下锁的只是 该来源，合法用户从自己的 IP
+ * 登录不受影响。IP 必须用 {@link ClientIp#peerAddress}，不能用 {@code request.getRemoteAddr()}——后者在 {@code
+ * ForwardedHeaderFilter} 下会被 {@code X-Forwarded-For} 改写，换头即可绕过锁定。 前面是反代时对端是反代
+ * IP，同用户名在该反代后共用一把锁——可接受的兜底。
  *
  * <p>惰性过期：查询时发现锁已到期或失败窗口已过即删条目，无定时清理线程；条目超过 {@link #SWEEP_THRESHOLD} 时顺手全表清一次过期项，防恶意大量用户名撑内存。
  */

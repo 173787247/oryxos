@@ -15,7 +15,7 @@ import picocli.CommandLine.Command;
 public class InitCommand implements Runnable {
 
   private static final List<String> DIRS =
-      List.of("agents", "skills", "output", "memory", "sessions", "logs");
+      List.of("agents", "skills", "knowledge", "output", "memory", "sessions", "logs");
   private static final List<String> BOOTSTRAP_FILES = List.of("AGENTS.md", "SOUL.md", "USER.md");
 
   @Override

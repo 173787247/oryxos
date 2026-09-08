@@ -8,7 +8,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * sessions 审计/持久化记录——表结构以手工 schema.sql 为唯一权威。
+ * sessions 审计/持久化记录——表结构以 db/migration 迁移目录为唯一权威。
  *
  * <p>与 core 的领域对象 {@code io.oryxos.core.session.Session} 同名不同包：本类只管持久化形态， 领域行为（消息累积）在 core；两者互转由
  * {@link JpaSessionManager} 负责。

@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.oryxos</groupId>
         <artifactId>oryxos</artifactId>
-        <version>0.1.2-RELEASE</version>
+        <version>0.1.4-RELEASE</version>
     </parent>
 
     <artifactId>oryxos-channel-cli</artifactId>
@@ -18,6 +18,16 @@
         <dependency>
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-annotations</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

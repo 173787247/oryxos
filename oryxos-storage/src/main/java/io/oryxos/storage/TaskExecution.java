@@ -8,7 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** task_executions：定时任务每次执行的历史（28 节，成功失败都记）——表结构以手工 schema.sql 为唯一权威。 */
+/** task_executions：定时任务每次执行的历史（28 节，成功失败都记）——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "task_executions")
 public class TaskExecution {
@@ -17,8 +17,14 @@ public class TaskExecution {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  @Column(name = "task_id", nullable = false)
-  private String taskId;
+  @Column(name = "schedule_id")
+  private String scheduleId;
+
+  @Column(name = "legacy_task_key")
+  private String legacyTaskKey;
+
+  @Column(name = "legacy_migrated", nullable = false)
+  private boolean legacyMigrated;
 
   @Column(name = "session_id")
   private String sessionId;
@@ -39,12 +45,28 @@ public class TaskExecution {
     return id;
   }
 
-  public String getTaskId() {
-    return taskId;
+  public String getScheduleId() {
+    return scheduleId;
   }
 
-  public void setTaskId(String taskId) {
-    this.taskId = taskId;
+  public void setScheduleId(String scheduleId) {
+    this.scheduleId = scheduleId;
+  }
+
+  public String getLegacyTaskKey() {
+    return legacyTaskKey;
+  }
+
+  public void setLegacyTaskKey(String legacyTaskKey) {
+    this.legacyTaskKey = legacyTaskKey;
+  }
+
+  public boolean isLegacyMigrated() {
+    return legacyMigrated;
+  }
+
+  public void setLegacyMigrated(boolean legacyMigrated) {
+    this.legacyMigrated = legacyMigrated;
   }
 
   public String getSessionId() {

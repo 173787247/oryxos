@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/oryx-labs/oryxos/releases"><img src="https://img.shields.io/badge/version-0.1.2-orange?style=flat-square" alt="version"/></a>
+  <a href="https://github.com/oryx-labs/oryxos/releases"><img src="https://img.shields.io/badge/version-0.1.4-orange?style=flat-square" alt="version"/></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-native-8A2BE2?style=flat-square" alt="MCP native"/></a>
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="Apache 2.0"/></a>
 </p>
@@ -89,7 +89,8 @@ Tools via MCP with a three-tier plugin model (zero-code SKILL.md → custom MCP 
 | --- | --- |
 | **LLM Routing** | Dynamic, SQLite-backed provider registry with CRUD. Agents are provider-agnostic; explicit name → model routing keeps multi-provider dispatch correct. Switch or add providers at runtime. Local inference supported. |
 | **ReAct Loop** | Self-implemented reasoning engine — no external framework. LLM decides whether and which tool to call; OryxOS executes, feeds the result back; LLM decides the next step. Synchronous execution on virtual threads; loop fully controllable. |
-| **Memory** | Per-agent long-term memory (`.oryxos/agents/<name>/MEMORY.md`, keyword search, timestamped entries; global fallback when no agent context). Auto-injected into every system prompt, with a vector-retrieval upgrade path. |
+| **Memory** | Per-agent long-term memory (`.oryxos/agents/<name>/MEMORY.md`, timestamped entries; global fallback when no agent context). Auto-injected into every system prompt. Recall upgrades to semantic three-route retrieval (vector + keyword + recency, weighted RRF) once `embedding.*` is configured; pluggable backends incl. self-hosted mem0. |
+| **Knowledge** | Named knowledge bases (`.oryxos/knowledge/<name>/`) with chunking + embedding indexing (md / txt / text-layer PDF), hybrid retrieval (vector + keyword, RRF fusion) behind a pluggable backend contract; agents bind via symlinks and retrieve with mandatory citations (`retrieve_knowledge`), hot-reload + admin console lifecycle + usage dashboard included. |
 | **Tool System** | Built-in file, shell, and HTTP tools. Three-tier extension: zero-code SKILL.md + community MCP server → light-code custom MCP server → heavy-code native `@Tool` method. |
 | **REST API** | All capabilities exposed via REST. Any language can integrate. Business systems connect via HTTP. |
 
@@ -117,6 +118,8 @@ oryxos/
 ├── oryxos-core          # OryxTool, Session, ReActLoop, PromptBuilder, ToolExecutor, AgentScheduler
 ├── oryxos-provider      # ProviderService, Function Calling adapter, explicit multi-provider map
 ├── oryxos-memory        # MemoryService, LongTermMemory, MemoryTools (save/recall)
+├── oryxos-knowledge     # Knowledge base: local backend plugin, chunk/embed/index pipeline,
+│                        #   hybrid retrieval (vector + keyword + RRF), retrieve_knowledge
 ├── oryxos-tool          # Built-in tools (file/shell/http), MCP Client, ToolRegistry, SandboxChecker
 ├── oryxos-channel-cli   # CLI channel: oryxos chat implementation
 ├── oryxos-web           # REST API controllers, Web admin console, GlobalExceptionHandler
@@ -168,6 +171,19 @@ java -jar $JAR serve --port 8080           # REST API + Web Manager (same as sta
 ```
 
 The workspace defaults to `.oryxos/` but is configurable — set `ORYXOS_ROOT` (or `-Doryxos.root=`, or `oryxos.root` in `application.yml`) to point OryxOS at a custom workspace directory. The configured root is auto-added to the file sandbox whitelist.
+
+### Docker alternative
+
+Every release also ships a multi-arch container image (`linux/amd64` + `linux/arm64`) on GHCR — no Java 21 install, no tarball download:
+
+```bash
+docker run -d --name oryxos -p 8080:8080 -v oryxos-data:/data ghcr.io/oryx-labs/oryxos:latest
+curl http://localhost:8080/api/v1/health      # → {"code":0,…}
+```
+
+The container boots keyless (configure providers in the web console afterwards) and keeps **all state** — `config/`, the `.oryxos/` workspace, `oryxos.db`, logs — in the `/data` volume, so upgrading means pulling a new tag and recreating the container. The image runs as a non-root user and carries a built-in healthcheck against `/api/v1/health`; see `docker-compose.yml` at the repo root for a ready-to-use compose stack. To build the image locally from source: `make docker` (after `make build`).
+
+> Note: storage is single-node SQLite — run **one** container. Horizontal scaling requires the distributed storage track (roadmap A).
 
 ### Web Service & Web Manager
 
@@ -223,7 +239,9 @@ tools:
   - save_memory
   - recall_memory
 schedules:
-  - cron: "0 9 * * *"
+  - key: daily-brief
+    name: Daily brief
+    cron: "0 0 9 * * *"
 settings:
   max_iterations: 10
   max_history_turns: 20

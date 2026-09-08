@@ -100,6 +100,38 @@ class NotifyToolsTest {
   }
 
   @Test
+  @DisplayName("format=markdown 写入 NotifyTarget.config 供 Adapter 解释（企微等）")
+  void formatPropagatesIntoNotifyTargetConfig() {
+    NotifyChannelRegistry registry = mock(NotifyChannelRegistry.class);
+    when(registry.find("ops-wecom"))
+        .thenReturn(
+            java.util.Optional.of(
+                new NotifyChannelDef(
+                    "ops-wecom",
+                    "wecom",
+                    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x",
+                    null)));
+    NotifyTools tools =
+        new NotifyTools(Map.of("wecom", adapter), new PermissiveSandbox(), registry);
+    var input = MAPPER.createObjectNode();
+    input.put("content", "**告警**");
+    input.put("channel", "ops-wecom");
+    input.put("format", "markdown");
+
+    ToolResult result = tools.execute(input);
+
+    assertTrue(result.success());
+    verify(adapter)
+        .send(
+            argThat(
+                t ->
+                    "wecom".equals(t.channelType())
+                        && "markdown".equals(t.config().get("format"))
+                        && t.config().get("url").contains("qyapi.weixin.qq.com")),
+            eq("**告警**"));
+  }
+
+  @Test
   @DisplayName("channel 缺省且注册表非空_取注册表第一个（不依赖 Profile 内联）")
   void omittedChannelUsesFirstRegistryEntry() {
     NotifyChannelRegistry registry = mock(NotifyChannelRegistry.class);
@@ -237,8 +269,25 @@ class NotifyToolsTest {
     ToolResult result = notify("hello", "dingtalk");
 
     assertFalse(result.success());
-    assertTrue(result.errorMessage().contains("dingtalk"), "点名未命中的类型");
+    assertTrue(result.errorMessage().contains("dingtalk"), "点名未命中的渠道");
+    assertTrue(
+        result.errorMessage().contains("渠道名") || result.errorMessage().contains("type"),
+        "报错应区分注册表渠道名与 legacy type: " + result.errorMessage());
+    assertFalse(
+        result.errorMessage().contains("不存在类型为"),
+        "不应再暗示 channel 参数本身就是类型: " + result.errorMessage());
     verify(adapter, never()).send(any(), any()); // 不回退默认渠道——回退会把消息发错地方
+  }
+
+  @Test
+  @DisplayName("inputSchema 写明优先渠道名，legacy 仅按 type")
+  void inputSchemaDescribesNameFirstThenLegacyType() {
+    String schema = notifyTools.getInputSchema();
+
+    assertTrue(schema.contains("渠道名"), schema);
+    assertTrue(schema.contains("注册表"), schema);
+    assertTrue(schema.contains("按 type"), "应写明 legacy 按 type: " + schema);
+    assertFalse(schema.contains("渠道类型"), "channel 字段不应再被描述成渠道类型: " + schema);
   }
 
   @Test

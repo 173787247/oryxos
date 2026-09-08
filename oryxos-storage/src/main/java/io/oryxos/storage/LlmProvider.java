@@ -8,7 +8,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** providers 持久化记录（31 节动态 provider）——表结构以手工 schema.sql 为唯一权威；name 为主键（Agent 按名引用）。 */
+/** providers 持久化记录（31 节动态 provider）——表结构以 db/migration 迁移目录为唯一权威；name 为主键（Agent 按名引用）。 */
 @Entity
 @Table(name = "providers")
 public class LlmProvider {

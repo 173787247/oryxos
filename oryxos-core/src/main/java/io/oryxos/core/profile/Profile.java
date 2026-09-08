@@ -3,15 +3,12 @@ package io.oryxos.core.profile;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 一个 Agent 的完整配置载体（YAML 解析产物，不可变）。
- *
- * <p>第 16 节建全全部字段；本节只消费 provider 段，其余字段供后续各节取用。 集合字段一律防御性拷贝，杜绝外部可变引用。
- */
+/** Immutable configuration projection for one Agent profile. */
 public record Profile(
     String name,
     String description,
     Identity identity,
+    Persona persona,
     ProviderRef provider,
     List<String> tools,
     List<String> mcpServers,
@@ -31,7 +28,37 @@ public record Profile(
     settings = settings == null ? Settings.defaults() : settings;
   }
 
-  /** 源码兼容旧 12 参调用点。{@code ignoredSkills} 不再进入 Profile，也不参与绑定；Agent Skill 的唯一真相源是目录软连接。 */
+  /**
+   * Compatibility constructor for callers that still pass pre-persona 11 args: persona stays null.
+   */
+  public Profile(
+      String name,
+      String description,
+      Identity identity,
+      ProviderRef provider,
+      List<String> tools,
+      List<String> mcpServers,
+      List<String> channels,
+      List<NotifyChannel> notifyChannels,
+      List<ScheduleConfig> schedules,
+      List<String> bootstrap,
+      Settings settings) {
+    this(
+        name,
+        description,
+        identity,
+        null,
+        provider,
+        tools,
+        mcpServers,
+        channels,
+        notifyChannels,
+        schedules,
+        bootstrap,
+        settings);
+  }
+
+  /** Compatibility constructor for callers that still pass ignoredSkills. */
   public Profile(
       String name,
       String description,
@@ -49,6 +76,7 @@ public record Profile(
         name,
         description,
         identity,
+        null,
         provider,
         tools,
         mcpServers,
@@ -59,23 +87,44 @@ public record Profile(
         settings);
   }
 
-  /** 人格设定。 */
   public record Identity(String agentName, String prompt) {}
 
-  /** 模型选择：provider 名、model、温度（可空——缺省用 provider 侧默认，research D6）。 */
-  public record ProviderRef(String name, String model, Double temperature) {}
+  /** 人格设定（025 迁移）：结构化主人格，与 identity.prompt（自由补充）叠加注入。name/role 必填，其余可空。 */
+  public record Persona(
+      String name,
+      String role,
+      String traits,
+      String tone,
+      String values,
+      String boundaries,
+      String sampleStyle) {}
 
-  /** 通知渠道（19 节 NotifyTools 消费）。 */
+  /** fallbacks（023）：有序备用 Provider 列表，单次 LLM 调用故障时按序切换；空=零变化。 */
+  public record ProviderRef(
+      String name, String model, Double temperature, List<FallbackRef> fallbacks) {
+
+    public ProviderRef {
+      fallbacks = fallbacks == null ? List.of() : List.copyOf(fallbacks);
+    }
+
+    /** 旧三参构造保留（既有构造点/测试兼容）：无备用声明委托空列表（023 纯增量）。 */
+    public ProviderRef(String name, String model, Double temperature) {
+      this(name, model, temperature, List.of());
+    }
+
+    /** 一个备用候选：已注册 Provider 名 + 该 Provider 下使用的模型名。 */
+    public record FallbackRef(String name, String model) {}
+  }
+
   public record NotifyChannel(String type, Map<String, String> config) {
     public NotifyChannel {
       config = config == null ? Map.of() : Map.copyOf(config);
     }
   }
 
-  /** 定时配置（25 节 AgentScheduler 消费）。 */
-  public record ScheduleConfig(String id, String cron, String zone, String message) {}
+  /** key locates a configuration within a Profile; name is for display only. */
+  public record ScheduleConfig(String key, String name, String cron, String zone, String message) {}
 
-  /** 循环参数。 */
   public record Settings(int maxIterations, int maxHistoryTurns) {
     private static final int DEFAULT_MAX_ITERATIONS = 10;
     private static final int DEFAULT_MAX_HISTORY_TURNS = 20;

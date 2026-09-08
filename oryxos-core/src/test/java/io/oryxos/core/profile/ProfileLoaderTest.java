@@ -1,6 +1,7 @@
 package io.oryxos.core.profile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -84,6 +85,8 @@ class ProfileLoaderTest {
     assertEquals("webhook", profile.notifyChannels().get(0).type()); // notify_channels
     assertEquals("0 0 8 * * *", profile.schedules().get(0).cron());
     assertEquals("Asia/Shanghai", profile.schedules().get(0).zone());
+    assertEquals("morning", profile.schedules().get(0).key());
+    assertEquals("morning", profile.schedules().get(0).name());
     assertEquals(5, profile.settings().maxIterations()); // max_iterations
     assertEquals(15, profile.settings().maxHistoryTurns()); // max_history_turns
   }
@@ -105,6 +108,296 @@ class ProfileLoaderTest {
     assertEquals(20, profile.settings().maxHistoryTurns());
     assertNull(profile.provider().temperature()); // 缺省不设，用 provider 侧默认（D6）
     assertTrue(profile.tools().isEmpty());
+  }
+
+  @Test
+  void 数字字段支持引号字符串并正确解析() throws IOException {
+    write(
+        "quoted-numbers.yaml",
+        """
+        name: quoted-numbers
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          temperature: "0.7"
+        settings:
+          max_iterations: "10"
+          max_history_turns: "15"
+        """);
+
+    Profile profile = loader().loadAll().get("quoted-numbers").orElseThrow();
+
+    assertEquals(0.7, profile.provider().temperature());
+    assertEquals(10, profile.settings().maxIterations());
+    assertEquals(15, profile.settings().maxHistoryTurns());
+  }
+
+  @Test
+  void 数字字段非法值报错点名() throws IOException {
+    write(
+        "bad-temp.yaml",
+        """
+        name: bad-temp
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          temperature: true
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-temp.yaml")));
+
+    assertTrue(ex.getMessage().contains("provider.temperature"));
+    assertTrue(ex.getMessage().contains("bad-temp"));
+
+    write(
+        "bad-iter.yaml",
+        """
+        name: bad-iter
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        settings:
+          max_iterations: not-a-number
+        """);
+
+    ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-iter.yaml")));
+
+    assertTrue(ex.getMessage().contains("settings.max_iterations"));
+    assertTrue(ex.getMessage().contains("not-a-number"));
+  }
+
+  @Test
+  void 列表字段写成标量时报错点名() throws IOException {
+    write(
+        "scalar-tools.yaml",
+        """
+        name: scalar-tools
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        tools: http_get
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("scalar-tools.yaml")));
+
+    assertTrue(ex.getMessage().contains("tools"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("必须是列表"), ex.getMessage());
+  }
+
+  @Test
+  void 列表字段写成映射时报错点名() throws IOException {
+    write(
+        "map-schedules.yaml",
+        """
+        name: map-schedules
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          morning:
+            cron: "0 0 8 * * *"
+            message: hi
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("map-schedules.yaml")));
+
+    assertTrue(ex.getMessage().contains("schedules"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("必须是列表"), ex.getMessage());
+  }
+
+  @Test
+  void notify_channels条目非对象时报错点名() throws IOException {
+    write(
+        "scalar-notify.yaml",
+        """
+        name: scalar-notify
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        notify_channels:
+          - webhook
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("scalar-notify.yaml")));
+
+    assertTrue(ex.getMessage().contains("scalar-notify"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("notify_channels"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("非对象条目"), ex.getMessage());
+  }
+
+  @Test
+  void schedules条目非对象时报错点名() throws IOException {
+    write(
+        "scalar-sched.yaml",
+        """
+        name: scalar-sched
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - morning
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("scalar-sched.yaml")));
+
+    assertTrue(ex.getMessage().contains("scalar-sched"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("schedules"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("非对象条目"), ex.getMessage());
+  }
+
+  @Test
+  void notify_channels缺少type时报错点名() throws IOException {
+    write(
+        "missing-notify-type.yaml",
+        """
+        name: missing-notify-type
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        notify_channels:
+          - url: https://example.com/hook
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("missing-notify-type.yaml")));
+
+    assertTrue(ex.getMessage().contains("missing-notify-type"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("notify_channels"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("type"), ex.getMessage());
+  }
+
+  @Test
+  void notify_channels空type时报错点名() throws IOException {
+    write(
+        "blank-notify-type.yaml",
+        """
+        name: blank-notify-type
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        notify_channels:
+          - type: ""
+            url: https://example.com/hook
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("blank-notify-type.yaml")));
+
+    assertTrue(ex.getMessage().contains("blank-notify-type"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("type"), ex.getMessage());
+  }
+
+  @Test
+  void notify_channels合法对象仍可加载() throws IOException {
+    write(
+        "ok-notify.yaml",
+        """
+        name: ok-notify
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        notify_channels:
+          - type: webhook
+            url: https://example.com/hook
+        """);
+
+    Profile profile = loader().parse(profilesDir.resolve("ok-notify.yaml"));
+    assertEquals(1, profile.notifyChannels().size());
+    assertEquals("webhook", profile.notifyChannels().get(0).type());
+  }
+
+  @Test
+  void schedules合法对象仍可加载() throws IOException {
+    write(
+        "ok-sched.yaml",
+        """
+        name: ok-sched
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: morning
+            name: Morning job
+            cron: "0 0 8 * * *"
+            message: hi
+        """);
+
+    Profile profile = loader().parse(profilesDir.resolve("ok-sched.yaml"));
+    assertEquals(1, profile.schedules().size());
+    assertEquals("morning", profile.schedules().get(0).key());
+  }
+
+  @Test
+  void schedules非法cron时报错点名() throws IOException {
+    write(
+        "bad-cron.yaml",
+        """
+        name: bad-cron
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: morning
+            name: Morning job
+            cron: "0 0 8 * *"
+            message: hi
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-cron.yaml")));
+
+    assertTrue(ex.getMessage().contains("morning"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
+  }
+
+  @Test
+  void schedules非法zone时报错点名() throws IOException {
+    write(
+        "bad-zone.yaml",
+        """
+        name: bad-zone
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: morning
+            name: Morning job
+            cron: "0 0 8 * * *"
+            zone: Not/AZone
+            message: hi
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-zone.yaml")));
+
+    assertTrue(ex.getMessage().contains("morning"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("zone"), ex.getMessage());
   }
 
   @Test
@@ -168,5 +461,441 @@ class ProfileLoaderTest {
 
     assertEquals(
         "https://hooks.example.com/team", profile.notifyChannels().get(0).config().get("url"));
+  }
+
+  @Test
+  void 定时配置的key和展示名称被解析() throws IOException {
+    write(
+        "key-and-name.yaml",
+        """
+        name: key-and-name
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: daily
+            name: Daily digest
+            cron: "0 0 8 * * *"
+            message: summarize yesterday
+        """);
+
+    Profile.ScheduleConfig schedule =
+        loader().loadAll().get("key-and-name").orElseThrow().schedules().get(0);
+
+    assertEquals("daily", schedule.key());
+    assertEquals("Daily digest", schedule.name());
+  }
+
+  @Test
+  void 定时配置不能同时给出不同的id和key() throws IOException {
+    write(
+        "conflicting-key.yaml",
+        """
+        name: conflicting-key
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - id: legacy-daily
+            key: daily
+            name: Daily digest
+            cron: "0 0 8 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("conflicting-key.yaml")));
+
+    assertTrue(exception.getMessage().contains("id"));
+    assertTrue(exception.getMessage().contains("key"));
+  }
+
+  @Test
+  void 同一Agent不能重复定义定时key() throws IOException {
+    write(
+        "duplicate-key.yaml",
+        """
+        name: duplicate-key
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: daily
+            name: Morning digest
+            cron: "0 0 8 * * *"
+          - key: daily
+            name: Evening digest
+            cron: "0 0 18 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("duplicate-key.yaml")));
+
+    assertTrue(exception.getMessage().contains("daily"));
+  }
+
+  @Test
+  void 定时key和展示名称不能为空() throws IOException {
+    write(
+        "blank-schedule-fields.yaml",
+        """
+        name: blank-schedule-fields
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: " "
+            name: " "
+            cron: "0 0 8 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("blank-schedule-fields.yaml")));
+
+    assertTrue(exception.getMessage().contains("key"));
+  }
+
+  @Test
+  void 定时展示名称不能为空() throws IOException {
+    write(
+        "blank-schedule-name.yaml",
+        """
+        name: blank-schedule-name
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: daily
+            name: " "
+            cron: "0 0 8 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("blank-schedule-name.yaml")));
+
+    assertTrue(exception.getMessage().contains("name"));
+  }
+
+  @Test
+  void legacyIdMayMatchKeyWhenNameIsExplicit() throws IOException {
+    write(
+        "matching-id-and-key.yaml",
+        """
+        name: matching-id-and-key
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - id: daily
+            key: daily
+            name: Daily digest
+            cron: "0 0 8 * * *"
+        """);
+
+    Profile.ScheduleConfig schedule =
+        loader().loadAll().get("matching-id-and-key").orElseThrow().schedules().get(0);
+
+    assertEquals("daily", schedule.key());
+    assertEquals("Daily digest", schedule.name());
+  }
+
+  @Test
+  void keyOnlyScheduleStillRequiresName() throws IOException {
+    write(
+        "key-only-without-name.yaml",
+        """
+        name: key-only-without-name
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: daily
+            cron: "0 0 8 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("key-only-without-name.yaml")));
+
+    assertTrue(exception.getMessage().contains("name"));
+  }
+
+  @Test
+  void 新key格式即使id相同也必须显式给出name() throws IOException {
+    write(
+        "key-without-name.yaml",
+        """
+        name: key-without-name
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - id: daily
+            key: daily
+            cron: "0 0 8 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("key-without-name.yaml")));
+
+    assertTrue(exception.getMessage().contains("name"));
+  }
+
+  @Test
+  void scheduleKeyYamlBooleanWordRejected() throws IOException {
+    write(
+        "bool-schedule-key.yaml",
+        """
+        name: bool-schedule-key
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: on
+            name: morning
+            cron: "0 0 8 * * *"
+        """);
+
+    ProfileValidationException exception =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bool-schedule-key.yaml")));
+
+    assertTrue(
+        exception.getMessage().contains("字符串") || exception.getMessage().contains("Boolean"));
+  }
+
+  @Test
+  void scheduleKeyQuotedYesOk() throws IOException {
+    write(
+        "quoted-yes-key.yaml",
+        """
+        name: quoted-yes-key
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: "yes"
+            name: yes-job
+            cron: "0 0 8 * * *"
+            message: hi
+        """);
+
+    Profile profile = loader().parse(profilesDir.resolve("quoted-yes-key.yaml"));
+    assertEquals("yes", profile.schedules().get(0).key());
+  }
+
+  @Test
+  void 定时配置缺少cron时报错点名() throws IOException {
+    write(
+        "missing-cron.yaml",
+        """
+        name: missing-cron
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: morning
+            name: Morning digest
+            message: run now
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("missing-cron.yaml")));
+
+    assertTrue(ex.getMessage().contains("morning"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
+  }
+
+  @Test
+  void 定时配置cron为空字符串时报错点名() throws IOException {
+    write(
+        "blank-cron.yaml",
+        """
+        name: blank-cron
+        provider:
+          name: deepseek
+          model: deepseek-chat
+        schedules:
+          - key: evening
+            name: Evening digest
+            cron: ""
+            message: run now
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("blank-cron.yaml")));
+
+    assertTrue(ex.getMessage().contains("evening"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("cron"), ex.getMessage());
+  }
+
+  @Test
+  void persona段_七字段解析且sampleStyle蛇形键映射() throws IOException {
+    write(
+        "persona.yaml",
+        """
+        name: p
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          name: 老张
+          role: 运维专家
+          traits: 严谨、可靠
+          tone: 简洁
+          values: 诚实
+          boundaries: 不越权
+          sample_style: 先结论后依据
+        """);
+
+    Profile.Persona persona = loader().loadAll().get("p").orElseThrow().persona();
+
+    assertEquals("老张", persona.name());
+    assertEquals("运维专家", persona.role());
+    assertEquals("严谨、可靠", persona.traits());
+    assertEquals("简洁", persona.tone());
+    assertEquals("诚实", persona.values());
+    assertEquals("不越权", persona.boundaries());
+    assertEquals("先结论后依据", persona.sampleStyle()); // sample_style → sampleStyle
+  }
+
+  @Test
+  void 无persona段_返回null_向后兼容() throws IOException {
+    write("nopersona.yaml", "name: nopersona\nprovider:\n  name: deepseek\n  model: m\n");
+
+    Profile profile = loader().loadAll().get("nopersona").orElseThrow();
+
+    assertNull(profile.persona()); // 契约二：老 Agent 零改变
+  }
+
+  @Test
+  void persona段缺name或role_校验异常() throws IOException {
+    write(
+        "bad-persona.yaml",
+        """
+        name: bp
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          role: 只有角色
+        """);
+
+    ProfileValidationException ex =
+        assertThrows(
+            ProfileValidationException.class,
+            () -> loader().parse(profilesDir.resolve("bad-persona.yaml")));
+
+    assertTrue(ex.getMessage().contains("name/role"));
+  }
+
+  @Test
+  void persona段sampleStyle可空() throws IOException {
+    write(
+        "min-persona.yaml",
+        """
+        name: mp
+        provider:
+          name: deepseek
+          model: m
+        persona:
+          name: 助手
+          role: 乐于助人的助手
+        """);
+
+    Profile.Persona persona = loader().loadAll().get("mp").orElseThrow().persona();
+
+    assertNotNull(persona);
+    assertNull(persona.sampleStyle());
+  }
+
+  // —— 023：provider.fallback 有序备用列表解析 ——
+
+  @Test
+  void fallback两候选_按序解析() throws IOException {
+    write(
+        "fb.yaml",
+        """
+        name: fb-agent
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: kimi
+              model: moonshot-v1-8k
+            - name: deepseek
+              model: deepseek-reasoner
+        """);
+
+    Profile profile = loader().loadAll().get("fb-agent").orElseThrow();
+
+    assertEquals(
+        java.util.List.of(
+            new Profile.ProviderRef.FallbackRef("kimi", "moonshot-v1-8k"),
+            new Profile.ProviderRef.FallbackRef("deepseek", "deepseek-reasoner")),
+        profile.provider().fallbacks()); // 顺序即声明序
+  }
+
+  @Test
+  void fallback候选缺model_加载失败跳过该文件() throws IOException {
+    write(
+        "bad-fb.yaml",
+        """
+        name: bad-fb
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: kimi
+        """);
+
+    assertTrue(loader().loadAll().get("bad-fb").isEmpty()); // 坏文件 ERROR 跳过（与主 provider 校验同口径）
+  }
+
+  @Test
+  void fallback候选引用未知provider_WARN但加载成功() throws IOException {
+    write(
+        "unknown-fb.yaml",
+        """
+        name: unknown-fb
+        provider:
+          name: deepseek
+          model: deepseek-chat
+          fallback:
+            - name: ghost-provider
+              model: some-model
+        """);
+
+    Profile profile = loader().loadAll().get("unknown-fb").orElseThrow();
+
+    // 候选可用性是运行时属性：保留声明、调用时跳过（tools 未注册口径）
+    assertEquals(
+        java.util.List.of(new Profile.ProviderRef.FallbackRef("ghost-provider", "some-model")),
+        profile.provider().fallbacks());
+  }
+
+  @Test
+  void 无fallback字段_列表为空_旧YAML零变化() throws IOException {
+    write("plain.yaml", FULL_YAML);
+
+    Profile profile = loader().loadAll().get("ops-agent").orElseThrow();
+
+    assertTrue(profile.provider().fallbacks().isEmpty());
+    assertEquals("deepseek", profile.provider().name()); // 既有解析不受影响
   }
 }

@@ -2,6 +2,7 @@
 #
 #   make build     编译并打包可执行 jar（含管理台前端）
 #   make release   打发行版 dist/oryxos-<version>.tar.gz（bin/ config/ libs/）
+#   make docker    用已构建的胖 jar 构建本地镜像 oryxos:<version>（不跑 Maven，镜像内只有 JRE）
 #   make clean     清理 dist/ 与 maven target/
 #   make help      帮助
 #
@@ -21,12 +22,13 @@ STAGE     := $(DIST_DIR)/$(DIST_NAME)
 BOOT_JAR  := oryxos-boot/target/oryxos-boot-$(VERSION).jar
 TARBALL   := $(DIST_DIR)/$(DIST_NAME).tar.gz
 
-.PHONY: help build release clean
+.PHONY: help build release docker clean
 
 help:
 	@echo "OryxOS make 目标（version = $(VERSION)）："
 	@echo "  make build     编译打包可执行 jar（含管理台前端）"
 	@echo "  make release   打发行版 $(TARBALL)（bin/ config/ libs/）"
+	@echo "  make docker    构建本地镜像 oryxos:$(VERSION)（依赖 build 产出的胖 jar）"
 	@echo "  make clean     清理 dist/ 与 maven target/"
 
 # 全量打包：frontend-maven-plugin 会一并构建管理台前端进 jar（不加 -Dfrontend.skip）
@@ -48,6 +50,12 @@ release: build
 	@echo "==> 完成：$(TARBALL)  ($$(du -sh "$(TARBALL)" | cut -f1))"
 	@echo "==> 内容："
 	@tar -tzf "$(TARBALL)"
+
+# 依赖 build 产出的胖 jar 构建本地镜像（镜像内不跑 Maven——jar 平台无关，多架构只需换基础镜像层）。
+# JAR_FILE 显式钉死版本：target/ 里若残留多个旧版本 jar，Dockerfile 的默认 glob 会有歧义，这里不猜。
+docker:
+	@test -f "$(BOOT_JAR)" || { echo "[ERROR] 找不到 $(BOOT_JAR)，先 make build"; exit 1; }
+	docker build --build-arg JAR_FILE=$(BOOT_JAR) -t oryxos:$(VERSION) .
 
 clean:
 	rm -rf "$(DIST_DIR)"

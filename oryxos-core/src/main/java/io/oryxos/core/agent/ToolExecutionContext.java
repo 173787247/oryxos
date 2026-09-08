@@ -14,6 +14,16 @@ public final class ToolExecutionContext {
 
   private static final ThreadLocal<String> AGENT = new ThreadLocal<>();
 
+  /**
+   * 容器 ID 惰性读取器（024）：docker 档审计时才回读 cidfile——start 时容器 ID 由 docker 异步写入， 审计发生在进程结束后，届时必然可读。local 档
+   * / 无上下文为 null。
+   */
+  private static final ThreadLocal<java.util.function.Supplier<String>> CONTAINER_ID =
+      new ThreadLocal<>();
+
+  /** 执行后端标识（024）："docker" / null（null ≡ local，见 ToolInvocation.executionBackend）。 */
+  private static final ThreadLocal<String> EXECUTION_BACKEND = new ThreadLocal<>();
+
   private ToolExecutionContext() {}
 
   /** 置入当前 Agent 名（ToolExecutor 执行工具前调用；读记忆的门面在 buildContext/readAll 前后也临时置入）。 */
@@ -26,8 +36,30 @@ public final class ToolExecutionContext {
     return AGENT.get();
   }
 
+  /**
+   * 置入执行后端（024，DockerProcessStarter 启动时调用）：backend 为 "docker" 时同时携带容器 ID 惰性读取器； local 档不置入（保持 null
+   * ≡ local 语义，审计缺省归一 local 见 JpaToolInvocationAuditor）。
+   */
+  public static void setExecution(String backend, java.util.function.Supplier<String> containerId) {
+    EXECUTION_BACKEND.set(backend);
+    CONTAINER_ID.set(containerId);
+  }
+
+  /** 当前执行后端，可能为 {@code null}（local / 未置入）。 */
+  public static String executionBackend() {
+    return EXECUTION_BACKEND.get();
+  }
+
+  /** 当前容器 ID（惰性读取），local 档 / 未就绪为 {@code null}。 */
+  public static String containerId() {
+    java.util.function.Supplier<String> supplier = CONTAINER_ID.get();
+    return supplier == null ? null : supplier.get();
+  }
+
   /** 清除（执行工具后调用，避免线程复用时串到下一个 Agent）。 */
   public static void clear() {
     AGENT.remove();
+    EXECUTION_BACKEND.remove();
+    CONTAINER_ID.remove();
   }
 }

@@ -3,6 +3,7 @@ package io.oryxos.core.skill;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -15,6 +16,7 @@ class AgentSkillReconciliationTest {
 
   @Test
   void classifiesFiveIssuesWhileKeepingValidArchivedLinksClean() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
     SkillWorkspaceFixture fixture = new SkillWorkspaceFixture(root);
     Path active = fixture.agent("active", "skills:\n  - report\n");
     fixture.skill("report", "报告");

@@ -101,4 +101,105 @@ class NotifyChannelApiControllerTest {
     mvc.perform(delete("/api/v1/notify-channels/ghost")).andExpect(status().isNotFound());
     verify(registry, never()).delete(eq("ghost"));
   }
+
+  // —— 022 US3：敏感项掩码回显 + 未修改判定 ——
+
+  private static NotifyChannelDef mailDef(String password) {
+    return new NotifyChannelDef(
+        "mail",
+        "email",
+        "smtp://placeholder",
+        "d",
+        java.util.Map.of(
+            "host",
+            "smtp.example.com",
+            "port",
+            "465",
+            "from",
+            "a@b.c",
+            "to",
+            "ops@b.c",
+            "password",
+            password));
+  }
+
+  @Test
+  @DisplayName("022 查询回显_敏感项掩码_普通项原样_无明文")
+  void query_masksSensitiveConfig() throws Exception {
+    when(registry.list()).thenReturn(java.util.List.of(mailDef("p@ss-secret")));
+    when(registry.find("mail")).thenReturn(Optional.of(mailDef("p@ss-secret")));
+
+    mvc.perform(get("/api/v1/notify-channels"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].config.password").value("****cret"))
+        .andExpect(jsonPath("$.data[0].config.host").value("smtp.example.com"));
+    String detail =
+        mvc.perform(get("/api/v1/notify-channels/mail"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    org.assertj.core.api.Assertions.assertThat(detail).doesNotContain("p@ss-secret");
+  }
+
+  @Test
+  @DisplayName("022 更新_掩码原样提交=未修改_原值保留")
+  void update_maskedValueKeepsOriginal() throws Exception {
+    when(registry.exists("mail")).thenReturn(true);
+    when(registry.find("mail")).thenReturn(Optional.of(mailDef("p@ss-secret")));
+    when(registry.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/v1/notify-channels/mail")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"type\":\"email\",\"url\":\"smtp://placeholder\",\"config\":{"
+                        + "\"host\":\"smtp.example.com\",\"port\":\"465\",\"from\":\"a@b.c\","
+                        + "\"to\":\"ops@b.c\",\"password\":\"****cret\"}}"))
+        .andExpect(status().isOk());
+
+    org.mockito.ArgumentCaptor<NotifyChannelDef> captor =
+        org.mockito.ArgumentCaptor.forClass(NotifyChannelDef.class);
+    verify(registry).save(captor.capture());
+    org.assertj.core.api.Assertions.assertThat(captor.getValue().config())
+        .containsEntry("password", "p@ss-secret"); // 掩码=未修改 → registry 收到原明文
+  }
+
+  @Test
+  @DisplayName("022 更新_留空同样保留原值_新值则生效")
+  void update_blankKeepsOriginal_newValueWins() throws Exception {
+    when(registry.exists("mail")).thenReturn(true);
+    when(registry.find("mail")).thenReturn(Optional.of(mailDef("p@ss-secret")));
+    when(registry.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    // 留空 → 保留
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/v1/notify-channels/mail")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"type\":\"email\",\"url\":\"smtp://placeholder\",\"config\":{"
+                        + "\"host\":\"smtp.example.com\",\"port\":\"465\",\"from\":\"a@b.c\","
+                        + "\"to\":\"ops@b.c\",\"password\":\"\"}}"))
+        .andExpect(status().isOk());
+    // 新值 → 生效
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/v1/notify-channels/mail")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"type\":\"email\",\"url\":\"smtp://placeholder\",\"config\":{"
+                        + "\"host\":\"smtp.example.com\",\"port\":\"465\",\"from\":\"a@b.c\","
+                        + "\"to\":\"ops@b.c\",\"password\":\"new-pass-9\"}}"))
+        .andExpect(status().isOk());
+
+    org.mockito.ArgumentCaptor<NotifyChannelDef> captor =
+        org.mockito.ArgumentCaptor.forClass(NotifyChannelDef.class);
+    verify(registry, org.mockito.Mockito.times(2)).save(captor.capture());
+    org.assertj.core.api.Assertions.assertThat(captor.getAllValues().get(0).config())
+        .containsEntry("password", "p@ss-secret");
+    org.assertj.core.api.Assertions.assertThat(captor.getAllValues().get(1).config())
+        .containsEntry("password", "new-pass-9");
+  }
 }

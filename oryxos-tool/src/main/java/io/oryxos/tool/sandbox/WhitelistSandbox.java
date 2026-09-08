@@ -17,21 +17,22 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 核心阶段唯一的 {@link Sandbox} 实现：应用层白名单校验（宪法 VI 第一档）。按 {@link ActionType} 路由到文件路径 / 可执行文件 / HTTP
- * 域名三类校验，任一不过抛 {@link SandboxViolationException}、动作零发生。
+ * 核心阶段唯一的 {@link Sandbox} 实现：应用层白名单校验（宪法 VI 第一档）。按 {@link ActionType} 路由到文件路径 / 可执行文件 / HTTP 域名 /
+ * SMTP 端点四类校验，任一不过抛 {@link SandboxViolationException}、动作零发生。
  *
- * <p>三块白名单初始来自配置（{@code file.allowed_paths} / {@code shell.allowed_commands} / {@code
- * http.allowed_domains}）。空列表天然 deny-all（{@code anyMatch} 对空流恒 false），配置缺失绝不退化为放行。
+ * <p>四块白名单初始来自配置（{@code file.allowed_paths} / {@code shell.allowed_commands} / {@code
+ * http.allowed_domains} / {@code smtp.allowed_endpoints}）。空列表天然 deny-all（{@code anyMatch} 对空流恒
+ * false），配置缺失绝不退化为放行。
  *
  * <p>同时实现 {@link SandboxWhitelist}：管理员可经 Web 端点运行时查询 / 增删白名单。存储用并发集合 （{@link CopyOnWriteArrayList}
  * / {@link ConcurrentHashMap#newKeySet()}）——校验读路径无锁（热路径）， 管理写路径极少发生、拷贝开销可接受；非异步编程模型，符合宪法 VII。每次改动落
  * INFO 日志留痕。
  *
- * <p>三个 {@code check*} 与 {@code matchesDomain} 均 {@code private}——对外只暴露 {@code enforce} 与管理三方法。 若把
- * check* public 暴露到 {@code Sandbox} 接口上，接口就被这一档实现带偏了。
+ * <p>四个 {@code check*} 与 {@code matchesDomain} 均 {@code private}。连接层仅通过 {@link
+ * ResolvedHttpReadGuard} 取得当次已校验的 HTTP_READ 地址集；通用 {@link Sandbox} 接口仍保持 {@code enforce(void)} 契约。
  */
 // final：构造器会因非法配置抛异常（normalizeRoot/requireNonBlank），禁止子类化以杜绝 finalizer attack（CT_CONSTRUCTOR_THROW）
-public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
+public final class WhitelistSandbox implements Sandbox, SandboxWhitelist, ResolvedHttpReadGuard {
 
   private static final Logger LOG = LoggerFactory.getLogger(WhitelistSandbox.class);
 
@@ -53,10 +54,24 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   /** {@code ::ffff:0:0/96} 前缀中必须为 0 的前缀字节数（随后两字节为 0xff）。 */
   private static final int IPV4_MAPPED_ZERO_PREFIX_LENGTH = 10;
 
+  /** IPv4-mapped / NAT64 / IPv4-compatible：嵌入 IPv4 起始下标（末 4 字节）。 */
+  private static final int EMBEDDED_IPV4_TAIL_OFFSET = 12;
+
+  /** 6to4：嵌入 IPv4 起始下标（字节 2–5）。 */
+  private static final int SIXTOFOUR_IPV4_OFFSET = 2;
+
+  private static final int IPV4_OCTET_COUNT = 4;
+
+  /** 原生 IPv6 {@code ::1} 的末字节。 */
+  private static final byte IPV6_LOOPBACK_SUFFIX = 1;
+
+  private static final byte[] NO_EMBEDDED_IPV4 = new byte[0];
+
   // 具体类型 CopyOnWriteArrayList（而非 List 接口）：需要 addIfAbsent 的原子"不存在才加"语义
   private final CopyOnWriteArrayList<Path> allowedRoots = new CopyOnWriteArrayList<>();
   private final Set<String> allowedCommands = ConcurrentHashMap.newKeySet();
   private final CopyOnWriteArrayList<String> allowedDomainPatterns = new CopyOnWriteArrayList<>();
+  private final CopyOnWriteArrayList<String> allowedSmtpEndpoints = new CopyOnWriteArrayList<>();
 
   // 持久化后端（31 节）：非空则 add/remove 写穿落库、构造时从库恢复；为 null 时纯内存（单测 / 无库场景）。
   private final SandboxWhitelistStore store;
@@ -97,8 +112,10 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
       allowedRoots.addIfAbsent(normalizeRoot(value));
     } else if (category == Category.SHELL) {
       allowedCommands.add(requireNonBlank(value));
-    } else {
+    } else if (category == Category.HTTP) {
       allowedDomainPatterns.addIfAbsent(value);
+    } else if (category == Category.SMTP) {
+      allowedSmtpEndpoints.addIfAbsent(value);
     }
   }
 
@@ -137,6 +154,9 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
         break;
       case HTTP_REQUEST:
         checkHttpWrite(action.target());
+        break;
+      case SMTP_SEND:
+        checkSmtpEndpoint(action.target());
         break;
       default:
         // 安全默认：未来若新增未覆盖的动作类型，deny 而非静默放行（宪法 VI）
@@ -195,7 +215,7 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     if (host == null || host.isBlank()) {
       throw new SandboxViolationException("读请求缺少主机名，拒绝: " + url);
     }
-    assertNotInternalHost(host);
+    resolveHttpReadHost(host);
   }
 
   /**
@@ -232,12 +252,44 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     }
   }
 
+  /**
+   * SMTP 发信（非 HTTP 出站）：过端点白名单——按 host[:port] 精确放行，端口不被忽略（区别于 {@link #checkHttpWrite} 只校验域名）。
+   * 白名单条目形如 {@code host}（任意端口）或 {@code host:port}（指定端口），域名部分支持 {@code *.} 通配。
+   */
+  private void checkSmtpEndpoint(String hostPort) {
+    int colon = hostPort == null ? -1 : hostPort.lastIndexOf(':');
+    String host = colon < 0 ? hostPort : hostPort.substring(0, colon);
+    String port = colon < 0 ? null : hostPort.substring(colon + 1);
+    if (host == null || host.isBlank()) {
+      throw new SandboxViolationException("SMTP 目标缺少主机名，拒绝: " + hostPort);
+    }
+    boolean allowed = allowedSmtpEndpoints.stream().anyMatch(p -> matchesSmtp(p, host, port));
+    if (!allowed) {
+      throw new SandboxViolationException(
+          "SMTP 目标不在出网白名单: "
+              + hostPort
+              + "。这是安全策略（防数据外发），请勿反复重试；确需向该邮件服务器发信，请在管理台「SandBox 列表」把该 smtp 端点（host[:port]）加入 smtp 白名单后再试。");
+    }
+  }
+
+  /** 端点匹配：域名部分复用 {@link #matchesDomain}（大小写不敏感 + {@code *.} 通配）；带端口的条目还需端口相等。 */
+  private boolean matchesSmtp(String pattern, String host, String targetPort) {
+    int colon = pattern.lastIndexOf(':');
+    String patternHost = colon < 0 ? pattern : pattern.substring(0, colon);
+    String patternPort = colon < 0 ? null : pattern.substring(colon + 1);
+    if (!matchesDomain(host, patternHost)) {
+      return false;
+    }
+    return patternPort == null || patternPort.equals(targetPort);
+  }
+
   /** SSRF 兜底：拒绝主机解析到回环/任意本地/链路本地(含云元数据 169.254.169.254)/站点内网/组播/CGNAT，及 localhost、*.internal。 */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "IMPROPER_UNICODE",
       justification =
           "IDN.toASCII canonicalizes the complete DNS host before security checks; no substring is transformed independently.")
-  private static void assertNotInternalHost(String host) {
+  @Override
+  public InetAddress[] resolveHttpReadHost(String host) {
     String asciiHost;
     try {
       asciiHost = IDN.toASCII(host);
@@ -264,15 +316,20 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
             "拒绝访问内网 / 保留地址（SSRF 防护）: " + host + " → " + addr.getHostAddress() + "。这是安全策略，请勿重试。");
       }
     }
+    return addresses.clone();
   }
 
   /**
-   * 对解析结果做 SSRF 分类。IPv4-mapped（{@code ::ffff:0:0/96}）与 NAT64 知名前缀（{@code 64:ff9b::/96}）先展开末 32 位
-   * IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定——否则 {@code [64:ff9b::169.254.169.254]} 会以「公网 IPv6」放行。
+   * 对解析结果做 SSRF 分类。IPv4-mapped（{@code ::ffff:0:0/96}）、NAT64 知名前缀（{@code 64:ff9b::/96}）、6to4（{@code
+   * 2002::/16}）、Teredo（{@code 2001:0000::/32}）、ISATAP（IID {@code 0000:5EFE}/{@code 0200:5EFE}）与已弃用的
+   * IPv4-compatible（{@code ::/96}）先展开嵌入 IPv4，再套用回环/链路本地/站点内网/CGNAT 等判定。
    */
   private static boolean isBlockedSsrfAddress(InetAddress addr) {
     InetAddress effective = unwrapEmbeddedIpv4(addr);
-    return effective.isLoopbackAddress()
+    // addr 侧保留原生 IPv6 回环/未指定（避免 ::1 被误展开成 0.0.0.1 后漏拦）
+    return addr.isLoopbackAddress()
+        || addr.isAnyLocalAddress()
+        || effective.isLoopbackAddress()
         || effective.isAnyLocalAddress()
         || effective.isLinkLocalAddress()
         || effective.isSiteLocalAddress()
@@ -282,24 +339,60 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
   }
 
   /**
-   * 若为 IPv4-mapped 或 NAT64 well-known prefix，返回嵌入的 IPv4；否则原样返回。JDK 常把 mapped 字面量直接解成 {@link
-   * java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与 NAT64。
+   * 若为 IPv4-mapped / NAT64 / 6to4 / Teredo / ISATAP / IPv4-compatible，返回嵌入的 IPv4；否则原样返回。JDK 常把
+   * mapped 字面量直接解成 {@link java.net.Inet4Address}，此展开主要兜住仍以 16 字节返回的形态与隧道前缀。
    */
   private static InetAddress unwrapEmbeddedIpv4(InetAddress addr) {
     byte[] b = addr.getAddress();
-    if (!isEmbeddedIpv4Candidate(b)) {
+    if (b.length != IPV6_ADDRESS_LENGTH) {
+      return addr;
+    }
+    byte[] ipv4 = extractEmbeddedIpv4(b);
+    if (ipv4.length == 0) {
       return addr;
     }
     try {
-      return InetAddress.getByAddress(new byte[] {b[12], b[13], b[14], b[15]});
+      return InetAddress.getByAddress(ipv4);
     } catch (UnknownHostException e) {
       return addr; // 4 字节形式不会失败；保底不改变判定输入
     }
   }
 
-  /** 16 字节且带 IPv4-mapped 或 NAT64 知名前缀时，才做末 32 位展开。 */
-  private static boolean isEmbeddedIpv4Candidate(byte[] b) {
-    return b.length == IPV6_ADDRESS_LENGTH && (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b));
+  private static byte[] extractEmbeddedIpv4(byte[] b) {
+    if (isIpv4MappedPrefix(b) || isNat64WellKnownPrefix(b) || isIpv4CompatiblePrefix(b)) {
+      return new byte[] {
+        b[EMBEDDED_IPV4_TAIL_OFFSET],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
+      };
+    }
+    if (isSixToFourPrefix(b)) {
+      return new byte[] {
+        b[SIXTOFOUR_IPV4_OFFSET],
+        b[SIXTOFOUR_IPV4_OFFSET + 1],
+        b[SIXTOFOUR_IPV4_OFFSET + 2],
+        b[SIXTOFOUR_IPV4_OFFSET + 3]
+      };
+    }
+    if (isTeredoPrefix(b)) {
+      return new byte[] {
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 1] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 2] & 0xFF),
+        (byte) (~b[EMBEDDED_IPV4_TAIL_OFFSET + 3] & 0xFF)
+      };
+    }
+    if (isIsatapInterfaceId(b)) {
+      // RFC 5214：IID 0000:5EFE / 0200:5EFE，IPv4 在末 32 位（不取反）
+      return new byte[] {
+        b[EMBEDDED_IPV4_TAIL_OFFSET],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 1],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 2],
+        b[EMBEDDED_IPV4_TAIL_OFFSET + 3]
+      };
+    }
+    return NO_EMBEDDED_IPV4;
   }
 
   /** {@code ::ffff:0:0/96}——前 10 字节为 0，第 11–12 字节为 {@code 0xff}。 */
@@ -310,6 +403,26 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
       }
     }
     return (b[10] & 0xFF) == 0xFF && (b[11] & 0xFF) == 0xFF;
+  }
+
+  /** Teredo {@code 2001:0000::/32}（RFC 4380）。 */
+  private static boolean isTeredoPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x20
+        && (b[1] & 0xFF) == 0x01
+        && (b[2] & 0xFF) == 0x00
+        && (b[3] & 0xFF) == 0x00;
+  }
+
+  /**
+   * ISATAP 接口标识（RFC 5214 §6.1）：字节 8–11 为 {@code 0000:5EFE}，或 u 位置位时的 {@code 0200:5EFE}；嵌入 IPv4 在字节
+   * 12–15。
+   */
+  private static boolean isIsatapInterfaceId(byte[] b) {
+    int b8 = b[8] & 0xFF;
+    return (b8 == 0x00 || b8 == 0x02)
+        && b[9] == 0
+        && (b[10] & 0xFF) == 0x5E
+        && (b[11] & 0xFF) == 0xFE;
   }
 
   /** NAT64 知名前缀 {@code 64:ff9b::/96}（RFC 6052）。 */
@@ -326,6 +439,39 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
         && b[9] == 0
         && b[10] == 0
         && b[11] == 0;
+  }
+
+  /** 6to4 {@code 2002::/16}（RFC 3056）。 */
+  private static boolean isSixToFourPrefix(byte[] b) {
+    return (b[0] & 0xFF) == 0x20 && (b[1] & 0xFF) == 0x02;
+  }
+
+  /**
+   * 已弃用的 IPv4-compatible {@code ::/96}（RFC 4291），排除 {@code ::ffff:0:0/96} mapped，以及原生 {@code
+   * ::}/{@code ::1}（否则会展开成 0.0.0.0/0.0.0.1 漏拦）。
+   */
+  private static boolean isIpv4CompatiblePrefix(byte[] b) {
+    for (int i = 0; i < IPV4_MAPPED_ZERO_PREFIX_LENGTH; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
+    }
+    if (b[IPV4_MAPPED_ZERO_PREFIX_LENGTH] != 0 || b[IPV4_MAPPED_ZERO_PREFIX_LENGTH + 1] != 0) {
+      return false;
+    }
+    return !isNativeIpv6UnspecifiedOrLoopbackTail(b);
+  }
+
+  /** 末 4 字节为 {@code 0.0.0.0}（{@code ::}）或 {@code 0.0.0.1}（{@code ::1}）。 */
+  private static boolean isNativeIpv6UnspecifiedOrLoopbackTail(byte[] b) {
+    int lastIndex = EMBEDDED_IPV4_TAIL_OFFSET + IPV4_OCTET_COUNT - 1;
+    for (int i = EMBEDDED_IPV4_TAIL_OFFSET; i < lastIndex; i++) {
+      if (b[i] != 0) {
+        return false;
+      }
+    }
+    byte last = b[lastIndex];
+    return last == 0 || last == IPV6_LOOPBACK_SUFFIX;
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -386,7 +532,10 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     if (category == Category.SHELL) {
       return List.copyOf(allowedCommands);
     }
-    return List.copyOf(allowedDomainPatterns);
+    if (category == Category.HTTP) {
+      return List.copyOf(allowedDomainPatterns);
+    }
+    return List.copyOf(allowedSmtpEndpoints);
   }
 
   @Override
@@ -412,9 +561,12 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     } else if (category == Category.SHELL) {
       canonical = entry;
       changed = allowedCommands.add(canonical);
-    } else {
+    } else if (category == Category.HTTP) {
       canonical = entry;
       changed = allowedDomainPatterns.addIfAbsent(entry);
+    } else {
+      canonical = entry;
+      changed = allowedSmtpEndpoints.addIfAbsent(entry);
     }
     // 写穿：只有内存确有变更才落库（幂等，避免重复写；启动播种重复调用不会重复插入）
     if (changed && store != null) {
@@ -443,9 +595,12 @@ public final class WhitelistSandbox implements Sandbox, SandboxWhitelist {
     } else if (category == Category.SHELL) {
       canonical = entry;
       changed = allowedCommands.remove(entry);
-    } else {
+    } else if (category == Category.HTTP) {
       canonical = entry;
       changed = allowedDomainPatterns.remove(entry);
+    } else {
+      canonical = entry;
+      changed = allowedSmtpEndpoints.remove(entry);
     }
     if (changed && store != null) {
       store.remove(category, canonical);

@@ -11,7 +11,8 @@ public record AgentView(
     String model,
     List<String> tools,
     List<String> skills,
-    List<ScheduleView> schedules) {
+    List<ScheduleView> schedules,
+    PersonaView persona) {
 
   public AgentView {
     tools = tools == null ? List.of() : List.copyOf(tools);
@@ -27,7 +28,7 @@ public record AgentView(
     Profile.ProviderRef pr = p.provider();
     List<ScheduleView> scheds =
         p.schedules().stream()
-            .map(s -> new ScheduleView(s.id(), s.cron(), s.zone(), s.message()))
+            .map(s -> new ScheduleView(s.key(), s.name(), s.cron(), s.zone(), s.message()))
             .toList();
     return new AgentView(
         p.name(),
@@ -36,8 +37,27 @@ public record AgentView(
         pr == null ? null : pr.model(),
         p.tools(),
         liveSkills,
-        scheds);
+        scheds,
+        PersonaView.from(p.persona()));
   }
 
-  public record ScheduleView(String id, String cron, String zone, String message) {}
+  public record ScheduleView(String key, String name, String cron, String zone, String message) {}
+
+  /** 人格投影（025）：七个字段直出，无 persona 时整个字段为 null（老 Agent 前端不显示人格卡）。 */
+  public record PersonaView(
+      String name,
+      String role,
+      String traits,
+      String tone,
+      String values,
+      String boundaries,
+      String sampleStyle) {
+    public static PersonaView from(Profile.Persona p) {
+      if (p == null) {
+        return null;
+      }
+      return new PersonaView(
+          p.name(), p.role(), p.traits(), p.tone(), p.values(), p.boundaries(), p.sampleStyle());
+    }
+  }
 }

@@ -194,8 +194,11 @@ Runs a single-turn ReAct Loop without creating a persistent session.
 
 ```json
 // data — MessageResponse
-{ "reply": "The last 10 commits covered ReAct Loop, provider abstraction, and SQLite persistence." }
+{ "reply": "The last 10 commits covered ReAct Loop, provider abstraction, and SQLite persistence.",
+  "traceId": "3f9c2b1a-…" }
 ```
+
+`traceId` (021) identifies this single message-processing round end to end, for incident reports and audit replay (see the "Audit trace" section).
 
 ### Get an agent's memory
 
@@ -376,7 +379,7 @@ null
 
 ## Notify channels
 
-Notify channels are managed dynamically and stored in SQLite (the `notify_channels` table). The `notify` tool references a channel **by name** in natural language inside an `AGENT.md` body (e.g. "发到 team-lark"); the tool resolves the registered channel to its adapter and URL. There is no `notify_channels` field in the AGENT.md frontmatter.
+Notify channels are managed dynamically and stored in SQLite (the `notify_channels` table). Password-like sensitive keys in `config` (`password/secret/token/api_key`, etc.) are stored encrypted (022, `enc:v1:` prefix); query endpoints echo them only as masks (`****` + last 4 chars), and submitting the mask unchanged (or blank) on edit keeps the original value — same interaction as the provider api-key. The `notify` tool references a channel **by name** in natural language inside an `AGENT.md` body (e.g. "发到 team-lark"); the tool resolves the registered channel to its adapter and URL. There is no `notify_channels` field in the AGENT.md frontmatter.
 
 `type` is one of `feishu` | `wecom` | `dingtalk` | `webhook` (each backed by an adapter).
 
@@ -480,6 +483,29 @@ Appends the user message to the session history and runs the ReAct Loop. Blocks 
 { "reply": "当前磁盘使用情况：/dev/sda1 使用率 42%，其余挂载点均低于 30%。" }
 ```
 
+### SSE streaming
+
+Three message endpoints (this one, [stateless invoke](#stateless-invoke), and [send a message to the console session](#send-a-message-to-the-console-session)) support streaming: send `Accept: text/event-stream` to switch the response to an SSE event stream; without it the one-shot JSON above is returned unchanged.
+
+```bash
+curl -N -H "Accept: text/event-stream" -H "Content-Type: application/json" \
+  -d '{"content":"introduce yourself"}' \
+  http://localhost:8080/api/v1/sessions/<id>/messages
+```
+
+Event types (`data:` is single-line JSON):
+
+| event | data payload | Meaning |
+| --- | --- | --- |
+| `token` | `{"delta":"…"}` | Reply text increment (typewriter) |
+| `tool_start` | `{"name":"shell"}` | Tool call started |
+| `tool_end` | `{"name":"shell","success":true}` | Tool call finished |
+| `done` | `{"reply":"full reply"}` | Terminal event (exactly one of done/error) |
+| `error` | `{"code":500,"message":"…"}` | Terminal event for mid-stream failures |
+| `: ping` | — (SSE comment line) | Heartbeat every `oryxos.web.sse.heartbeat-seconds` (default 15s); parsers should ignore it |
+
+Semantic promises: concatenated `token` deltas equal `done.reply`; pre-stream failures (404/401/400) still return JSON status codes; if the client disconnects mid-stream the server completes the round anyway — history and audit rows are written as usual (no refund on disconnect); streaming and non-streaming write identical `llm_calls`/`tool_invocations` audit records. Full contract: `specs/019-sse-streaming/contracts/sse-protocol.md` in the repository.
+
 ### List sessions
 
 **GET** `/api/v1/sessions?status=active`
@@ -535,17 +561,29 @@ Marks the session as archived. Data is retained in SQLite; the session is exclud
 
 ## Schedules
 
-Scheduled tasks are derived from the `schedules` block in each Agent's `AGENT.md`. The web manager can list, inspect, trigger, and toggle them.
+Scheduled tasks are derived from the `schedules` block in each Agent's `AGENT.md`. New clients must use the v2 endpoints below: `scheduleId` is the stable runtime identity, while `key` is only Agent-local. The v1 endpoints in the following legacy section resolve a key only when it is unambiguous; otherwise they return `409`.
+
+### v2 runtime API
+
+- `GET /api/v2/schedules`
+- `POST /api/v2/schedules/{scheduleId}/run`
+- `PUT /api/v2/schedules/{scheduleId}`
+- `GET /api/v2/schedules/{scheduleId}/executions?limit=20`
+- `POST /api/v2/agents/{profileName}/schedules/{key}/run`
+
+Each v2 schedule contains `scheduleId`, `profileName`, `key`, `name`, and its runtime state. Execution rows include `legacyMigrated` and `legacyTaskKey` for history imported from the pre-v2 schema.
+
+### Deprecated v1 compatibility API
 
 ### List schedules
 
 **GET** `/api/v1/schedules`
 
 ```json
-// data — ScheduleView[]
+// data — LegacyScheduleView[]
 [
   {
-    "taskId": "weather-daily:morning",
+    "taskId": "morning",
     "profileName": "weather-daily",
     "cron": "0 0 8 * * *",
     "zone": "Asia/Shanghai",
@@ -569,8 +607,10 @@ Returns execution history for a task (`limit` caps the rows).
 // data — ExecutionView[]
 [
   {
-    "taskId": "weather-daily:morning",
-    "sessionId": "schedule:weather-daily:morning",
+    "scheduleId": "ae3d1f7b-245c-4c37-bbf7-38a6db55bfce",
+    "legacyTaskKey": null,
+    "legacyMigrated": false,
+    "sessionId": "schedule:ae3d1f7b-245c-4c37-bbf7-38a6db55bfce",
     "startedAt": "2026-07-22T00:00:00Z",
     "success": true,
     "errorMessage": null,
@@ -588,7 +628,7 @@ Triggers the task immediately and returns the resulting execution record(s).
 ```json
 // data — ExecutionView[]
 [
-  { "taskId": "weather-daily:morning", "sessionId": "schedule:weather-daily:morning", "startedAt": "2026-07-22T09:30:00Z", "success": true, "errorMessage": null, "durationMs": 1730 }
+  { "scheduleId": "ae3d1f7b-245c-4c37-bbf7-38a6db55bfce", "legacyTaskKey": null, "legacyMigrated": false, "sessionId": "schedule:ae3d1f7b-245c-4c37-bbf7-38a6db55bfce", "startedAt": "2026-07-22T09:30:00Z", "success": true, "errorMessage": null, "durationMs": 1730 }
 ]
 ```
 
@@ -602,9 +642,9 @@ Triggers the task immediately and returns the resulting execution record(s).
 ```
 
 ```json
-// data — ScheduleView[] (the updated schedule list)
+// data — LegacyScheduleView[] (the updated schedule list)
 [
-  { "taskId": "weather-daily:morning", "profileName": "weather-daily", "cron": "0 0 8 * * *", "zone": "Asia/Shanghai", "message": "推送今天的天气和穿衣建议", "enabled": false, "nextRunAt": null, "lastRunAt": "2026-07-22T00:00:00Z", "lastStatus": "success", "runCount": 12 }
+  { "taskId": "morning", "profileName": "weather-daily", "cron": "0 0 8 * * *", "zone": "Asia/Shanghai", "message": "推送今天的天气和穿衣建议", "enabled": false, "nextRunAt": null, "lastRunAt": "2026-07-22T00:00:00Z", "lastStatus": "success", "runCount": 12 }
 ]
 ```
 
@@ -707,6 +747,76 @@ The `value` is a **query parameter**; a blank value returns `400`.
   "entries": ["*.open-meteo.com", "hn.algolia.com"]
 }
 ```
+
+---
+
+## Tool policy
+
+The platform administrator's governance layer (020): global + per-agent tool allow/deny, separate from the author-owned `tools:` list in `AGENT.md`. Policy is subtraction-only — the effective tool set is always ⊆ the declared set; it is orthogonal to the sandbox whitelist (policy decides *whether an agent may use a tool*, the sandbox decides *what resources a tool may touch*). Zero rules = current behavior unchanged; rule changes take effect immediately (hot reload).
+
+Three rule types: `GLOBAL_DENY` (all agents, no agentName), `AGENT_EXEMPT` (lifts the global deny for one agent), `AGENT_DENY` (tightens one agent — exemptions cannot save it). `pattern` is an exact tool name or an MCP server wildcard (`github-mcp:*`, matched by the tool's registered ownership). Three guards: denied tools never enter the model's tool list (before), the executor rejects by the latest policy at execution time (during, catches hallucinated calls), and `tool_invocations.blocked_by='policy'` marks the audit row (after, filterable).
+
+### Get policy and effective tool sets
+
+**GET** `/api/v1/tool-policy` — returns `rules` plus each agent's `declared` / `effective` / `removed` (with the matched-rule reason).
+
+### Create a rule
+
+**POST** `/api/v1/tool-policy/rules` — `{ "ruleType": "AGENT_EXEMPT", "agentName": "ops-agent", "pattern": "shell" }`. `GLOBAL_DENY` must not carry `agentName`, the other two must (`400` otherwise); duplicates return `409`; unknown tool names save with an `unknownTarget: true` warning flag.
+
+### Delete a rule
+
+**DELETE** `/api/v1/tool-policy/rules/{id}` — `404` if absent; takes effect immediately.
+
+### Audit filter
+
+**GET** `/api/v1/audit/tool?blockedBy=policy` — only tool calls rejected by policy.
+
+---
+
+## Audit trace
+
+One message-processing round (session message / stateless invoke / scheduled trigger / Feishu inbound) = one trace ID (UUID), shared across all audit records of that round, structured logs (MDC `traceId` field), and the return channels — the same value everywhere, so audit and logs are cross-searchable. Enabled by default with zero configuration; pre-upgrade audit rows have an empty trace and existing queries are unaffected.
+
+Three return channels (021, all purely additive):
+
+| Channel | Shape |
+|---------|-------|
+| REST non-streaming | `traceId` field on `MessageResponse` |
+| SSE streaming | first business event `event: trace` (`data: {"traceId":"…"}`) right after the stream opens; the `done` payload carries `traceId` too |
+| Execution history | `traceId` field on `AgentExecutionView` (`GET /agents/{name}/executions`) |
+
+### Single-round timeline
+
+**GET** `/api/v1/audit/trace/{traceId}`
+
+```json
+// data — TraceTimelineView
+{ "traceId": "3f9c2b1a-…", "found": true,
+  "steps": [
+    { "seq": 1, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 1200,
+      "at": "…", "promptTokens": 812, "completionTokens": 64, "totalTokens": 876, "costMicros": 120 },
+    { "seq": 2, "type": "TOOL", "name": "save_memory", "success": true, "durationMs": 15,
+      "at": "…", "inputSummary": "{\"content\":\"…\"}", "resultSummary": "OK", "blockedBy": null },
+    { "seq": 3, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 900, "at": "…", "totalTokens": 540 }
+  ],
+  "summary": { "steps": 3, "llmCalls": 2, "toolCalls": 1,
+               "totalTokens": 1416, "costMicros": 260, "totalDurationMs": 2115 } }
+```
+
+Steps are sorted by occurrence time; failed and policy-blocked steps (`blockedBy: "policy"`) are part of the chain. A miss returns `found: false` with empty `steps` (HTTP 200, not an error). The existing list views of `GET /audit/llm|tool` gain a `traceId` field (row-level trace entry point). The admin console report page offers a trace search box with a timeline view; detail rows show a clickable traceId.
+
+### Display-layer redaction
+
+On the timeline, a TOOL step's `inputSummary`/`resultSummary`/`errorMessage` are **truncated (200 chars) + redacted** display values: known API key prefixes (`sk-…`/`oryx_…`), `Authorization` credentials, URL userinfo, and `password/secret/token/api_key`-style field values are masked to `first 4 chars + ****`. Stored rows keep the original text (full forensic context; DB access = ops privilege boundary). Rules are built in and non-configurable; content without sensitive shapes is shown as-is.
+
+---
+
+## Provider fallback & business metrics
+
+**Fallback (023)**: the `provider` section of `AGENT.md` accepts an ordered fallback list — when a single LLM call hits a provider-side failure (network/timeout/5xx/429/401/403), the call retries the same request through the fallback chain in declared order; only when all candidates fail is the last error thrown. Business-level failures (400-class) never switch. Switching is scoped to a single LLM call (ReAct iteration semantics unchanged; every call starts from the primary — no cross-request health memory); streaming calls may switch only before the first content fragment is emitted. Every attempt writes its own `llm_calls` row (primary and fallback both audited, same trace), and each switch logs a WARN (from→to, with traceId). Zero declarations = zero behavior change.
+
+**Business metrics (023)**: `GET /actuator/prometheus` (existing endpoint) gains `oryxos_`-prefixed metrics for enterprise monitoring stacks — `oryxos_llm_calls_total{provider,model,outcome}` (same cardinality as `llm_calls` rows), `oryxos_llm_call_duration_seconds`, `oryxos_llm_tokens_total{type}`, `oryxos_tool_invocations_total{tool,outcome}`, `oryxos_policy_blocks_total{tool}`, `oryxos_fallback_switches_total{from,to}`. Metrics serve aggregation and alerting; the audit tables remain the source of precise replay (orthogonal — metrics never change audit semantics). Absent or zero series simply mean the event has not occurred.
 
 ---
 

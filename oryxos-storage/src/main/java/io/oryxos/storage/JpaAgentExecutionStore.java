@@ -2,6 +2,7 @@ package io.oryxos.storage;
 
 import io.oryxos.core.agent.AgentExecution;
 import io.oryxos.core.agent.AgentExecutionStore;
+import io.oryxos.core.agent.TraceContext;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -21,6 +22,8 @@ public class JpaAgentExecutionStore implements AgentExecutionStore {
     AgentExecutionEntity e = new AgentExecutionEntity();
     e.setAgentName(agentName);
     e.setSource(source);
+    // 021：同两张审计表——trace 走环境读取，Store 契约零改动（triggerAsync 主线程先 open 再 start）
+    e.setTraceId(TraceContext.current());
     e.setStartedAt(startedAt);
     return repository.save(e).getId();
   }
@@ -59,6 +62,7 @@ public class JpaAgentExecutionStore implements AgentExecutionStore {
         e.getEndedAt(),
         e.getSuccess(),
         e.getDurationMs(),
-        e.getErrorMessage());
+        e.getErrorMessage(),
+        e.getTraceId());
   }
 }

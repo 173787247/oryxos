@@ -23,7 +23,11 @@ public class MemoryTools {
   @Tool(name = "save_memory", description = "记住一件值得长期记住的事")
   public String saveMemory(
       @ToolParam(description = "要记住的内容") String content,
-      @ToolParam(description = "core 或 archival，不确定就填 archival") String scope) {
+      @ToolParam(
+              description =
+                  "记忆分区：core = 少量常驻事实（身份/偏好/硬约束，每轮对话都在场，不参与检索，务必精炼）；"
+                      + "archival = 一般值得记住的事件与结论（按需检索找回）。不确定就填 archival")
+          String scope) {
     String normalized =
         (scope == null || scope.isBlank()) ? "ARCHIVAL" : scope.toUpperCase(Locale.ROOT);
     MemoryScope target;

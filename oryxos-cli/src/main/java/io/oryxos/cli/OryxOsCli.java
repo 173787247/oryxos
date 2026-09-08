@@ -1,5 +1,6 @@
 package io.oryxos.cli;
 
+import io.oryxos.cli.command.AgentCommand;
 import io.oryxos.cli.command.ChatCommand;
 import io.oryxos.cli.command.GatewayCommand;
 import io.oryxos.cli.command.InitCommand;
@@ -35,7 +36,10 @@ import picocli.CommandLine.IVersionProvider;
       ProviderListCommand.class,
       ToolListCommand.class,
       SessionListCommand.class,
-      UserCommand.class
+      io.oryxos.cli.command.KnowledgeCommand.class,
+      UserCommand.class,
+      io.oryxos.cli.command.ApiKeyCommand.class,
+      AgentCommand.class
     })
 public class OryxOsCli implements Runnable {
 

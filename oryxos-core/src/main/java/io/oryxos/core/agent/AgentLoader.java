@@ -76,7 +76,13 @@ public class AgentLoader {
     if (!Files.isRegularFile(agentMd)) {
       throw new ProfileValidationException("Agent 目录缺少 AGENT.md: " + agentDir.getFileName());
     }
-    return parse(Files.readString(agentMd), String.valueOf(agentDir.getFileName()));
+    Profile profile = parse(Files.readString(agentMd), String.valueOf(agentDir.getFileName()));
+    String dirName = String.valueOf(agentDir.getFileName());
+    if (!dirName.equals(profile.name())) {
+      throw new ProfileValidationException(
+          "Agent name 与目录名不一致: " + profile.name() + " != " + dirName);
+    }
+    return profile;
   }
 
   /**

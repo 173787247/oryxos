@@ -48,7 +48,7 @@ Tool 的实际调度和执行完全由 OryxOS 自己的 **`ReActLoop`** 加 **`T
 
 **决策六：Sandbox 先定接口，核心阶段只填一档实现。** 隔离强度和开销是一个跷跷板，从轻到重依次是应用层白名单校验、容器隔离（namespace + cgroups + seccomp）、microVM（Firecracker / Kata / gVisor）、完整虚拟机或物理隔离。为了不让核心阶段的实现选择绑死未来的架构，先抽象出一个 `Sandbox` 接口，表达"在受控环境里执行一个动作"这个意图，不携带任何一档实现特有的概念（不出现"容器镜像""VM 配置"字样）。核心阶段只实现 `WhitelistSandbox` 这一档：文件操作限制工作目录、Shell 命令白名单、HTTP 域名白名单，在应用层做校验，不使用 Java `SecurityManager`（它在 JDK 17 起已废弃、JDK 21 已不可用，与本项目 JDK 21+ 要求冲突）。扩展阶段按信号驱动升级：出现"要跑不可信代码或要多租户"时上容器隔离；出现"要跑完全不可信代码或要规模化多租户"时上 microVM。接口不随升级变化，新增的是实现类。
 
-**决策七：持久化用 SQLite 加 Spring Data JPA，Memory 长期记忆用 `MEMORY.md` 文件加关键词检索。** Agent 目录放 `.oryxos/agents/`，Session、Tool Invocation、LLM Call 落 SQLite。其中审计相关的 `tool_invocations` 和 `llm_calls` 两张表在核心阶段就做写入（不做查询接口），让可审计这个差异化能力的数据地基在 day one 就立起来，避免后期从日志反解析返工。完整的向量检索方案在扩展阶段升级（详见第 8 章）。
+**决策七：持久化用 SQLite 加 Spring Data JPA，Memory 长期记忆用 `MEMORY.md` 文件加关键词检索。** Agent 目录放 `.oryxos/agents/`，Session、Tool Invocation、LLM Call 落 SQLite。其中审计相关的 `tool_invocations` 和 `llm_calls` 两张表在核心阶段就做写入（不做查询接口），让可审计这个差异化能力的数据地基在 day one 就立起来，避免后期从日志反解析返工。完整的向量检索方案在扩展阶段升级（详见第 8 章）。（025 演进：表结构管理收编 Flyway——`db/migration/{vendor}/` 双轨目录，SQLite 仍是默认零配置档，PostgreSQL 成为部署选项按 url 自动识别；手工 SchemaUpgrade 类全部退役。）
 
 ### 1.2 整体技术栈
 
@@ -202,13 +202,15 @@ Memory 是 Agent OS 区别于普通 chatbot 的核心能力。三层记忆是完
 
 - `append(content, scope)`（追加内容到指定分区，`scope` 取 `MemoryScope.CORE` 或 `ARCHIVAL`，默认 `ARCHIVAL`）
 - `load`（返回核心记忆区全量 + 归档记忆区截断后的内容，核心区永远完整不截断）
-- `recallByKeyword`（按关键词检索，只在归档记忆区做匹配，核心区不参与检索因为它本来就会被全量注入）
+- `recallByKeyword`（关键词检索，只在归档记忆区做匹配、跨档统一不区分大小写，核心区不参与检索因为它本来就会被全量注入）
+- `capabilities()`（015 起：检索能力三态 `KEYWORD` / `HYBRID_BUILTIN` / `DELEGATED`，门面按此路由 recall）
+- `archivalEntries()`（015 起：归档区全量条目视图，供时间新近路与索引对账取数；DELEGATED 档返回空）
 
-所有实现共同遵守四条行为契约：①不缓存（每次重新读文件/查库/调 API）；②核心记忆区永不被截断，截断只作用在归档区；③写核心还是写归档由 Agent 经 `scope` 显式指定，系统不猜；④`recall` 是关键词检索不做复杂化。核心阶段**不做自动抽取**，分区完全由 Agent 通过 `save_memory` 的调用时机和 `scope` 参数手动决定，这是信号驱动升级原则在 Memory 模块的体现——自动从对话历史提炼记忆放到扩展阶段。
+所有实现共同遵守四条行为契约（015 修订）：①不缓存（每次重新读文件/查库/调 API）；②核心记忆区永不被截断，截断只作用在归档区，且核心区不参与检索、不入向量索引；③写核心还是写归档由 Agent 经 `scope` 显式指定，系统不猜；**分区语义是必选能力**——无法映射 core/archival 的后端在装配期被可读拒绝，不提供降维路径；④检索三路可降级：配置了全局 `embedding.*` 后，`recall_memory` 升级为「语义 + 关键词 + 时间新近」三路加权 RRF 融合（权重可配、缺省等权，复用 `oryxos-core/retrieval` 的 `RetrievalPipeline`——014 知识库同款融合段，015 上移 core 共用）；语义路故障时自动降级为关键词 + 时间两路并在结果尾行标注；**未配置向量化时行为与升级前逐字节一致**（唯一例外：大小写统一）。写入始终**落库优先**：本体先写、向量化异步补（有界队列 + 启动对账），任何索引异常都不影响写入。核心阶段**不做自动抽取**，分区完全由 Agent 通过 `save_memory` 的调用时机和 `scope` 参数手动决定——自动从对话历史提炼记忆放到扩展阶段（mem0 档的 `infer:true` 提炼是外部服务自身能力，不改变底座契约）。
 
 **三档后端实现（核心阶段一次交付，靠配置 `memory.backend` 选一个）。** 递进对应第 21 节讲的三级演进：
 
-- **`MarkdownMemoryStore`（默认）。** 底层操作 `.oryxos/memory/MEMORY.md` 一个 Markdown 文件，按 `## 核心记忆` / `## 归档记忆` 两个 header 分区（详见 5.2）；截断是字符串裁归档段，检索是 `String.contains` 行匹配。零依赖、人可读、git 可跟踪，记忆量不大时的首选。
+- **`MarkdownMemoryStore`（默认）。** 底层操作 `.oryxos/memory/MEMORY.md` 一个 Markdown 文件，按 `## 核心记忆` / `## 归档记忆` 两个 header 分区（详见 5.2）；截断是字符串裁归档段，检索是行匹配（015 起不区分大小写）。零依赖、人可读、git 可跟踪，记忆量不大时的首选。**定位为单机档**：记忆本体在本地文件系统，多副本部署无法共享——分布式部署请选 sqlite（共享 DB）或 mem0 等 DELEGATED 档（FR-016）。
 - **`SqliteMemoryStore`。** 记忆按条入库到 `memory_entries` 表（手工建表脚本，与 sessions/审计表同口径），截断变成归档查询的 `LIMIT N`、检索变成 SQL `LIKE`、核心区用 `WHERE scope='CORE'` 全量取。仍**零外部依赖**（复用已有 SQLite），记忆量上千、要结构化查询时的升级档。
 - **`Mem0MemoryStore`。** 接一个**自托管** Mem0 记忆层（数据不出域），Java 侧走 REST 集成，`append/load/recall` 翻译成 Mem0 的 add/get/search——提炼、冲突消解、语义检索都交给 Mem0。凭证与地址走环境变量占位。这是"真需要智能记忆"时的外部集成档，对应第 21 节第十四节"记忆若非核心差异化能力、集成可自托管方案是理性选择"。
 
@@ -330,11 +332,12 @@ ActionType     = FILE_READ | FILE_WRITE | SHELL_COMMAND | HTTP_REQUEST
 
 接口签名里不出现"白名单""容器镜像""VM 配置"这类某一档实现特有的词——用最重的 microVM 实现去反向套这个签名，也应该能干净套入，这是校验接口是否中立的办法。
 
-**`WhitelistSandbox`（核心阶段唯一实现）。** 配置在 `application.yaml`（`file.allowed_paths`、`shell.allowed_commands`、`http.allowed_domains`），内部按 `ActionType` 路由到三个私有校验方法：
+**`WhitelistSandbox`（核心阶段唯一实现）。** 配置在 `application.yaml`（`file.allowed_paths`、`shell.allowed_commands`、`http.allowed_domains`、`smtp.allowed_endpoints`），内部按 `ActionType` 路由到四个私有校验方法：
 
 - `checkFilePath`（路径标准化后比对白名单，需处理 `../` 路径穿越）
 - `checkShellCommand`（精确比对可执行文件白名单；解释器仅在管理员显式列入时允许，并授予宿主机进程权限）
 - `checkHttpUrl`（解析 host 后做通配符匹配）
+- `checkSmtpEndpoint`（按 `host:port` 精确放行 SMTP 端点，端口缺省=任意）
 
 任意校验失败抛 `SandboxViolationException`，Tool 执行终止；异常信息直接复用 `ToolExecutor` 已有的失败审计路径写入 `tool_invocations`（`success=false`、`error_message`），不需要为 Sandbox 单独新增审计逻辑。
 
@@ -370,7 +373,9 @@ NotifyChannelAdapter.send(NotifyTarget target, String content)
 NotifyTarget = { channelType: String, config: Map<String, String> }
 ```
 
-**`WebhookNotifyAdapter`（核心阶段唯一实现）。** 用通用 HTTP webhook 承接所有场景——企业微信、飞书、钉钉的群机器人都提供 webhook 地址，核心阶段不用逐家接它们的专用 API（签名算法、AccessToken 刷新这些认证细节核心阶段不做），直接把 `content` 包成对方 webhook 约定的 JSON 格式发一次 POST。发送前一样要过 `Sandbox.enforce(new SandboxAction(HTTP_REQUEST, url))` 域名白名单校验，跟 `http_post` 共享同一份 `http.allowed_domains` 配置，不新增 Sandbox 逻辑。
+**`WebhookNotifyAdapter`（核心阶段 HTTP 类实现）。** 用通用 HTTP webhook 承接 HTTP 类场景——企业微信、飞书、钉钉的群机器人都提供 webhook 地址，核心阶段不用逐家接它们的专用 API（签名算法、AccessToken 刷新这些认证细节核心阶段不做），直接把 `content` 包成对方 webhook 约定的 JSON 格式发一次 POST。发送前一样要过 `Sandbox.enforce(new SandboxAction(HTTP_REQUEST, url))` 域名白名单校验，跟 `http_post` 共享同一份 `http.allowed_domains` 配置，不新增 Sandbox 逻辑。
+
+**`EmailNotifyAdapter`（扩展阶段 SMTP 专用实现）。** email 类型渠道不走 webhook，而是经 jakarta.mail 直连 SMTP 发送。其 `config` 多字段承载 `host`/`port`/`from`/`to`/`username`/`password`/`subject`/`encryption`（凭证可用 `${ENV_VAR}` 占位符在发送时从环境变量解析，不明文落库）；出站端点走独立的 `smtp.allowed_endpoints`（`host:port`）白名单，与 HTTP 域名白名单分离。
 
 **`NotifyTools`（内置 Tool，归 `oryxos-tool`）：**
 
@@ -378,7 +383,7 @@ NotifyTarget = { channelType: String, config: Map<String, String> }
 @Tool notify(content: String, channel: String = 默认渠道)
 ```
 
-`channel` 参数是通知渠道的全局注册名。通知渠道通过 Web 管理台或 `/api/v1/notify-channels` 做 CRUD，持久化在 SQLite 的 `notify_channels` 表；每项包含 `name`、`type`、`url` 和可选的 `description`。Agent 在 `AGENT.md` 正文中用自然语言按名引用渠道，LLM 调用时传 `channel` 和 `content`，`NotifyTools` 再从注册表解析适配器和 URL。具体 webhook 地址不进入对话，增加或修改渠道也无需改 Agent；`AGENT.md` frontmatter 不包含 `notify_channels` 字段。
+`channel` 参数是通知渠道的全局注册名。通知渠道通过 Web 管理台或 `/api/v1/notify-channels` 做 CRUD，持久化在 SQLite 的 `notify_channels` 表；每项包含 `name`、`type`、`url` 和可选的 `description`，以及承载类型相关多字段的 `config`（webhook/feishu 等 HTTP 类继续用 `url`，email 用 `config` 的 host/port/from/to 等）。Agent 在 `AGENT.md` 正文中用自然语言按名引用渠道，LLM 调用时传 `channel` 和 `content`，`NotifyTools` 再从注册表解析适配器和 URL。具体 webhook 地址不进入对话，增加或修改渠道也无需改 Agent；`AGENT.md` frontmatter 不包含 `notify_channels` 字段。
 
 ![NotifyTools 设计：接口先行，核心阶段只实现 WebhookNotifyAdapter，扩展阶段新增专用渠道 Adapter](../website/public/images/docs-notify.svg)
 
@@ -520,9 +525,9 @@ Channel 是 Agent 对外的消息接入入口，主要解决"消息进来、响�
 
 **状态持久化与可管理（第 28 节补齐）。** 光"到点自动跑"还不够——运营方要能看见有哪些定时任务、跑过几次、上次成没成，也要能手动补跑一次、临时停掉一个任务。为此把任务状态和执行历史落 SQLite（重启不丢），并做成管理台的一等公民：
 
-- **两张表**（手工建表脚本，见 9.2）：`scheduled_tasks` 存任务登记信息与运行状态（`task_id` 主键、`profile_name`、`cron`、`zone`、`message`、`enabled`、`next_run_at`、`last_run_at`、`last_status`、`run_count`），`task_executions` 存每次执行的历史（成功失败都记：`task_id`、`session_id`、`started_at`、`success`、`error_message`、`duration_ms`）。定义来源仍是 skill/Profile 的 `schedules`——这两张表只存"状态 + 历史"，不作为定义源，重启时从文件重新注册。
-- **契约在 core、实现在 storage**（依赖倒置）：`ScheduledTaskStore` 接口（`register`/`recordExecution`/`isEnabled`/`setEnabled`/`list`/`executions`）放 `oryxos-core`，`AgentScheduler` 依赖它；JPA 实现 `JpaScheduledTaskStore` 放 `oryxos-storage`。`AgentScheduler` 启动扫描时顺带 `register` 登记，每次 `execute` 成功失败都 `recordExecution` 留痕（与宪法 V 审计同源）；`runOnce` 先看 `isEnabled`（停用则跳过、不记执行），管理台"立即执行"走 `runNow` 手动触发一次（无视启用状态）。
-- **四个管理端点**（`ScheduleApiController`，前缀 `/api/v1/schedules`）：`GET /schedules` 列任务与状态、`GET /schedules/{id}/executions` 查执行历史、`POST /schedules/{id}/run` 立即执行一次、`PUT /schedules/{id}` 启用/停用。管理台"定时任务"页调这四个端点，可查可管——这是第 28 节相对第 26 节"管理台只读"的一处明确扩展（仅限定时任务这一子系统的运行控制）。
+- **两张表**（手工建表脚本，见 9.2）：`scheduled_tasks` 存任务登记信息与运行状态（全局 `schedule_id` 主键、`profile_name`、Agent 内的 `schedule_key`、展示 `display_name`、`cron`、`zone`、`message` 与运行态字段）；`task_executions` 存每次执行的历史（`schedule_id`、`session_id`、`started_at`、`success`、`error_message`、`duration_ms`）。定义来源仍是 Agent 的 `schedules`——这两张表只存“状态 + 历史”，不作为定义源，重启时从文件重新协调。
+- **契约在 core、实现在 storage**（依赖倒置）：`ScheduledTaskStore` 接口（`reconcile`/`retire`/`recordExecution`/`isEnabled`/`setEnabled`/`list`/`executions`）放 `oryxos-core`，`AgentScheduler` 依赖它；JPA 实现 `JpaScheduledTaskStore` 放 `oryxos-storage`。`reconcile(profileName, key, ...)` 为同一配置任务复用稳定 `scheduleId`，调度锁、启停、立即执行和历史均使用该 ID；删改 key 时旧记录退役而不删历史。
+- **v2 管理端点**（前缀 `/api/v2`）：`GET /schedules`、`GET /schedules/{scheduleId}/executions`、`POST /schedules/{scheduleId}/run`、`PUT /schedules/{scheduleId}`，以及按定义精确定位的 `POST /agents/{profileName}/schedules/{key}/run`。管理台只调用 v2；v1 仍可按旧 key 兼容，但当多个 Agent 使用同一 key 时返回 HTTP 409，绝不再静默选择第一条。
 
 **核心阶段 vs 扩展阶段的边界。** 核心阶段的 `schedules` **定义**只能写在 `AGENT.md` frontmatter 里，跟着进程启动一起注册，改 cron / 新增任务要重启（或触发重新加载）才生效；第 28 节补齐的是任务的**状态持久化与运行控制**（查看 / 执行历史 / 立即执行 / 启用停用），不含通过 API 增删改 cron 定义。"业务方通过 Web Service 上传一个 Agent 目录（`AGENT.md` 带 `schedules` frontmatter）、由此定义一个新 Agent 并让它定时自动运行"这个完整闭环，依赖的是 7.3 里扩展阶段才补齐的两个能力——Agent 目录上传接口（含一句话生成）、`AgentScheduler` 的运行时增删接口——核心阶段这条链路要靠手动丢目录走通，扩展阶段补上后才是纯 API、免重启的闭环。
 
@@ -612,12 +617,15 @@ session list
 
 | 字段 | 说明 |
 |------|------|
-| `task_id` | 主键，schedule 的 id（Profile/Skill 的 `schedules` 里声明） |
+| `schedule_id` | 全局运行态主键；由 SQLite 为 `(profile_name, schedule_key)` 生成并保持稳定 |
 | `profile_name` | 归属 Profile |
+| `schedule_key` | Agent 内配置键；同一 Profile 内唯一 |
+| `display_name` | 展示名称，不参与运行态定位 |
 | `cron` | cron 表达式 |
 | `zone` | 时区 |
 | `message` | 到点发给 Agent 的消息 |
 | `enabled` | 是否启用（管理台开关，默认启用） |
+| `retired` | 配置被删除或改 key 后标记为退役；不参与调度和活动列表，但状态与历史保留 |
 | `next_run_at` | 下次触发时刻 |
 | `last_run_at` | 上次触发时刻 |
 | `last_status` | 上次结果 `success` / `failed` |
@@ -629,7 +637,7 @@ session list
 | 字段 | 说明 |
 |------|------|
 | `id` | 主键，自增 |
-| `task_id` | 关联 `scheduled_tasks` |
+| `schedule_id` | 关联 `scheduled_tasks`；迁移前无法可靠关联的历史可为空 |
 | `session_id` | 本次触发所用的钟推 Session |
 | `started_at` | 开始时间 |
 | `success` | 是否成功 |
@@ -644,18 +652,23 @@ session list
 
 ## 10. 项目工程结构
 
-OryxOS 是 Maven 多模块项目，由 9 个模块组成：
+OryxOS 是 Maven 多模块项目，由 14 个模块组成：
 
 | 模块名 | 职责 |
 |--------|------|
-| `oryxos-core` | 核心抽象和接口：`OryxTool` 接口、`Session`、`Profile`、`ContextLoader`、`AgentLoader`（扫 `.oryxos/agents/`、`deriveProfile`）、`ReActLoop`、`PromptBuilder`、`ToolExecutor`、`AgentService`、`AgentScheduler`（定时触发）、`AgentLifecycleService`（扩展阶段，编排"定义一个 Agent（Agent 目录落盘 + 派生 Profile + 注册 + Scheduler）"） |
+| `oryxos-core` | 核心抽象和接口：`OryxTool` 接口、`Session`、`Profile`（含 025 的 `Persona` 七字段人格：name/role/traits/tone/values/boundaries/sample_style）、`ContextLoader`、`AgentLoader`（扫 `.oryxos/agents/`、`deriveProfile`）、`ReActLoop`、`PromptBuilder`、`ToolExecutor`、`AgentService`、`AgentScheduler`（定时触发）、`AgentLifecycleService`（扩展阶段，编排"定义一个 Agent（Agent 目录落盘 + 派生 Profile + 注册 + Scheduler）"，025 起含 persona 编辑、agency-agents 专家导入与校验链） |
+| `oryxos-persona` | 人格库（025，copy-in 模板库）：`PersonaPresetCatalog`（12 个内置人格预设随 jar 内置，只读）+ `PersonaStore`/`PersonaService`（`.oryxos/personas/` 自定义人格 CRUD，复用 `oryxos-core` 的 `RealPathBoundary` 白名单与 `AgentMarkdown.split` frontmatter 投影）。人格库只做模板复制（copy-in），不做按名引用的人格市场 |
 | `oryxos-provider` | 核心能力一：`ProviderService`、Function Calling 适配、Provider 配置（provider name 到 `ChatModel` 显式映射） |
 | `oryxos-memory` | 核心能力三：`MemoryService` 统一门面、`LongTermMemory`、`MemoryTools`（`save_memory` / `recall_memory`） |
+| `oryxos-knowledge` | 知识库（014）：内置本地后端 `LocalKnowledgeBackend`（知识标准操作契约的第一个插件）、解析/切分/向量化索引流水线（两段式 + 双缓冲）、双路召回 + RRF 融合检索、`ChunkStore` 可插拔向量存储（默认 SQLite）、`KnowledgeTools`（`retrieve_knowledge`）。契约与绑定服务在 `oryxos-core/knowledge/`（依赖倒置），依赖 core + storage |
 | `oryxos-tool` | 核心能力四：内置 Tool（`FileTools`、`ShellTools`、`HttpTools`、`NotifyTools`）、`McpClientService`、`McpToolAdapter`、`ToolRegistry`、`Sandbox` 接口 + `WhitelistSandbox` 实现、`NotifyChannelAdapter` 接口 + `WebhookNotifyAdapter` 实现（三合一模块） |
 | `oryxos-channel-cli` | CLI Channel：`CliChannel`、`oryxos chat` 命令实现 |
-| `oryxos-web` | 核心能力五：`WebServer`、6 个 `ApiController`、`GlobalExceptionHandler`、OpenAPI 文档 |
+| `oryxos-channel-feishu` | 飞书 IM 入站渠道（017）：官方 `oapi-sdk` 长连接接收 `im.message.receive_v1` 事件（免公网回调、免验签）、`FeishuEventNormalizer`（@ 机器人判定与剥离、非文本识别）、`FeishuMessageSender`（出站过沙箱白名单、超长分段、reply 引用原消息）、`FeishuChannelAdapter`（连接生命周期与自动重连状态）。入站渠道契约（`InboundChannelAdapter`/`InboundMessage`）与共享编排（`InboundMessageService`：去重/路由/私聊群聊分流/审计）、配置热更（`ChannelConfigLoader`/`ChannelAdminService`，`.oryxos/channels.yaml`）在 `oryxos-core/channel/`（依赖倒置）；新增 IM 渠道只加适配器模块，契约行为由参数化测试集（桩档 + 飞书档）钉死 |
+| `oryxos-channel-wecom` | 企微智能机器人入站渠道（对称飞书）：`WeComWsClient` 长连接收消息（免公网回调）、`WeComEventNormalizer`（@ 判定/剥离）、`WeComMessageSender`（出站过沙箱、分段）、`WeComChannelAdapter`（连接生命周期与自动重连）。契约与共享编排同飞书，复用 `oryxos-core/channel/` |
+| `oryxos-channel-dingtalk` | 钉钉机器人入站渠道（对称飞书/企微）：`DingTalkStreamClient` Stream 长连接收消息、`DingTalkEventNormalizer`（@ 判定/剥离）、`DingTalkMessageSender`（出站过沙箱、分段）、`DingTalkChannelAdapter`（断线自动重连）。契约与共享编排同飞书/企微，复用 `oryxos-core/channel/` |
+| `oryxos-web` | 核心能力五：`WebServer`、6 个 `ApiController`、`GlobalExceptionHandler`、OpenAPI 文档（025 起含 `/api/v1/personas` 人格库 5 端点与 `/api/v1/agents/import-preview`、`/api/v1/agents/import` 导入端点） |
 | `oryxos-storage` | 持久化层：SQLite、`SessionRepository`、`ToolInvocationRepository`、`LlmCallRepository` |
-| `oryxos-cli` | 命令行入口：Picocli 主入口、12 个子命令、`ConfigLoader` |
+| `oryxos-cli` | 命令行入口：Picocli 主入口、13 个子命令、`ConfigLoader`（025 起加 `agent import` 子命令） |
 | `oryxos-boot` | Spring Boot 启动模块：主类、自动配置、依赖聚合 |
 
 模块之间通过接口解耦。扩展阶段加新 Channel 或新 Tool 实现只加新模块不改 core，所有 Channel 模块底层都调 `oryxos-web` 的 Agent 接口。

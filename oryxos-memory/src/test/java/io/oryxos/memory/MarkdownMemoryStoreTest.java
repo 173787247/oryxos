@@ -120,4 +120,55 @@ class MarkdownMemoryStoreTest {
       assertTrue(loaded.contains("concurrent-entry-" + i), "不加锁时并发追加会互相覆盖丢条目: " + i);
     }
   }
+
+  @Test
+  @DisplayName("recall 不区分大小写_FR-002 统一修正")
+  void recallIsCaseInsensitive() {
+    MarkdownMemoryStore memory = new MarkdownMemoryStore(root);
+    memory.append("工单 OPS-4721 已升级到二线", MemoryScope.ARCHIVAL);
+
+    assertFalse(memory.recallByKeyword("ops-4721").isEmpty(), "小写关键词命中大写内容");
+    assertFalse(memory.recallByKeyword("OPS-4721").isEmpty(), "原大小写照常命中");
+  }
+
+  @Test
+  @DisplayName("archivalEntries 解析行首时间戳_失败为 null_仅归档区")
+  void archivalEntriesParseTimestampAndSkipCore() {
+    MarkdownMemoryStore memory = new MarkdownMemoryStore(root);
+    memory.append("核心事实", MemoryScope.CORE);
+    memory.append("带时间戳的归档条目", MemoryScope.ARCHIVAL);
+
+    var entries = memory.archivalEntries();
+
+    assertEquals(1, entries.size(), "核心区不进归档视图");
+    assertTrue(entries.get(0).content().contains("带时间戳的归档条目"));
+    assertTrue(entries.get(0).content().startsWith("- ["), "content 是整行原文（含时间戳前缀）");
+    assertTrue(entries.get(0).time() != null, "append 写入的行首时间戳可解析");
+  }
+
+  @Test
+  @DisplayName("archivalEntries 时间解析不出为 null_条目照常返回")
+  void archivalEntriesToleratesUnparsableTimestamp() throws Exception {
+    MarkdownMemoryStore memory = new MarkdownMemoryStore(root);
+    Path file = root.resolve("memory").resolve("MEMORY.md");
+    java.nio.file.Files.createDirectories(file.getParent());
+    java.nio.file.Files.writeString(file, "## 核心记忆\n\n## 归档记忆\n- 手工补录的无时间戳条目\n");
+
+    var entries = memory.archivalEntries();
+
+    assertEquals(1, entries.size());
+    assertEquals("- 手工补录的无时间戳条目", entries.get(0).content());
+    assertTrue(entries.get(0).time() == null, "解析不出 → null（时间路按最旧处理）");
+  }
+
+  @Test
+  @DisplayName("archivalEntries 不受 4000 字注入截断影响_索引覆盖全部本体")
+  void archivalEntriesReturnFullCorpusBeyondInjectionWindow() {
+    MarkdownMemoryStore memory = new MarkdownMemoryStore(root);
+    for (int i = 0; i < 200; i++) {
+      memory.append("超窗条目-" + i + "-" + "x".repeat(80), MemoryScope.ARCHIVAL);
+    }
+
+    assertEquals(200, memory.archivalEntries().size(), "load 截断只作用注入，取数口必须全量");
+  }
 }

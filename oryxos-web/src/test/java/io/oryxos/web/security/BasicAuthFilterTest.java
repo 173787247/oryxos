@@ -49,6 +49,9 @@ class BasicAuthFilterTest {
 
     @GetMapping("/admin/login")
     public void adminLogin() {}
+
+    @GetMapping("/admin/assets/index-test.js")
+    public void adminAsset() {}
   }
 
   @BeforeEach
@@ -239,6 +242,14 @@ class BasicAuthFilterTest {
   }
 
   @Test
+  @DisplayName("/admin/assets/**_未登录放行（登录页渲染依赖SPA静态资源，018走查修复）")
+  void assetPath_passesThrough() throws Exception {
+    properties.setEnabled(true);
+    mvc.perform(get("/admin/assets/index-test.js")).andExpect(status().isOk());
+    verify(userService, never()).verify(anyString(), anyString());
+  }
+
+  @Test
   @DisplayName("非Basic头_401")
   void nonBasicHeader_401() throws Exception {
     properties.setEnabled(true);
@@ -267,6 +278,56 @@ class BasicAuthFilterTest {
     properties.setRealm("MySystem");
     mvc.perform(get("/admin/").accept(MediaType.APPLICATION_JSON))
         .andExpect(header().string("WWW-Authenticate", "Basic realm=\"MySystem\""));
+  }
+
+  @Test
+  @DisplayName("enabled=true_轮换X-Forwarded-For不能绕过Basic锁定")
+  void spoofedXForwardedFor_doesNotBypassLockout() throws Exception {
+    properties.setEnabled(true);
+    when(userService.verify("admin", "wrong")).thenReturn(false);
+    MockMvc proxied =
+        MockMvcBuilders.standaloneSetup(new StubController())
+            .addFilters(
+                new org.springframework.web.filter.ForwardedHeaderFilter(),
+                new BasicAuthFilter(
+                    userService,
+                    sessionService,
+                    properties,
+                    new ObjectMapper(),
+                    loginAttemptService))
+            .build();
+
+    for (int i = 0; i < LoginAttemptService.MAX_FAILURES; i++) {
+      String spoof = "1.1.1." + i;
+      proxied
+          .perform(
+              get("/admin/")
+                  .accept(MediaType.APPLICATION_JSON)
+                  .header("X-Forwarded-For", spoof)
+                  .with(
+                      request -> {
+                        request.setRemoteAddr("127.0.0.1");
+                        return request;
+                      })
+                  .header("Authorization", basic("admin", "wrong")))
+          .andExpect(status().isUnauthorized());
+    }
+
+    proxied
+        .perform(
+            get("/admin/")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("X-Forwarded-For", "9.9.9.9")
+                .with(
+                    request -> {
+                      request.setRemoteAddr("127.0.0.1");
+                      return request;
+                    })
+                .header("Authorization", basic("admin", "wrong")))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(jsonPath("$.code").value(429));
+
+    verify(userService, times(LoginAttemptService.MAX_FAILURES)).verify("admin", "wrong");
   }
 
   private static String basic(String user, String pass) {

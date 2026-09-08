@@ -55,10 +55,7 @@ class AgentServiceTest {
     sessionManager = mock(SessionManager.class);
     agentService =
         new AgentService(
-            new ProfileRegistry(Map.of("ops-agent", profile)),
-            reActLoop,
-            sessionManager,
-            mock(io.oryxos.core.memory.MemoryService.class));
+            new ProfileRegistry(Map.of("ops-agent", profile)), reActLoop, sessionManager);
     session = new Session("s-1", "ops-agent");
   }
 
@@ -175,10 +172,7 @@ class AgentServiceTest {
             new Profile.Settings(10, 2));
     AgentService boundedService =
         new AgentService(
-            new ProfileRegistry(Map.of("ops-agent", boundedProfile)),
-            reActLoop,
-            sessionManager,
-            mock(io.oryxos.core.memory.MemoryService.class));
+            new ProfileRegistry(Map.of("ops-agent", boundedProfile)), reActLoop, sessionManager);
     Session latest = new Session("s-1", "ops-agent");
     latest.appendUser("问题1");
     latest.appendUser("问题2");
@@ -196,6 +190,17 @@ class AgentServiceTest {
 
     assertEquals(List.of("问题3", "问题4"), latest.messages().stream().map(Message::content).toList());
     verify(sessionManager).saveIfUnchanged(latest, baseline);
+  }
+
+  @Test
+  @DisplayName("正常结束后不依赖 MemoryService：触发足迹不再写归档（#206）")
+  void processSucceedsWithoutWritingTriggerFootprint() {
+    when(reActLoop.run(any(), any(), any())).thenReturn("很抱歉，我没有找到");
+
+    String reply = agentService.process(session, "上次那个部署的坑怎么处理的");
+
+    assertEquals("很抱歉，我没有找到", reply);
+    verify(sessionManager).saveIfUnchanged(session, List.of());
   }
 
   @Test

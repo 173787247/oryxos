@@ -3,7 +3,7 @@ package io.oryxos.web.controller.dto;
 import io.oryxos.core.agent.AgentExecution;
 import java.time.Instant;
 
-/** GET /agents/{name}/executions 视图：一次执行的起止时间 / 状态 / 时长（第 32 节）。 */
+/** GET /agents/{name}/executions 视图：一次执行的起止时间 / 状态 / 时长（第 32 节）；traceId（021）供报障定位。 */
 public record AgentExecutionView(
     long id,
     String agentName,
@@ -13,7 +13,8 @@ public record AgentExecutionView(
     Instant endedAt,
     String status,
     Long durationMs,
-    String errorMessage) {
+    String errorMessage,
+    String traceId) {
 
   public static AgentExecutionView from(AgentExecution e) {
     return new AgentExecutionView(
@@ -25,6 +26,7 @@ public record AgentExecutionView(
         e.endedAt(),
         e.status(),
         e.durationMs(),
-        e.errorMessage());
+        e.errorMessage(),
+        e.traceId());
   }
 }

@@ -23,7 +23,7 @@ import java.util.Map;
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
-    justification = "contextLoader 是 Spring 注入的共享单例，构造注入共享同一引用正是意图。")
+    justification = "contextLoader / tools 都是运行时共享引用：工具表必须随 MCP 增删更新，copyOf 会让模型侧永远只看到启动快照。")
 public class PromptBuilder {
 
   private static final DateTimeFormatter DATE_TIME =
@@ -33,6 +33,16 @@ public class PromptBuilder {
   private final Map<String, OryxTool> tools;
   private final MemoryService memoryService;
   private final Clock clock;
+
+  /** 020 工具策略（事前保险）：被 deny 的工具不进模型清单。默认 ALLOW_ALL——旧构造/未装配策略时行为与现状一致。 */
+  private io.oryxos.core.policy.ToolPolicyService toolPolicy =
+      io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL;
+
+  /** 装配期注入（OryxOsRuntime）；测试直构不调用即保持 ALLOW_ALL。 */
+  public void setToolPolicy(io.oryxos.core.policy.ToolPolicyService toolPolicy) {
+    this.toolPolicy =
+        toolPolicy == null ? io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL : toolPolicy;
+  }
 
   public PromptBuilder(ContextLoader contextLoader, Map<String, OryxTool> tools) {
     this(contextLoader, tools, null, Clock.systemDefaultZone());
@@ -49,7 +59,7 @@ public class PromptBuilder {
       MemoryService memoryService,
       Clock clock) {
     this.contextLoader = contextLoader;
-    this.tools = Map.copyOf(tools);
+    this.tools = tools;
     this.memoryService = memoryService;
     this.clock = clock;
   }
@@ -67,16 +77,52 @@ public class PromptBuilder {
     }
     // ③ 会话历史：结构化透传（不再拍平成文本），保留 assistant tool_calls / tool tool_call_id 配对——
     //    多步 ReAct 里模型才能看出工具已调过、继续下一步（31 节修复）；仍只留最近 N 轮（坑二）
-    List<Message> history = session.recentTurns(profile.settings().maxHistoryTurns());
+    List<Message> history =
+        pruneHistoricalMedia(session.recentTurns(profile.settings().maxHistoryTurns()));
     // ④ 工具列表经 availableTools 传递，Provider 侧翻译成 Function Calling 格式
     return new ProviderRequest(system.toString(), history, resolveTools(profile));
+  }
+
+  /**
+   * 历史里只保留「最近一条带 media 的 user」附件；更早的图只留正文。
+   *
+   * <p>IM 连测多图后，若不裁剪，纯文本轮也会把窗口内全部本地图重传给 Vision，流式动辄数分钟。
+   */
+  static List<Message> pruneHistoricalMedia(List<Message> history) {
+    if (history == null || history.isEmpty()) {
+      return history == null ? List.of() : history;
+    }
+    int keepMediaAt = -1;
+    for (int i = history.size() - 1; i >= 0; i--) {
+      Message m = history.get(i);
+      if (Message.ROLE_USER.equals(m.role()) && !m.media().isEmpty()) {
+        keepMediaAt = i;
+        break;
+      }
+    }
+    if (keepMediaAt < 0) {
+      return history;
+    }
+    List<Message> out = new ArrayList<>(history.size());
+    for (int i = 0; i < history.size(); i++) {
+      Message m = history.get(i);
+      if (i != keepMediaAt && !m.media().isEmpty()) {
+        out.add(
+            new Message(
+                m.role(), m.content(), m.toolName(), m.toolCallId(), m.toolCalls(), List.of()));
+      } else {
+        out.add(m);
+      }
+    }
+    return out;
   }
 
   private List<OryxTool> resolveTools(Profile profile) {
     List<OryxTool> resolved = new ArrayList<>();
     for (String name : profile.tools()) {
       OryxTool tool = tools.get(name);
-      if (tool != null) {
+      // 020 事前保险：策略拒绝的工具对模型不可见（每轮按当时策略求值，热更新下一轮生效）
+      if (tool != null && toolPolicy.check(profile.name(), name).allowed()) {
         resolved.add(tool);
       }
     }

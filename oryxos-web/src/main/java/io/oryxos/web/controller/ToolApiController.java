@@ -15,9 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
  * bean"的自动装配歧义）；OryxTool 是 core 类型，web 无需依赖 oryxos-tool 模块。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-    value = "SPRING_ENDPOINT",
+    value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
     justification =
-        "core-stage web API is unauthenticated by design (internal network + gateway); auth is extension-phase")
+        "core-stage web API is unauthenticated by design (internal network + gateway); auth is extension-phase。"
+            + "tools 必须是活视图：GET /api/v1/tools 要反映管理台刚连上/断开的 MCP 工具。")
 @RestController
 @RequestMapping("/api/v1/tools")
 public class ToolApiController {
@@ -25,7 +26,7 @@ public class ToolApiController {
   private final Map<String, OryxTool> tools;
 
   public ToolApiController(@Qualifier("tools") Map<String, OryxTool> tools) {
-    this.tools = Map.copyOf(tools);
+    this.tools = tools;
   }
 
   @GetMapping

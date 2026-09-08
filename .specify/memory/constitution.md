@@ -1,4 +1,11 @@
 <!--
+Sync Impact Report (2.0.1, 2026-09-03, PATCH)
+- 025-pluggable-storage：§技术栈持久化行更新为「SQLite（默认）/ PostgreSQL（部署选项）+ Flyway 迁移目录」；
+  原则 V 措辞「写入 SQLite」改为存储中立的「写入持久化存储」（语义不变——原则 VIII 本就预留 Flyway 口）。
+- Templates checked: 无需变更（plan/spec/tasks 模板不含库种假设）。
+- Runtime guidance synced: CLAUDE.md（技术栈表 + 陷阱表 + 迁移注意）、config/application.yml.example、
+  docker-compose.yml、docs/CliGuide.md。
+
 Sync Impact Report
 - Version change: 1.1.0 → 2.0.0
 - Bump rationale: MAJOR — 原则 IV 从「禁止跨 Agent 共享 Skill」重定义为「公共 Skill 实体库 +
@@ -95,7 +102,7 @@ Skill create/import/update/delete、Agent bind/unbind/archive/delete 与启动�
 
 ### V. 审计 Day One 落库 (NON-NEGOTIABLE)
 
-`tool_invocations` 与 `llm_calls` 两张审计表 MUST 从核心阶段起就写入 SQLite（无需查询接口，
+`tool_invocations` 与 `llm_calls` 两张审计表 MUST 从核心阶段起就写入持久化存储（无需查询接口，
 但写入不可省）。MUST NOT 以「日志足够」为由跳过落库。
 
 **Rationale**: 可审计是 OryxOS 的核心差异化能力；事后从日志反解析代价高且不可靠。
@@ -141,7 +148,8 @@ Hibernate 自动迁移（SQLite `ALTER TABLE` 支持弱），需手工建表脚�
   `CLAUDE.md` 模块表与 `docs/TechnicalSolution.md` §10；跨模块契约放 `oryxos-core`（依赖倒置，
   下游模块实现），禁止模块间循环依赖。
 - 部署：单可执行 fat JAR / 单二进制；可装在企业自有 K8s / 虚拟机 / 物理机，数据不出域，不锁云。
-- HTTP：Spring MVC + 虚拟线程；持久化：SQLite + Spring Data JPA；日志：Logback + SLF4J
+- HTTP：Spring MVC + 虚拟线程；持久化：SQLite（默认）/ PostgreSQL（部署选项）+ Spring Data JPA，
+  表结构由 Flyway 迁移目录管理（025 起）；日志：Logback + SLF4J
   （生产 JSON 结构化，禁用 `System.out`）。
 - 开放标准优先：工具用 MCP、Agent 协作用 A2A、Agent 目录借 Anthropic Agent Skills 的形态，不另立协议。
 - Skill 绑定：公共实体在 `.oryxos/skills/`，Agent 以本地相对软连接选择可见集合；元数据每轮注入，
@@ -171,4 +179,4 @@ Hibernate 自动迁移（SQLite `ALTER TABLE` 支持弱），需手工建表脚�
   优先选择更简单、更符合原则的方案。
 - 运行时开发指南以 `CLAUDE.md` 为准，其内容 MUST 与本宪法保持一致。
 
-**Version**: 2.0.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-26
+**Version**: 2.0.1 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-09-03

@@ -18,30 +18,47 @@ OryxOS 是用 Java 实现的面向企业场景的 **Distributed AI Agent OS**。
 | HTTP 服务 | Spring MVC + Java 21 Virtual Thread |
 | 命令行 | Picocli |
 | YAML 解析 | SnakeYAML |
-| 持久化 | SQLite + Spring Data JPA |
+| 持久化 | SQLite（默认零配置）/ PostgreSQL 14+（部署选项，url 自动识别）+ Spring Data JPA；表结构由 Flyway 管理（`db/migration/{vendor}/`） |
 | 日志 | Logback + SLF4J（结构化 JSON） |
 | 构建 | Maven 多模块 |
 
 ---
 
-## 模块结构（9 个）
+## 模块结构（14 个）
 
 ```
 oryxos/
 ├── oryxos-core          # 核心抽象：OryxTool 接口、Session、Profile、ContextLoader、
 │                        #   ReActLoop、PromptBuilder、ToolExecutor、AgentService
+├── oryxos-persona       # 025 人格库（copy-in 模板库）：PersonaPresetCatalog（内置 12 只读、
+│                        #   classpath）、PersonaStore/PersonaService（.oryxos/personas/ 自定义 CRUD）
 ├── oryxos-provider      # 能力一：ProviderService、Function Calling 适配、
 │                        #   多 Provider 显式映射
-├── oryxos-memory        # 能力三：MemoryService 门面、LongTermMemory、
+├── oryxos-memory        # 能力三：MemoryService 门面、LongTermMemory 三档后端、
+│                        #   MemoryRecallEngine 三路召回 + MemoryVectorIndex（015）、
 │                        #   MemoryTools（save/recall）
+├── oryxos-knowledge     # 知识库（014）：LocalKnowledgeBackend（契约第一个插件）、
+│                        #   解析/切分/向量化索引流水线、双路召回+RRF 检索、
+│                        #   ChunkStore 可插拔存储、KnowledgeTools（retrieve_knowledge）
+│                        #   （契约与绑定服务在 oryxos-core/knowledge/，依赖倒置）
 ├── oryxos-tool          # 能力四：内置 Tool（文件/Shell/HTTP）、MCP Client、
 │                        #   ToolRegistry、SandboxChecker
 ├── oryxos-channel-cli   # CLI Channel：oryxos chat 实现
+├── oryxos-channel-feishu # 飞书 IM 入站渠道（017）：oapi-sdk 长连接收 im.message.receive_v1、
+│                        #   FeishuEventNormalizer（@ 判定/剥离）、FeishuMessageSender（分段+沙箱）
+│                        #   （入站渠道契约与共享编排在 oryxos-core/channel/，依赖倒置）
+├── oryxos-channel-wecom  # 企微智能机器人入站渠道（对称飞书）：长连接收消息、免公网回调，
+│                        #   WeComEventNormalizer（@ 判定/剥离）、WeComMessageSender（分段+沙箱）
+│                        #   （入站渠道契约与共享编排在 oryxos-core/channel/，依赖倒置）
+├── oryxos-channel-dingtalk # 钉钉机器人入站渠道（对称飞书/企微）：Stream 长连接收消息、
+│                        #   DingTalkEventNormalizer（@ 判定/剥离）、DingTalkMessageSender（分段+沙箱）、
+│                        #   断线自动重连（对齐企微）
+│                        #   （入站渠道契约与共享编排在 oryxos-core/channel/，依赖倒置）
 ├── oryxos-web           # 能力五：WebServer、ApiController、GlobalExceptionHandler、
 │                        #   OpenAPI
 ├── oryxos-storage       # 持久化：SQLite、SessionRepository、
 │                        #   ToolInvocationRepository、LlmCallRepository
-├── oryxos-cli           # 命令行入口：Picocli 主入口、12 个子命令、ConfigLoader
+├── oryxos-cli           # 命令行入口：Picocli 主入口、13 个子命令、ConfigLoader（025：agent import）
 └── oryxos-boot          # Spring Boot 启动模块：主类、自动配置、依赖聚合
 ```
 
@@ -102,12 +119,18 @@ Map<String, ChatModel> providerMap = Map.of(
 
 `tool_invocations` 和 `llm_calls` 两张审计表**核心阶段就必须写入**（不需要查询接口，但写入不能省）。不得以"日志够了"为由跳过落库，可审计是 OryxOS 的核心差异化能力。
 
+> **工具治理层（020）**：沙箱白名单之上另有独立的 Tool Policy 减法层——全局/Agent 级工具 allow/deny
+> （`tool_policy_rules` 表，管理台可编辑热更新）。两者正交：策略管「这个 Agent 能不能用这个工具」，
+> 沙箱管「工具执行时能碰什么资源」，策略放行不豁免沙箱。被策略拒绝的调用照写 `tool_invocations`
+> 且带 `blocked_by='policy'` 标记。
+
 ### 原则六：不使用 Java SecurityManager；软连接必须校验真实路径
 
 `SecurityManager` 在 JDK 17 起废弃、JDK 21 已不可用。Sandbox 通过 `SandboxChecker` 的 Path / Pattern 白名单实现：
 - 文件操作：路径白名单（`file.allowed_paths`）
 - Shell：可执行文件精确白名单（`shell.allowed_commands`）；参数以 argv 直传，不解释 Shell 语法。将解释器列入白名单是管理员对本机代码执行权限的显式授予，不构成隔离
 - HTTP：域名通配符白名单（`http.allowed_domains`）
+- SMTP：端点白名单（`smtp.allowed_endpoints`，按 `host:port` 精确放行，端口缺省=任意，空=deny-all）
 
 文件目标存在时必须用 `toRealPath()` 校验真实路径仍位于白名单根；新建路径校验最近存在父目录的真实路径。Agent Skill 绑定只允许指向 `.oryxos/skills/` 的相对软连接，拒绝绝对链接和越界链接。
 
@@ -144,6 +167,15 @@ OryxOS 启动后在当前目录创建 `.oryxos/` 工作区：
 - `USER.md`：用户手写的初始设定，OryxOS 只读不写
 - `MEMORY.md`：Agent 通过 `save_memory` Tool 写入的成长记录，OryxOS 读写
 
+### Docker 部署形态（与 bin/start.sh 并行的纯增量）
+
+- 镜像内**不跑 Maven**：jar 平台无关，由构建方原生构建一次，Dockerfile 只 `COPY` 胖 jar 进 JRE 基础镜像——多架构（amd64/arm64）构建因此无需 QEMU 模拟 Maven。
+- `docker/docker-entrypoint.sh` 是 start.sh 的容器等价物，三处刻意不同：`exec` 前台（java 即 PID 1，SIGTERM 直达优雅停机）、首启非交互（从模板生成配置后照常启动，零 key 可 boot）、日志走 stdout（交 `docker logs`）。
+- 全部状态在 `/data` 卷（`config/` + 工作区 + `oryxos.db` + `logs/`）；`ORYXOS_ROOT=/data/.oryxos` 走环境变量原生支持。镜像非 root（uid 1000）+ 内置 healthcheck（`/api/v1/health`）。
+- 流水线：`ci.yml` 的 `docker-build` job 做 PR 门禁（只构建不推送）；`release.yml` 在 tar.gz Release 之后 buildx 推 `ghcr.io/oryx-labs/oryxos:v<版本>` + `:latest` 到 GHCR（需 `packages: write`，已加）。
+- 本地构建：`make docker`（依赖 `make build` 的胖 jar）。改 Dockerfile/entrypoint/.dockerignore 时，`docker-build` 门禁会自动验证。
+- 停机行为：曾实测（2026-08）SIGTERM 能被处理，但飞书 SDK `ws.Client.close()` 存在阻塞不返回的实现路径，把停机拖满 ~32s（exit 143）。现 `FeishuChannelAdapter.closeQuietly` 将 close 放守护线程限时 join（2s 超时放弃等待），stop 不再阻塞 `ChannelAdminService.stopAll` 与进程停机链路；`spring.lifecycle.timeout-per-shutdown-phase: 10s` 另兜 SmartLifecycle 阶段（注意 destroy-method 回调不受其约束，长连接类资源须各自限时关闭）。compose 的 `stop_grace_period: 40s` 保留作余量；裸 `docker stop`（默认 10s）与 `bin/stop.sh`（等 10s kill -9）在限时关闭下均不再踩超时。
+
 ---
 
 ## 核心数据模型
@@ -164,6 +196,9 @@ provider:
   model: deepseek-chat
   temperature: 0.7
   api_key: ${DEEPSEEK_API_KEY}   # 从环境变量读取，不明文写死
+  fallback:               # 023 可选：有序备用 Provider——单次 LLM 调用的 provider 侧故障按序切换重发，
+    - name: qwen          #   每次尝试各写一条 llm_calls（主备留痕）、切换 WARN 带 traceId；业务性失败（400 类）不切
+      model: qwen-plus
 tools:
   - read_file
   - shell
@@ -213,6 +248,7 @@ settings:
 | `result_json` | TEXT | 执行结果 |
 | `success` | BOOLEAN | 是否成功 |
 | `error_message` | TEXT | 错误信息（可空） |
+| `trace_id` | VARCHAR(64) | 单轮处理串联标识（021，可空；一次消息处理=一个 trace） |
 | `duration_ms` | BIGINT | 执行耗时 |
 | `created_at` | TIMESTAMP | 调用时间 |
 
@@ -227,10 +263,11 @@ settings:
 | `prompt_tokens` | INT | 输入 token 数 |
 | `completion_tokens` | INT | 输出 token 数 |
 | `total_tokens` | INT | 总 token 数 |
+| `trace_id` | VARCHAR(64) | 单轮处理串联标识（021，可空；与 tool_invocations/agent_executions 同值） |
 | `duration_ms` | BIGINT | 调用耗时 |
 | `created_at` | TIMESTAMP | 调用时间 |
 
-> **SQLite 迁移注意**：`hibernate.ddl-auto=update` 在 SQLite 上 `ALTER TABLE` 支持很弱。表结构变更时**不要**依赖 Hibernate 自动迁移，手动维护建表脚本或引入 Flyway。
+> **表结构变更（025 起 Flyway 管理）**：迁移脚本在 `oryxos-storage` 的 `db/migration/sqlite/` 与 `db/migration/postgresql/` 双轨目录，同一变更两 vendor 各写一份（同版本号）、只增不改；025~028 期间只做加列/加表/加索引类前向兼容变更。**不要**依赖 `hibernate.ddl-auto=update`（保持 `none`）；V1~V5 是存量收敛序列（幂等），V6 起写非幂等干净 SQL——history 表保证恰好一次。
 
 ---
 
@@ -281,9 +318,9 @@ interface OryxTool {
 | `shell` | `ShellTools` | 执行命令，命令白名单 + argv 直传 + 超时 |
 | `http_get` | `HttpTools` | GET 请求，默认放行 + SSRF 黑名单 |
 | `http_post` | `HttpTools` | POST 请求，域名通配符白名单 |
-| `save_memory` | `MemoryTools` | 追加到 MEMORY.md |
-| `recall_memory` | `MemoryTools` | 关键词检索 MEMORY.md |
-| `notify` | `NotifyTools` | 推送到 Profile 的 `notify_channels`，核心阶段走 `WebhookNotifyAdapter` |
+| `save_memory` | `MemoryTools` | 追加到长期记忆（core/archival 分区显式指定） |
+| `recall_memory` | `MemoryTools` | 检索归档记忆；配置全局 `embedding.*` 后为语义+关键词+时间三路加权融合（015），未配置保持关键词行为 |
+| `notify` | `NotifyTools` | 推送到全局注册表按名引用的通知渠道；webhook/feishu/wecom/dingtalk 走 `WebhookNotifyAdapter`，email 走 `EmailNotifyAdapter`（`config` 多字段 + SMTP 端点白名单） |
 
 ### Plugin Tool 三档
 
@@ -354,6 +391,8 @@ provider:
 
 `ConfigLoader` 启动时做必填项和格式校验，缺失或非法时给清晰报错，不静默失败。
 
+落库凭证（providers.api_key、notify_channels.config 敏感项）经主密钥 AES-GCM 加密存储（022，`enc:v1:` 前缀）：`ORYXOS_MASTER_KEY` 环境变量优先，缺省 `.oryxos/master.key` 首启自动生成；密钥不匹配启动即拒并指路恢复。
+
 ---
 
 ## 五大核心能力与验收 Demo
@@ -387,7 +426,7 @@ provider:
 | Provider 靠类型扫描区分 | 多 Provider 时路由错乱 | 改用显式 `Map<String, ChatModel>` 映射 |
 | `AGENT.md` / 子指令放进 Tool 模块 | Agent 目录被当 Tool 注册，执行时报错 | 归 `ContextLoader`：正文注入 system prompt，子指令/脚本经 read_file/shell 按需取 |
 | 审计表只写日志不落库 | 扩展阶段审计功能需要反解析日志 | `tool_invocations` + `llm_calls` 核心阶段就写入 SQLite |
-| 用 `hibernate.ddl-auto=update` 迁移表结构 | SQLite ALTER TABLE 报错 | 手动维护建表脚本或引入 Flyway |
+| 用 `hibernate.ddl-auto=update` 迁移表结构 | SQLite ALTER TABLE 报错 | 写 Flyway 迁移脚本（`db/migration/{vendor}/` 双轨各一份，只增不改） |
 | 在 ReAct Loop 里用异步 | 复杂度激增，Virtual Thread 优势消失 | 保持同步阻塞，Virtual Thread 自动处理 IO 等待 |
 | `MEMORY.md` 超过 4000 字不截断 | 注入 system prompt 超 context window | `LongTermMemory.truncateIfNeeded()` 超阈值保留最近内容 |
 | Tool 模块拆成多个 | 模块间依赖混乱 | 内置 Tool + MCP Client 合并为一个 `oryxos-tool` 模块 |

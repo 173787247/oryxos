@@ -1,5 +1,6 @@
 package io.oryxos.storage;
 
+import io.oryxos.core.agent.TraceContext;
 import io.oryxos.core.provider.LlmCallAuditor;
 import io.oryxos.core.provider.Usage;
 import org.slf4j.Logger;
@@ -23,15 +24,18 @@ public class JpaLlmCallAuditor implements LlmCallAuditor {
   @Override
   public void record(
       String sessionId,
+      String profileName,
       String provider,
       String model,
       Usage usage,
+      Long costMicros,
       boolean success,
       String errorMessage,
       long durationMs) {
     try {
       LlmCall record = new LlmCall();
       record.setSessionId(sessionId);
+      record.setProfileName(profileName);
       record.setProvider(provider);
       record.setModel(model);
       if (usage != null) {
@@ -39,6 +43,9 @@ public class JpaLlmCallAuditor implements LlmCallAuditor {
         record.setCompletionTokens(usage.completionTokens());
         record.setTotalTokens(usage.totalTokens());
       }
+      record.setCostMicros(costMicros);
+      // 021：trace 走环境读取而非参数传递——Auditor 接口零改动（R2 红线），未开启上下文时为 null
+      record.setTraceId(TraceContext.current());
       record.setSuccess(success);
       record.setErrorMessage(errorMessage);
       record.setDurationMs(durationMs);

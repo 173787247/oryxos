@@ -20,6 +20,9 @@ public class McpToolAdapter implements OryxTool {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
+  /** 返回内容保留上限：全文原样进 ToolResult 回灌模型上下文，MCP server 可返回无界文本。 */
+  private static final int MAX_CONTENT_CHARS = 64 * 1024;
+
   private final McpSyncClient client;
   private final McpSchema.Tool tool;
 
@@ -69,8 +72,15 @@ public class McpToolAdapter implements OryxTool {
     if (result.content() == null) {
       return "";
     }
-    return result.content().stream()
-        .map(c -> c instanceof McpSchema.TextContent text ? text.text() : String.valueOf(c))
-        .collect(Collectors.joining("\n"));
+    String joined =
+        result.content().stream()
+            .map(c -> c instanceof McpSchema.TextContent text ? text.text() : String.valueOf(c))
+            .collect(Collectors.joining("\n"));
+    return joined.length() > MAX_CONTENT_CHARS
+        ? joined.substring(0, MAX_CONTENT_CHARS)
+            + "\n…（MCP 返回超过 "
+            + (MAX_CONTENT_CHARS / 1024)
+            + "KB，已截断）"
+        : joined;
   }
 }

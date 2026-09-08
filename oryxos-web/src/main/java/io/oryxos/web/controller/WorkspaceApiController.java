@@ -1,7 +1,10 @@
 package io.oryxos.web.controller;
 
 import io.oryxos.core.agent.AgentLifecycleService;
+import io.oryxos.core.fs.AdminConfigFileGuard;
 import io.oryxos.core.fs.RealPathBoundary;
+import io.oryxos.core.fs.WorkspaceMutationGuard;
+import io.oryxos.core.memory.MemoryMdGuard;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.FileNode;
 import io.oryxos.web.controller.dto.WriteFileRequest;
@@ -46,7 +49,11 @@ public class WorkspaceApiController {
   private static final String AGENT_FILE = "AGENT.md";
   private static final String AGENTS_DIR = "agents";
   private static final String SKILLS_DIR = "skills";
-  private static final int AGENT_SKILL_PATH_SEGMENTS = 3;
+  private static final String KNOWLEDGE_DIR = "knowledge";
+  private static final String PARENT_PATH_SEGMENT = "..";
+
+  /** 相对 {@code agents/}：{@code <name>/AGENT.md} 与 {@code <name>/skills/...} 的最小段数。 */
+  private static final int AGENT_CHILD_SEGMENTS = 2;
 
   private final Path oryxosRoot;
   private final AgentLifecycleService lifecycle;
@@ -79,11 +86,19 @@ public class WorkspaceApiController {
   /** 读文件文本；防目录穿越：越界 → 400，不存在 → 404。 */
   @GetMapping("/file")
   public ApiResponse<String> file(@RequestParam String path) {
+    // 先词法拦保留文件原文（channels.yaml/mcp_servers.yaml 凭证、oryxos.db 全量数据）；
+    // 再投影真实路径后复检——alias.yaml→channels.yaml 软链只在投影后能看见
+    AdminConfigFileGuard.rejectRead(path);
     Path target = resolveWithinRoot(path);
+    AdminConfigFileGuard.rejectRead(target);
     if (!Files.isRegularFile(target)) {
       throw new ResourceNotFoundException("文件不存在: " + path); // → 404
     }
     try {
+      // 读前复检：与 writeFile / tool 层 read_file 同款——防首次校验到 readString 间被换成外向软链
+      // 或换成仍在 root 内的保留文件
+      target = resolveWithinRoot(path);
+      AdminConfigFileGuard.rejectRead(target);
       return ApiResponse.ok(Files.readString(target));
     } catch (IOException e) {
       throw new UncheckedIOException("读取文件失败: " + path, e);
@@ -97,10 +112,17 @@ public class WorkspaceApiController {
    */
   @GetMapping("/download")
   public ResponseEntity<Resource> download(@RequestParam String path) {
+    // 同 file：保留文件原文（凭证配置 / SQLite 库）禁止经附件流下载
+    AdminConfigFileGuard.rejectRead(path);
     Path target = resolveWithinRoot(path);
+    AdminConfigFileGuard.rejectRead(target);
     if (!Files.isRegularFile(target)) {
       throw new ResourceNotFoundException("文件不存在: " + path); // → 404
     }
+    // 读前复检：与 file / writeFile 同款——防首次校验到打开附件间被换成外向软链
+    // 或换成仍在 root 内的保留文件
+    target = resolveWithinRoot(path);
+    AdminConfigFileGuard.rejectRead(target);
     String filename = String.valueOf(target.getFileName());
     // 文件名可能含中文/空格：用 RFC 5987 编码进 Content-Disposition，避免乱码或截断
     String disposition =
@@ -132,15 +154,24 @@ public class WorkspaceApiController {
     if (path == null || path.isBlank()) {
       throw new IllegalArgumentException("path 为空"); // → 400
     }
+    // 先词法拦直写；再投影真实路径后复检——notes.md→MEMORY.md / alias→channels.yaml 软链只在投影后能看见
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
     Path target = resolveWithinRoot(path);
-    Path relative = oryxosRoot.relativize(target);
-    if (relative.getNameCount() >= AGENT_SKILL_PATH_SEGMENTS
-        && AGENTS_DIR.equals(relative.getName(0).toString())
-        && SKILLS_DIR.equals(relative.getName(2).toString())) {
+    MemoryMdGuard.rejectMutation(target);
+    AdminConfigFileGuard.rejectMutation(target);
+    if (isAgentSkillsPath(target)) {
       throw new IllegalArgumentException("Agent skills/ 是绑定视图，禁止从工作区入口写入");
+    }
+    if (isAgentKnowledgePath(target)) {
+      throw new IllegalArgumentException("Agent knowledge/ 是绑定视图，禁止从工作区入口写入");
     }
     if (RealPathBoundary.isWithin(oryxosRoot.resolve(SKILLS_DIR), target)) {
       throw new IllegalArgumentException("共享 Skill 实体只能通过 Skill 管理入口更新");
+    }
+    if (RealPathBoundary.isWithin(oryxosRoot.resolve(KNOWLEDGE_DIR), target)) {
+      throw new IllegalArgumentException("共享 Knowledge 实体只能通过 Knowledge 管理入口更新");
     }
     String content = req.content() == null ? "" : req.content();
     Path agentDir = agentDirOfAgentFile(target);
@@ -154,6 +185,28 @@ public class WorkspaceApiController {
       if (parent != null) {
         Files.createDirectories(parent);
       }
+      // 写前复检：防首次校验到 writeString 间路径被换成外向软链，或换成仍在 root 内的保留文件
+      target = resolveWithinRoot(path);
+      MemoryMdGuard.rejectMutation(target);
+      AdminConfigFileGuard.rejectMutation(target);
+      WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(target.toString());
+      if (isAgentSkillsPath(target)) {
+        throw new IllegalArgumentException("Agent skills/ 是绑定视图，禁止从工作区入口写入");
+      }
+      if (isAgentKnowledgePath(target)) {
+        throw new IllegalArgumentException("Agent knowledge/ 是绑定视图，禁止从工作区入口写入");
+      }
+      if (RealPathBoundary.isWithin(oryxosRoot.resolve(SKILLS_DIR), target)) {
+        throw new IllegalArgumentException("共享 Skill 实体只能通过 Skill 管理入口更新");
+      }
+      if (RealPathBoundary.isWithin(oryxosRoot.resolve(KNOWLEDGE_DIR), target)) {
+        throw new IllegalArgumentException("共享 Knowledge 实体只能通过 Knowledge 管理入口更新");
+      }
+      Path agentDirRecheck = agentDirOfAgentFile(target);
+      if (agentDirRecheck != null) {
+        lifecycle.update(String.valueOf(agentDirRecheck.getFileName()), content);
+        return ApiResponse.ok(null);
+      }
       Files.writeString(target, content);
     } catch (IOException e) {
       throw new UncheckedIOException("写入文件失败: " + path, e);
@@ -161,16 +214,70 @@ public class WorkspaceApiController {
     return ApiResponse.ok(null);
   }
 
-  /** target 若是 {@code agents/<name>/AGENT.md} 则返回其 Agent 目录，否则 null。 */
+  /**
+   * target 若是 {@code agents/<name>/AGENT.md}（大小写不敏感）则返回其 Agent 目录，否则 null。
+   *
+   * <p>macOS/Windows 默认大小写不敏感：{@code agent.md} / {@code Agents/...} 仍指向同一文件，但 {@code Path.equals} /
+   * {@code String.equals} 区分大小写，会绕过 {@link AgentLifecycleService#update} 直接写盘，schedules 变更不注销旧
+   * cron。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "AGENT.md is an ASCII reserved filename; equalsIgnoreCase matches case-insensitive filesystems.")
   private Path agentDirOfAgentFile(Path target) {
-    if (!AGENT_FILE.equals(String.valueOf(target.getFileName()))) {
+    if (!AGENT_FILE.equalsIgnoreCase(String.valueOf(target.getFileName()))) {
       return null;
     }
-    Path agentDir = target.getParent();
-    if (agentDir == null || agentDir.getParent() == null) {
+    Path relative = relativeUnderAgents(target);
+    if (relative == null || relative.getNameCount() != AGENT_CHILD_SEGMENTS) {
       return null;
     }
-    return oryxosRoot.resolve("agents").equals(agentDir.getParent()) ? agentDir : null;
+    return target.getParent();
+  }
+
+  /** {@code agents/<name>/skills/**}（大小写不敏感），含尚未落盘的 {@code Skills/} 后缀。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "skills is an ASCII reserved path segment; equalsIgnoreCase matches case-insensitive filesystems.")
+  private boolean isAgentSkillsPath(Path target) {
+    Path relative = relativeUnderAgents(target);
+    return relative != null
+        && relative.getNameCount() >= AGENT_CHILD_SEGMENTS
+        && SKILLS_DIR.equalsIgnoreCase(relative.getName(1).toString());
+  }
+
+  /** {@code agents/<name>/knowledge/**}（大小写不敏感），与 skills 绑定视图同款禁写。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "knowledge is an ASCII reserved path segment; equalsIgnoreCase matches case-insensitive filesystems.")
+  private boolean isAgentKnowledgePath(Path target) {
+    Path relative = relativeUnderAgents(target);
+    return relative != null
+        && relative.getNameCount() >= AGENT_CHILD_SEGMENTS
+        && KNOWLEDGE_DIR.equalsIgnoreCase(relative.getName(1).toString());
+  }
+
+  /** 相对真实 {@code agents/} 的路径；越出该目录或含 {@code ..} 则 null。 */
+  private Path relativeUnderAgents(Path target) {
+    Path agentsReal = RealPathBoundary.project(oryxosRoot.resolve(AGENTS_DIR)).projectedReal();
+    Path relative;
+    try {
+      relative = agentsReal.relativize(target).normalize();
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
+    if (relative.getNameCount() == 0 || relative.isAbsolute()) {
+      return null;
+    }
+    for (int i = 0; i < relative.getNameCount(); i++) {
+      if (PARENT_PATH_SEGMENT.equals(relative.getName(i).toString())) {
+        return null;
+      }
+    }
+    return relative;
   }
 
   private FileNode treeOf(Path node) {
@@ -212,10 +319,10 @@ public class WorkspaceApiController {
       throw new IllegalArgumentException("路径越界，拒绝访问: " + path);
     }
     try {
-      RealPathBoundary.requireWithin(oryxosRoot, target);
+      // 用投影真实路径做后续分类：大小写不敏感盘上 Agents/agent.md 会回到 agents/AGENT.md。
+      return RealPathBoundary.requireWithin(oryxosRoot, target);
     } catch (UncheckedIOException e) {
       throw new IllegalArgumentException("路径真实目标无法安全解析，拒绝访问: " + path, e);
     }
-    return target;
   }
 }

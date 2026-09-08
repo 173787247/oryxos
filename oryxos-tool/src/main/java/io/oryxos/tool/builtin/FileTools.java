@@ -1,5 +1,9 @@
 package io.oryxos.tool.builtin;
 
+import io.oryxos.core.fs.AdminConfigFileGuard;
+import io.oryxos.core.fs.WorkspaceMutationGuard;
+import io.oryxos.core.memory.MemoryMdGuard;
+import io.oryxos.core.session.InboundMediaExt;
 import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
@@ -39,19 +43,38 @@ public class FileTools {
     this.sandbox = sandbox;
   }
 
-  @Tool(name = "read_file", description = "读取指定路径的文本文件内容")
+  /** 写路径保留文件守卫（MEMORY / AdminConfig / Skill·Knowledge / AGENT.md）。 */
+  private static void rejectReservedFileWrites(String path) {
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
+  }
+
+  @Tool(name = "read_file", description = "读取指定路径的文本文件内容；文本型 PDF 自动抽取正文（扫描件无文本层会失败）")
   public String readFile(@ToolParam(description = "要读取的文件路径") String path) {
+    // 保留文件原文（channels.yaml/mcp_servers.yaml 凭证、oryxos.db 数据）禁止经通用读入口吐出
+    AdminConfigFileGuard.rejectRead(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
     Path file = Path.of(path);
     if (!Files.isRegularFile(file)) {
       throw new IllegalArgumentException("文件不存在或不是普通文件: " + path);
     }
     try {
-      // 读前复检：与 write_file 同款——防首次校验到 readString 间路径被换成外向软链
+      // 读前复检：与 write_file 同款——防首次校验到 readString 间路径被换成外向软链或保留文件
       sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
+      AdminConfigFileGuard.rejectRead(path);
+      if (InboundMediaExt.hasPdfExtension(file) || InboundMediaExt.isPdfMagic(file)) {
+        return PdfTextExtractor.extract(file);
+      }
       return Files.readString(file);
     } catch (IOException e) {
-      throw new UncheckedIOException("读取文件失败: " + path, e);
+      String detail = e.getMessage();
+      if (detail == null || detail.isBlank()) {
+        throw new UncheckedIOException("读取文件失败: " + path, e);
+      }
+      // 把根因（如「PDF 无文本层」）透出给 Agent，避免只看到笼统的「读取文件失败」后乱猜路径
+      throw new UncheckedIOException("读取文件失败: " + path + " — " + detail.strip(), e);
     }
   }
 
@@ -59,6 +82,10 @@ public class FileTools {
   public String writeFile(
       @ToolParam(description = "要写入的文件路径") String path,
       @ToolParam(description = "要写入的内容") String content) {
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
       Path file = Path.of(path);
@@ -68,6 +95,7 @@ public class FileTools {
       }
       // 写前复检：与 download_file / grep 同款——防首次校验到 writeString 间路径被换成外向软链
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
+      rejectReservedFileWrites(path);
       Files.writeString(file, content);
       return "已写入: " + path;
     } catch (IOException e) {
@@ -101,6 +129,10 @@ public class FileTools {
       @ToolParam(description = "要编辑的文件路径") String path,
       @ToolParam(description = "要被替换的原文本（必须在文件中唯一出现）") String oldString,
       @ToolParam(description = "替换后的新文本") String newString) {
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     Path file = Path.of(path);
     if (!Files.isRegularFile(file)) {
@@ -120,6 +152,7 @@ public class FileTools {
       }
       // 写前复检：与 write_file 同款
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
+      rejectReservedFileWrites(path);
       Files.writeString(file, content.replace(oldString, newString));
       return "已编辑: " + path;
     } catch (IOException e) {
@@ -138,6 +171,7 @@ public class FileTools {
     }
     Pattern regex = Pattern.compile(pattern);
     List<String> matches = new ArrayList<>();
+    int skippedReserved = 0;
     try {
       // Skill 绑定等「目录软链」：walk 默认不跟随，需先解析到真实目录；嵌套文件软链仍靠 NOFOLLOW 跳过
       Path walkRoot = resolveDirectorySymlink(root);
@@ -147,6 +181,11 @@ public class FileTools {
             matches.add("...（已达 " + MAX_MATCHES + " 条上限，结果截断）");
             break;
           }
+          // 保留文件（凭证配置 / SQLite 库）不进搜索内容：跳过而非整次失败，与软链叶子同款过滤
+          if (AdminConfigFileGuard.isReservedRead(file)) {
+            skippedReserved++;
+            continue;
+          }
           // 纵深防御：每个实际读取的文件再过一次文件白名单（防根校验到读取间符号链接被替换）
           sandbox.enforce(new SandboxAction(ActionType.FILE_READ, file.toString()));
           appendMatches(file, regex, matches);
@@ -154,6 +193,9 @@ public class FileTools {
       }
     } catch (IOException e) {
       throw new UncheckedIOException("搜索失败: " + path, e);
+    }
+    if (skippedReserved > 0) {
+      matches.add("...（已跳过 " + skippedReserved + " 个系统保留文件，凭证配置与数据库不参与搜索）");
     }
     return matches.isEmpty() ? "（无匹配）" : String.join("\n", matches);
   }
@@ -236,10 +278,20 @@ public class FileTools {
 
   @Tool(name = "make_dir", description = "创建目录（含父目录，幂等）")
   public String makeDir(@ToolParam(description = "要创建的目录路径") String path) {
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectBindSlotCreate(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
-      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       Files.createDirectories(Path.of(path));
+      // 建目录后复检：与 write_file / download_file 同款——防首次校验到 createDirectories 间路径被换成外向软链
+      // 或换成仍在 root 内的 MEMORY / AdminConfig / Skill·Knowledge / bind 槽
+      sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
+      MemoryMdGuard.rejectMutation(path);
+      AdminConfigFileGuard.rejectMutation(path);
+      WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+      WorkspaceMutationGuard.rejectBindSlotCreate(path);
       return "已创建目录: " + path;
     } catch (IOException e) {
       throw new UncheckedIOException("创建目录失败: " + path, e);
@@ -250,6 +302,10 @@ public class FileTools {
   public String appendFile(
       @ToolParam(description = "文件路径") String path,
       @ToolParam(description = "要追加的内容") String content) {
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
       Path file = Path.of(path);
@@ -258,6 +314,7 @@ public class FileTools {
         Files.createDirectories(parent);
       }
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
+      rejectReservedFileWrites(path);
       Files.writeString(file, content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
       return "已追加到: " + path;
     } catch (IOException e) {
@@ -267,6 +324,10 @@ public class FileTools {
 
   @Tool(name = "delete_file", description = "删除一个文件（拒绝删除目录）")
   public String deleteFile(@ToolParam(description = "要删除的文件路径") String path) {
+    MemoryMdGuard.rejectMutation(path);
+    AdminConfigFileGuard.rejectMutation(path);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
+    WorkspaceMutationGuard.rejectBindLinkDetach(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     Path file = Path.of(path);
     // NOFOLLOW_LINKS：只拦真实目录；指向目录的 symlink（如 Agent Skill 绑定）应删链接本身，不跟随目标
@@ -274,8 +335,10 @@ public class FileTools {
       throw new IllegalArgumentException("拒绝删除目录（本工具只删文件）: " + path);
     }
     try {
-      // 删前复检：防首次校验到 delete 间路径/父目录被换成外向软链
+      // 删前复检：防首次校验到 delete 间路径/父目录被换成外向软链，或换成仍在 root 内的保留路径
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
+      rejectReservedFileWrites(path);
+      WorkspaceMutationGuard.rejectBindLinkDetach(path);
       return Files.deleteIfExists(file) ? "已删除: " + path : "文件不存在: " + path;
     } catch (IOException e) {
       throw new UncheckedIOException("删除文件失败: " + path, e);
@@ -285,6 +348,14 @@ public class FileTools {
   @Tool(name = "move_file", description = "移动 / 重命名文件（源与目标都过白名单，目标已存在则覆盖）")
   public String moveFile(
       @ToolParam(description = "源路径") String from, @ToolParam(description = "目标路径") String to) {
+    MemoryMdGuard.rejectMutation(from);
+    AdminConfigFileGuard.rejectMutation(from);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(from);
+    WorkspaceMutationGuard.rejectBindLinkDetach(from);
+    MemoryMdGuard.rejectMutation(to);
+    AdminConfigFileGuard.rejectMutation(to);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(to);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(to);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
     Path src = Path.of(from);
@@ -306,6 +377,8 @@ public class FileTools {
       // 变更前复检：与 write_file 同款——防 createDirectories 窗口内目标父路径被换成外向软链
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, from));
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
+      rejectReservedFileWrites(from);
+      rejectReservedFileWrites(to);
       Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
       return "已移动: " + from + " -> " + to;
     } catch (IOException e) {
@@ -316,6 +389,12 @@ public class FileTools {
   @Tool(name = "copy_file", description = "复制文件（源读 + 目标写，都过白名单，目标已存在则覆盖）")
   public String copyFile(
       @ToolParam(description = "源路径") String from, @ToolParam(description = "目标路径") String to) {
+    // 源是保留文件（凭证配置 / SQLite 库）时拒绝：复制成普通文件即绕过读侧守卫泄露原文
+    AdminConfigFileGuard.rejectRead(from);
+    MemoryMdGuard.rejectMutation(to);
+    AdminConfigFileGuard.rejectMutation(to);
+    WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(to);
+    WorkspaceMutationGuard.rejectAgentMdDirectWrite(to);
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
     Path src = Path.of(from);
@@ -338,6 +417,8 @@ public class FileTools {
       // 变更前复检：与 write_file 同款——防校验到 copy 间路径被换成外向软链
       sandbox.enforce(new SandboxAction(ActionType.FILE_READ, from));
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
+      AdminConfigFileGuard.rejectRead(from);
+      rejectReservedFileWrites(to);
       Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
       return "已复制: " + from + " -> " + to;
     } catch (IOException e) {

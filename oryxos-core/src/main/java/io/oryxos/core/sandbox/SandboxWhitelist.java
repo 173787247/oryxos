@@ -11,11 +11,12 @@ import java.util.List;
  */
 public interface SandboxWhitelist {
 
-  /** 三类白名单：文件路径 / Shell 命令 / HTTP 域名。 */
+  /** 四类白名单：文件路径 / Shell 命令 / HTTP 域名 / SMTP 端点。 */
   enum Category {
     FILE,
     SHELL,
-    HTTP
+    HTTP,
+    SMTP
   }
 
   /** 列出某类当前的全部白名单条目（文件类返回归一后的绝对路径）。 */

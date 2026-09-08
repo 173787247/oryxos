@@ -13,7 +13,7 @@
 
     <groupId>io.oryxos</groupId>
     <artifactId>oryxos</artifactId>
-    <version>0.1.2-RELEASE</version>
+    <version>0.1.4-RELEASE</version>
     <packaging>pom</packaging>
 
     <name>OryxOS</name>
@@ -24,13 +24,24 @@
         <spring-ai.version>1.1.8</spring-ai.version>
         <picocli.version>4.7.6</picocli.version>
         <sqlite-jdbc.version>3.53.2.1</sqlite-jdbc.version>
+        <!-- 025：覆盖 Boot BOM 的 42.7.11——CVE-2026-54291（CVSS 8.2）修复于 42.7.12（OSV 实证），OWASP 门禁线 8.0 -->
+        <postgresql.version>42.7.12</postgresql.version>
+        <pdfbox.version>3.0.8</pdfbox.version>
+        <oapi-sdk.version>2.8.5</oapi-sdk.version>
 
         <!-- Infrastructure libraries -->
         <jackson-bom.version>2.21.5</jackson-bom.version>
+        <httpclient5.version>5.6.4</httpclient5.version>
+        <httpcore5.version>5.4.3</httpcore5.version>
         <log4j2.version>2.25.5</log4j2.version>
-        <tomcat.version>10.1.57</tomcat.version>
+        <tomcat.version>10.1.59</tomcat.version>
+        <!-- CVE-2025-48924: ClassUtils.getClass StackOverflowError before 3.18.0 -->
+        <commons-lang3.version>3.18.0</commons-lang3.version>
         <logstash-logback.version>7.4</logstash-logback.version>
-        <springdoc.version>2.6.0</springdoc.version>
+        <!-- Boot 3.5.x line; 2.9+/3.x need Boot 4 -->
+        <springdoc.version>2.8.17</springdoc.version>
+        <!-- springdoc 2.8.17 still ships older swagger-ui; override for DOMPurify CVEs -->
+        <swagger-ui.version>5.32.13</swagger-ui.version>
 
         <!-- Quality / format / security plugins -->
         <spotless.version>2.43.0</spotless.version>
@@ -47,14 +58,29 @@
 
         <!-- OWASP Dependency-Check is skipped by default for fast local builds and enabled in CI. -->
         <owasp.skip>true</owasp.skip>
+        <!-- Integration smoke tests stay opt-in but can be enabled with -DexcludedGroups=. -->
+        <excludedGroups>integration</excludedGroups>
     </properties>
 
     <modules>
         <module>oryxos-core</module>
+        <module>oryxos-persona</module>
         <module>oryxos-provider</module>
         <module>oryxos-memory</module>
+        <module>oryxos-knowledge</module>
         <module>oryxos-tool</module>
         <module>oryxos-channel-cli</module>
+        <module>oryxos-channel-feishu</module>
+        <module>oryxos-channel-wecom</module>
+        <module>oryxos-channel-dingtalk</module>
+        <module>oryxos-channel-slack</module>
+        <module>oryxos-channel-discord</module>
+        <module>oryxos-channel-telegram</module>
+        <module>oryxos-channel-whatsapp</module>
+        <module>oryxos-channel-teams</module>
+        <module>oryxos-channel-gchat</module>
+        <module>oryxos-channel-mattermost</module>
+        <module>oryxos-channel-matrix</module>
         <module>oryxos-web</module>
         <module>oryxos-storage</module>
         <module>oryxos-cli</module>
@@ -80,6 +106,11 @@
             </dependency>
             <dependency>
                 <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-persona</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-provider</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -90,12 +121,72 @@
             </dependency>
             <dependency>
                 <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-knowledge</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-tool</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-channel-cli</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-feishu</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-wecom</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-dingtalk</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-slack</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-discord</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-telegram</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-whatsapp</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-teams</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-gchat</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-mattermost</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.oryxos</groupId>
+                <artifactId>oryxos-channel-matrix</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -112,6 +203,13 @@
                 <groupId>io.oryxos</groupId>
                 <artifactId>oryxos-cli</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+
+            <!-- Apache PDFBox：文本型 PDF 解析（014 知识库，唯一新增运行时依赖） -->
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
             </dependency>
 
             <!-- Picocli -->
@@ -149,6 +247,11 @@
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
                 <version>${springdoc.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.webjars</groupId>
+                <artifactId>swagger-ui</artifactId>
+                <version>${swagger-ui.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -161,7 +264,7 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <configuration>
-                        <excludedGroups>integration</excludedGroups>
+                        <excludedGroups>${excludedGroups}</excludedGroups>
                     </configuration>
                 </plugin>
 

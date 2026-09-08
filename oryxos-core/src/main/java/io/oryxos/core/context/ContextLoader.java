@@ -1,6 +1,10 @@
 package io.oryxos.core.context;
 
 import io.oryxos.core.agent.AgentMarkdown;
+import io.oryxos.core.knowledge.BoundKnowledgeDescriptor;
+import io.oryxos.core.knowledge.KnowledgeBindingInspection;
+import io.oryxos.core.knowledge.KnowledgeBindingIssue;
+import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.skill.AgentSkillBindingReader;
 import io.oryxos.core.skill.BindingInspection;
@@ -38,18 +42,34 @@ public class ContextLoader {
   private static final Set<String> FILE_WRITE_TOOLS =
       Set.of("write_file", "append_file", "edit_file", "make_dir", "download_file");
 
+  /** 检索工具名：Profile 声明了它才注入知识库元数据（对照 FILE_WRITE_TOOLS 的按需注入模式）。 */
+  private static final String RETRIEVE_KNOWLEDGE_TOOL = "retrieve_knowledge";
+
   private final Path oryxosRoot;
   private final AgentSkillBindingReader skillBindings;
+  private final KnowledgeBindingService knowledgeBindings;
 
   public ContextLoader(Path oryxosRoot, AgentSkillBindingReader skillBindings) {
+    this(oryxosRoot, skillBindings, null);
+  }
+
+  public ContextLoader(
+      Path oryxosRoot,
+      AgentSkillBindingReader skillBindings,
+      KnowledgeBindingService knowledgeBindings) {
     this.oryxosRoot = oryxosRoot;
     this.skillBindings = skillBindings;
+    this.knowledgeBindings = knowledgeBindings;
   }
 
   public String load(Profile profile) {
     StringBuilder context = new StringBuilder();
     if (profile.identity() != null && profile.identity().prompt() != null) {
       context.append(profile.identity().prompt()).append('\n');
+    }
+    // 025：结构化人格段——固定模板渲染，插在正文之前（身份先于任务）；无 persona 不注入
+    if (profile.persona() != null) {
+      context.append(renderPersona(profile.persona())).append('\n');
     }
     // AGENT.md 正文：现读、无缓存——改正文后下一次触发即生效（渐进式披露：正文常驻，子资源按需）
     Path agentMd = oryxosRoot.resolve(AGENTS_DIR).resolve(profile.name()).resolve(AGENT_FILE);
@@ -61,6 +81,8 @@ public class ContextLoader {
     }
     // 当前 Agent 的有效 Skill：只注入目录元数据与读取路径，正文由 read_file 按需加载
     appendSkills(context, profile);
+    // 当前 Agent 绑定的知识库：只注入 name + description + 检索指引；零绑定零注入、正文永不预载（FR-005）
+    appendKnowledge(context, profile);
     // 告知会写盘的 Agent 它的绝对产出目录（已在文件白名单内），落盘文件有确定去处，避免它猜 ./output 撞沙箱
     appendOutputDir(context, profile);
     for (String bootstrap : profile.bootstrap()) {
@@ -109,6 +131,39 @@ public class ContextLoader {
     }
   }
 
+  /** 每轮重扫知识库绑定（渐进披露，FR-005）：问题项 WARN 跳过，合法项只注入元数据与检索指引。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification = "Every untrusted issue string is passed through sanitize before logging.")
+  private void appendKnowledge(StringBuilder context, Profile profile) {
+    if (knowledgeBindings == null || !profile.tools().contains(RETRIEVE_KNOWLEDGE_TOOL)) {
+      return;
+    }
+    KnowledgeBindingInspection inspection = knowledgeBindings.inspect(profile.name());
+    for (KnowledgeBindingIssue issue : inspection.issues()) {
+      LOG.warn(
+          "Agent 知识库绑定异常 [{}]，跳过 {}/{}: {}",
+          issue.type(),
+          sanitize(issue.agentName()),
+          sanitize(issue.entryName()),
+          sanitize(issue.message()));
+    }
+    if (inspection.bindings().isEmpty()) {
+      return;
+    }
+    context.append(
+        "你绑定了以下知识库。回答涉及其中内容时，先用 retrieve_knowledge 检索（结果带出处，"
+            + "回答时给出出处）；命中的片段只是入口，不足以回答时按结果里的 file 路径用 read_file 读取原文补充：\n");
+    for (BoundKnowledgeDescriptor binding : inspection.bindings()) {
+      context
+          .append("- ")
+          .append(binding.name())
+          .append("：")
+          .append(binding.description())
+          .append('\n');
+    }
+  }
+
   /** 会写盘的 Agent：注入共享产出目录（{@code .oryxos/output/} 绝对路径，已在白名单内、管理台「输出」tab 直接可见）。 */
   private void appendOutputDir(StringBuilder context, Profile profile) {
     boolean canWrite = profile.tools().stream().anyMatch(FILE_WRITE_TOOLS::contains);
@@ -130,6 +185,45 @@ public class ContextLoader {
     } catch (IOException e) {
       // 文件存在但读不出来（权限/编码）不属于"缺失可跳过"，必须显式失败
       throw new IllegalStateException("读取上下文文件失败: " + file.getFileName(), e);
+    }
+  }
+
+  /** 人格段固定模板（025）：契约「格式恒定」——字段名与顺序是模板的一部分，不是自由文本。 */
+  private static final String PERSONA_HEADING = "## 你的人格（每轮固定，不可违背）\n";
+
+  /** 人格多行值内的行分隔符：tag 与值之间、字段之间都用它拆行（P3C 禁裸魔法值，作常量复用）。 */
+  private static final String LINE_BREAK = "\n";
+
+  private static String renderPersona(Profile.Persona p) {
+    StringBuilder sb = new StringBuilder(PERSONA_HEADING);
+    sb.append("- 你是「").append(p.name()).append("」，角色：").append(p.role()).append(LINE_BREAK);
+    appendPersonaField(sb, "性格", p.traits());
+    appendPersonaField(sb, "语气", p.tone());
+    appendPersonaField(sb, "行为准则", p.values());
+    appendPersonaField(sb, "边界", p.boundaries());
+    appendPersonaField(sb, "风格示范", p.sampleStyle());
+    return sb.toString();
+  }
+
+  /**
+   * 追加一个「- 标签：值」字段。导入器把 values/tone 写成多行 block scalar（一条规则一行、可含 {@code ###} 分组小标题），直接拼会把续行顶到第 0
+   * 列、标签被首行内容吞掉（契约「格式恒定」被破坏）。这里单行值保持一行一字段；多行值标签独立成行、续行统一缩进两个空格成为列表项的延续块。
+   */
+  private static void appendPersonaField(StringBuilder sb, String label, String value) {
+    if (value == null) {
+      return;
+    }
+    sb.append("- ").append(label).append("：");
+    if (!value.contains(LINE_BREAK)) {
+      sb.append(value).append(LINE_BREAK);
+      return;
+    }
+    sb.append(LINE_BREAK);
+    for (String line : value.split(LINE_BREAK, -1)) {
+      String t = line.strip();
+      if (!t.isEmpty()) {
+        sb.append("  ").append(t).append(LINE_BREAK);
+      }
     }
   }
 

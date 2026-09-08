@@ -81,7 +81,8 @@ public class SandboxWhitelistController {
     try {
       return Category.valueOf(category.toUpperCase(Locale.ROOT));
     } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException("未知的白名单类别: " + category + "（可选 file / shell / http）");
+      throw new IllegalArgumentException(
+          "未知的白名单类别: " + category + "（可选 file / shell / http / smtp）");
     }
   }
 

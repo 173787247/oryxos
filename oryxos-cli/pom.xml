@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.oryxos</groupId>
         <artifactId>oryxos</artifactId>
-        <version>0.1.2-RELEASE</version>
+        <version>0.1.4-RELEASE</version>
     </parent>
 
     <artifactId>oryxos-cli</artifactId>
@@ -16,12 +16,61 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-annotations</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-core</artifactId>
         </dependency>
         <dependency>
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-channel-cli</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-feishu</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-wecom</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-dingtalk</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-slack</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-discord</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-telegram</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-whatsapp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-teams</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-gchat</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-mattermost</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-channel-matrix</artifactId>
         </dependency>
         <dependency>
             <groupId>io.oryxos</groupId>
@@ -38,6 +87,15 @@
         <dependency>
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-memory</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-knowledge</artifactId>
+        </dependency>
+        <!-- 025-persona-library: OryxOsRuntime @Bean PersonaPresetCatalog/PersonaStore/PersonaService + CLI agent import -->
+        <dependency>
+            <groupId>io.oryxos</groupId>
+            <artifactId>oryxos-persona</artifactId>
         </dependency>
         <dependency>
             <groupId>info.picocli</groupId>
@@ -69,6 +127,12 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+        <!-- 023：业务指标 MicrometerMetricsRecorder 的编译依赖——运行时 jar 已由 oryxos-boot 的
+             spring-boot-starter-actuator 传递带入，此处仅补编译可见性，零新增运行时构件 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
         </dependency>
     </dependencies>
 

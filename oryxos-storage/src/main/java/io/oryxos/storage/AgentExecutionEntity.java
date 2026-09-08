@@ -8,7 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** agent_executions：Agent 维度每次执行的历史（第 32 节）——表结构以手工 schema.sql 为唯一权威。 */
+/** agent_executions：Agent 维度每次执行的历史（第 32 节）——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "agent_executions")
 public class AgentExecutionEntity {
@@ -25,6 +25,10 @@ public class AgentExecutionEntity {
 
   @Column(name = "session_id")
   private String sessionId;
+
+  /** 单轮处理串联标识（021）：触发时主线程生成，与本轮审计记录同值；升级前旧行为 null。 */
+  @Column(name = "trace_id")
+  private String traceId;
 
   @Column(name = "started_at", nullable = false)
   private Instant startedAt;
@@ -66,6 +70,14 @@ public class AgentExecutionEntity {
 
   public void setSessionId(String sessionId) {
     this.sessionId = sessionId;
+  }
+
+  public String getTraceId() {
+    return traceId;
+  }
+
+  public void setTraceId(String traceId) {
+    this.traceId = traceId;
   }
 
   public Instant getStartedAt() {

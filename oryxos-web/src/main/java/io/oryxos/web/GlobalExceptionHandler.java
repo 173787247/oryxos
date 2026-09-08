@@ -8,6 +8,7 @@ import io.oryxos.web.controller.dto.SkillReferenceConflictView;
 import io.oryxos.web.error.AgentTimeoutException;
 import io.oryxos.web.error.ProviderUnavailableException;
 import io.oryxos.web.error.ResourceNotFoundException;
+import io.oryxos.web.error.ScheduleKeyAmbiguityException;
 import io.oryxos.web.error.SessionNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,11 +27,21 @@ public class GlobalExceptionHandler {
 
   private static final Logger LOG = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-  /** 400 — malformed or invalid request arguments（含 AGENT.md 定义非法：ProfileValidationException）。 */
-  @ExceptionHandler({IllegalArgumentException.class, ProfileValidationException.class})
+  /**
+   * 400 — malformed or invalid request arguments（含 AGENT.md
+   * 定义非法：ProfileValidationException；文档导入同步校验失败：KnowledgeImportException）。
+   */
+  @ExceptionHandler({
+    IllegalArgumentException.class,
+    ProfileValidationException.class,
+    io.oryxos.core.knowledge.KnowledgeImportException.class
+  })
   public ResponseEntity<ApiResponse<Void>> handleBadRequest(RuntimeException ex) {
     LOG.warn("Bad request: {}", sanitize(ex.getMessage()));
+    // 显式 JSON content-type（019 FR-009）：客户端 Accept 只有 text/event-stream 时（SSE 流式调用的
+    // 流前失败）内容协商会失败并把原异常重新抛出——预设具体 content-type 跳过协商，错误 JSON 任何 Accept 都可达。
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
   }
 
@@ -46,7 +57,9 @@ public class GlobalExceptionHandler {
   @ExceptionHandler({SessionNotFoundException.class, ResourceNotFoundException.class})
   public ResponseEntity<ApiResponse<Void>> handleResourceNotFound(RuntimeException ex) {
     LOG.warn("Resource not found: {}", sanitize(ex.getMessage()));
+    // 显式 JSON content-type：同 handleBadRequest——SSE 流前失败（FR-009）需在 Accept: text/event-stream 下可达
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
   }
 
@@ -54,8 +67,21 @@ public class GlobalExceptionHandler {
   @ExceptionHandler({IllegalStateException.class, ProviderUnavailableException.class})
   public ResponseEntity<ApiResponse<Void>> handleUnavailable(RuntimeException ex) {
     LOG.error("Service unavailable: {}", sanitize(ex.getMessage()));
+    // 显式 JSON content-type：同 handleBadRequest——SSE 流前失败（FR-009）需在 Accept: text/event-stream 下可达
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE.value(), ex.getMessage()));
+  }
+
+  /** 409 — 删除知识库被 Agent 引用保护拦下（FR-011）：携带引用 Agent 清单。 */
+  @ExceptionHandler(io.oryxos.core.knowledge.KnowledgeReferencedException.class)
+  public ResponseEntity<ApiResponse<io.oryxos.web.controller.dto.KnowledgeReferenceConflictView>>
+      handleKnowledgeReferenced(io.oryxos.core.knowledge.KnowledgeReferencedException ex) {
+    io.oryxos.web.controller.dto.KnowledgeReferenceConflictView data =
+        io.oryxos.web.controller.dto.KnowledgeReferenceConflictView.from(
+            ex.kbName(), ex.references());
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(new ApiResponse<>(HttpStatus.CONFLICT.value(), ex.getMessage(), data));
   }
 
   /** 409 — Skill archive is blocked by active or archived Agent references. */
@@ -73,6 +99,15 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleSessionUpdateConflict(
       SessionUpdateConflictException ex) {
     LOG.warn("Session update conflict: {}", sanitize(ex.getMessage()));
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(ApiResponse.error(HttpStatus.CONFLICT.value(), ex.getMessage()));
+  }
+
+  /** 409 - a deprecated v1 schedule key identifies multiple schedules. */
+  @ExceptionHandler(ScheduleKeyAmbiguityException.class)
+  public ResponseEntity<ApiResponse<Void>> handleScheduleKeyAmbiguity(
+      ScheduleKeyAmbiguityException ex) {
+    LOG.warn("Ambiguous schedule key: {}", sanitize(ex.getMessage()));
     return ResponseEntity.status(HttpStatus.CONFLICT)
         .body(ApiResponse.error(HttpStatus.CONFLICT.value(), ex.getMessage()));
   }

@@ -71,6 +71,14 @@ Notify channels are managed as first-class resources — created, edited, and de
 | `feishu` | Feishu / Lark group webhook |
 | `wecom` | WeCom (企业微信) group webhook |
 | `dingtalk` | DingTalk group webhook |
+| `slack` | Slack incoming webhook or bot token + channel_id |
+| `discord` | Discord incoming webhook or bot token + channel_id |
+| `telegram` | Telegram Bot API sendMessage |
+| `whatsapp` | WhatsApp Cloud API (24h window / templates) |
+| `teams` | Microsoft Teams incoming webhook |
+| `gchat` | Google Chat incoming webhook |
+| `mattermost` | Mattermost incoming webhook |
+| `matrix` | Matrix Client-Server send |
 | `webhook` | Generic HTTP webhook |
 
 An agent references a channel **by name from its `AGENT.md` body**, in plain language — for example, "call notify and send the report to `team-lark`". There is **no `notify_channels` field in AGENT.md frontmatter**; the channel is resolved at call time from the registry, so channels can be added or re-pointed without touching any agent.
@@ -179,6 +187,24 @@ http:
 ```
 
 The three whitelists are also **manageable at runtime** via the `/api/v1/sandbox/whitelist` API and the admin console — add or remove entries under the `FILE`, `SHELL`, or `HTTP` categories without a restart.
+
+### Enabling web search for IM / business agents
+
+`web_search`, `http_get`, and `fetch_webpage` are registered globally at runtime, but **only tools listed in that agent’s `AGENT.md` `tools:` frontmatter are exposed to the model** (see “Tool registry” filtering below). A common pitfall: the channel is `CONNECTED`, the user asks to “search the web”, and no tool is ever called — usually because the profile only lists `read_file` / `shell` / `notify`.
+
+The Admin / API **create-agent scaffold** now includes the tools below by default; existing agents still need a manual update:
+
+```yaml
+tools:
+  - read_file
+  - shell
+  - notify
+  - web_search
+  - http_get
+  - fetch_webpage
+```
+
+In the agent body, require calling `web_search` first for live facts. The core-stage provider is DuckDuckGo: **when Instant Answer JSON is empty (common for Chinese / time-sensitive queries), it automatically retries the HTML lite results page**. If still empty, fall back to `fetch_webpage` or `http_get` against a public API (e.g. weather via `api.open-meteo.com`).
 
 If a tool call fails the sandbox check, `ToolExecutor` returns a non-retryable `ToolResult` with a clear error message describing which whitelist was violated. The call is still recorded in `tool_invocations` with `success = false`.
 

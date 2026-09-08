@@ -72,7 +72,14 @@ public class Session {
   }
 
   public void appendUser(String content) {
-    messages.add(new Message(Message.ROLE_USER, content, null));
+    appendUser(content, List.of());
+  }
+
+  /** 追加用户消息；{@code media} 为 vision 附件（可空）。 */
+  public void appendUser(String content, List<Message.MediaPart> media) {
+    messages.add(
+        new Message(
+            Message.ROLE_USER, content, null, null, List.of(), media == null ? List.of() : media));
   }
 
   /** 累积模型响应；text 为 null 时按空串。带上模型这一轮发起的 tool_calls（含 id），下一轮回填结果时据此配对。 */

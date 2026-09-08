@@ -6,17 +6,23 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** scheduled_tasks：定时任务登记 + 运行状态（28 节）——表结构以手工 schema.sql 为唯一权威。 */
+/** scheduled_tasks：定时任务登记 + 运行状态（28 节）——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "scheduled_tasks")
 public class ScheduledTask {
 
   @Id
-  @Column(name = "task_id")
-  private String taskId;
+  @Column(name = "schedule_id")
+  private String scheduleId;
 
   @Column(name = "profile_name", nullable = false)
   private String profileName;
+
+  @Column(name = "schedule_key", nullable = false)
+  private String scheduleKey;
+
+  @Column(name = "display_name", nullable = false)
+  private String displayName;
 
   @Column(nullable = false)
   private String cron;
@@ -27,6 +33,9 @@ public class ScheduledTask {
 
   @Column(nullable = false)
   private boolean enabled;
+
+  @Column(nullable = false)
+  private boolean retired;
 
   @Column(name = "next_run_at")
   private Instant nextRunAt;
@@ -43,12 +52,12 @@ public class ScheduledTask {
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
 
-  public String getTaskId() {
-    return taskId;
+  public String getScheduleId() {
+    return scheduleId;
   }
 
-  public void setTaskId(String taskId) {
-    this.taskId = taskId;
+  public void setScheduleId(String scheduleId) {
+    this.scheduleId = scheduleId;
   }
 
   public String getProfileName() {
@@ -57,6 +66,22 @@ public class ScheduledTask {
 
   public void setProfileName(String profileName) {
     this.profileName = profileName;
+  }
+
+  public String getScheduleKey() {
+    return scheduleKey;
+  }
+
+  public void setScheduleKey(String scheduleKey) {
+    this.scheduleKey = scheduleKey;
+  }
+
+  public String getDisplayName() {
+    return displayName;
+  }
+
+  public void setDisplayName(String displayName) {
+    this.displayName = displayName;
   }
 
   public String getCron() {
@@ -89,6 +114,14 @@ public class ScheduledTask {
 
   public void setEnabled(boolean enabled) {
     this.enabled = enabled;
+  }
+
+  public boolean isRetired() {
+    return retired;
+  }
+
+  public void setRetired(boolean retired) {
+    this.retired = retired;
   }
 
   public Instant getNextRunAt() {

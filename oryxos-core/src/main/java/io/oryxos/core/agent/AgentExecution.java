@@ -16,7 +16,32 @@ public record AgentExecution(
     Instant endedAt,
     Boolean success,
     Long durationMs,
-    String errorMessage) {
+    String errorMessage,
+    String traceId) {
+
+  /** 旧九参形态保留（既有构造点/测试兼容）：无 trace 场景委托 null（021 纯增量）。 */
+  public AgentExecution(
+      long id,
+      String agentName,
+      String source,
+      String sessionId,
+      Instant startedAt,
+      Instant endedAt,
+      Boolean success,
+      Long durationMs,
+      String errorMessage) {
+    this(
+        id,
+        agentName,
+        source,
+        sessionId,
+        startedAt,
+        endedAt,
+        success,
+        durationMs,
+        errorMessage,
+        null);
+  }
 
   /** 运行中 / 成功 / 失败——供前端直接展示。 */
   public String status() {

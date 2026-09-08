@@ -9,7 +9,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** llm_calls 审计记录——表结构以手工 schema.sql 为唯一权威。 */
+/** llm_calls 审计记录——表结构以 db/migration 迁移目录为唯一权威。 */
 @Entity
 @Table(name = "llm_calls")
 public class LlmCall {
@@ -35,6 +35,16 @@ public class LlmCall {
 
   @Column(name = "total_tokens")
   private Integer totalTokens;
+
+  @Column(name = "cost_micros")
+  private Long costMicros;
+
+  @Column(name = "profile_name")
+  private String profileName;
+
+  /** 单轮处理串联标识（021）：同一次消息处理的全部审计记录共享；升级前旧行为 null。 */
+  @Column(name = "trace_id")
+  private String traceId;
 
   @Column(nullable = false)
   private boolean success;
@@ -105,6 +115,30 @@ public class LlmCall {
 
   public void setTotalTokens(Integer totalTokens) {
     this.totalTokens = totalTokens;
+  }
+
+  public Long getCostMicros() {
+    return costMicros;
+  }
+
+  public void setCostMicros(Long costMicros) {
+    this.costMicros = costMicros;
+  }
+
+  public String getProfileName() {
+    return profileName;
+  }
+
+  public void setProfileName(String profileName) {
+    this.profileName = profileName;
+  }
+
+  public String getTraceId() {
+    return traceId;
+  }
+
+  public void setTraceId(String traceId) {
+    this.traceId = traceId;
   }
 
   public boolean isSuccess() {

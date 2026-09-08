@@ -25,6 +25,9 @@ import org.yaml.snakeyaml.Yaml;
  * <p><b>raw 与 resolved 两套读法，不能混用</b>：{@link #load} 解析占位符拿真实凭证，只给要发起真实连接的 {@code McpClientService}
  * 用；{@link #loadRaw} 保留字面量 {@code ${VAR}} 不解析，给管理台 CRUD（列表展示 / 改配置再 {@link
  * #save}）用——否则改一次配置就会把解析出的明文 token 写回磁盘，凭证泄露进文件（宪法：敏感配置走环境变量，不落盘明文）。
+ *
+ * <p>结构非法（YAML 解析失败 / 顶层 servers 非列表 / 条目非对象 / env·headers 非映射）抛 {@link IllegalArgumentException}
+ * 点名报错，不静默按零 server / 空 map 处理——与 {@code ChannelConfigLoader} 同口径。
  */
 public class McpConfigLoader {
 
@@ -68,26 +71,30 @@ public class McpConfigLoader {
     try (Reader reader = Files.newBufferedReader(configFile)) {
       root = new Yaml().load(reader);
     } catch (IOException | RuntimeException e) {
-      LOG.warn("mcp_servers.yaml 解析失败，按零 server 处理: {}", sanitize(e.getMessage()));
-      return List.of();
+      throw new IllegalArgumentException("mcp_servers.yaml 解析失败: " + sanitize(e.getMessage()), e);
     }
     Object servers = root == null ? null : root.get("servers");
-    if (!(servers instanceof List)) {
+    if (servers == null) {
       return List.of();
+    }
+    if (!(servers instanceof List)) {
+      throw new IllegalArgumentException("mcp_servers.yaml 顶层 servers 必须是列表");
     }
     List<McpServerConfig> configs = new ArrayList<>();
     for (Object item : (List<Object>) servers) {
-      if (item instanceof Map) {
-        Map<String, Object> entry = (Map<String, Object>) item;
-        configs.add(
-            new McpServerConfig(
-                asString(entry.get("name")),
-                asString(entry.get("transport")),
-                asString(entry.get("command")),
-                asStringMap(entry.get("env")),
-                asString(entry.get("url")),
-                asStringMap(entry.get("headers"))));
+      if (!(item instanceof Map)) {
+        throw new IllegalArgumentException(
+            "mcp_servers.yaml 存在非对象条目: " + sanitize(String.valueOf(item)));
       }
+      Map<String, Object> entry = (Map<String, Object>) item;
+      configs.add(
+          new McpServerConfig(
+              asString(entry.get("name")),
+              asString(entry.get("transport")),
+              asString(entry.get("command")),
+              asStringMap(entry.get("env"), "env"),
+              asString(entry.get("url")),
+              asStringMap(entry.get("headers"), "headers")));
     }
     return configs;
   }
@@ -152,14 +159,22 @@ public class McpConfigLoader {
     return resolved;
   }
 
+  /** {@code env}/{@code headers}：缺省或 null → 空 map；显式写成标量/列表则 fail-loud，避免凭证/请求头静默丢失。 */
   @SuppressWarnings("unchecked")
-  private static Map<String, String> asStringMap(Object value) {
-    if (!(value instanceof Map)) {
+  private static Map<String, String> asStringMap(Object value, String field) {
+    if (value == null) {
       return Map.of();
+    }
+    if (!(value instanceof Map)) {
+      throw new IllegalArgumentException(
+          "mcp_servers.yaml 的 " + field + " 必须是映射: " + sanitize(String.valueOf(value)));
     }
     Map<String, String> out = new LinkedHashMap<>();
     for (Map.Entry<String, Object> entry : ((Map<String, Object>) value).entrySet()) {
-      out.put(entry.getKey(), String.valueOf(entry.getValue()));
+      if (entry.getValue() == null) {
+        continue;
+      }
+      out.put(entry.getKey(), asString(entry.getValue()));
     }
     return out;
   }
@@ -180,7 +195,15 @@ public class McpConfigLoader {
   }
 
   private static String asString(Object value) {
-    return value == null ? null : String.valueOf(value);
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof String text) {
+      return text;
+    }
+    // YAML 1.1：裸 yes/on/null 会变成 Boolean/null；String.valueOf(true)→"true" 会静默改名（对齐 #198）
+    throw new IllegalArgumentException(
+        "期望 YAML 字符串（yes/on/null 等请加引号），实际是 " + value.getClass().getSimpleName() + ": " + value);
   }
 
   private static String sanitize(String value) {

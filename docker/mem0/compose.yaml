@@ -1,0 +1,69 @@
+# mem0 OSS 自托管环境（015 US5 / FR-018）——供 Mem0FlowIT / Mem0BackendContractIT 真实联调。
+#
+# 用法：
+#   export ZHIPU_API_KEY=...          # 复用 ~/.bashrc 里的智谱 key（LLM 提炼 + embedding 都走它）
+#   docker compose -f docker/mem0/compose.yaml up -d --build
+#   # API: http://localhost:8888（OpenAPI 文档在 /docs）；停止：docker compose -f docker/mem0/compose.yaml down
+#
+# 说明：
+# - 官方 Docker Hub 镜像 mem0/mem0-api-server 长期未更新且仅 arm64，x86_64（WSL2）不可用，
+#   故按官方 server/ 目录的形态从 GitHub 源码远程构建（构建一次后有缓存）。
+# - mem0 的 LLM/embedder 走 OpenAI 兼容协议：OPENAI_BASE_URL 指到智谱兼容端点即可，不出企业可控边界。
+# - AUTH_DISABLED=true：本地联调免鉴权（适配器的 api-key 支持由 Mem0MemoryStoreTest 用假服务验证）。
+# - 若远程构建失败（网络受限），备选：git clone https://github.com/mem0ai/mem0 后用其
+#   server/docker-compose.yaml，叠加下面同一组 OPENAI_*/MEM0_* 环境变量。
+# - 【维度必配】pgvector 的 HNSW 索引上限 2000 维，而智谱 embedding-3 缺省 2048 维——首次启动后
+#   必须把两侧统一定到 1024（embedding-3 支持降维输出，mem0 会把 dimensions 透传给 API）：
+#     curl -X POST http://localhost:8888/configure -H 'Content-Type: application/json' \
+#       -d '{"embedder":{"config":{"embedding_dims":1024}},"vector_store":{"config":{"embedding_model_dims":1024}}}'
+#   配置持久化在 mem0_app 库，重启自动重放；若 memories 表已按错误维度建出，先
+#   `docker exec mem0-postgres-1 psql -U mem0 -d mem0 -c 'DROP TABLE IF EXISTS memories'` 再执行上面的 configure。
+#   注意字段名：embedder 侧是 embedding_dims，vector_store 侧是 embedding_model_dims，写错会 500。
+
+services:
+  mem0:
+    build:
+      context: https://github.com/mem0ai/mem0.git
+      dockerfile: server/dev.Dockerfile
+    ports:
+      - "8888:8000"
+    environment:
+      OPENAI_API_KEY: ${ZHIPU_API_KEY:?需要 ZHIPU_API_KEY 环境变量}
+      OPENAI_BASE_URL: https://open.bigmodel.cn/api/paas/v4
+      MEM0_DEFAULT_LLM_MODEL: glm-4-flash
+      MEM0_DEFAULT_EMBEDDER_MODEL: embedding-3
+      AUTH_DISABLED: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: mem0
+      POSTGRES_USER: mem0
+      POSTGRES_PASSWORD: mem0-local
+      HISTORY_DB_PATH: /app/history/history.db
+    volumes:
+      - mem0_history:/app/history
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    shm_size: 128mb
+    environment:
+      POSTGRES_DB: mem0
+      POSTGRES_USER: mem0
+      POSTGRES_PASSWORD: mem0-local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mem0 -d mem0"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mem0_postgres:/var/lib/postgresql/data
+      # 首次初始化时建 mem0_app 应用库（server 的 alembic 迁移目标；已有数据卷不会重跑，
+      # 手动补：docker exec mem0-postgres-1 psql -U mem0 -d mem0 -c 'CREATE DATABASE mem0_app'）
+      - ./init-db.sql:/docker-entrypoint-initdb.d/10-init-db.sql:ro
+
+volumes:
+  mem0_history:
+  mem0_postgres:

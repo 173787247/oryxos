@@ -194,8 +194,11 @@ null
 
 ```json
 // data —— MessageResponse
-{ "reply": "最近 10 次提交覆盖了 ReAct Loop、Provider 抽象和 SQLite 持久化。" }
+{ "reply": "最近 10 次提交覆盖了 ReAct Loop、Provider 抽象和 SQLite 持久化。",
+  "traceId": "3f9c2b1a-…" }
 ```
+
+`traceId`（021）标识这一次消息处理的全链路，用于报障定位与审计回放（见「审计 Trace」节）。
 
 ### 查 Agent 记忆
 
@@ -376,7 +379,7 @@ null
 
 ## 通知渠道
 
-通知渠道动态管理，持久化在 SQLite（`notify_channels` 表）。`notify` 工具在 `AGENT.md` 正文里以自然语言**按名字**引用渠道（例如"发到 team-lark"），工具据此解析出已注册渠道的适配器和 URL。AGENT.md frontmatter 里没有 `notify_channels` 字段。
+通知渠道动态管理，持久化在 SQLite（`notify_channels` 表）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。`notify` 工具在 `AGENT.md` 正文里以自然语言**按名字**引用渠道（例如"发到 team-lark"），工具据此解析出已注册渠道的适配器和 URL。AGENT.md frontmatter 里没有 `notify_channels` 字段。
 
 `type` 取 `feishu` | `wecom` | `dingtalk` | `webhook`（各由一个适配器实现）。
 
@@ -480,6 +483,29 @@ null
 { "reply": "当前磁盘使用情况：/dev/sda1 使用率 42%，其余挂载点均低于 30%。" }
 ```
 
+### SSE 流式响应
+
+三个消息端点（本端点、[无状态调用](#无状态调用)、[向控制台会话发消息](#向控制台会话发消息)）支持流式：请求头带 `Accept: text/event-stream` 即改为 SSE 事件流,不带则维持上述一次性 JSON。
+
+```bash
+curl -N -H "Accept: text/event-stream" -H "Content-Type: application/json" \
+  -d '{"content":"介绍一下你自己"}' \
+  http://localhost:8080/api/v1/sessions/<id>/messages
+```
+
+事件类型（`data:` 为单行 JSON）:
+
+| event | data 负载 | 说明 |
+| --- | --- | --- |
+| `token` | `{"delta":"…"}` | 回复文本增量（打字机） |
+| `tool_start` | `{"name":"shell"}` | 工具调用开始 |
+| `tool_end` | `{"name":"shell","success":true}` | 工具调用结束 |
+| `done` | `{"reply":"完整回复"}` | 终结事件（与 error 二选一,恰好一个） |
+| `error` | `{"code":500,"message":"…"}` | 流中失败的终结事件 |
+| `: ping` | —（SSE 注释行） | 心跳,间隔由 `oryxos.web.sse.heartbeat-seconds` 控制（默认 15s）,解析器应忽略 |
+
+语义承诺:`token` 按序拼接等于 `done.reply`;流开始前的失败（404/401/400）仍返 JSON 状态码;客户端中途断开后服务端照常完成本轮并落库、审计照写（断开不退款）;流式与非流式的 `llm_calls`/`tool_invocations` 审计口径完全一致。完整契约见仓库 `specs/019-sse-streaming/contracts/sse-protocol.md`。
+
 ### 列出会话
 
 **GET** `/api/v1/sessions?status=active`
@@ -539,13 +565,29 @@ null
 
 ### 列出定时任务
 
+新客户端必须使用 v2：`scheduleId` 是全局稳定的运行态身份，`key` 只在单个 Agent 内唯一。
+
+### v2 运行态 API
+
+- **GET** `/api/v2/schedules`
+- **POST** `/api/v2/schedules/{scheduleId}/run`
+- **PUT** `/api/v2/schedules/{scheduleId}`
+- **GET** `/api/v2/schedules/{scheduleId}/executions?limit=20`
+- **POST** `/api/v2/agents/{profileName}/schedules/{key}/run`
+
+任务列表返回 `scheduleId`、`profileName`、`key`、`name` 和运行态字段。执行历史返回 `scheduleId`；由旧库迁入的记录会带 `legacyMigrated: true` 与 `legacyTaskKey`。
+
+### 已弃用的 v1 兼容 API
+
+下面的 v1 路径参数仍按旧配置 `key` 解析，只在全库唯一匹配时兼容；多个 Agent 使用相同 key 时一律返回 HTTP 409，不会静默选择其中一条。
+
 **GET** `/api/v1/schedules`
 
 ```json
-// data —— ScheduleView[]
+// data —— LegacyScheduleView[]
 [
   {
-    "taskId": "weather-daily:morning",
+    "taskId": "morning",
     "profileName": "weather-daily",
     "cron": "0 0 8 * * *",
     "zone": "Asia/Shanghai",
@@ -569,8 +611,10 @@ null
 // data —— ExecutionView[]
 [
   {
-    "taskId": "weather-daily:morning",
-    "sessionId": "schedule:weather-daily:morning",
+    "scheduleId": "ae3d1f7b-245c-4c37-bbf7-38a6db55bfce",
+    "legacyTaskKey": null,
+    "legacyMigrated": false,
+    "sessionId": "schedule:ae3d1f7b-245c-4c37-bbf7-38a6db55bfce",
     "startedAt": "2026-07-22T00:00:00Z",
     "success": true,
     "errorMessage": null,
@@ -588,7 +632,7 @@ null
 ```json
 // data —— ExecutionView[]
 [
-  { "taskId": "weather-daily:morning", "sessionId": "schedule:weather-daily:morning", "startedAt": "2026-07-22T09:30:00Z", "success": true, "errorMessage": null, "durationMs": 1730 }
+  { "scheduleId": "ae3d1f7b-245c-4c37-bbf7-38a6db55bfce", "legacyTaskKey": null, "legacyMigrated": false, "sessionId": "schedule:ae3d1f7b-245c-4c37-bbf7-38a6db55bfce", "startedAt": "2026-07-22T09:30:00Z", "success": true, "errorMessage": null, "durationMs": 1730 }
 ]
 ```
 
@@ -602,9 +646,9 @@ null
 ```
 
 ```json
-// data —— ScheduleView[]（更新后的任务列表）
+// data —— LegacyScheduleView[]（更新后的任务列表）
 [
-  { "taskId": "weather-daily:morning", "profileName": "weather-daily", "cron": "0 0 8 * * *", "zone": "Asia/Shanghai", "message": "推送今天的天气和穿衣建议", "enabled": false, "nextRunAt": null, "lastRunAt": "2026-07-22T00:00:00Z", "lastStatus": "success", "runCount": 12 }
+  { "taskId": "morning", "profileName": "weather-daily", "cron": "0 0 8 * * *", "zone": "Asia/Shanghai", "message": "推送今天的天气和穿衣建议", "enabled": false, "nextRunAt": null, "lastRunAt": "2026-07-22T00:00:00Z", "lastStatus": "success", "runCount": 12 }
 ]
 ```
 
@@ -707,6 +751,96 @@ Sandbox 白名单分三类——`FILE`（允许路径）、`SHELL`（允许命�
   "entries": ["*.open-meteo.com", "hn.algolia.com"]
 }
 ```
+
+---
+
+## 工具策略
+
+平台管理员的治理层（020）:全局 + Agent 级工具 allow/deny,与 `AGENT.md` 的 `tools:`（作者自选集）分离。策略只做减法——有效工具集恒 ⊆ 声明集;与沙箱白名单正交（策略管"能不能用这个工具",沙箱管"工具能碰什么资源"）。零规则 = 现状零破坏;规则增删即刻热更新生效。
+
+规则三类:`GLOBAL_DENY`（全局禁用,不带 agentName）、`AGENT_EXEMPT`（指定 Agent 豁免全局禁用）、`AGENT_DENY`（指定 Agent 定向收紧,例外救不回）。`pattern` 为工具精确名或 MCP server 通配（`github-mcp:*`,按工具注册归属判定）。三道保险:被禁工具不进模型清单（事前）、执行层按最新策略拒绝（事中,防幻觉调用）、`tool_invocations.blocked_by='policy'` 留痕（事后可筛）。
+
+### 查询策略与有效工具集
+
+**GET** `/api/v1/tool-policy`
+
+```json
+// data —— rules + 每个 Agent 的有效工具集（removed 附命中规则原因）
+{
+  "rules": [ { "id": 1, "ruleType": "GLOBAL_DENY", "agentName": null, "pattern": "shell",
+               "createdAt": "…", "createdBy": "admin", "unknownTarget": false } ],
+  "effective": [ { "agentName": "kb-tester", "declared": ["shell", "read_file"],
+                   "effective": ["read_file"],
+                   "removed": [ { "toolName": "shell", "reason": "命中全局禁用规则（#1 shell）" } ] } ]
+}
+```
+
+### 新增规则
+
+**POST** `/api/v1/tool-policy/rules` — `{ "ruleType": "AGENT_EXEMPT", "agentName": "ops-agent", "pattern": "shell" }`。`GLOBAL_DENY` 不得带 `agentName`,另两类必须带（否则 `400`）;重复规则 `409`;未知工具名保存成功但返回 `unknownTarget: true` 告警标记。
+
+### 删除规则
+
+**DELETE** `/api/v1/tool-policy/rules/{id}` — 不存在 `404`;删除即刻生效。
+
+### 审计筛选
+
+**GET** `/api/v1/audit/tool?blockedBy=policy` — 只看被策略拒绝的调用记录。
+
+---
+
+## 审计 Trace
+
+一次消息处理（会话消息 / 无状态调用 / 定时触发 / 飞书入站）= 一个 trace ID（UUID），贯穿本轮全部审计记录、结构化日志（MDC `traceId` 字段）与回传通道——同一个值，凭它可在审计与日志间互查。默认开启零配置；升级前的旧审计行 trace 为空，既有查询不受影响。
+
+回传三通道（021，全部纯增量）:
+
+| 通道 | 形态 |
+|------|------|
+| REST 非流式 | `MessageResponse` 的 `traceId` 字段 |
+| SSE 流式 | 流建立后首个业务事件 `event: trace`（`data: {"traceId":"…"}`）；`done` 负载同带 `traceId` |
+| 执行历史 | `AgentExecutionView` 的 `traceId` 字段（`GET /agents/{name}/executions`） |
+
+### 单轮全链路时间线
+
+**GET** `/api/v1/audit/trace/{traceId}`
+
+```json
+// data —— TraceTimelineView
+{ "traceId": "3f9c2b1a-…", "found": true,
+  "steps": [
+    { "seq": 1, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 1200,
+      "at": "…", "promptTokens": 812, "completionTokens": 64, "totalTokens": 876, "costMicros": 120 },
+    { "seq": 2, "type": "TOOL", "name": "save_memory", "success": true, "durationMs": 15,
+      "at": "…", "inputSummary": "{\"content\":\"…\"}", "resultSummary": "OK", "blockedBy": null },
+    { "seq": 3, "type": "LLM",  "name": "glm-4-flash", "success": true, "durationMs": 900, "at": "…", "totalTokens": 540 }
+  ],
+  "summary": { "steps": 3, "llmCalls": 2, "toolCalls": 1,
+               "totalTokens": 1416, "costMicros": 260, "totalDurationMs": 2115 } }
+```
+
+步骤按发生时间排序，失败与被策略拦截（`blockedBy: "policy"`）的步骤同样入链；未命中返回 `found: false` 空 `steps`（HTTP 200 不报错）。既有列表 `GET /audit/llm|tool` 的行视图增 `traceId` 字段（trace 维度入口）。管理台报表页提供 trace 查询框与时间线视图，明细行 traceId 可点查。
+
+### 展示层脱敏
+
+时间线里 TOOL 步的 `inputSummary`/`resultSummary`/`errorMessage` 为**截断（200 字符）+ 脱敏**后的展示值:API key 已知前缀（`sk-…`/`oryx_…`）、`Authorization` 凭证、URL 账密段、`password/secret/token/api_key` 类字段值 → `前4字符+****` 掩码。落库保持原文（排障现场完整，库访问=运维特权边界），规则内置不可配置；不含敏感形态的内容原样展示。
+
+---
+
+## Provider 失败切换与业务指标
+
+**失败切换（023）**：`AGENT.md` 的 provider 节可声明有序备用列表——单次 LLM 调用发生 provider 侧故障（网络/超时/5xx/429/401/403）时按序切换备用重发同一请求，候选耗尽才以最后错误上抛；业务性失败（400 类）不切换。切换语义限定在「单次调用」层面（ReAct 轮次口径不变，每次调用独立从主开始）；流式调用仅在首个内容片段送出前可切换。每次尝试各写一条 `llm_calls`（主备留痕、trace 同链可回放），切换记 WARN 日志（from→to，带 traceId）。零声明 = 现状行为零变化。
+
+```yaml
+provider:
+  name: deepseek
+  model: deepseek-chat
+  fallback:
+    - name: qwen
+      model: qwen-plus
+```
+
+**业务指标（023）**：`GET /actuator/prometheus`（既有端点）新增 `oryxos_` 前缀业务指标，供企业监控栈聚合与告警——`oryxos_llm_calls_total{provider,model,outcome}`（与 llm_calls 行数同口径）、`oryxos_llm_call_duration_seconds`、`oryxos_llm_tokens_total{type}`、`oryxos_tool_invocations_total{tool,outcome}`、`oryxos_policy_blocks_total{tool}`、`oryxos_fallback_switches_total{from,to}`。指标供监控聚合、审计供精确回放（正交，指标不改变审计落库口径）；未发生对应事件时指标缺席或为零均为正常形态。
 
 ---
 

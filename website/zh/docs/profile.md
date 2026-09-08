@@ -52,7 +52,8 @@ bootstrap:
   - USER.md
 
 schedules:
-  - id: morning-check
+  - key: morning-check
+    name: 晨间检查
     cron: "0 0 8 * * *"
     zone: Asia/Shanghai
     message: 执行早晨健康检查。
@@ -145,9 +146,13 @@ export DEEPSEEK_API_KEY=sk-...
 | `shell` | 执行 shell 命令（命令白名单） |
 | `http_get` | HTTP GET（默认放行 + SSRF 黑名单） |
 | `http_post` | HTTP POST（域名白名单） |
+| `fetch_webpage` | 抓取网页并抽取可读正文（默认放行 + SSRF） |
+| `web_search` | 网络搜索（默认放行 + SSRF；须显式列入 `tools:`） |
 | `save_memory` | 向 `MEMORY.md` 追加记忆 |
 | `recall_memory` | 关键词检索 `MEMORY.md` |
 | `notify` | 向按名引用的通知渠道推送消息 |
+
+> 飞书 / 企微 / 钉钉入站绑定的 Agent 若要「搜一下 / 查最新」，必须在 `tools:` 中加入 `web_search`（建议同时加 `http_get`、`fetch_webpage`）。仅渠道 `CONNECTED` 不够——未列入的工具不会出现在模型侧。详见 [Tool 体系](/zh/docs/tool)（「给 IM / 业务 Agent 开联网检索」一节）。
 
 来自 `mcp_servers` 的 MCP 工具以 server 声明的名称暴露（如 `github_create_pr`）。运行 `oryxos tool list` 查看所有已注册名称。详见 [Tool 体系](/zh/docs/tool)，包括 `notify` 如何按名解析渠道。
 
@@ -185,11 +190,12 @@ Bootstrap 文件按列出的顺序注入 system prompt，提供跨所有 Agent �
 
 ## Schedules
 
-`schedules` 声明该 Agent 的定时触发任务。每条到点时以 Agent 正文作为任务触发一次。定时任务也可通过 `/api/v1/schedules` 接口和管理台列出、立即运行、启用/停用。
+`schedules` 声明该 Agent 的定时触发任务。每条必须定义 Agent 内的 `key` 与展示 `name`；OryxOS 会为运行态生成稳定且全局唯一的 `scheduleId`。列表、立即运行、历史和启停请使用 `/api/v2/schedules` 与管理台。
 
 ```yaml
 schedules:
-  - id: morning-check
+  - key: morning-check
+    name: 晨间检查
     cron: "0 0 8 * * *"     # Spring cron：秒 分 时 日 月 周
     zone: Asia/Shanghai
     message: 执行早晨健康检查。

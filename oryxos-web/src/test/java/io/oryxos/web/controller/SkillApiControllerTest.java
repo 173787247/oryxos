@@ -13,6 +13,7 @@ import io.oryxos.core.skill.SkillLoader;
 import io.oryxos.core.skill.SkillRegistry;
 import io.oryxos.core.skill.SkillService;
 import io.oryxos.core.skill.SkillStore;
+import io.oryxos.core.testing.SymlinkAssumptions;
 import io.oryxos.web.GlobalExceptionHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -153,13 +154,16 @@ class SkillApiControllerTest {
         .andExpect(jsonPath("$.data.name").value("s1"))
         .andExpect(
             jsonPath("$.data.archivedPath")
-                .value(org.hamcrest.Matchers.startsWith("archive/skills/s1-")));
+                .value(
+                    org.hamcrest.Matchers.startsWith(
+                        Path.of("archive", "skills", "s1-").toString())));
     mvc.perform(get("/api/v1/skills/s1")).andExpect(status().isNotFound());
   }
 
   @Test
   @DisplayName("活跃或归档 Agent 引用阻止归档并返回结构化 409")
   void referencedSkillReturnsStructuredConflict() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(oryxosRoot);
     Path agent = Files.createDirectories(oryxosRoot.resolve("agents/ops"));
     Files.writeString(agent.resolve("AGENT.md"), "---\nname: ops\n---\nbody");
     SkillStore store = new SkillStore(oryxosRoot);

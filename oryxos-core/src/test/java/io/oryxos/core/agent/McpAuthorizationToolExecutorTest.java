@@ -10,6 +10,7 @@ import io.oryxos.core.ToolResult;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.provider.ToolCallRequest;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -89,5 +90,28 @@ class McpAuthorizationToolExecutorTest {
         legacy.execute("s-1", "agent-anything", new ToolCallRequest("github_search_issues", "{}"));
 
     assertTrue(result.success());
+  }
+
+  @Test
+  @DisplayName("构造后才写入的 mcp 归属立刻生效")
+  void ownersAddedAfterConstructionAreEnforced() {
+    Map<String, OryxTool> tools = new HashMap<>();
+    tools.put("github_search_issues", githubTool);
+    Map<String, String> owners = new HashMap<>();
+    ToolExecutor executor = new ToolExecutor(tools, owners, profileRegistry, auditor);
+    profileRegistry.register(profileWithMcpServers("agent-b", List.of()));
+
+    assertTrue(
+        executor
+            .execute("s-1", "agent-b", new ToolCallRequest("github_search_issues", "{}"))
+            .success(),
+        "尚无归属时不当成 MCP 工具拦截");
+
+    owners.put("github_search_issues", "github");
+
+    ToolResult denied =
+        executor.execute("s-1", "agent-b", new ToolCallRequest("github_search_issues", "{}"));
+    assertFalse(denied.success());
+    assertTrue(denied.errorMessage().contains("mcp_servers"));
   }
 }
