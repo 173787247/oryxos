@@ -1077,9 +1077,9 @@ public class OryxOsRuntime {
             new io.oryxos.channel.teams.TeamsChannelAdapter(
                 resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
     factories.put(
-        io.oryxos.channel.gchat.GChatChannelAdapter.TYPE,
+        io.oryxos.channel.gchat.GoogleChatChannelAdapter.TYPE,
         resolved ->
-            new io.oryxos.channel.gchat.GChatChannelAdapter(
+            new io.oryxos.channel.gchat.GoogleChatChannelAdapter(
                 resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
     factories.put(
         io.oryxos.channel.mattermost.MattermostChannelAdapter.TYPE,

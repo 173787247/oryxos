@@ -37,6 +37,9 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
   static final String DEFAULT_API_BASE = "https://api.telegram.org";
   private static final Duration POLL_TIMEOUT = Duration.ofSeconds(35);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String FIELD_OK = "ok";
+  private static final String FIELD_RESULT = "result";
+  private static final String FIELD_UPDATE_ID = "update_id";
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -143,7 +146,7 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
         JsonNode result = getUpdates();
         if (result != null && result.isArray()) {
           for (JsonNode update : result) {
-            long updateId = update.path("update_id").asLong(0);
+            long updateId = update.path(FIELD_UPDATE_ID).asLong(0);
             if (updateId >= offset) {
               offset = updateId + 1;
             }
@@ -219,10 +222,10 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
       throw new InterruptedException("poll interrupted");
     }
     JsonNode root = MAPPER.readTree(response.body() == null ? "{}" : response.body());
-    if (root == null || !root.path("ok").asBoolean(false)) {
+    if (root == null || !root.path(FIELD_OK).asBoolean(false)) {
       throw new IllegalStateException("getUpdates 失败: " + sanitize(response.body()));
     }
-    return root.get("result");
+    return root.get(FIELD_RESULT);
   }
 
   private static void sleepQuietly(long ms) {

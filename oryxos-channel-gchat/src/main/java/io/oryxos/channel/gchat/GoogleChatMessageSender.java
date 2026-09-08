@@ -10,9 +10,11 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /** Chat API {@code POST /v1/{space}/messages}。 */
-public class GChatMessageSender {
+public class GoogleChatMessageSender {
 
   static final String API_BASE = "https://chat.googleapis.com/v1/";
+  private static final int HTTP_STATUS_OK_MIN = 200;
+  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration TIMEOUT = Duration.ofSeconds(20);
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -20,11 +22,11 @@ public class GChatMessageSender {
   private final OutboundGuard guard;
   private final String accessToken;
 
-  public GChatMessageSender(OutboundGuard guard, String accessToken) {
+  public GoogleChatMessageSender(OutboundGuard guard, String accessToken) {
     this(HttpClient.newBuilder().connectTimeout(TIMEOUT).build(), guard, accessToken);
   }
 
-  GChatMessageSender(HttpClient http, OutboundGuard guard, String accessToken) {
+  GoogleChatMessageSender(HttpClient http, OutboundGuard guard, String accessToken) {
     this.http = http;
     this.guard = guard;
     this.accessToken = accessToken;
@@ -48,7 +50,8 @@ public class GChatMessageSender {
               .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)))
               .build();
       HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-      if (response.statusCode() < 200 || response.statusCode() >= 300) {
+      if (response.statusCode() < HTTP_STATUS_OK_MIN
+          || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
         throw new IllegalStateException("Google Chat 发消息失败 HTTP " + response.statusCode());
       }
     } catch (RuntimeException e) {

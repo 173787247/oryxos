@@ -7,13 +7,23 @@ import java.util.List;
 import java.util.Optional;
 
 /** Google Chat HTTP 事件 {@code MESSAGE} → {@link InboundMessage}。空间仅当带 argumentText / 注解。 */
-public class GChatEventNormalizer {
+public class GoogleChatEventNormalizer {
 
   static final String CHANNEL_TYPE = "gchat";
+  private static final String EVENT_MESSAGE = "MESSAGE";
+  private static final String FIELD_TYPE = "type";
+  private static final String FIELD_MESSAGE = "message";
+  private static final String FIELD_NAME = "name";
+  private static final String FIELD_SENDER = "sender";
+  private static final String FIELD_SPACE = "space";
+  private static final String SPACE_DM = "DM";
+  private static final String FIELD_ARGUMENT_TEXT = "argumentText";
+  private static final String FIELD_TEXT = "text";
+  private static final String FIELD_ANNOTATIONS = "annotations";
 
   private final String channelName;
 
-  public GChatEventNormalizer(String channelName) {
+  public GoogleChatEventNormalizer(String channelName) {
     this.channelName = channelName;
   }
 
@@ -21,24 +31,22 @@ public class GChatEventNormalizer {
     if (root == null || !root.isObject()) {
       return Optional.empty();
     }
-    if (!"MESSAGE".equals(root.path("type").asText(""))) {
+    if (!EVENT_MESSAGE.equals(root.path(FIELD_TYPE).asText(""))) {
       return Optional.empty();
     }
-    JsonNode message = root.path("message");
-    String messageId = text(message, "name");
-    String userId = text(message.path("sender"), "name");
-    String chatId = text(message.path("space"), "name");
+    JsonNode message = root.path(FIELD_MESSAGE);
+    String messageId = text(message, FIELD_NAME);
+    String userId = text(message.path(FIELD_SENDER), FIELD_NAME);
+    String chatId = text(message.path(FIELD_SPACE), FIELD_NAME);
     if (messageId == null || userId == null || chatId == null) {
       return Optional.empty();
     }
-    String spaceType = message.path("space").path("type").asText("");
-    boolean dm = "DM".equals(spaceType);
-    String argument = message.path("argumentText").asText("").strip();
-    String text = argument.isBlank() ? message.path("text").asText("").strip() : argument;
+    String spaceType = message.path(FIELD_SPACE).path(FIELD_TYPE).asText("");
+    boolean dm = SPACE_DM.equals(spaceType);
+    String argument = message.path(FIELD_ARGUMENT_TEXT).asText("").strip();
+    String text = argument.isBlank() ? message.path(FIELD_TEXT).asText("").strip() : argument;
     if (!dm) {
-      boolean mentioned =
-          !argument.isBlank()
-              || message.path("annotations").isArray() && message.path("annotations").size() > 0;
+      boolean mentioned = !argument.isBlank() || hasAnnotations(message);
       if (!mentioned) {
         return Optional.empty();
       }
@@ -84,6 +92,11 @@ public class GChatEventNormalizer {
             true,
             false,
             List.of()));
+  }
+
+  private static boolean hasAnnotations(JsonNode message) {
+    JsonNode annotations = message.path(FIELD_ANNOTATIONS);
+    return annotations.isArray() && annotations.size() > 0;
   }
 
   private static String text(JsonNode node, String field) {

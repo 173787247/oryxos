@@ -23,6 +23,10 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
 
   public static final String TYPE = "teams";
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String EXTRA_TENANT_ID = "tenant_id";
+  private static final String FIELD_CONVERSATION = "conversation";
+  private static final String FIELD_ID = "id";
+  private static final int HTTP_BAD_REQUEST = 400;
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -63,7 +67,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
   @Override
   public synchronized void start() {
     config.validateCredentialsResolved();
-    if (config.extra("tenant_id") == null || config.extra("tenant_id").isBlank()) {
+    if (config.extra(EXTRA_TENANT_ID) == null || config.extra(EXTRA_TENANT_ID).isBlank()) {
       throw new IllegalArgumentException("渠道 " + config.name() + " 缺少 extra.tenant_id");
     }
     if (profileRegistry.get(config.agent()).isEmpty()) {
@@ -74,7 +78,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
     normalizer = new TeamsEventNormalizer(config.name(), config.appId());
     sender =
         new TeamsMessageSender(
-            guard, config.appId(), config.appSecret(), config.extra("tenant_id"));
+            guard, config.appId(), config.appSecret(), config.extra(EXTRA_TENANT_ID));
     state = ChannelStatus.State.CONNECTED;
   }
 
@@ -106,7 +110,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
     try {
       JsonNode activity = MAPPER.readTree(request.body().isBlank() ? "{}" : request.body());
       String serviceUrl = TeamsEventNormalizer.serviceUrl(activity);
-      String chatId = activity.path("conversation").path("id").asText("");
+      String chatId = activity.path(FIELD_CONVERSATION).path(FIELD_ID).asText("");
       if (serviceUrl != null && !chatId.isBlank()) {
         serviceUrls.put(chatId, serviceUrl);
       }
@@ -115,7 +119,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
       msg.ifPresent(m -> inboundMessageService.onMessage(m, this));
       return WebhookResponse.ok();
     } catch (Exception e) {
-      return WebhookResponse.text(400, "bad payload");
+      return WebhookResponse.text(HTTP_BAD_REQUEST, "bad payload");
     }
   }
 }

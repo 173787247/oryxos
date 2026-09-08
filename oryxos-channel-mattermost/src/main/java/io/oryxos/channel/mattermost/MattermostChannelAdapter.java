@@ -19,6 +19,8 @@ import java.util.Optional;
 public class MattermostChannelAdapter implements InboundChannelAdapter, InboundWebhookHandler {
 
   public static final String TYPE = "mattermost";
+  private static final String EXTRA_BASE_URL = "base_url";
+  private static final int HTTP_UNAUTHORIZED = 401;
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -58,16 +60,16 @@ public class MattermostChannelAdapter implements InboundChannelAdapter, InboundW
   @Override
   public synchronized void start() {
     config.validateCredentialsResolved();
-    if (config.extra("base_url") == null || config.extra("base_url").isBlank()) {
+    if (config.extra(EXTRA_BASE_URL) == null || config.extra(EXTRA_BASE_URL).isBlank()) {
       throw new IllegalArgumentException("渠道 " + config.name() + " 缺少 extra.base_url");
     }
     if (profileRegistry.get(config.agent()).isEmpty()) {
       throw new IllegalArgumentException(
           "渠道 " + config.name() + " 绑定的 Agent " + config.agent() + " 不存在");
     }
-    guard.check(config.extra("base_url"));
+    guard.check(config.extra(EXTRA_BASE_URL));
     normalizer = new MattermostEventNormalizer(config.name(), config.appId());
-    sender = new MattermostMessageSender(guard, config.extra("base_url"), config.appSecret());
+    sender = new MattermostMessageSender(guard, config.extra(EXTRA_BASE_URL), config.appSecret());
     state = ChannelStatus.State.CONNECTED;
   }
 
@@ -93,7 +95,7 @@ public class MattermostChannelAdapter implements InboundChannelAdapter, InboundW
   @Override
   public WebhookResponse onWebhook(WebhookRequest request) {
     if (normalizer == null || !normalizer.tokenMatches(request.body(), config.appSecret())) {
-      return WebhookResponse.text(401, "invalid token");
+      return WebhookResponse.text(HTTP_UNAUTHORIZED, "invalid token");
     }
     Optional<InboundMessage> msg = normalizer.normalize(request.body());
     msg.ifPresent(m -> inboundMessageService.onMessage(m, this));

@@ -13,6 +13,21 @@ import java.util.Optional;
 public class MatrixEventNormalizer {
 
   static final String CHANNEL_TYPE = "matrix";
+  private static final String TYPE_ROOM_MESSAGE = "m.room.message";
+  private static final String FIELD_TYPE = "type";
+  private static final String FIELD_SENDER = "sender";
+  private static final String FIELD_EVENT_ID = "event_id";
+  private static final String FIELD_CONTENT = "content";
+  private static final String FIELD_MSGTYPE = "msgtype";
+  private static final String FIELD_BODY = "body";
+  private static final String FIELD_URL = "url";
+  private static final String MSG_IMAGE = "m.image";
+  private static final String MSG_AUDIO = "m.audio";
+  private static final String MSG_VIDEO = "m.video";
+  private static final String MSG_FILE = "m.file";
+  private static final String FIELD_MENTIONS = "m.mentions";
+  private static final String FIELD_USER_IDS = "user_ids";
+  private static final String DEFAULT_MXC = "mxc";
 
   private final String channelName;
   private final String botUserId;
@@ -26,29 +41,32 @@ public class MatrixEventNormalizer {
     if (event == null || !event.isObject()) {
       return Optional.empty();
     }
-    if (!"m.room.message".equals(event.path("type").asText(""))) {
+    if (!TYPE_ROOM_MESSAGE.equals(event.path(FIELD_TYPE).asText(""))) {
       return Optional.empty();
     }
-    String sender = text(event, "sender");
-    String eventId = text(event, "event_id");
+    String sender = text(event, FIELD_SENDER);
+    String eventId = text(event, FIELD_EVENT_ID);
     if (sender == null || eventId == null || roomId == null || roomId.isBlank()) {
       return Optional.empty();
     }
     if (!botUserId.isBlank() && botUserId.equals(sender)) {
       return Optional.empty();
     }
-    JsonNode content = event.path("content");
-    String msgtype = content.path("msgtype").asText("");
-    String body = content.path("body").asText("").strip();
+    JsonNode content = event.path(FIELD_CONTENT);
+    String msgtype = content.path(FIELD_MSGTYPE).asText("");
+    String body = content.path(FIELD_BODY).asText("").strip();
     List<InboundAttachment> attachments = new ArrayList<>();
-    if ("m.image".equals(msgtype)) {
-      attachments.add(InboundAttachment.imageReference(content.path("url").asText("mxc")));
-    } else if ("m.audio".equals(msgtype)) {
-      attachments.add(InboundAttachment.audioReference(content.path("url").asText("mxc")));
-    } else if ("m.video".equals(msgtype)) {
-      attachments.add(InboundAttachment.videoReference(content.path("url").asText("mxc")));
-    } else if ("m.file".equals(msgtype)) {
-      attachments.add(InboundAttachment.fileReference(content.path("url").asText("mxc")));
+    if (MSG_IMAGE.equals(msgtype)) {
+      attachments.add(
+          InboundAttachment.imageReference(content.path(FIELD_URL).asText(DEFAULT_MXC)));
+    } else if (MSG_AUDIO.equals(msgtype)) {
+      attachments.add(
+          InboundAttachment.audioReference(content.path(FIELD_URL).asText(DEFAULT_MXC)));
+    } else if (MSG_VIDEO.equals(msgtype)) {
+      attachments.add(
+          InboundAttachment.videoReference(content.path(FIELD_URL).asText(DEFAULT_MXC)));
+    } else if (MSG_FILE.equals(msgtype)) {
+      attachments.add(InboundAttachment.fileReference(content.path(FIELD_URL).asText(DEFAULT_MXC)));
     }
     if (!direct) {
       if (!mentionsBot(content, body)) {
@@ -103,7 +121,7 @@ public class MatrixEventNormalizer {
     if (botUserId.isBlank()) {
       return false;
     }
-    JsonNode mentions = content.path("m.mentions").path("user_ids");
+    JsonNode mentions = content.path(FIELD_MENTIONS).path(FIELD_USER_IDS);
     if (mentions.isArray()) {
       for (JsonNode id : mentions) {
         if (botUserId.equals(id.asText())) {

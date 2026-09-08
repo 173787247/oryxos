@@ -12,6 +12,8 @@ import java.time.Duration;
 /** Mattermost {@code POST /api/v4/posts}。 */
 public class MattermostMessageSender {
 
+  private static final int HTTP_STATUS_OK_MIN = 200;
+  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration TIMEOUT = Duration.ofSeconds(20);
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -50,7 +52,8 @@ public class MattermostMessageSender {
               .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)))
               .build();
       HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-      if (response.statusCode() < 200 || response.statusCode() >= 300) {
+      if (response.statusCode() < HTTP_STATUS_OK_MIN
+          || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
         throw new IllegalStateException("Mattermost 发消息失败 HTTP " + response.statusCode());
       }
     } catch (RuntimeException e) {

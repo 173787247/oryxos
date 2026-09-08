@@ -34,6 +34,20 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
   public static final String TYPE = "whatsapp";
   static final Duration SESSION_WINDOW = Duration.ofHours(24);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String EXTRA_VERIFY_TOKEN = "verify_token";
+  private static final String EXTRA_PHONE_NUMBER_ID = "phone_number_id";
+  private static final String METHOD_GET = "GET";
+  private static final String HEADER_HUB_SIGNATURE = "x-hub-signature-256";
+  private static final String QUERY_HUB_MODE = "hub.mode";
+  private static final String QUERY_HUB_VERIFY_TOKEN = "hub.verify_token";
+  private static final String QUERY_HUB_CHALLENGE = "hub.challenge";
+  private static final String HUB_MODE_SUBSCRIBE = "subscribe";
+  private static final String SHA256_PREFIX = "sha256=";
+  private static final String HMAC_SHA256 = "HmacSHA256";
+  private static final int HTTP_OK = 200;
+  private static final int HTTP_BAD_REQUEST = 400;
+  private static final int HTTP_UNAUTHORIZED = 401;
+  private static final int HTTP_FORBIDDEN = 403;
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -86,15 +100,15 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
   @Override
   public synchronized void start() {
     config.validateCredentialsResolved();
-    requireExtra("verify_token");
-    requireExtra("phone_number_id");
+    requireExtra(EXTRA_VERIFY_TOKEN);
+    requireExtra(EXTRA_PHONE_NUMBER_ID);
     if (profileRegistry.get(config.agent()).isEmpty()) {
       throw new IllegalArgumentException(
           "渠道 " + config.name() + " 绑定的 Agent " + config.agent() + " 不存在");
     }
     guard.check(WhatsAppMessageSender.DEFAULT_GRAPH_BASE);
     normalizer = new WhatsAppEventNormalizer(config.name());
-    sender = new WhatsAppMessageSender(guard, config.appId(), config.extra("phone_number_id"));
+    sender = new WhatsAppMessageSender(guard, config.appId(), config.extra(EXTRA_PHONE_NUMBER_ID));
     state = ChannelStatus.State.CONNECTED;
     lastError = null;
   }
@@ -128,11 +142,11 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
 
   @Override
   public WebhookResponse onWebhook(WebhookRequest request) {
-    if ("GET".equalsIgnoreCase(request.method())) {
+    if (METHOD_GET.equalsIgnoreCase(request.method())) {
       return handleChallenge(request);
     }
-    if (!verifySignature(request.body(), request.header("x-hub-signature-256"))) {
-      return WebhookResponse.text(401, "invalid signature");
+    if (!verifySignature(request.body(), request.header(HEADER_HUB_SIGNATURE))) {
+      return WebhookResponse.text(HTTP_UNAUTHORIZED, "invalid signature");
     }
     try {
       JsonNode root = MAPPER.readTree(request.body().isBlank() ? "{}" : request.body());
@@ -147,7 +161,7 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
       }
       return WebhookResponse.ok();
     } catch (Exception e) {
-      return WebhookResponse.text(400, "bad payload");
+      return WebhookResponse.text(HTTP_BAD_REQUEST, "bad payload");
     }
   }
 
@@ -156,28 +170,32 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
   }
 
   private WebhookResponse handleChallenge(WebhookRequest request) {
-    String mode = request.query("hub.mode");
-    String token = request.query("hub.verify_token");
-    String challenge = request.query("hub.challenge");
-    if ("subscribe".equals(mode)
-        && token != null
-        && token.equals(config.extra("verify_token"))
-        && challenge != null) {
-      return WebhookResponse.text(200, challenge);
+    String mode = request.query(QUERY_HUB_MODE);
+    String token = request.query(QUERY_HUB_VERIFY_TOKEN);
+    String challenge = request.query(QUERY_HUB_CHALLENGE);
+    if (challengeAccepted(mode, token, challenge)) {
+      return WebhookResponse.text(HTTP_OK, challenge);
     }
-    return WebhookResponse.text(403, "verify failed");
+    return WebhookResponse.text(HTTP_FORBIDDEN, "verify failed");
+  }
+
+  private boolean challengeAccepted(String mode, String token, String challenge) {
+    if (!HUB_MODE_SUBSCRIBE.equals(mode) || token == null || challenge == null) {
+      return false;
+    }
+    return token.equals(config.extra(EXTRA_VERIFY_TOKEN));
   }
 
   private boolean verifySignature(String body, String header) {
-    if (header == null || !header.toLowerCase(Locale.ROOT).startsWith("sha256=")) {
+    if (header == null || !header.toLowerCase(Locale.ROOT).startsWith(SHA256_PREFIX)) {
       return false;
     }
     try {
-      Mac mac = Mac.getInstance("HmacSHA256");
-      mac.init(
-          new SecretKeySpec(config.appSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+      Mac mac = Mac.getInstance(HMAC_SHA256);
+      mac.init(new SecretKeySpec(config.appSecret().getBytes(StandardCharsets.UTF_8), HMAC_SHA256));
       String expected =
-          "sha256=" + HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8)));
+          SHA256_PREFIX
+              + HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8)));
       return header.equalsIgnoreCase(expected);
     } catch (GeneralSecurityException e) {
       return false;

@@ -9,10 +9,10 @@ import io.oryxos.core.channel.ChatKind;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-class GChatEventNormalizerTest {
+class GoogleChatEventNormalizerTest {
 
   private final ObjectMapper mapper = new ObjectMapper();
-  private final GChatEventNormalizer normalizer = new GChatEventNormalizer("ops-gchat");
+  private final GoogleChatEventNormalizer normalizer = new GoogleChatEventNormalizer("ops-gchat");
 
   @Test
   @DisplayName("DM → P2P")

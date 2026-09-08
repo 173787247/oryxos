@@ -64,4 +64,55 @@
         <packageUrl regex="true">^pkg:maven/org\.springframework\.security/.*@6\.5\..*$</packageUrl>
         <cve>CVE-2026-59270</cve>
     </suppress>
+    <suppress>
+        <notes><![CDATA[
+        First-party io.oryxos:oryxos-channel-telegram. Dependency-Check matches the
+        artifact name to cpe:2.3:a:telegram:telegram (the Telegram client/app), not
+        this HTTP Bot API adapter. No Telegram SDK is on the classpath.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.oryxos/oryxos-channel-telegram@.*$</packageUrl>
+        <cpe>cpe:/a:telegram:telegram</cpe>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        First-party io.oryxos:oryxos-channel-whatsapp. Dependency-Check matches the
+        artifact name to cpe:2.3:a:whatsapp:whatsapp (the WhatsApp client), not this
+        Cloud API webhook adapter. No WhatsApp SDK is on the classpath.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.oryxos/oryxos-channel-whatsapp@.*$</packageUrl>
+        <cpe>cpe:/a:whatsapp:whatsapp</cpe>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        First-party io.oryxos:oryxos-channel-mattermost. Dependency-Check matches the
+        artifact name to cpe:2.3:a:mattermost:mattermost (the Mattermost server), not
+        this outgoing-webhook adapter. No Mattermost server/SDK is on the classpath.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.oryxos/oryxos-channel-mattermost@.*$</packageUrl>
+        <cpe>cpe:/a:mattermost:mattermost</cpe>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        First-party io.oryxos:oryxos-channel-teams. Artifact name can CPE-collide with
+        Microsoft Teams client/server products. Adapter talks Bot Framework over HTTP.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.oryxos/oryxos-channel-teams@.*$</packageUrl>
+        <cpe regex="true">cpe:/a:.*:teams</cpe>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        First-party io.oryxos:oryxos-channel-gchat. Artifact/name can CPE-collide with
+        Google Chat products. Adapter talks Chat API over HTTP.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.oryxos/oryxos-channel-gchat@.*$</packageUrl>
+        <cpe regex="true">cpe:/a:.*:(gchat|google_chat|googlechat)</cpe>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        First-party io.oryxos:oryxos-channel-matrix. Artifact name can CPE-collide with
+        Matrix homeserver/client products. Adapter talks Client-Server API over HTTP.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.oryxos/oryxos-channel-matrix@.*$</packageUrl>
+        <cpe regex="true">cpe:/a:.*:matrix</cpe>
+    </suppress>
 </suppressions>

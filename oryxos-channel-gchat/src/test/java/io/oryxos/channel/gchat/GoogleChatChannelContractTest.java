@@ -8,9 +8,10 @@ import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageServiceContractTestBase;
 import java.util.List;
 
-class GChatChannelContractTest extends InboundMessageServiceContractTestBase {
+class GoogleChatChannelContractTest extends InboundMessageServiceContractTestBase {
 
-  private final GChatEventNormalizer normalizer = new GChatEventNormalizer("contract-chan");
+  private final GoogleChatEventNormalizer normalizer =
+      new GoogleChatEventNormalizer("contract-chan");
   private final ObjectMapper mapper = new ObjectMapper();
 
   @Override

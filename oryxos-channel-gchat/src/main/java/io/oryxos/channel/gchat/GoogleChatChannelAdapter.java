@@ -15,21 +15,22 @@ import io.oryxos.core.profile.ProfileRegistry;
 import java.util.Optional;
 
 /** Google Chat HTTP 端点入站。{@code app_id}=Bot 资源名（可选审计），{@code app_secret}=Chat API access token。 */
-public class GChatChannelAdapter implements InboundChannelAdapter, InboundWebhookHandler {
+public class GoogleChatChannelAdapter implements InboundChannelAdapter, InboundWebhookHandler {
 
   public static final String TYPE = "gchat";
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final int HTTP_BAD_REQUEST = 400;
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
 
-  private volatile GChatEventNormalizer normalizer;
-  private volatile GChatMessageSender sender;
+  private volatile GoogleChatEventNormalizer normalizer;
+  private volatile GoogleChatMessageSender sender;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
 
-  public GChatChannelAdapter(
+  public GoogleChatChannelAdapter(
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
@@ -62,9 +63,9 @@ public class GChatChannelAdapter implements InboundChannelAdapter, InboundWebhoo
       throw new IllegalArgumentException(
           "渠道 " + config.name() + " 绑定的 Agent " + config.agent() + " 不存在");
     }
-    guard.check(GChatMessageSender.API_BASE);
-    normalizer = new GChatEventNormalizer(config.name());
-    sender = new GChatMessageSender(guard, config.appSecret());
+    guard.check(GoogleChatMessageSender.API_BASE);
+    normalizer = new GoogleChatEventNormalizer(config.name());
+    sender = new GoogleChatMessageSender(guard, config.appSecret());
     state = ChannelStatus.State.CONNECTED;
   }
 
@@ -80,7 +81,7 @@ public class GChatChannelAdapter implements InboundChannelAdapter, InboundWebhoo
 
   @Override
   public void sendReply(String chatId, String text, String replyToMessageId) {
-    GChatMessageSender current = sender;
+    GoogleChatMessageSender current = sender;
     if (current == null) {
       throw new IllegalStateException("渠道 " + name() + " 尚未启动");
     }
@@ -96,7 +97,7 @@ public class GChatChannelAdapter implements InboundChannelAdapter, InboundWebhoo
       msg.ifPresent(m -> inboundMessageService.onMessage(m, this));
       return WebhookResponse.ok();
     } catch (Exception e) {
-      return WebhookResponse.text(400, "bad payload");
+      return WebhookResponse.text(HTTP_BAD_REQUEST, "bad payload");
     }
   }
 }

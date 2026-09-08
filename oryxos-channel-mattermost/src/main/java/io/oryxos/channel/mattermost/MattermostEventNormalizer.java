@@ -16,6 +16,20 @@ public class MattermostEventNormalizer {
 
   static final String CHANNEL_TYPE = "mattermost";
   private static final Pattern MENTION = Pattern.compile("@[A-Za-z0-9._-]+\\s*");
+  private static final String FIELD_POST_ID = "post_id";
+  private static final String FIELD_ID = "id";
+  private static final String FIELD_USER_ID = "user_id";
+  private static final String FIELD_USER_NAME = "user_name";
+  private static final String FIELD_CHANNEL_ID = "channel_id";
+  private static final String FIELD_CHANNEL_NAME = "channel_name";
+  private static final String FIELD_TEXT = "text";
+  private static final String FIELD_TRIGGER_WORD = "trigger_word";
+  private static final String FIELD_CHANNEL_TYPE = "channel_type";
+  private static final String FIELD_TOKEN = "token";
+  private static final String CHANNEL_TYPE_DM = "D";
+  private static final String AT_PREFIX = "@";
+  private static final String FORM_PAIR_SEPARATOR = "&";
+  private static final char FORM_KV_SEPARATOR = '=';
 
   private final String channelName;
   private final String botUsername;
@@ -27,17 +41,18 @@ public class MattermostEventNormalizer {
 
   public Optional<InboundMessage> normalize(String formBody) {
     Map<String, String> form = parseForm(formBody);
-    String messageId = firstNonBlank(form.get("post_id"), form.get("id"));
-    String userId = firstNonBlank(form.get("user_id"), form.get("user_name"));
-    String chatId = firstNonBlank(form.get("channel_id"), form.get("channel_name"));
+    String messageId = firstNonBlank(form.get(FIELD_POST_ID), form.get(FIELD_ID));
+    String userId = firstNonBlank(form.get(FIELD_USER_ID), form.get(FIELD_USER_NAME));
+    String chatId = firstNonBlank(form.get(FIELD_CHANNEL_ID), form.get(FIELD_CHANNEL_NAME));
     if (messageId == null || userId == null || chatId == null) {
       return Optional.empty();
     }
-    String text = form.getOrDefault("text", "").strip();
-    String trigger = form.getOrDefault("trigger_word", "");
-    String channelType = form.getOrDefault("channel_type", "");
+    String text = form.getOrDefault(FIELD_TEXT, "").strip();
+    String trigger = form.getOrDefault(FIELD_TRIGGER_WORD, "");
+    String channelType = form.getOrDefault(FIELD_CHANNEL_TYPE, "");
     boolean dm =
-        "D".equalsIgnoreCase(channelType) || form.getOrDefault("channel_name", "").startsWith("@");
+        CHANNEL_TYPE_DM.equalsIgnoreCase(channelType)
+            || form.getOrDefault(FIELD_CHANNEL_NAME, "").startsWith(AT_PREFIX);
     if (!dm) {
       if (trigger.isBlank() && !mentionsBot(text)) {
         return Optional.empty();
@@ -91,14 +106,14 @@ public class MattermostEventNormalizer {
     if (expected == null || expected.isBlank()) {
       return false;
     }
-    return expected.equals(parseForm(formBody).get("token"));
+    return expected.equals(parseForm(formBody).get(FIELD_TOKEN));
   }
 
   private boolean mentionsBot(String text) {
     if (botUsername.isBlank() || text == null) {
       return false;
     }
-    return text.toLowerCase(Locale.ROOT).contains("@" + botUsername.toLowerCase(Locale.ROOT));
+    return text.toLowerCase(Locale.ROOT).contains(AT_PREFIX + botUsername.toLowerCase(Locale.ROOT));
   }
 
   private String stripMention(String text) {
@@ -110,8 +125,8 @@ public class MattermostEventNormalizer {
     if (body == null || body.isBlank()) {
       return out;
     }
-    for (String pair : body.split("&")) {
-      int eq = pair.indexOf('=');
+    for (String pair : body.split(FORM_PAIR_SEPARATOR)) {
+      int eq = pair.indexOf(FORM_KV_SEPARATOR);
       if (eq <= 0) {
         continue;
       }

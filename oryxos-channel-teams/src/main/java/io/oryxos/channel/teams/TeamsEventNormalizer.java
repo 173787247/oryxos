@@ -13,6 +13,20 @@ public class TeamsEventNormalizer {
 
   static final String CHANNEL_TYPE = "teams";
   private static final Pattern AT_TAG = Pattern.compile("(?i)<at>[^<]*</at>\\s*");
+  private static final String TYPE_MESSAGE = "message";
+  private static final String FIELD_TYPE = "type";
+  private static final String FIELD_ID = "id";
+  private static final String FIELD_FROM = "from";
+  private static final String FIELD_CONVERSATION = "conversation";
+  private static final String FIELD_CONVERSATION_TYPE = "conversationType";
+  private static final String CONV_CHANNEL = "channel";
+  private static final String CONV_GROUPCHAT = "groupchat";
+  private static final String FIELD_TEXT = "text";
+  private static final String FIELD_SERVICE_URL = "serviceUrl";
+  private static final String FIELD_ENTITIES = "entities";
+  private static final String ENTITY_MENTION = "mention";
+  private static final String FIELD_MENTIONED = "mentioned";
+  private static final String AT_MARKER = "<at>";
 
   private final String channelName;
   private final String appId;
@@ -26,19 +40,23 @@ public class TeamsEventNormalizer {
     if (activity == null || !activity.isObject()) {
       return Optional.empty();
     }
-    if (!"message".equals(activity.path("type").asText(""))) {
+    if (!TYPE_MESSAGE.equals(activity.path(FIELD_TYPE).asText(""))) {
       return Optional.empty();
     }
-    String messageId = text(activity, "id");
-    String userId = text(activity.path("from"), "id");
-    String chatId = text(activity.path("conversation"), "id");
+    String messageId = text(activity, FIELD_ID);
+    String userId = text(activity.path(FIELD_FROM), FIELD_ID);
+    String chatId = text(activity.path(FIELD_CONVERSATION), FIELD_ID);
     if (messageId == null || userId == null || chatId == null) {
       return Optional.empty();
     }
     String convType =
-        activity.path("conversation").path("conversationType").asText("").toLowerCase(Locale.ROOT);
-    boolean group = "channel".equals(convType) || "groupchat".equals(convType);
-    String text = activity.path("text").asText("").strip();
+        activity
+            .path(FIELD_CONVERSATION)
+            .path(FIELD_CONVERSATION_TYPE)
+            .asText("")
+            .toLowerCase(Locale.ROOT);
+    boolean group = CONV_CHANNEL.equals(convType) || CONV_GROUPCHAT.equals(convType);
+    String text = activity.path(FIELD_TEXT).asText("").strip();
     if (group) {
       if (!mentionsBot(activity, text)) {
         return Optional.empty();
@@ -89,23 +107,29 @@ public class TeamsEventNormalizer {
   }
 
   static String serviceUrl(JsonNode activity) {
-    return activity == null ? null : text(activity, "serviceUrl");
+    return activity == null ? null : text(activity, FIELD_SERVICE_URL);
   }
 
   private boolean mentionsBot(JsonNode activity, String text) {
-    JsonNode entities = activity.path("entities");
+    JsonNode entities = activity.path(FIELD_ENTITIES);
     if (entities.isArray()) {
       for (JsonNode entity : entities) {
-        if (!"mention".equals(entity.path("type").asText(""))) {
+        if (!ENTITY_MENTION.equals(entity.path(FIELD_TYPE).asText(""))) {
           continue;
         }
-        String mentioned = text(entity.path("mentioned"), "id");
-        if (mentioned != null && (mentioned.contains(appId) || mentioned.equals(appId))) {
+        if (mentionsAppId(text(entity.path(FIELD_MENTIONED), FIELD_ID))) {
           return true;
         }
       }
     }
-    return text != null && text.toLowerCase(Locale.ROOT).contains("<at>");
+    return text != null && text.toLowerCase(Locale.ROOT).contains(AT_MARKER);
+  }
+
+  private boolean mentionsAppId(String mentioned) {
+    if (mentioned == null) {
+      return false;
+    }
+    return mentioned.contains(appId) || mentioned.equals(appId);
   }
 
   private static String text(JsonNode node, String field) {

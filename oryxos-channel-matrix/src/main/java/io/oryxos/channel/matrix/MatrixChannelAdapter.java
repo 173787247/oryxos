@@ -31,8 +31,18 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
   private static final Logger LOG = LoggerFactory.getLogger(MatrixChannelAdapter.class);
 
   public static final String TYPE = "matrix";
+  private static final int HTTP_STATUS_OK_MIN = 200;
+  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
   private static final Duration SYNC_TIMEOUT = Duration.ofSeconds(40);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String EXTRA_HOMESERVER = "homeserver";
+  private static final String FIELD_NEXT_BATCH = "next_batch";
+  private static final String FIELD_ROOMS = "rooms";
+  private static final String FIELD_JOIN = "join";
+  private static final String FIELD_ACCOUNT_DATA = "account_data";
+  private static final String FIELD_EVENTS = "events";
+  private static final String FIELD_TIMELINE = "timeline";
+  private static final String MARKER_DIRECT = "m.direct";
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -76,19 +86,19 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
   @Override
   public synchronized void start() {
     config.validateCredentialsResolved();
-    if (config.extra("homeserver") == null || config.extra("homeserver").isBlank()) {
+    if (config.extra(EXTRA_HOMESERVER) == null || config.extra(EXTRA_HOMESERVER).isBlank()) {
       throw new IllegalArgumentException("渠道 " + config.name() + " 缺少 extra.homeserver");
     }
     if (profileRegistry.get(config.agent()).isEmpty()) {
       throw new IllegalArgumentException(
           "渠道 " + config.name() + " 绑定的 Agent " + config.agent() + " 不存在");
     }
-    guard.check(config.extra("homeserver"));
+    guard.check(config.extra(EXTRA_HOMESERVER));
     running = true;
     since = null;
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
     normalizer = new MatrixEventNormalizer(config.name(), config.appId());
-    sender = new MatrixMessageSender(guard, config.extra("homeserver"), config.appSecret());
+    sender = new MatrixMessageSender(guard, config.extra(EXTRA_HOMESERVER), config.appSecret());
     pollThread = Thread.ofVirtual().name("oryxos-matrix-" + config.name()).start(this::syncLoop);
     state = ChannelStatus.State.CONNECTED;
   }
@@ -123,8 +133,8 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
       try {
         JsonNode root = syncOnce();
         if (root != null) {
-          since = root.path("next_batch").asText(since);
-          dispatchJoin(root.path("rooms").path("join"));
+          since = root.path(FIELD_NEXT_BATCH).asText(since);
+          dispatchJoin(root.path(FIELD_ROOMS).path(FIELD_JOIN));
         }
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
@@ -147,8 +157,12 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
     while (rooms.hasNext()) {
       Map.Entry<String, JsonNode> room = rooms.next();
       boolean direct =
-          room.getValue().path("account_data").path("events").toString().contains("m.direct");
-      JsonNode events = room.getValue().path("timeline").path("events");
+          room.getValue()
+              .path(FIELD_ACCOUNT_DATA)
+              .path(FIELD_EVENTS)
+              .toString()
+              .contains(MARKER_DIRECT);
+      JsonNode events = room.getValue().path(FIELD_TIMELINE).path(FIELD_EVENTS);
       if (!events.isArray()) {
         continue;
       }
@@ -160,7 +174,7 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
   }
 
   private JsonNode syncOnce() throws Exception {
-    String homeserver = MatrixMessageSender.trimSlash(config.extra("homeserver"));
+    String homeserver = MatrixMessageSender.trimSlash(config.extra(EXTRA_HOMESERVER));
     String url = homeserver + "/_matrix/client/v3/sync?timeout=30000";
     if (since != null && !since.isBlank()) {
       url += "&since=" + URLEncoder.encode(since, StandardCharsets.UTF_8);
@@ -177,7 +191,8 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
     if (Thread.interrupted()) {
       throw new InterruptedException("sync interrupted");
     }
-    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+    if (response.statusCode() < HTTP_STATUS_OK_MIN
+        || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
       throw new IllegalStateException("sync HTTP " + response.statusCode());
     }
     return MAPPER.readTree(response.body() == null ? "{}" : response.body());
