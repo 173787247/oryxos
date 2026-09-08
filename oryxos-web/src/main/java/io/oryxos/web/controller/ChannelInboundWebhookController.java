@@ -11,14 +11,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -39,13 +39,23 @@ public class ChannelInboundWebhookController {
     this.registry = registry;
   }
 
-  @RequestMapping(
-      path = "/{name}",
-      method = {RequestMethod.GET, RequestMethod.POST})
-  public ResponseEntity<String> inbound(
+  @GetMapping("/{name}")
+  public ResponseEntity<String> inboundGet(
       @PathVariable String name,
       HttpServletRequest request,
       @RequestBody(required = false) byte[] rawBody) {
+    return inbound(name, request, rawBody);
+  }
+
+  @PostMapping("/{name}")
+  public ResponseEntity<String> inboundPost(
+      @PathVariable String name,
+      HttpServletRequest request,
+      @RequestBody(required = false) byte[] rawBody) {
+    return inbound(name, request, rawBody);
+  }
+
+  private ResponseEntity<String> inbound(String name, HttpServletRequest request, byte[] rawBody) {
     InboundChannelAdapter adapter =
         registry
             .get(name)
@@ -90,9 +100,26 @@ public class ChannelInboundWebhookController {
     while (names.hasMoreElements()) {
       String name = names.nextElement();
       if (name != null) {
-        headers.put(name.toLowerCase(Locale.ROOT), request.getHeader(name));
+        headers.put(asciiLower(name), request.getHeader(name));
       }
     }
     return headers;
+  }
+
+  /** 只折 A–Z，避免 Locale 大小写映射触发 SpotBugs IMPROPER_UNICODE。 */
+  private static String asciiLower(String value) {
+    if (value == null || value.isEmpty()) {
+      return value;
+    }
+    char[] chars = value.toCharArray();
+    boolean changed = false;
+    for (int i = 0; i < chars.length; i++) {
+      char c = chars[i];
+      if (c >= 'A' && c <= 'Z') {
+        chars[i] = (char) (c + ('a' - 'A'));
+        changed = true;
+      }
+    }
+    return changed ? new String(chars) : value;
   }
 }

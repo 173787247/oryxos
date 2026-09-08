@@ -13,6 +13,11 @@ public record ChannelView(
     boolean enabled,
     Map<String, String> extra) {
 
+  /** 防御性拷贝：extra 是可变 Map，出站前固化不可变（SpotBugs EI_EXPOSE_REP / EI_EXPOSE_REP2）。 */
+  public ChannelView {
+    extra = extra == null ? Map.of() : Map.copyOf(extra);
+  }
+
   private static final String MASK = "******";
 
   public static ChannelView from(ChannelConfig c) {
