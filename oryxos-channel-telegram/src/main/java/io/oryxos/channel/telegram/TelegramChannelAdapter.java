@@ -154,6 +154,7 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
             msg.ifPresent(this::dispatch);
           }
         }
+        lastError = null;
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
@@ -163,6 +164,7 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
         }
         LOG.warn(
             "Telegram 渠道 {} getUpdates 失败: {}", sanitize(config.name()), sanitize(e.getMessage()));
+        lastError = sanitize(e.getMessage());
         sleepQuietly(2_000L);
       }
     }

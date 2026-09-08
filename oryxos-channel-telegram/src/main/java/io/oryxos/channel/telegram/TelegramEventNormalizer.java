@@ -6,7 +6,6 @@ import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -143,8 +142,8 @@ public class TelegramEventNormalizer {
     if (botUsername.isBlank()) {
       return false;
     }
-    String needle = AT_PREFIX + botUsername.toLowerCase(Locale.ROOT);
-    if (text != null && text.toLowerCase(Locale.ROOT).contains(needle)) {
+    String needle = AT_PREFIX + asciiLower(botUsername);
+    if (text != null && asciiLower(text).contains(needle)) {
       return true;
     }
     JsonNode entities = message.path(FIELD_ENTITIES);
@@ -158,15 +157,15 @@ public class TelegramEventNormalizer {
           int offset = entity.path(FIELD_OFFSET).asInt(0);
           int length = entity.path(FIELD_LENGTH).asInt(0);
           if (offset >= 0 && offset + length <= text.length()) {
-            String frag = text.substring(offset, offset + length).toLowerCase(Locale.ROOT);
+            String frag = asciiLower(text.substring(offset, offset + length));
             if (frag.equals(needle)) {
               return true;
             }
           }
         }
         if (ENTITY_TEXT_MENTION.equals(type)
-            && botUsername.equalsIgnoreCase(
-                entity.path(FIELD_USER).path(FIELD_USERNAME).asText(""))) {
+            && asciiLower(botUsername)
+                .equals(asciiLower(entity.path(FIELD_USER).path(FIELD_USERNAME).asText("")))) {
           return true;
         }
       }
@@ -232,6 +231,20 @@ public class TelegramEventNormalizer {
       }
     }
     return out;
+  }
+
+  private static String asciiLower(String value) {
+    if (value == null) {
+      return "";
+    }
+    char[] chars = value.toCharArray();
+    for (int i = 0; i < chars.length; i++) {
+      char c = chars[i];
+      if (c >= 'A' && c <= 'Z') {
+        chars[i] = (char) (c + ('a' - 'A'));
+      }
+    }
+    return new String(chars);
   }
 
   private static String stripAt(String username) {

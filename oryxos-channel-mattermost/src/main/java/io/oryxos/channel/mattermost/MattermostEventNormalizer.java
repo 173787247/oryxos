@@ -6,7 +6,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -51,7 +50,7 @@ public class MattermostEventNormalizer {
     String trigger = form.getOrDefault(FIELD_TRIGGER_WORD, "");
     String channelType = form.getOrDefault(FIELD_CHANNEL_TYPE, "");
     boolean dm =
-        CHANNEL_TYPE_DM.equalsIgnoreCase(channelType)
+        asciiLower(CHANNEL_TYPE_DM).equals(asciiLower(channelType))
             || form.getOrDefault(FIELD_CHANNEL_NAME, "").startsWith(AT_PREFIX);
     if (!dm) {
       if (trigger.isBlank() && !mentionsBot(text)) {
@@ -113,7 +112,7 @@ public class MattermostEventNormalizer {
     if (botUsername.isBlank() || text == null) {
       return false;
     }
-    return text.toLowerCase(Locale.ROOT).contains(AT_PREFIX + botUsername.toLowerCase(Locale.ROOT));
+    return asciiLower(text).contains(AT_PREFIX + asciiLower(botUsername));
   }
 
   private String stripMention(String text) {
@@ -135,6 +134,20 @@ public class MattermostEventNormalizer {
       out.put(key, value);
     }
     return out;
+  }
+
+  private static String asciiLower(String value) {
+    if (value == null) {
+      return "";
+    }
+    char[] chars = value.toCharArray();
+    for (int i = 0; i < chars.length; i++) {
+      char c = chars[i];
+      if (c >= 'A' && c <= 'Z') {
+        chars[i] = (char) (c + ('a' - 'A'));
+      }
+    }
+    return new String(chars);
   }
 
   private static String urlDecode(String value) {

@@ -26,6 +26,9 @@ import org.slf4j.LoggerFactory;
  * Matrix 入站：Client-Server {@code /sync} 长轮询。{@code app_id}=bot MXID，{@code app_secret}=access
  * token，{@code extra.homeserver}。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "UWF_FIELD_NOT_INITIALIZED_IN_CONSTRUCTOR",
+    justification = "http/normalizer/sender 在 start() 内初始化；sync 循环仅在 start 后运行。")
 public class MatrixChannelAdapter implements InboundChannelAdapter {
 
   private static final Logger LOG = LoggerFactory.getLogger(MatrixChannelAdapter.class);
@@ -57,6 +60,9 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
   private volatile Thread pollThread;
   private volatile String since;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "协作者均为 Runtime 装配的单例，共享引用正是意图")
   public MatrixChannelAdapter(
       ChannelConfig config,
       ProfileRegistry profileRegistry,

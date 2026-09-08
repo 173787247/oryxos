@@ -1,5 +1,6 @@
 package io.oryxos.channel.teams;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.channel.ChannelConfig;
@@ -38,6 +39,9 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
   private volatile TeamsMessageSender sender;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "协作者均为 Runtime 装配的单例，共享引用正是意图")
   public TeamsChannelAdapter(
       ChannelConfig config,
       ProfileRegistry profileRegistry,
@@ -118,7 +122,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
           normalizer == null ? Optional.empty() : normalizer.normalize(activity);
       msg.ifPresent(m -> inboundMessageService.onMessage(m, this));
       return WebhookResponse.ok();
-    } catch (Exception e) {
+    } catch (JacksonException e) {
       return WebhookResponse.text(HTTP_BAD_REQUEST, "bad payload");
     }
   }

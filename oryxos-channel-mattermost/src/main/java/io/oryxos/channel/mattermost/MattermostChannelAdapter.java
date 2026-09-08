@@ -31,6 +31,9 @@ public class MattermostChannelAdapter implements InboundChannelAdapter, InboundW
   private volatile MattermostMessageSender sender;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "协作者均为 Runtime 装配的单例，共享引用正是意图")
   public MattermostChannelAdapter(
       ChannelConfig config,
       ProfileRegistry profileRegistry,

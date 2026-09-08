@@ -1,5 +1,6 @@
 package io.oryxos.channel.whatsapp;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.channel.ChannelConfig;
@@ -18,7 +19,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -36,7 +36,7 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String EXTRA_VERIFY_TOKEN = "verify_token";
   private static final String EXTRA_PHONE_NUMBER_ID = "phone_number_id";
-  private static final String METHOD_GET = "GET";
+  private static final String METHOD_GET = "get";
   private static final String HEADER_HUB_SIGNATURE = "x-hub-signature-256";
   private static final String QUERY_HUB_MODE = "hub.mode";
   private static final String QUERY_HUB_VERIFY_TOKEN = "hub.verify_token";
@@ -59,7 +59,6 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
   private volatile WhatsAppEventNormalizer normalizer;
   private volatile WhatsAppMessageSender sender;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
-  private volatile String lastError;
 
   public WhatsAppChannelAdapter(
       ChannelConfig config,
@@ -110,7 +109,6 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
     normalizer = new WhatsAppEventNormalizer(config.name());
     sender = new WhatsAppMessageSender(guard, config.appId(), config.extra(EXTRA_PHONE_NUMBER_ID));
     state = ChannelStatus.State.CONNECTED;
-    lastError = null;
   }
 
   @Override
@@ -120,9 +118,6 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
 
   @Override
   public ChannelStatus status() {
-    if (state == ChannelStatus.State.ERROR) {
-      return ChannelStatus.error(name(), TYPE, boundAgent(), lastError);
-    }
     return ChannelStatus.ok(name(), TYPE, boundAgent(), state);
   }
 
@@ -142,7 +137,7 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
 
   @Override
   public WebhookResponse onWebhook(WebhookRequest request) {
-    if (METHOD_GET.equalsIgnoreCase(request.method())) {
+    if (METHOD_GET.equals(asciiLower(request.method()))) {
       return handleChallenge(request);
     }
     if (!verifySignature(request.body(), request.header(HEADER_HUB_SIGNATURE))) {
@@ -160,7 +155,7 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
         inboundMessageService.onMessage(message, this);
       }
       return WebhookResponse.ok();
-    } catch (Exception e) {
+    } catch (JacksonException e) {
       return WebhookResponse.text(HTTP_BAD_REQUEST, "bad payload");
     }
   }
@@ -187,7 +182,7 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
   }
 
   private boolean verifySignature(String body, String header) {
-    if (header == null || !header.toLowerCase(Locale.ROOT).startsWith(SHA256_PREFIX)) {
+    if (header == null || !asciiLower(header).startsWith(SHA256_PREFIX)) {
       return false;
     }
     try {
@@ -196,10 +191,24 @@ public class WhatsAppChannelAdapter implements InboundChannelAdapter, InboundWeb
       String expected =
           SHA256_PREFIX
               + HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8)));
-      return header.equalsIgnoreCase(expected);
+      return asciiLower(header).equals(asciiLower(expected));
     } catch (GeneralSecurityException e) {
       return false;
     }
+  }
+
+  private static String asciiLower(String value) {
+    if (value == null) {
+      return "";
+    }
+    char[] chars = value.toCharArray();
+    for (int i = 0; i < chars.length; i++) {
+      char c = chars[i];
+      if (c >= 'A' && c <= 'Z') {
+        chars[i] = (char) (c + ('a' - 'A'));
+      }
+    }
+    return new String(chars);
   }
 
   private void requireExtra(String key) {

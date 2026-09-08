@@ -6,7 +6,6 @@ import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /** Matrix {@code m.room.message} → {@link InboundMessage}。房间需提及 bot user id。 */
@@ -129,8 +128,7 @@ public class MatrixEventNormalizer {
         }
       }
     }
-    return body != null
-        && body.toLowerCase(Locale.ROOT).contains(botUserId.toLowerCase(Locale.ROOT));
+    return body != null && asciiLower(body).contains(asciiLower(botUserId));
   }
 
   private String stripBot(String body) {
@@ -138,6 +136,20 @@ public class MatrixEventNormalizer {
       return body == null ? "" : body;
     }
     return body.replace(botUserId, "").strip();
+  }
+
+  private static String asciiLower(String value) {
+    if (value == null) {
+      return "";
+    }
+    char[] chars = value.toCharArray();
+    for (int i = 0; i < chars.length; i++) {
+      char c = chars[i];
+      if (c >= 'A' && c <= 'Z') {
+        chars[i] = (char) (c + ('a' - 'A'));
+      }
+    }
+    return new String(chars);
   }
 
   private static String text(JsonNode node, String field) {

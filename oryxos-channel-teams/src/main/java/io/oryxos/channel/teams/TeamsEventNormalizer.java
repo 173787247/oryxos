@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.oryxos.core.channel.ChatKind;
 import io.oryxos.core.channel.InboundMessage;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -50,11 +49,7 @@ public class TeamsEventNormalizer {
       return Optional.empty();
     }
     String convType =
-        activity
-            .path(FIELD_CONVERSATION)
-            .path(FIELD_CONVERSATION_TYPE)
-            .asText("")
-            .toLowerCase(Locale.ROOT);
+        asciiLower(activity.path(FIELD_CONVERSATION).path(FIELD_CONVERSATION_TYPE).asText(""));
     boolean group = CONV_CHANNEL.equals(convType) || CONV_GROUPCHAT.equals(convType);
     String text = activity.path(FIELD_TEXT).asText("").strip();
     if (group) {
@@ -122,7 +117,7 @@ public class TeamsEventNormalizer {
         }
       }
     }
-    return text != null && text.toLowerCase(Locale.ROOT).contains(AT_MARKER);
+    return text != null && asciiLower(text).contains(AT_MARKER);
   }
 
   private boolean mentionsAppId(String mentioned) {
@@ -130,6 +125,20 @@ public class TeamsEventNormalizer {
       return false;
     }
     return mentioned.contains(appId) || mentioned.equals(appId);
+  }
+
+  private static String asciiLower(String value) {
+    if (value == null) {
+      return "";
+    }
+    char[] chars = value.toCharArray();
+    for (int i = 0; i < chars.length; i++) {
+      char c = chars[i];
+      if (c >= 'A' && c <= 'Z') {
+        chars[i] = (char) (c + ('a' - 'A'));
+      }
+    }
+    return new String(chars);
   }
 
   private static String text(JsonNode node, String field) {
