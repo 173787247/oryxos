@@ -41,7 +41,7 @@
 - [X] T011 [US1] `oryxos-core/.../skill/SkillRegistry.java` 新增 `replaceAll()` 整体替换重载 + `SkillLoader` 重扫入口（复用既有软连接一致性检查），配套单测
 - [X] T012 [US1] 新建 `oryxos-core/src/main/java/io/oryxos/core/cluster/WorkspaceVersionPoller.java`：每 tick 单查询全域、变化域回调（agents→reconcileAll、skills→replaceAll、personas→debug、knowledge→代次缓存失效）、读失败保留快照 WARN；单测用 fake CoordinationStore
 - [X] T013 [US1] `oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java` 档位装配切换：cluster 档不装 WorkspaceWatcher/KnowledgeWatcher、装 WorkspaceVersionPoller；单机档零变化
-- [ ] T014 [US1] 新建 `oryxos-boot/src/test/java/io/oryxos/boot/FilePlaneVisibilityIT.java`（双上下文 + 共享 PG + 共享临时工作区）：US1 验收场景 1~5（A 建 B 见、A 改 B 用新配置、A 删 B 失、单机零变化、重启对账），另断言单机档零版本号写入
+- [X] T014 [US1] 新建 `oryxos-boot/src/test/java/io/oryxos/boot/FilePlaneVisibilityIT.java`（双上下文 + 共享 PG + 共享临时工作区）：US1 验收场景 1~5（A 建 B 见、A 改 B 用新配置、A 删 B 失、单机零变化、重启对账），另断言单机档零版本号写入
 
 **Checkpoint**: US1 独立可交付——双副本管理台不再「抽奖」
 
@@ -55,7 +55,7 @@
 
 - [X] T015 [US2] `oryxos-knowledge/src/main/java/io/oryxos/knowledge/index/KnowledgeIndexService.java` 活跃代次改造：activeGeneration 改读 `CoordinationStore.committedGeneration`（每副本缓存 + 总线失效回调），替换 max(generation) 推断，空态兼容首建；importDocument/rebuild 的代次提交改走 commitGeneration；配套单测
 - [X] T016 [US2] 同文件 rebuild 与 importDocument 接认领：集群档 rebuild 先 tryAcquireIndexBuild（失败返回「构建进行中」明确提示）、每文档一续 renewIndexBuild（失败立即中止丢弃本代）、完成条件提交、异常路径 releaseIndexBuild + 丢弃新代；**importDocument 的异步索引段同走该认领（短持有，claim 被 rebuild 持有期间排队等待）**——收口跨副本 import↔rebuild 竞态（analyze U1）；单机档 NOOP 直通；配套单测
-- [ ] T017 [US2] 新建 `oryxos-boot/src/test/java/io/oryxos/boot/KnowledgeExactlyOnceIT.java`：双副本同时 rebuild 恰一执行、kill 持有者 TTL 后接管完成、构建全程检索恒读已提交代次、**A rebuild 中 B import 不丢文档（US2 场景 5）**、单机档零协调写
+- [X] T017 [US2] 新建 `oryxos-boot/src/test/java/io/oryxos/boot/KnowledgeExactlyOnceIT.java`：双副本同时 rebuild 恰一执行、kill 持有者 TTL 后接管完成、构建全程检索恒读已提交代次、**A rebuild 中 B import 不丢文档（US2 场景 5）**、单机档零协调写
 
 **Checkpoint**: US2 独立可交付——embedding 成本不再翻倍、代次不互覆
 
@@ -81,7 +81,7 @@
 
 - [X] T023 指标：`oryxos-core/.../metrics/MetricsRecorder.java` 新增 `recordWorkspaceReloaded(String domain)`；`oryxos-cli/.../MicrometerMetricsRecorder.java` 实现（`oryxos_workspace_reloads_total{domain}`）；索引认领路径挂 recordLeaseAcquired/Reclaimed/FenceConflict（kind="index"）；补 026 遗留的 `recordLeaseAcquired("schedule")` 埋点（AgentScheduler claimFireTime 赢者路径）
 - [X] T024 [P] 文档同步：CLAUDE.md（027 配置项与行为一句话 + 模块表无变更确认）、`config/application.yml.example`（workspace-poll-interval 注释样例）、docs/CliGuide.md 集群段落；顺手修 `sqlite/V7__coordination.sql` 首行注释笔误（V6→V7）
-- [ ] T025 全量门禁 + 验收落卷：`mvn clean install`（含 IT）BUILD SUCCESS，其中 **ClusterStartupCheckTest 既有 5 用例回归绿为 SC-005 显式验收项**；按 quickstart V2/V3 双真进程走查与单机走查；如实撰写 `specs/027-file-plane/acceptance-report.md`（SC-001~007 对照；SC-006 轮询负载以机理证据落卷——每副本每秒 1 次 4 行单查询；NFS 抽查视环境如实记录）
+- [X] T025 全量门禁 + 验收落卷：`mvn clean install`（含 IT）BUILD SUCCESS，其中 **ClusterStartupCheckTest 既有 5 用例回归绿为 SC-005 显式验收项**；按 quickstart V2/V3 双真进程走查与单机走查；如实撰写 `specs/027-file-plane/acceptance-report.md`（SC-001~007 对照；SC-006 轮询负载以机理证据落卷——每副本每秒 1 次 4 行单查询；NFS 抽查视环境如实记录）
 
 ---
 
