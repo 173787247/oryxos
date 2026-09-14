@@ -60,7 +60,7 @@ public final class RoleBasedAuthorizationServiceImpl implements AuthorizationSer
    * @param defaultUserRoles 管理台账号主体未自带角色时使用的默认角色
    * @param defaultApiKeyRoles API Key 主体未自带角色时使用的默认角色
    */
-  public RoleBasedAuthorizationService(Set<Role> defaultUserRoles, Set<Role> defaultApiKeyRoles) {
+  public RoleBasedAuthorizationServiceImpl(Set<Role> defaultUserRoles, Set<Role> defaultApiKeyRoles) {
     this.defaultUserRoles = freeze(defaultUserRoles);
     this.defaultApiKeyRoles = freeze(defaultApiKeyRoles);
   }
