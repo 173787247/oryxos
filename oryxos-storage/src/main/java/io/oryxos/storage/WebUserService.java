@@ -31,6 +31,9 @@ public class WebUserService {
   private static final int MIN_PASSWORD_LENGTH = 8;
   private static final int MAX_USERNAME_LENGTH = 64;
 
+  /** 角色字段序列化分隔符（DB 存 CSV：VIEWER,EDITOR）。 */
+  private static final String ROLES_DELIMITER = ",";
+
   /** 新建账号的安全默认档：只读；要干活须显式 {@code oryxos user role}。 */
   private static final String DEFAULT_ROLES_SERIALIZED = Role.VIEWER.name();
 
@@ -181,7 +184,7 @@ public class WebUserService {
       return Set.of();
     }
     Set<Role> parsed = EnumSet.noneOf(Role.class);
-    for (String token : raw.split(",")) {
+    for (String token : raw.split(ROLES_DELIMITER)) {
       if (token == null || token.isBlank()) {
         continue;
       }
@@ -212,7 +215,7 @@ public class WebUserService {
     StringBuilder sb = new StringBuilder();
     for (Role role : ordered) {
       if (sb.length() > 0) {
-        sb.append(',');
+        sb.append(ROLES_DELIMITER);
       }
       sb.append(role.name());
     }
