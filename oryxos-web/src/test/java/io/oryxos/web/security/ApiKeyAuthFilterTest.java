@@ -1,5 +1,6 @@
 package io.oryxos.web.security;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -18,6 +19,8 @@ import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.web.config.WebApiKeyProperties;
+import jakarta.servlet.http.Cookie;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -144,6 +147,40 @@ class ApiKeyAuthFilterTest {
 
     mvc.perform(get("/api/v1/profiles").header("Authorization", "Bearer " + GOOD_KEY))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("rbac未装配_Bearer正确Key_200_且不解析Key名称（零行为变化：默认关不得多打一次库）")
+  void rbacAbsent_correctKey_doesNotResolveKeyName() throws Exception {
+    // 039-identity-authorization：默认关时「零行为变化」不只是响应相同，还包括不得引入新的副作用。
+    // 解析 Key 名称（findNameByPlaintext）会多打一次库；若它为构造主体而被无条件调用，
+    // 未启用授权的部署就会凭空多一次读。本用例把这条承诺钉死。
+    properties.setEnabled(true);
+    when(apiKeyService.verify(GOOD_KEY)).thenReturn(true);
+
+    mvc.perform(get("/api/v1/profiles").header("Authorization", "Bearer " + GOOD_KEY))
+        .andExpect(status().isOk());
+
+    verify(apiKeyService, never()).findNameByPlaintext(any());
+  }
+
+  @Test
+  @DisplayName("rbac未装配_有效session_200_且不解析Key名称（管理台互认路径同样零副作用）")
+  void rbacAbsent_validSession_doesNotResolveKeyName() throws Exception {
+    properties.setEnabled(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid-rbac-absent");
+    session.setUsername("admin");
+    session.setExpiresAt(Instant.now().plus(Duration.ofHours(1)));
+    when(sessionService.findValid("sid-rbac-absent")).thenReturn(Optional.of(session));
+
+    mvc.perform(get("/api/v1/profiles").cookie(new Cookie("oryxos_session", "sid-rbac-absent")))
+        .andExpect(status().isOk());
+
+    // 这里刻意用 any() 而不是 anyString()：session-only 请求没有 Key 头，extractKey 返回 null，
+    // 若解析被提到分支外就会以 null 作为实参调用；而 Mockito 的 anyString() **不匹配 null**，
+    // 用 anyString() 会让本断言对「多打一次库」这类回归恒不变红（变异检验实测确认）。
+    verify(apiKeyService, never()).findNameByPlaintext(any());
   }
 
   @Test

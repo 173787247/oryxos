@@ -119,6 +119,35 @@ public class ApiKeyService {
     return true;
   }
 
+  /**
+   * 解析明文 Key 对应的 Key 名称（039-identity-authorization）：用于把请求主体标识成「哪把 Key」。
+   *
+   * <p>只返回名称，绝不返回明文或哈希——审计里允许出现名称，不允许出现凭证。校验口径与 {@link #verify(String)} 完全一致（前缀 → SHA-256 → 命中 →
+   * 未吊销 → 恒定时间复核），保证「verify 通过」与「能解析出名称」不会出现 两种判定，从而避免主体标识与认证结论相矛盾。
+   *
+   * <p>与 verify 的刻意差异：不更新 {@code last_used_at}。本方法在同一请求里通常紧跟 verify 调用，重复触碰只会 多一次无意义写入（verify 已有
+   * 60s 节流）；且解析动作本身不应被记作「使用」。
+   *
+   * @return Key 名称；格式错 / 不存在 / 已吊销均返 {@code null}
+   */
+  @Transactional(readOnly = true)
+  public String findNameByPlaintext(String plaintext) {
+    if (plaintext == null || plaintext.isBlank() || !plaintext.startsWith(PLAINTEXT_PREFIX)) {
+      return null;
+    }
+    String presentedHash = sha256Hex(plaintext);
+    ApiKey key = repository.findByKeyHash(presentedHash).orElse(null);
+    if (key == null || !key.isActive()) {
+      return null;
+    }
+    if (!MessageDigest.isEqual(
+        presentedHash.getBytes(StandardCharsets.US_ASCII),
+        key.getKeyHash().getBytes(StandardCharsets.US_ASCII))) {
+      return null;
+    }
+    return key.getName();
+  }
+
   /** 吊销；不存在抛 IllegalArgumentException。已吊销幂等返 false，新吊销返 true。 */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "CRLF_INJECTION_LOGS",

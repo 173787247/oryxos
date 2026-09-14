@@ -179,6 +179,20 @@ oryxos:
   # web:
   #   apikey:
   #     enabled: true
+  # 资源授权（039-identity-authorization）。默认关=现状完全不变（零破坏锚点）。
+  # 开启后，既有认证门产出的主体交给唯一决策点裁决：匿名主体默认拒绝（403），已认证主体至少需
+  # VIEWER（读工作区/审计），按 VIEWER ⊂ EDITOR ⊂ ADMIN 三档逐级放行。
+  # 注意三开关的关系：认证门（auth / apikey）不开时没有任何主体产出，授权会被短路为「放行但无主体」
+  # ——授权要有对象，先开认证。另：API Key 主体即使给 ADMIN 也不得管理成员与治理策略（保守上限）。
+  # roles 两个默认值是「角色落库尚未启用」阶段的过渡入口；
+  # default-user-roles 默认 ADMIN 是防单机部署自锁，多人企业部署请显式调低为 VIEWER 或 EDITOR。
+  # web:
+  #   rbac:
+  #     enabled: true
+  #     deny-anonymous: true
+  #     roles:
+  #       default-user-roles: [ADMIN]      # 可选 VIEWER / EDITOR / ADMIN
+  #       default-api-key-roles: []        # 默认空 = 机器凭证不默认授权
   # SSE 流式响应（019-sse-streaming）。消息端点带 Accept: text/event-stream 即流式返回，
   # 无需开关；heartbeat-seconds 为静默期心跳间隔（SSE 注释行，防代理空闲断连），默认 15。
   # web:
