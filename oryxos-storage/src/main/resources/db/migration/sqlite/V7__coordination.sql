@@ -1,4 +1,4 @@
--- V6 协调面（026-session-ownership）：多副本正确性的四张协调表 + 调度到点认领两列。
+-- V7 协调面（026-session-ownership）：多副本正确性的四张协调表 + 调度到点认领两列。
 -- 单机档（oryxos.cluster.enabled=false，缺省）零写入——表存在但恒空。
 
 -- session_turn_leases：轮次互斥载体——session_id 唯一约束即互斥；owner=instanceId@epoch（代次隔离）；

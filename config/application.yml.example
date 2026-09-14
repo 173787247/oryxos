@@ -35,13 +35,16 @@ spring:
     # username: oryxos
     # password: ${ORYXOS_DB_PASSWORD}   # 凭证走环境变量注入，不明文写在这里
 
-# ── 多副本（026）────────────────────────────────────────
-# 双副本起步的正确性保障（同会话恰好一答/定时恰好一次/崩溃接管/企微不互踢）。
-# 需要：共享 PostgreSQL + 每副本唯一 instance-id + memory.backend 非 markdown。
+# ── 多副本（026/027）──────────────────────────────────────
+# 双副本起步的正确性保障（同会话恰好一答/定时恰好一次/崩溃接管/企微不互踢），
+# 027 起文件面（Agent/Skill/人格/知识源）走共享卷 + DB 版本号总线秒级同步。
+# 需要：共享 PostgreSQL + 每副本唯一 instance-id + memory.backend 非 markdown
+#      + .oryxos 工作区放共享卷（支持矩阵见 docs/SharedVolumeGuide.md）。
 # oryxos:
 #   cluster:
 #     enabled: true
 #     instance-id: replica-1      # 每副本唯一；容器里可用 Pod 名
+#     workspace-poll-interval: 1s # 027 文件面变更感知轮询周期（默认 1s，变更 ≤3s 全副本生效）
   threads:
     virtual:
       enabled: true             # 宪法七：Java 21 虚拟线程扛并发，不引入异步框架

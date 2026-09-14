@@ -52,7 +52,8 @@ public class SkillStore {
     requireSafe(dir.resolve(SKILL_FILE));
     try {
       Files.createDirectories(dir);
-      Files.writeString(dir.resolve(SKILL_FILE), skillMarkdown);
+      // 027 FR-004：原子改名落盘——共享卷上其他副本绝不读到半写 SKILL.md
+      io.oryxos.core.io.AtomicFiles.writeString(dir.resolve(SKILL_FILE), skillMarkdown);
     } catch (IOException e) {
       throw new UncheckedIOException("写入 Skill 目录失败: " + name, e);
     }
@@ -78,7 +79,7 @@ public class SkillStore {
         if (parent != null) {
           Files.createDirectories(parent);
         }
-        Files.writeString(target, entry.getValue());
+        io.oryxos.core.io.AtomicFiles.writeString(target, entry.getValue());
       }
     } catch (IOException e) {
       throw new UncheckedIOException("写入 Skill 目录失败: " + name, e);

@@ -57,13 +57,22 @@ public class WorkspaceApiController {
 
   private final Path oryxosRoot;
   private final AgentLifecycleService lifecycle;
+  private final io.oryxos.core.cluster.WorkspaceRefreshService workspaceRefresh;
 
   public WorkspaceApiController(
       @org.springframework.beans.factory.annotation.Value("${oryxos.root:.oryxos}")
           String oryxosRoot,
-      AgentLifecycleService lifecycle) {
+      AgentLifecycleService lifecycle,
+      io.oryxos.core.cluster.WorkspaceRefreshService workspaceRefresh) {
     this.oryxosRoot = Path.of(oryxosRoot).toAbsolutePath().normalize();
     this.lifecycle = lifecycle;
+    this.workspaceRefresh = workspaceRefresh;
+  }
+
+  /** 027 FR-011：手动刷新工作区（运维直接改共享卷后的逃生舱）—— 集群档递增全域版本号（各副本秒级轮询生效）；单机档本地全量重载。 */
+  @PostMapping("/refresh")
+  public ApiResponse<io.oryxos.core.cluster.WorkspaceRefreshService.RefreshResult> refresh() {
+    return ApiResponse.ok(workspaceRefresh.refresh());
   }
 
   /** 目录树：agents/（每个 Agent 一个可展开目录）+ archive/。 */

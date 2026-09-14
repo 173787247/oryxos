@@ -41,6 +41,9 @@ public interface MetricsRecorder {
   /** 026：入站重复事件丢弃一次（跨副本/本地判重命中）。 */
   default void recordDuplicateDropped(String channel) {}
 
+  /** 027：工作区某域重载一次（版本号轮询感知变更后；domain = agents/skills/personas/knowledge）。 */
+  default void recordWorkspaceReloaded(String domain) {}
+
   /**
    * 入站 ASR（语音/视频音轨）一次尝试。
    *

@@ -50,6 +50,39 @@ public class KnowledgeIndexService {
   private final Chunker chunker = new Chunker();
   private final ConcurrentHashMap<String, Long> activeGenerations = new ConcurrentHashMap<>();
 
+  // 027 集群档协调（可选装配；未启用 = 单机档全部现状，零协调读写）
+  private io.oryxos.core.cluster.CoordinationStore coordination;
+  private String coordinationOwner;
+  private java.time.Duration claimTtl = java.time.Duration.ofSeconds(30);
+  private java.time.Duration claimPollInterval = java.time.Duration.ofMillis(500);
+  private java.time.Duration claimWaitTimeout = java.time.Duration.ofSeconds(120);
+  private io.oryxos.core.metrics.MetricsRecorder metricsRecorder =
+      io.oryxos.core.metrics.MetricsRecorder.NOOP;
+
+  /**
+   * 027：启用集群档协调——重建/导入索引段经 knowledge_build_claims CAS 认领恰好一次（US2）， 检索代次改读 knowledge_generations
+   * 已提交代次（替换 max(generation) 推断）。单机档不调用本方法。
+   */
+  public void enableClusterCoordination(
+      io.oryxos.core.cluster.CoordinationStore store,
+      io.oryxos.core.cluster.ClusterProperties cluster) {
+    this.coordination = store;
+    this.coordinationOwner = cluster.owner();
+    this.claimTtl = cluster.getLeaseTtl();
+    this.claimPollInterval = cluster.getPollInterval();
+    this.claimWaitTimeout = cluster.getWaitTimeout();
+  }
+
+  public void setMetricsRecorder(io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+    this.metricsRecorder =
+        metricsRecorder == null ? io.oryxos.core.metrics.MetricsRecorder.NOOP : metricsRecorder;
+  }
+
+  /** 027：版本号总线 knowledge 域变化时由轮询器调用——下次取代次重读已提交代次表。 */
+  public void invalidateGenerationCache() {
+    activeGenerations.clear();
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "store/executor 为装配层注入的共享单例，构造注入存同一引用正是意图（镜像既有 SuppressFBWarnings 模式）。")
@@ -64,16 +97,26 @@ public class KnowledgeIndexService {
     this.executor = executor;
   }
 
-  /** 当前对检索可见的索引代号：从存量推断一次后内存维护（启动对账重算）。 */
+  /**
+   * 当前对检索可见的索引代号：集群档读 knowledge_generations 已提交代次（缓存 + 总线失效，副本间一致）； 单机档保持存量推断（零回归）。已提交代次表无行时（首建前 /
+   * 存量库首次进集群档）回退存量推断。
+   */
   public long activeGeneration(String kbName) {
     return activeGenerations.computeIfAbsent(
         kbName,
-        kb ->
-            store.allDocuments(kb).stream()
-                .filter(doc -> doc.state() == DocumentState.READY)
-                .mapToLong(ChunkStore.DocumentRecord::generation)
-                .max()
-                .orElse(0L));
+        kb -> {
+          if (coordination != null) {
+            java.util.OptionalLong committed = coordination.committedGeneration(kb);
+            if (committed.isPresent()) {
+              return committed.getAsLong();
+            }
+          }
+          return store.allDocuments(kb).stream()
+              .filter(doc -> doc.state() == DocumentState.READY)
+              .mapToLong(ChunkStore.DocumentRecord::generation)
+              .max()
+              .orElse(0L);
+        });
   }
 
   /**
@@ -107,14 +150,70 @@ public class KnowledgeIndexService {
                 generation,
                 existing == null ? null : existing.indexedAt()));
     long documentId = pending.id();
-    executor.execute(() -> indexDocument(documentId, kbName, relPath, generation, units));
+    executor.execute(() -> indexImported(documentId, kbName, relPath, generation, units));
     return toStatus(pending);
   }
 
-  /** 双缓冲重建（FR-024）：新代整体成功才切换；任一文档失败则丢弃新代并抛可读原因，旧代照常服务。 */
+  /**
+   * 导入的后台索引段：集群档先经构建认领与 rebuild 互斥（analyze U1）——重建进行中则排队等待， 等到后若代次已切换（旧行已被清代淘汰），改走一次全新
+   * importDocument（按新代重登记，sha 判重防重复索引）； 排队超时落 FAILED 可重试，不静默丢。单机档直通（synchronized 已保证同 JVM 互斥）。
+   */
+  private void indexImported(
+      long documentId, String kbName, String relPath, long generation, List<ParsedUnit> units) {
+    if (coordination == null) {
+      indexDocument(documentId, kbName, relPath, generation, units);
+      return;
+    }
+    long deadline = System.nanoTime() + claimWaitTimeout.toNanos();
+    while (!coordination.tryAcquireIndexBuild(kbName, generation, coordinationOwner, claimTtl)) {
+      if (System.nanoTime() > deadline) {
+        ChunkStore.DocumentRecord rec =
+            store.findDocument(kbName, relPath, generation).orElse(null);
+        if (rec != null && rec.id() != null && rec.id() == documentId) {
+          store.saveDocument(rec.withState(DocumentState.FAILED, "索引排队超时（重建进行中），可重试"));
+        }
+        return;
+      }
+      try {
+        Thread.sleep(claimPollInterval.toMillis());
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+    metricsRecorder.recordLeaseAcquired("index");
+    try {
+      invalidateGenerationCache();
+      long current = activeGeneration(kbName);
+      if (current != generation) {
+        // 等待期间发生了重建切代：旧代行已被淘汰。释放认领后按当前代重新导入
+        // （importDocument 以 sha 判重——文件已被重建收编时立即返回，不重复向量化）
+        coordination.releaseIndexBuild(kbName, coordinationOwner);
+        importDocument(kbName, relPath);
+        return;
+      }
+      indexDocument(documentId, kbName, relPath, generation, units);
+    } finally {
+      coordination.releaseIndexBuild(kbName, coordinationOwner);
+    }
+  }
+
+  /**
+   * 双缓冲重建（FR-024）：新代整体成功才切换；任一文档失败则丢弃新代并抛可读原因，旧代照常服务。 集群档（027 US2）：先 CAS 认领恰好一次（他副本在建 →
+   * KnowledgeBuildInProgressException 409）， 每文档一续（fencing 失败立即中止丢弃本代），完成走条件提交（认领已失则不提交、旧代不动）。
+   */
   public synchronized void rebuild(String kbName) {
     long oldGeneration = activeGeneration(kbName);
     long newGeneration = oldGeneration + 1;
+    boolean cluster = coordination != null;
+    if (cluster
+        && !coordination.tryAcquireIndexBuild(kbName, newGeneration, coordinationOwner, claimTtl)) {
+      throw new io.oryxos.core.knowledge.KnowledgeBuildInProgressException(
+          "重建进行中（其他副本正在构建，完成后可再触发）: " + kbName);
+    }
+    if (cluster) {
+      metricsRecorder.recordLeaseAcquired("index");
+    }
     try {
       for (Path file : listSupportedFiles(kbDir(kbName))) {
         String relPath = kbDir(kbName).relativize(file).toString();
@@ -131,11 +230,24 @@ public class KnowledgeIndexService {
                     newGeneration,
                     null));
         indexNow(record, parseValidated(file));
+        if (cluster && !coordination.renewIndexBuild(kbName, coordinationOwner, claimTtl)) {
+          metricsRecorder.recordFenceConflict("index");
+          throw new IllegalStateException("重建认领已被其他副本接管，本副本中止（旧索引不受影响）");
+        }
+      }
+      if (cluster) {
+        if (!coordination.commitGeneration(kbName, newGeneration, coordinationOwner)) {
+          metricsRecorder.recordFenceConflict("index");
+          throw new IllegalStateException("重建认领已被其他副本接管，提交被拒（旧索引不受影响）");
+        }
       }
       activeGenerations.put(kbName, newGeneration);
       store.deleteGenerationsBelow(kbName, newGeneration);
     } catch (RuntimeException e) {
       store.deleteGeneration(kbName, newGeneration);
+      if (cluster) {
+        coordination.releaseIndexBuild(kbName, coordinationOwner); // 认领已失时为 no-op（只删自己的）
+      }
       throw new IllegalStateException("重建索引失败（旧索引不受影响）: " + e.getMessage(), e);
     }
   }

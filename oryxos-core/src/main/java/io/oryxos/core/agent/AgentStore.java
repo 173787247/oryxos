@@ -55,6 +55,11 @@ public class AgentStore {
    * 读 .oryxos/agents/&lt;name&gt;/AGENT.md 的原始文本；缺文件抛 {@link IllegalStateException}（调用方应先确认 Agent
    * 存在）。
    */
+  /** 027：agents 根目录（reconcileAll 全量对账扫描用）。 */
+  public Path agentsDir() {
+    return agentsDir;
+  }
+
   public String read(String name) {
     Path file = agentsDir.resolve(safe(name)).resolve(AGENT_FILE);
     if (!Files.isRegularFile(file)) {
@@ -163,7 +168,7 @@ public class AgentStore {
           throw new IllegalArgumentException("Agent 文件缺少父目录: " + entry.getKey());
         }
         Files.createDirectories(parent);
-        Files.write(target, entry.getValue());
+        io.oryxos.core.io.AtomicFiles.write(target, entry.getValue());
       }
     } catch (IOException e) {
       throw new UncheckedIOException("恢复 Agent 文件快照失败: " + snapshot.agentName, e);

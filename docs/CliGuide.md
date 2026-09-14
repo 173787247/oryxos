@@ -209,7 +209,8 @@ Agent 的 `AGENT.md` provider 节可声明 `fallback:` 有序备用列表（每�
 - **用户可感知的保证**：同一会话消息按序恰好一答（跨副本排队与单机体验一致）；平台重推/用户重发只答一次；定时任务恰好执行一次；某副本崩溃后该轮标失败、下一条消息由健康副本接管（不自动重放，重发即恢复）；企微连接自动接管不互踢。
 - **运维**：`GET /api/v1/instances` 看副本存活与"谁在处理什么"；`oryxos_leases_*` / `oryxos_fence_conflicts_total` / `oryxos_duplicates_dropped_total` 指标可告警。
 - **误配拒启**：cluster 开着但配了 SQLite / markdown 记忆档 / memory 知识库 → 启动失败并指明改法（带病运行比失败更危险）。
-- 参数（有安全默认，一般不用动）：`lease-ttl` 30s / `heartbeat-interval` TTL/3 / `poll-interval` 500ms / `wait-timeout` 120s。
+- 参数（有安全默认，一般不用动）：`lease-ttl` 30s / `heartbeat-interval` TTL/3 / `poll-interval` 500ms / `wait-timeout` 120s / `workspace-poll-interval` 1s（027）。
+- **文件面（027）**：`.oryxos/` 工作区放共享卷（NFS / K8s RWX PVC，支持矩阵见 `docs/SharedVolumeGuide.md`）——任一副本上建/改/删 Agent、Skill、人格，其余副本 ≤3s 生效（DB 版本号总线，集群档不再依赖 inotify）；知识索引重建跨副本恰好一次（认领冲突返回 409「构建进行中」，执行副本崩溃 30s 后可接管）；运维直接改盘后调 `POST /api/v1/workspace/refresh` 触发全副本重载。
 
 ## 5. 配置与凭证
 

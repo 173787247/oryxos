@@ -18,6 +18,9 @@ public class JpaCoordinationStore implements CoordinationStore {
   private final ChannelLeaseRepository channelLeases;
   private final InstanceHeartbeatRepository instances;
   private final ScheduledTaskRepository scheduledTasks;
+  private final WorkspaceVersionRepository workspaceVersions;
+  private final KnowledgeBuildClaimRepository buildClaims;
+  private final KnowledgeGenerationRepository generations;
 
   /** 抢过期 turn 时记下前任的未完结 execution（供补失败留痕）；单线程调用语义（认领在会话锁内）。 */
   private final ThreadLocal<Long> lastReclaimedExecution = new ThreadLocal<>();
@@ -30,12 +33,18 @@ public class JpaCoordinationStore implements CoordinationStore {
       ChannelEventReceiptRepository receipts,
       ChannelLeaseRepository channelLeases,
       InstanceHeartbeatRepository instances,
-      ScheduledTaskRepository scheduledTasks) {
+      ScheduledTaskRepository scheduledTasks,
+      WorkspaceVersionRepository workspaceVersions,
+      KnowledgeBuildClaimRepository buildClaims,
+      KnowledgeGenerationRepository generations) {
     this.turnLeases = turnLeases;
     this.receipts = receipts;
     this.channelLeases = channelLeases;
     this.instances = instances;
     this.scheduledTasks = scheduledTasks;
+    this.workspaceVersions = workspaceVersions;
+    this.buildClaims = buildClaims;
+    this.generations = generations;
   }
 
   @Override
@@ -168,6 +177,78 @@ public class JpaCoordinationStore implements CoordinationStore {
     Instant now = dbNow();
     receipts.deleteOlderThan(now.minus(receiptTtl));
     instances.deleteOlderThan(now.minus(instanceDeadAfter));
+  }
+
+  @Override
+  public void bumpWorkspaceVersion(String domain, String owner) {
+    if (!WORKSPACE_DOMAINS.contains(domain)) {
+      throw new IllegalArgumentException("未知的工作区域: " + domain);
+    }
+    workspaceVersions.bump(domain, owner, dbNow());
+  }
+
+  @Override
+  public java.util.Map<String, Long> workspaceVersions() {
+    return workspaceVersions.findAll().stream()
+        .collect(
+            java.util.stream.Collectors.toMap(
+                WorkspaceVersionEntity::getDomain, WorkspaceVersionEntity::getVersion));
+  }
+
+  @Override
+  public boolean tryAcquireIndexBuild(String kbName, long generation, String owner, Duration ttl) {
+    Instant now = dbNow();
+    Instant until = now.plus(ttl);
+    try {
+      buildClaims.insertClaim(kbName, owner, until, generation);
+      return true;
+    } catch (DataAccessException occupied) {
+      rethrowUnlessConstraintViolation(occupied);
+      return buildClaims.takeExpired(kbName, owner, until, generation, now) == 1;
+    }
+  }
+
+  @Override
+  public boolean renewIndexBuild(String kbName, String owner, Duration ttl) {
+    Instant until = dbNow().plus(ttl);
+    return buildClaims.renew(kbName, owner, until) == 1;
+  }
+
+  @Override
+  public void releaseIndexBuild(String kbName, String owner) {
+    buildClaims.release(kbName, owner);
+  }
+
+  @Override
+  public boolean commitGeneration(String kbName, long generation, String owner) {
+    Instant now = dbNow();
+    // 校验仍持有（rowcount 语义的条件续租即校验）；已被接管则不提交、旧代不动
+    if (buildClaims.renew(kbName, owner, now.plusSeconds(30)) != 1) {
+      return false;
+    }
+    KnowledgeGenerationEntity row =
+        generations
+            .findById(kbName)
+            .orElseGet(
+                () -> {
+                  KnowledgeGenerationEntity fresh = new KnowledgeGenerationEntity();
+                  fresh.setKbName(kbName);
+                  return fresh;
+                });
+    row.setCommittedGeneration(generation);
+    row.setUpdatedAt(now);
+    generations.save(row);
+    workspaceVersions.bump("knowledge", owner, now);
+    buildClaims.release(kbName, owner);
+    return true;
+  }
+
+  @Override
+  public java.util.OptionalLong committedGeneration(String kbName) {
+    return generations
+        .findById(kbName)
+        .map(g -> java.util.OptionalLong.of(g.getCommittedGeneration()))
+        .orElse(java.util.OptionalLong.empty());
   }
 
   /** DB CURRENT_TIMESTAMP 的驱动类型适配：PG 给时间类型，SQLite 给 'YYYY-MM-DD HH:MM:SS'（UTC）字符串。 */

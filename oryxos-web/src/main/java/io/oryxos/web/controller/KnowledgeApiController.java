@@ -201,7 +201,8 @@ public class KnowledgeApiController {
         RealPathBoundary.requireWithin(
             knowledgeRoot, knowledgeRoot.resolve(name).resolve(fileName));
     try {
-      Files.write(target, file.getBytes());
+      // 027 FR-004：原子改名落盘——共享卷上其他副本绝不读到半写文档
+      io.oryxos.core.io.AtomicFiles.write(target, file.getBytes());
     } catch (IOException e) {
       throw new UncheckedIOException("文档落盘失败: " + fileName, e);
     }

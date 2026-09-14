@@ -38,6 +38,9 @@ public class ClusterProperties {
   /** 同会话等待上限：超限抛 TurnWaitTimeoutException（IM 提示稍候重发 / API 429）。 */
   private Duration waitTimeout = Duration.ofSeconds(120);
 
+  /** 027：工作区版本号轮询周期（集群档文件面变更感知；SC-001 的 3s 含 1 轮询 + 重载余量）。 */
+  private Duration workspacePollInterval = Duration.ofSeconds(1);
+
   /** 有效实例标识（显式配置优先，否则 主机名-pid）。 */
   public String effectiveInstanceId() {
     if (instanceId != null && !instanceId.isBlank()) {
@@ -111,5 +114,13 @@ public class ClusterProperties {
 
   public void setWaitTimeout(Duration waitTimeout) {
     this.waitTimeout = waitTimeout;
+  }
+
+  public Duration getWorkspacePollInterval() {
+    return workspacePollInterval;
+  }
+
+  public void setWorkspacePollInterval(Duration workspacePollInterval) {
+    this.workspacePollInterval = workspacePollInterval;
   }
 }

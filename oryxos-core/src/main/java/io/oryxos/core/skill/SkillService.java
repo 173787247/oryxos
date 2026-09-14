@@ -109,6 +109,10 @@ public class SkillService {
   private final SkillLoader loader;
   private final AgentSkillBindingService bindings;
 
+  /** 027：文件落盘后递增 skills 域版本号（单机档 NOOP）。 */
+  private io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+      io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
+
   public SkillService(SkillStore store, SkillRegistry registry, SkillLoader loader) {
     this(store, registry, loader, null);
   }
@@ -122,6 +126,12 @@ public class SkillService {
     this.registry = registry;
     this.loader = loader;
     this.bindings = bindings;
+  }
+
+  public void setWorkspaceVersionNotifier(
+      io.oryxos.core.cluster.WorkspaceVersionNotifier notifier) {
+    this.workspaceNotifier =
+        notifier == null ? io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP : notifier;
   }
 
   /** 新建 Skill：name 冲突第一步就拒；写盘 → 解析 → 登记内存索引。 */
@@ -146,16 +156,20 @@ public class SkillService {
   /** 删除即归档：有活跃或归档引用时拒绝；否则移动完整目录并更新安装索引。 */
   public synchronized SkillArchive delete(String name) {
     if (bindings != null) {
-      return bindings.archiveIfUnreferenced(
-          name,
-          () -> {
-            SkillArchive archive = store.archive(name);
-            registry.remove(name);
-            return archive;
-          });
+      SkillArchive archived =
+          bindings.archiveIfUnreferenced(
+              name,
+              () -> {
+                SkillArchive archive = store.archive(name);
+                registry.remove(name);
+                return archive;
+              });
+      workspaceNotifier.bump("skills");
+      return archived;
     }
     SkillArchive archive = store.archive(name);
     registry.remove(name);
+    workspaceNotifier.bump("skills");
     return archive;
   }
 
@@ -235,6 +249,7 @@ public class SkillService {
       if (bindings != null) {
         bindings.logCurrentIssues();
       }
+      workspaceNotifier.bump("skills");
       return skill;
     } catch (RuntimeException e) {
       if (registered) {
@@ -263,6 +278,7 @@ public class SkillService {
     if (bindings != null) {
       bindings.logCurrentIssues();
     }
+    workspaceNotifier.bump("skills");
     return skill;
   }
 

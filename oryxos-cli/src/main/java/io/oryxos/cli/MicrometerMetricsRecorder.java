@@ -196,4 +196,13 @@ public class MicrometerMetricsRecorder implements MetricsRecorder {
       LOG.debug("duplicate dropped 指标记录失败", e);
     }
   }
+
+  @Override
+  public void recordWorkspaceReloaded(String domain) {
+    try {
+      registry.counter("oryxos_workspace_reloads_total", "domain", tag(domain)).increment();
+    } catch (RuntimeException e) {
+      LOG.debug("workspace reloaded 指标记录失败", e);
+    }
+  }
 }

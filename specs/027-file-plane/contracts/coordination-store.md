@@ -29,8 +29,10 @@ boolean renewIndexBuild(String kbName, String owner, Duration ttl);
 /** 027：释放认领（只删自己的；仅供中止/异常清理路径调用——成功提交由 commitGeneration 在事务内释放）。 */
 void releaseIndexBuild(String kbName, String owner);
 
-/** 027：条件提交代次——仍持有认领才生效（同事务：校验 claim + UPSERT committed_generation +
- *  deleteGenerationsBelow + bump knowledge 域 + 释放 claim）。false = 认领已失，未提交、旧代未动。 */
+/** 027：条件提交代次——仍持有认领才生效（校验 claim rowcount + UPSERT committed_generation +
+ *  bump knowledge 域 + 释放 claim）。false = 认领已失，未提交、旧代未动。
+ *  旧代片段清理（deleteGenerationsBelow）由调用方在提交成功后执行——垃圾回收语义，
+ *  中断残留由下次重建清理（实现裁决 2026-09-14：清理归 ChunkStore 所在模块，不跨进协调面事务）。 */
 boolean commitGeneration(String kbName, long generation, String owner);
 
 /** 027：读某库已提交代次；空 = 尚无已提交代次（首建前）。 */

@@ -26,6 +26,9 @@ abstract class CoordinationStoreContractTest {
   @Autowired ChannelLeaseRepository channelLeases;
   @Autowired InstanceHeartbeatRepository instances;
   @Autowired ScheduledTaskRepository scheduledTasks;
+  @Autowired WorkspaceVersionRepository workspaceVersions;
+  @Autowired KnowledgeBuildClaimRepository buildClaims;
+  @Autowired KnowledgeGenerationRepository generations;
 
   private CoordinationStore store;
 
@@ -34,12 +37,35 @@ abstract class CoordinationStoreContractTest {
   @BeforeEach
   void setUp() {
     store =
-        new JpaCoordinationStore(turnLeases, receipts, channelLeases, instances, scheduledTasks);
+        new JpaCoordinationStore(
+            turnLeases,
+            receipts,
+            channelLeases,
+            instances,
+            scheduledTasks,
+            workspaceVersions,
+            buildClaims,
+            generations);
     turnLeases.deleteAll();
     receipts.deleteAll();
     channelLeases.deleteAll();
     instances.deleteAll();
     scheduledTasks.deleteAll();
+    buildClaims.deleteAll();
+    generations.deleteAll();
+    resetWorkspaceVersions();
+  }
+
+  private void resetWorkspaceVersions() {
+    // V8 预插 4 域行；测试只归零 version 不删行（运行期语义就是只 UPDATE 不增删）
+    workspaceVersions
+        .findAll()
+        .forEach(
+            row -> {
+              row.setVersion(0L);
+              row.setUpdatedBy("test");
+              workspaceVersions.save(row);
+            });
   }
 
   @Test
@@ -133,6 +159,64 @@ abstract class CoordinationStoreContractTest {
         Duration.ofSeconds(-2), Duration.ofSeconds(-2)); // 负 TTL：全部判超龄（SQLite 秒精度下 TTL=0 有同秒边界）
     assertThat(receipts.count()).isZero();
     assertThat(instances.count()).isZero();
+  }
+
+  @Test
+  void workspaceVersion_bumpIncrementsWithoutLoss() {
+    long before = store.workspaceVersions().get("agents");
+    store.bumpWorkspaceVersion("agents", "a@1");
+    store.bumpWorkspaceVersion("agents", "b@1");
+    assertThat(store.workspaceVersions().get("agents")).isEqualTo(before + 2); // 连续递增不丢
+    assertThat(store.workspaceVersions().get("skills")).isEqualTo(0L); // 其他域不受影响
+  }
+
+  @Test
+  void workspaceVersion_alwaysFourDomains_andRejectsUnknown() {
+    assertThat(store.workspaceVersions())
+        .containsOnlyKeys("agents", "skills", "personas", "knowledge");
+    org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalArgumentException.class, () -> store.bumpWorkspaceVersion("unknown", "a@1"));
+  }
+
+  @Test
+  void indexBuildClaim_mutexTakeExpiredAndFencing() {
+    assertThat(store.tryAcquireIndexBuild("kb-1", 2L, "a@1", TTL)).isTrue();
+    assertThat(store.tryAcquireIndexBuild("kb-1", 2L, "b@1", TTL)).isFalse(); // 未过期抢不走
+    assertThat(store.tryAcquireIndexBuild("kb-2", 1L, "b@1", TTL)).isTrue(); // 库间零竞争
+
+    assertThat(store.tryAcquireIndexBuild("kb-3", 5L, "a@1", Duration.ofMillis(-1000))).isTrue();
+    assertThat(store.tryAcquireIndexBuild("kb-3", 6L, "b@1", TTL)).isTrue(); // 抢过期成功（接管重建）
+    assertThat(store.renewIndexBuild("kb-3", "a@1", TTL)).isFalse(); // 前任 fencing 失败
+    assertThat(store.renewIndexBuild("kb-3", "b@1", TTL)).isTrue(); // 现任续租成功
+  }
+
+  @Test
+  void commitGeneration_conditionalOnHolding() {
+    assertThat(store.tryAcquireIndexBuild("kb-1", 3L, "a@1", TTL)).isTrue();
+    assertThat(store.commitGeneration("kb-1", 3L, "a@1")).isTrue(); // 持有者提交生效
+    assertThat(store.committedGeneration("kb-1")).hasValue(3L);
+    assertThat(store.tryAcquireIndexBuild("kb-1", 4L, "b@1", TTL)).isTrue(); // 提交已释放认领
+
+    assertThat(store.commitGeneration("kb-1", 9L, "a@1")).isFalse(); // 非持有者提交被拒
+    assertThat(store.committedGeneration("kb-1")).hasValue(3L); // 代次未被污染
+    assertThat(store.committedGeneration("kb-none")).isEmpty(); // 首建前空态
+  }
+
+  @Test
+  void commitGeneration_bumpsKnowledgeDomain() {
+    long before = store.workspaceVersions().get("knowledge");
+    assertThat(store.tryAcquireIndexBuild("kb-1", 1L, "a@1", TTL)).isTrue();
+    assertThat(store.commitGeneration("kb-1", 1L, "a@1")).isTrue();
+    assertThat(store.workspaceVersions().get("knowledge")).isEqualTo(before + 1); // 提交即广播失效
+  }
+
+  @Test
+  void releaseIndexBuild_onlyDeletesOwn() {
+    assertThat(store.tryAcquireIndexBuild("kb-1", 1L, "a@1", TTL)).isTrue();
+    store.releaseIndexBuild("kb-1", "b@1"); // 别人的 release 无效
+    assertThat(store.tryAcquireIndexBuild("kb-1", 1L, "b@1", TTL)).isFalse(); // a 仍持有
+    store.releaseIndexBuild("kb-1", "a@1");
+    assertThat(store.tryAcquireIndexBuild("kb-1", 1L, "b@1", TTL)).isTrue(); // 释放后可认领
   }
 
   private void seedSchedule(String scheduleId) {
