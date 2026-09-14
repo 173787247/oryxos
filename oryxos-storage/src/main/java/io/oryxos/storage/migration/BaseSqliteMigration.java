@@ -11,8 +11,8 @@ import org.flywaydb.core.api.migration.Context;
 import org.flywaydb.core.api.migration.JavaMigration;
 
 /**
- * SQLite 存量库幂等迁移基类（025）：V2~V5 是原四个手工升级类的平移——幂等依据仍是 {@code PRAGMA table_info} 列探测，任意历史状态的存量库经 V1~V5
- * 收敛到同一最终结构；新库列已全、探测后空转。
+ * SQLite 存量库幂等迁移基类（025）：V2~V6 是原四个手工升级类的平移加 Run 工作台——幂等依据仍是 {@code PRAGMA table_info}
+ * 列探测，任意历史状态的存量库经 V1~V6 收敛到同一最终结构；新库列已全、探测后空转。
  *
  * <p>不用 {@code BaseJavaMigration}：它强制从类名解析版本（{@code V2__x} 命名违反本仓库类名规范）， 这里显式给出版本与描述。checksum
  * 返回固定值——迁移逻辑幂等且只增不改，history 校验以版本为准。

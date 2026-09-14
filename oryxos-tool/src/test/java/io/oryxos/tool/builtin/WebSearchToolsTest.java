@@ -79,7 +79,9 @@ class WebSearchToolsTest {
   void webSearchNoResult() {
     WebSearchTools tools = new WebSearchTools(new PermissiveSandbox(), query -> List.of());
 
-    assertEquals("（未搜到相关结果）", tools.webSearch("zzz"));
+    String result = tools.webSearch("zzz");
+    assertTrue(result.contains("未搜到相关结果"));
+    assertTrue(result.contains("fetch_webpage"));
   }
 
   @Test

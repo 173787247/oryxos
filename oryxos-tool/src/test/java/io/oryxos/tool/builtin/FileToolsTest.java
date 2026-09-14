@@ -17,6 +17,7 @@ import io.oryxos.tool.sandbox.SandboxViolationException;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -716,6 +717,43 @@ class FileToolsTest {
 
     String globbed = tools.glob("**/*.md", link.toString());
     assertTrue(globbed.contains("SKILL.md"), globbed);
+  }
+
+  @Test
+  @DisplayName("read_file 对文本型 PDF 抽取正文（魔数或 .pdf 后缀）")
+  void readFileExtractsTextPdf() throws IOException {
+    Path pdf = dir.resolve("note.bin");
+    try (var doc = new org.apache.pdfbox.pdmodel.PDDocument()) {
+      var page = new org.apache.pdfbox.pdmodel.PDPage();
+      doc.addPage(page);
+      var font =
+          new org.apache.pdfbox.pdmodel.font.PDType1Font(
+              org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA);
+      try (var cs = new org.apache.pdfbox.pdmodel.PDPageContentStream(doc, page)) {
+        cs.beginText();
+        cs.setFont(font, 12);
+        cs.newLineAtOffset(50, 700);
+        cs.showText("OryxOS PDF inbound ok");
+        cs.endText();
+      }
+      doc.save(pdf.toFile());
+    }
+    String text = tools.readFile(pdf.toString());
+    assertTrue(text.contains("OryxOS PDF inbound ok"), text);
+  }
+
+  @Test
+  @DisplayName("read_file 扫描件 PDF 错误信息包含无文本层根因")
+  void readFileScannedPdfSurfacesCause() throws IOException {
+    Path pdf = dir.resolve("scan.pdf");
+    try (var doc = new org.apache.pdfbox.pdmodel.PDDocument()) {
+      doc.addPage(new org.apache.pdfbox.pdmodel.PDPage());
+      doc.save(pdf.toFile());
+    }
+    UncheckedIOException ex =
+        assertThrows(UncheckedIOException.class, () -> tools.readFile(pdf.toString()));
+    assertTrue(ex.getMessage().contains("无文本层"), ex.getMessage());
+    assertTrue(ex.getMessage().contains(pdf.toString()), ex.getMessage());
   }
 
   @Test

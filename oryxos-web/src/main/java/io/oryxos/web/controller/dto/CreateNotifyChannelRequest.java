@@ -3,8 +3,7 @@ package io.oryxos.web.controller.dto;
 import java.util.Map;
 
 /**
- * 新建通知渠道请求体：name 全局唯一，type∈{webhook,feishu,wecom,dingtalk,email}；url 为 HTTP 类渠道的 webhook 地址，config
- * 承载类型相关多字段（如 email 的 host/port/from/to）。
+ * 新建通知渠道请求体：name 全局唯一；url 为 webhook 类渠道地址，config 承载类型相关多字段（email SMTP，或 telegram token/chat_id 等）。
  */
 public record CreateNotifyChannelRequest(
     String name, String type, String url, String description, Map<String, String> config) {

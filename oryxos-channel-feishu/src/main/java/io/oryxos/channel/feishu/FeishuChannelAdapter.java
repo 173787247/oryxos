@@ -20,7 +20,6 @@ import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -49,10 +48,15 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private static final String BOT_INFO_PATH = "/open-apis/bot/v3/info";
   private static final String BOT_OPEN_ID_FIELD = "open_id";
   private static final String MEDIA_DIR_PREFIX = "oryxos-feishu-media-";
-  private static final String MEDIA_FALLBACK_DIR = "oryxos-feishu-media";
   private static final int HTTP_OK = 200;
   private static final long READY_TIMEOUT_MS = 15_000;
   private static final long READY_PROBE_TIMEOUT_MS = 50;
+
+  /**
+   * WS 关闭限时。SDK {@code ws.Client.close()} 存在不返回的实现路径（2026-08 容器停机实测：SIGTERM 后被它拖满 ~30s 才完成关闭，裸
+   * {@code docker stop} 直接 SIGKILL），关闭动作放守护线程限时 join，超时放弃等待、停机链路继续。
+   */
+  private static final long WS_CLOSE_TIMEOUT_MS = 2_000;
 
   /**
    * 入站图片下载超时。SDK {@code requestTimeout} 只设置 OkHttp {@code callTimeout}，仍保留默认 {@code
@@ -60,8 +64,10 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
    */
   private static final long API_CONNECT_TIMEOUT_SEC = 30;
 
-  private static final long API_READ_TIMEOUT_SEC = 180;
-  private static final long API_CALL_TIMEOUT_SEC = 180;
+  /** 视频/大文件 GetMessageResource 可能远慢于图片；过短会整段超时后只剩 file_key。 */
+  private static final long API_READ_TIMEOUT_SEC = 300;
+
+  private static final long API_CALL_TIMEOUT_SEC = 300;
 
   private final ChannelConfig config; // resolved 口径（凭证为真实值，仅存活内存）
   private final ProfileRegistry profileRegistry;
@@ -168,6 +174,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     }
   }
 
+  /** 停止：断开长连接（限时，见 {@link #closeQuietly}）并置位。SDK close 阻塞不再拖死 stopAll/进程停机。 */
   @Override
   public synchronized void stop() {
     com.lark.oapi.ws.Client ws = wsClient;
@@ -178,12 +185,36 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     state = ChannelStatus.State.DISCONNECTED;
   }
 
-  /** 关闭 WS 客户端，异常仅告警不上抛——断开路径的异常不影响调用方语义。 */
+  /**
+   * 关闭 WS 客户端：异常仅告警不上抛（断开路径的异常不影响调用方语义），且限时等待——SDK {@code close()} 阻塞时放弃等待、守护线程后台继续，{@code stop()}
+   * 不拖死 ChannelAdminService.stopAll 与进程停机链路。
+   */
   private void closeQuietly(com.lark.oapi.ws.Client ws) {
+    // 平台守护线程而非虚拟线程：SDK close 内部有 synchronized 路径（Client.disconnect），虚拟线程在此 pin 住 carrier
+    Thread closer =
+        Thread.ofPlatform()
+            .daemon(true) // 守护：被放弃的 close 不得阻止 JVM 退出
+            .name("oryxos-feishu-ws-close")
+            .unstarted(
+                () -> {
+                  try {
+                    ws.close();
+                  } catch (RuntimeException e) {
+                    LOG.warn(
+                        "飞书渠道 {} 断开时异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
+                  }
+                });
+    closer.start();
     try {
-      ws.close();
-    } catch (RuntimeException e) {
-      LOG.warn("飞书渠道 {} 断开时异常: {}", sanitize(config.name()), sanitize(e.getMessage()));
+      closer.join(WS_CLOSE_TIMEOUT_MS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    if (closer.isAlive()) {
+      LOG.warn(
+          "飞书渠道 {} WS close {}ms 未返回，放弃等待（SDK close 阻塞，守护线程后台继续）",
+          sanitize(config.name()),
+          WS_CLOSE_TIMEOUT_MS);
     }
   }
 
@@ -245,8 +276,8 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
             }
             String replyTo = m.chatKind() == ChatKind.GROUP ? m.messageId() : null;
             java.util.concurrent.CountDownLatch slowWork = null;
-            if (needsImageDownload(m)) {
-              // 下载前立刻「处理中」：默认 15s 阈值对识图偏长，延迟计时会导致「识别完才提示」
+            if (needsMediaDownload(m)) {
+              // 下载前立刻「处理中」：默认 15s 阈值对识图/落盘偏长，延迟计时会导致「识别完才提示」
               slowWork = inboundMessageService.beginSlowWork(this, m.chatId(), replyTo);
             }
             try {
@@ -269,17 +300,21 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     }
   }
 
-  private static boolean needsImageDownload(InboundMessage message) {
+  private static boolean needsMediaDownload(InboundMessage message) {
     for (InboundAttachment attachment : message.attachments()) {
-      if (isUnresolvedImageAttachment(attachment)) {
+      if (isUnresolvedMediaAttachment(attachment)) {
         return true;
       }
     }
     return false;
   }
 
-  private static boolean isUnresolvedImageAttachment(InboundAttachment attachment) {
-    if (!InboundAttachment.TYPE_IMAGE.equals(attachment.type())) {
+  private static boolean isUnresolvedMediaAttachment(InboundAttachment attachment) {
+    String type = attachment.type();
+    if (!InboundAttachment.TYPE_IMAGE.equals(type)
+        && !InboundAttachment.TYPE_FILE.equals(type)
+        && !InboundAttachment.TYPE_AUDIO.equals(type)
+        && !InboundAttachment.TYPE_VIDEO.equals(type)) {
       return false;
     }
     if (attachment.url() != null && !attachment.url().isBlank()) {
@@ -288,22 +323,9 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
     return attachment.reference() != null && !attachment.reference().isBlank();
   }
 
-  /** 入站图片落盘目录：进程临时目录下按渠道隔离；失败不阻断 start（解析器会降级保留 image_key）。 */
+  /** 入站媒体落盘：优先 {@code .oryxos/inbound-media}，失败回退临时目录。 */
   private Path createMediaRoot() {
-    String channelSeg = FeishuInboundImageResolver.safeSegment(config.name());
-    try {
-      // 前缀必须是常量字面量：SpotBugs 视 createTempDirectory(userInput+…) 为 PATH_TRAVERSAL_IN
-      Path root = Files.createTempDirectory(MEDIA_DIR_PREFIX);
-      Path channelDir = root.resolve(channelSeg);
-      Files.createDirectories(channelDir);
-      return channelDir;
-    } catch (Exception e) {
-      LOG.warn(
-          "飞书渠道 {} 创建图片缓存目录失败（{}），入站图片将保留 image_key",
-          sanitize(config.name()),
-          sanitize(e.getMessage()));
-      return Path.of(System.getProperty("java.io.tmpdir"), MEDIA_FALLBACK_DIR, channelSeg);
-    }
+    return io.oryxos.core.channel.InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX);
   }
 
   /**

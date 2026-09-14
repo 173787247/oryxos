@@ -82,6 +82,9 @@ tools:
 - read_file
 - shell
 - notify
+- web_search
+- http_get
+- fetch_webpage
 channels:
 - cli
 settings:

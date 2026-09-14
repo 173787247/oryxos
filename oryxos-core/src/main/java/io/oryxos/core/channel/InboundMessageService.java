@@ -2,6 +2,8 @@ package io.oryxos.core.channel;
 
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.agent.InterruptManager;
+import io.oryxos.core.agent.ReActLoop;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
@@ -31,8 +33,9 @@ public class InboundMessageService {
   private static final Logger LOG = LoggerFactory.getLogger(InboundMessageService.class);
 
   private static final String DEDUP_KEY_SEPARATOR = ":";
+  private static final String STOP_COMMAND = "/stop";
 
-  static final String UNSUPPORTED_TYPE_REPLY = "当前仅支持文本提问，请用文字描述你的问题。";
+  static final String UNSUPPORTED_TYPE_REPLY = "当前仅支持文本、图片、文件、语音或视频，请用文字描述或发送图片/文件/语音/视频。";
   static final String AGENT_UNAVAILABLE_REPLY = "Agent 暂不可用（未找到绑定的 Agent），请联系管理员。";
   static final String FAILURE_REPLY = "抱歉，这次处理失败了，请稍后重试或联系管理员。";
 
@@ -41,6 +44,8 @@ public class InboundMessageService {
 
   static final String PROCESSING_REPLY = "已收到，正在处理中，请稍候…";
   static final String NEW_SESSION_REPLY = "已开启新会话，之前的对话上下文已清空。";
+  static final String STOP_REPLY = "已发送停止信号，正在执行的任务将在下一轮停止。";
+  static final String STOP_NO_SESSION_REPLY = "当前没有正在执行的任务。";
   private static final String NEW_SESSION_COMMAND = "/new";
 
   /** 飞书等可能对同一意图连推多条不同 message_id；短窗内只确认一次。 */
@@ -56,8 +61,29 @@ public class InboundMessageService {
   private final MessageDeduplicator deduplicator;
   private final InboundMediaEnricher mediaEnricher;
   private final Duration processingNoticeDelay;
+  private final InterruptManager interruptManager;
+  private final ActiveRunRegistry activeRuns = new ActiveRunRegistry();
   private final Map<String, Long> recentNewSessionAckMs = new ConcurrentHashMap<>();
   private final Map<String, Long> recentProcessingNoticeMs = new ConcurrentHashMap<>();
+
+  public InboundMessageService(
+      AgentService agentService,
+      SessionManager sessionManager,
+      ProfileRegistry profileRegistry,
+      AgentExecutionService executionService,
+      MessageDeduplicator deduplicator,
+      InboundMediaEnricher mediaEnricher,
+      Duration processingNoticeDelay) {
+    this(
+        agentService,
+        sessionManager,
+        profileRegistry,
+        executionService,
+        deduplicator,
+        mediaEnricher,
+        processingNoticeDelay,
+        null);
+  }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -69,7 +95,8 @@ public class InboundMessageService {
       AgentExecutionService executionService,
       MessageDeduplicator deduplicator,
       InboundMediaEnricher mediaEnricher,
-      Duration processingNoticeDelay) {
+      Duration processingNoticeDelay,
+      InterruptManager interruptManager) {
     this.agentService = agentService;
     this.sessionManager = sessionManager;
     this.profileRegistry = profileRegistry;
@@ -77,6 +104,7 @@ public class InboundMessageService {
     this.deduplicator = deduplicator;
     this.mediaEnricher = mediaEnricher == null ? new DefaultInboundMediaEnricher() : mediaEnricher;
     this.processingNoticeDelay = processingNoticeDelay;
+    this.interruptManager = interruptManager;
   }
 
   /** 在昂贵预处理（飞书入站图下载等）前占用 message_id。返回 false 表示重复事件，调用方应直接丢弃且勿再下载。 */
@@ -142,6 +170,8 @@ public class InboundMessageService {
     String agent = replyVia.boundAgent();
     List<Message.MediaPart> media = InboundMediaParts.from(msg);
     InferenceJob job = buildInference(msg, replyVia, agent, agentInput, media, replyTo);
+    String chatKey = ActiveRunRegistry.chatKey(msg.channelType(), msg.chatId());
+    activeRuns.register(chatKey, job.sessionId());
     CountDownLatch done = preprocessingDone != null ? preprocessingDone : new CountDownLatch(1);
     // B5/B10：推理在虚拟线程后台跑并落 agent_executions（source = 渠道类型）
     executionService.triggerAsync(
@@ -163,6 +193,7 @@ public class InboundMessageService {
             }
             throw e;
           } finally {
+            activeRuns.unregister(chatKey, job.sessionId());
             done.countDown();
           }
         });
@@ -179,6 +210,12 @@ public class InboundMessageService {
       CountDownLatch preprocessingDone,
       String replyTo,
       String agentInput) {
+    // 处理 /stop 命令
+    if (msg.textual() && isStopCommand(agentInput)) {
+      release(preprocessingDone);
+      handleStopCommand(msg, replyVia, replyTo);
+      return true;
+    }
     // B7：不可处理的消息（非文本且无附件）回能力说明，不进推理、不落执行记录
     if (!msg.processable() || agentInput.isBlank()) {
       release(preprocessingDone);
@@ -211,6 +248,50 @@ public class InboundMessageService {
       return true;
     }
     return false;
+  }
+
+  private void handleStopCommand(
+      InboundMessage msg, InboundChannelAdapter replyVia, String replyTo) {
+    if (interruptManager == null) {
+      safeReply(replyVia, msg.chatId(), STOP_NO_SESSION_REPLY, replyTo);
+      return;
+    }
+    String chatKey = ActiveRunRegistry.chatKey(msg.channelType(), msg.chatId());
+    String sessionId = activeRuns.current(chatKey).orElse(null);
+    if (sessionId == null) {
+      safeReply(replyVia, msg.chatId(), STOP_NO_SESSION_REPLY, replyTo);
+      return;
+    }
+    interruptManager.interrupt(sessionId);
+    safeReply(replyVia, msg.chatId(), STOP_REPLY, replyTo);
+  }
+
+  private static boolean isStopCommand(String text) {
+    if (text == null) {
+      return false;
+    }
+    return asciiEqualsIgnoreCase(text.strip(), STOP_COMMAND);
+  }
+
+  /** 仅 ASCII 大小写折叠，避免 equalsIgnoreCase 触发 SpotBugs IMPROPER_UNICODE。 */
+  private static boolean asciiEqualsIgnoreCase(String left, String right) {
+    if (left.length() != right.length()) {
+      return false;
+    }
+    for (int i = 0; i < left.length(); i++) {
+      char a = left.charAt(i);
+      char b = right.charAt(i);
+      if (a >= 'A' && a <= 'Z') {
+        a = (char) (a + ('a' - 'A'));
+      }
+      if (b >= 'A' && b <= 'Z') {
+        b = (char) (b + ('a' - 'A'));
+      }
+      if (a != b) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private InferenceJob buildInference(
@@ -268,7 +349,11 @@ public class InboundMessageService {
         () -> {
           try {
             String reply = streamedInference.apply(stream);
-            stream.finish(reply);
+            if (ReActLoop.INTERRUPTED_REPLY.equals(reply)) {
+              stream.fail(reply);
+            } else {
+              stream.finish(reply);
+            }
           } catch (RuntimeException e) {
             try {
               stream.fail(FAILURE_REPLY);

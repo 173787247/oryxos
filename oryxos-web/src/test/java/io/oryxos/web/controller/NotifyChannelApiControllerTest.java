@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.oryxos.core.notify.NotifyChannelDef;
 import io.oryxos.core.notify.NotifyChannelRegistry;
 import io.oryxos.web.GlobalExceptionHandler;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -77,7 +78,45 @@ class NotifyChannelApiControllerTest {
     mvc.perform(
             post("/api/v1/notify-channels")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"x\",\"type\":\"telegram\",\"url\":\"https://x/hook\"}"))
+                .content("{\"name\":\"x\",\"type\":\"not-a-vendor\",\"url\":\"https://x/hook\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value(400));
+    verify(registry, never()).save(any());
+  }
+
+  @Test
+  @DisplayName("create telegram token+chat_id_无 url_成功")
+  void create_telegramTokenChatId_returnsView() throws Exception {
+    when(registry.exists("ops-tg")).thenReturn(false);
+    when(registry.save(any()))
+        .thenReturn(
+            new NotifyChannelDef(
+                "ops-tg",
+                "telegram",
+                "",
+                "告警",
+                java.util.Map.of("token", "${TELEGRAM_BOT_TOKEN}", "chat_id", "1")));
+
+    mvc.perform(
+            post("/api/v1/notify-channels")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"ops-tg\",\"type\":\"telegram\",\"url\":\"\","
+                        + "\"config\":{\"token\":\"${TELEGRAM_BOT_TOKEN}\",\"chat_id\":\"1\"}}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.type").value("telegram"));
+    verify(registry).save(any());
+  }
+
+  @Test
+  @DisplayName("create telegram 缺 token 与 url_返回400")
+  void create_telegramMissingTarget_returns400() throws Exception {
+    when(registry.exists("ops-tg")).thenReturn(false);
+
+    mvc.perform(
+            post("/api/v1/notify-channels")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"ops-tg\",\"type\":\"telegram\"}"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value(400));
     verify(registry, never()).save(any());
@@ -201,5 +240,59 @@ class NotifyChannelApiControllerTest {
         .containsEntry("password", "p@ss-secret");
     org.assertj.core.api.Assertions.assertThat(captor.getAllValues().get(1).config())
         .containsEntry("password", "new-pass-9");
+  }
+
+  // —— webhook URL 掩码（URL 本身即凭证，拿到即可推送）——
+
+  @Test
+  @DisplayName("list 回显掩码_webhook URL 不明文泄露（access_token/key 在 query，hook id 在 path 末段）")
+  void list_masksWebhookUrl() throws Exception {
+    when(registry.list())
+        .thenReturn(
+            List.of(
+                new NotifyChannelDef(
+                    "dt",
+                    "dingtalk",
+                    "https://oapi.dingtalk.com/robot/send?access_token=abcd1234efgh",
+                    null,
+                    java.util.Map.of("host", "smtp.corp.com"))));
+
+    mvc.perform(get("/api/v1/notify-channels"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].url").value("https://oapi.dingtalk.com/robot/****?****"));
+  }
+
+  @Test
+  @DisplayName("update 回传掩码 url_视为未修改_保留原 webhook；非敏感字段照常更新")
+  void update_maskedUrl_keepsOriginal() throws Exception {
+    NotifyChannelDef existing =
+        new NotifyChannelDef(
+            "dt",
+            "dingtalk",
+            "https://oapi.dingtalk.com/robot/send?access_token=abcd1234efgh",
+            "旧描述",
+            java.util.Map.of());
+    when(registry.find("dt")).thenReturn(Optional.of(existing));
+    when(registry.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/v1/notify-channels/dt")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"type\":\"dingtalk\","
+                        + "\"url\":\"https://oapi.dingtalk.com/robot/****?****\","
+                        + "\"description\":\"新描述\"}"))
+        .andExpect(status().isOk());
+
+    org.mockito.ArgumentCaptor<NotifyChannelDef> captor =
+        org.mockito.ArgumentCaptor.forClass(NotifyChannelDef.class);
+    verify(registry).save(captor.capture());
+    NotifyChannelDef saved = captor.getValue();
+    org.junit.jupiter.api.Assertions.assertEquals(
+        "https://oapi.dingtalk.com/robot/send?access_token=abcd1234efgh",
+        saved.url(),
+        "掩码 url 不得覆盖真实 webhook");
+    org.junit.jupiter.api.Assertions.assertEquals("新描述", saved.description(), "非敏感字段照常更新");
   }
 }

@@ -40,4 +40,22 @@ public interface MetricsRecorder {
 
   /** 026：入站重复事件丢弃一次（跨副本/本地判重命中）。 */
   default void recordDuplicateDropped(String channel) {}
+
+  /**
+   * 入站 ASR（语音/视频音轨）一次尝试。
+   *
+   * @param channel 渠道类型（feishu/wecom/dingtalk）
+   * @param mediaType audio / video
+   * @param success 是否得到非空转写
+   * @param reason ok / empty / ffmpeg / whisper / no_asr / disabled / host_denied / oversized …
+   */
+  default void recordInboundAsr(String channel, String mediaType, boolean success, String reason) {}
+
+  /**
+   * 入站媒体下载一次。
+   *
+   * @param reason ok / http / host_denied / oversized / decrypt / timeout / other
+   */
+  default void recordInboundMediaDownload(
+      String channel, String mediaType, boolean success, String reason) {}
 }

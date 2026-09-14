@@ -149,6 +149,30 @@ class ReActLoopTest {
   }
 
   @Test
+  @DisplayName("最大轮数为 6 时第 5、6 轮注入收敛提示，仍返回达到最大轮数")
+  void remainingTwoIterationsReceiveConvergenceHint() {
+    when(providerService.chat(any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              return responseWithToolCall(HTTP_GET_CALL);
+            });
+    when(toolExecutor.execute(any(), any(), any())).thenReturn(ToolResult.ok("ok"));
+
+    String reply = loop.run(session, "持续调查", profileWithMaxIterations(6));
+
+    var systemPrompts = org.mockito.ArgumentCaptor.forClass(ProviderRequest.class);
+    verify(providerService, times(6)).chat(any(), any(), systemPrompts.capture());
+    List<ProviderRequest> requests = systemPrompts.getAllValues();
+    assertEquals(6, requests.size());
+    assertTrue(
+        requests.get(0).systemPrompt() == null
+            || !requests.get(0).systemPrompt().contains(ReActLoop.CONVERGENCE_HINT));
+    assertTrue(requests.get(4).systemPrompt().contains(ReActLoop.CONVERGENCE_HINT));
+    assertTrue(requests.get(5).systemPrompt().contains(ReActLoop.CONVERGENCE_HINT));
+    assertTrue(reply.contains("达到最大轮数"));
+  }
+
+  @Test
   @DisplayName("最大轮数按 Agent 配置生效（5 轮即停）")
   void maxIterationsIsPerProfileNotHardcoded() {
     when(providerService.chat(any(), any(), any())).thenReturn(responseWithToolCall(HTTP_GET_CALL));
@@ -185,5 +209,41 @@ class ReActLoopTest {
     assertEquals("拿不到天气，建议看窗外", reply);
     // 失败结果同样进历史，模型下一轮能看到失败原因
     assertTrue(session.messages().get(2).content().contains("connect timeout"));
+  }
+
+  @Test
+  @DisplayName("中断标志在迭代开头生效并清除")
+  void interruptStopsBeforeNextIteration() {
+    InterruptManager interrupts = new InterruptManager();
+    loop = new ReActLoop(promptBuilder, providerService, toolExecutor, interrupts);
+    interrupts.interrupt("s-1");
+
+    String reply = loop.run(session, "查天气", profileWithMaxIterations(10));
+
+    assertEquals(ReActLoop.INTERRUPTED_REPLY, reply);
+    verify(providerService, never()).chat(any(), any(), any());
+    assertTrue(!interrupts.isInterrupted("s-1"));
+  }
+
+  @Test
+  @DisplayName("工具间隙中断跳过后续工具")
+  void interruptBetweenToolsSkipsRemaining() {
+    InterruptManager interrupts = new InterruptManager();
+    loop = new ReActLoop(promptBuilder, providerService, toolExecutor, interrupts);
+    ToolCallRequest second = new ToolCallRequest("read_file", "{\"path\":\"/tmp/a\"}");
+    when(providerService.chat(any(), any(), any()))
+        .thenReturn(responseWithToolCall(HTTP_GET_CALL, second));
+    when(toolExecutor.execute(any(), any(), any()))
+        .thenAnswer(
+            inv -> {
+              interrupts.interrupt("s-1");
+              return ToolResult.ok("ok");
+            });
+
+    String reply = loop.run(session, "干活", profileWithMaxIterations(10));
+
+    assertEquals(ReActLoop.INTERRUPTED_REPLY, reply);
+    verify(toolExecutor, times(1)).execute(eq("s-1"), any(), eq(HTTP_GET_CALL));
+    verify(toolExecutor, never()).execute(eq("s-1"), any(), eq(second));
   }
 }

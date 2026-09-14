@@ -54,13 +54,16 @@ public class ChannelConfigLoader {
 
   /** 对单份原始配置解析占位符，供 Admin 增/改后立即建连用。 */
   public ChannelConfig resolve(ChannelConfig raw) {
+    Map<String, String> extra = new LinkedHashMap<>();
+    raw.extra().forEach((key, value) -> extra.put(key, resolvePlaceholders(value)));
     return new ChannelConfig(
         raw.name(),
         raw.type(),
         resolvePlaceholders(raw.appId()),
         resolvePlaceholders(raw.appSecret()),
         raw.agent(),
-        raw.enabled());
+        raw.enabled(),
+        extra);
   }
 
   /**
@@ -102,7 +105,8 @@ public class ChannelConfigLoader {
               asString(entry.get("app_id")),
               asString(entry.get("app_secret")),
               asString(entry.get("agent")),
-              asEnabled(entry.get("enabled"), asString(entry.get("name"))));
+              asEnabled(entry.get("enabled"), asString(entry.get("name"))),
+              asExtra(entry.get("extra"), asString(entry.get("name"))));
       config.validateShape();
       if (!seen.add(config.name())) {
         throw new IllegalArgumentException("channels.yaml 渠道名重复: " + config.name());
@@ -123,6 +127,9 @@ public class ChannelConfigLoader {
       entry.put("app_secret", c.appSecret());
       entry.put("agent", c.agent());
       entry.put("enabled", c.enabled());
+      if (!c.extra().isEmpty()) {
+        entry.put("extra", new LinkedHashMap<>(c.extra()));
+      }
       channels.add(entry);
     }
     Map<String, Object> root = new LinkedHashMap<>();
@@ -206,6 +213,25 @@ public class ChannelConfigLoader {
   private static IllegalArgumentException invalidEnabled(String channelName, Object value) {
     String who = channelName == null || channelName.isBlank() ? "渠道" : "渠道 " + channelName;
     return new IllegalArgumentException(who + " 的 enabled 必须是布尔值: " + value);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, String> asExtra(Object value, String channelName) {
+    if (value == null) {
+      return Map.of();
+    }
+    if (!(value instanceof Map<?, ?> raw)) {
+      String who = channelName == null || channelName.isBlank() ? "渠道" : "渠道 " + channelName;
+      throw new IllegalArgumentException(who + " 的 extra 必须是字符串映射");
+    }
+    Map<String, String> extra = new LinkedHashMap<>();
+    for (Map.Entry<?, ?> entry : raw.entrySet()) {
+      if (entry.getKey() == null) {
+        continue;
+      }
+      extra.put(String.valueOf(entry.getKey()), asString(entry.getValue()));
+    }
+    return extra;
   }
 
   private static String asString(Object value) {

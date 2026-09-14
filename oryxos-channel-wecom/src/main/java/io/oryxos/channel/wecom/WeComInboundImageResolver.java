@@ -1,13 +1,17 @@
 package io.oryxos.channel.wecom;
 
 import io.oryxos.core.channel.InboundAttachment;
+import io.oryxos.core.channel.InboundMediaHttp;
+import io.oryxos.core.channel.InboundMediaJanitor;
+import io.oryxos.core.channel.InboundMediaLimits;
+import io.oryxos.core.channel.InboundMediaPaths;
 import io.oryxos.core.channel.InboundMessage;
+import io.oryxos.core.channel.LimitedMediaWriter;
 import io.oryxos.core.session.ImageMime;
+import io.oryxos.core.session.InboundMediaExt;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -20,21 +24,23 @@ import org.slf4j.LoggerFactory;
  * 企微入站图片：payload 常为腾讯云 COS 临时 URL。部分 Vision provider 无法直拉该 URL（或判为非法格式），故先下载落盘再交给 enricher /
  * MediaPart（对齐飞书/钉钉本地路径策略）。
  *
- * <p>失败保留原远程 URL（降级，不阻断编排）。
+ * <p>失败保留原远程 URL（降级，不阻断编排）。下载走 {@link InboundMediaHttp#getBytesFollowingAllowlist}（硬 connect/read
+ * 超时），避免 JDK HttpClient 在 COS 链路上拖死 WS 回调线程。
  */
 final class WeComInboundImageResolver {
 
   private static final Logger LOG = LoggerFactory.getLogger(WeComInboundImageResolver.class);
 
   private static final String DEFAULT_EXTENSION = ".bin";
-  private static final String FALLBACK_SEGMENT = "x";
+  private static final String EXT_MP4 = ".mp4";
   private static final String SAFE_EXTENSION_PATTERN = "\\.[a-z0-9]{1,8}";
-  private static final char PATH_SAFE_REPLACEMENT = '_';
-  private static final int MAX_SEGMENT_LEN = 96;
   private static final int DOWNLOAD_ATTEMPTS = 2;
-  private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(60);
-  private static final int HTTP_STATUS_OK_MIN = 200;
-  private static final int HTTP_STATUS_OK_MAX_EXCLUSIVE = 300;
+
+  /** COS 临时链约 5 分钟有效；大视频需足够读超时（曾见 ~90s 读超时后重试又撞 50MB 上限）。 */
+  private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
+
+  private static final Duration READ_TIMEOUT = Duration.ofSeconds(180);
+
   private static final String SCHEME_HTTPS = "https";
   private static final String SCHEME_HTTP = "http";
   private static final String HOST_SUFFIX_MYQCLOUD = ".myqcloud.com";
@@ -42,33 +48,46 @@ final class WeComInboundImageResolver {
   private static final String HOST_SUFFIX_WEIXIN = ".weixin.qq.com";
   private static final String HOST_WEIXIN = "weixin.qq.com";
 
-  private final HttpClient httpClient;
   private final Path mediaRoot;
   private final String channelName;
   private final boolean trustLoopback;
+  private final InboundMediaJanitor janitor;
 
   WeComInboundImageResolver(Path mediaRoot, String channelName) {
-    this(
-        HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build(),
-        mediaRoot,
-        channelName,
-        false);
+    this(mediaRoot, channelName, false, InboundMediaJanitor.fromEnv());
   }
 
+  /** 单测兼容旧构造（HttpClient 忽略，改走 UrlConnection）。 */
   WeComInboundImageResolver(HttpClient httpClient, Path mediaRoot, String channelName) {
-    this(httpClient, mediaRoot, channelName, false);
+    this(mediaRoot, channelName, false, InboundMediaJanitor.fromEnv());
   }
 
   /** 单测：允许 127.0.0.1 / localhost 以便本地 HttpServer 验证落盘。 */
   WeComInboundImageResolver(
       HttpClient httpClient, Path mediaRoot, String channelName, boolean trustLoopback) {
-    this.httpClient = httpClient;
+    this(mediaRoot, channelName, trustLoopback, InboundMediaJanitor.fromEnv());
+  }
+
+  /** 单测可注入 janitor。 */
+  WeComInboundImageResolver(
+      HttpClient httpClient,
+      Path mediaRoot,
+      String channelName,
+      boolean trustLoopback,
+      InboundMediaJanitor janitor) {
+    this(mediaRoot, channelName, trustLoopback, janitor);
+  }
+
+  private WeComInboundImageResolver(
+      Path mediaRoot, String channelName, boolean trustLoopback, InboundMediaJanitor janitor) {
     this.mediaRoot = mediaRoot;
     this.channelName = channelName;
     this.trustLoopback = trustLoopback;
+    this.janitor = janitor == null ? InboundMediaJanitor.fromEnv() : janitor;
   }
 
   InboundMessage resolve(InboundMessage message) {
+    janitor.sweepIfDue(mediaRoot);
     if (message.attachments().isEmpty()) {
       return message;
     }
@@ -100,14 +119,27 @@ final class WeComInboundImageResolver {
   }
 
   static boolean needsDownload(InboundAttachment attachment) {
-    return InboundAttachment.TYPE_IMAGE.equals(attachment.type())
-        && attachment.url() != null
-        && ImageMime.isHttpUrl(attachment.url().strip());
+    if (attachment.url() == null || !ImageMime.isHttpUrl(attachment.url().strip())) {
+      return false;
+    }
+    String type = attachment.type();
+    return InboundAttachment.TYPE_IMAGE.equals(type)
+        || InboundAttachment.TYPE_FILE.equals(type)
+        || InboundAttachment.TYPE_AUDIO.equals(type)
+        || InboundAttachment.TYPE_VIDEO.equals(type);
   }
 
   static boolean hasImage(InboundMessage message) {
+    return hasDownloadableMedia(message);
+  }
+
+  static boolean hasDownloadableMedia(InboundMessage message) {
     for (InboundAttachment attachment : message.attachments()) {
-      if (InboundAttachment.TYPE_IMAGE.equals(attachment.type())) {
+      String type = attachment.type();
+      if (InboundAttachment.TYPE_IMAGE.equals(type)
+          || InboundAttachment.TYPE_FILE.equals(type)
+          || InboundAttachment.TYPE_AUDIO.equals(type)
+          || InboundAttachment.TYPE_VIDEO.equals(type)) {
         return true;
       }
     }
@@ -117,32 +149,45 @@ final class WeComInboundImageResolver {
   private InboundAttachment downloadOrKeep(String messageId, InboundAttachment attachment) {
     String remoteUrl = attachment.url().strip();
     String aesKey = mediaAesKey(attachment);
+    boolean fileLike =
+        InboundAttachment.TYPE_FILE.equals(attachment.type())
+            || InboundAttachment.TYPE_AUDIO.equals(attachment.type())
+            || InboundAttachment.TYPE_VIDEO.equals(attachment.type());
     Exception last = null;
     for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+      long started = System.nanoTime();
       try {
-        Path file = writeToMediaRoot(messageId, remoteUrl, aesKey);
+        Path path = writeToMediaRoot(messageId, remoteUrl, aesKey, fileLike, attachment.type());
+        LOG.info(
+            "企微渠道 {} 媒体已落盘（messageId={}, type={}, {}ms）",
+            sanitize(channelName),
+            sanitize(messageId),
+            sanitize(attachment.type()),
+            (System.nanoTime() - started) / 1_000_000L);
         return new InboundAttachment(
-            InboundAttachment.TYPE_IMAGE, file.toAbsolutePath().toString(), remoteUrl);
-      } catch (IOException | InterruptedException | RuntimeException e) {
+            attachment.type(), path.toAbsolutePath().toString(), remoteUrl, attachment.fileName());
+      } catch (Exception e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();
         }
         last = e;
+        LOG.warn(
+            "企微渠道 {} 下载媒体失败尝试 {}/{}（messageId={}, host={}, {}ms）：{}",
+            sanitize(channelName),
+            attempt,
+            DOWNLOAD_ATTEMPTS,
+            sanitize(messageId),
+            sanitize(hostOf(remoteUrl)),
+            (System.nanoTime() - started) / 1_000_000L,
+            sanitize(e.getMessage()));
         if (attempt < DOWNLOAD_ATTEMPTS && isTransientTimeout(e)) {
-          LOG.warn(
-              "企微渠道 {} 下载图片超时重试 {}/{}（messageId={}）：{}",
-              sanitize(channelName),
-              attempt,
-              DOWNLOAD_ATTEMPTS,
-              sanitize(messageId),
-              sanitize(e.getMessage()));
           continue;
         }
         break;
       }
     }
     LOG.warn(
-        "企微渠道 {} 下载图片失败（messageId={}）：{}，保留远程 URL",
+        "企微渠道 {} 下载媒体最终失败（messageId={}）：{}，保留远程 URL",
         sanitize(channelName),
         sanitize(messageId),
         sanitize(last == null ? null : last.getMessage()));
@@ -158,51 +203,77 @@ final class WeComInboundImageResolver {
     return ref.strip();
   }
 
-  private Path writeToMediaRoot(String messageId, String remoteUrl, String aesKey)
-      throws IOException, InterruptedException {
+  private Path writeToMediaRoot(
+      String messageId, String remoteUrl, String aesKey, boolean file, String attachmentType)
+      throws Exception {
     URI uri = URI.create(remoteUrl);
     if (!isAllowedMediaUri(uri)) {
       throw new IllegalStateException("拒绝非企微图床临时下载地址: " + sanitize(uri.getHost()));
     }
-    HttpRequest request = HttpRequest.newBuilder().uri(uri).timeout(HTTP_TIMEOUT).GET().build();
-    HttpResponse<byte[]> response =
-        httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-    if (response.statusCode() < HTTP_STATUS_OK_MIN
-        || response.statusCode() >= HTTP_STATUS_OK_MAX_EXCLUSIVE) {
-      throw new IllegalStateException("下载临时文件 HTTP " + response.statusCode());
-    }
-    byte[] bytes = response.body();
+    byte[] bytes =
+        InboundMediaHttp.getBytesFollowingAllowlist(
+            uri,
+            CONNECT_TIMEOUT,
+            READ_TIMEOUT,
+            InboundMediaLimits.MAX_FILE_BYTES,
+            this::isAllowedMediaUri);
     if (bytes == null || bytes.length == 0) {
       throw new IllegalStateException("下载临时文件为空");
     }
     if (aesKey != null) {
       bytes = WeComMediaAesDecrypt.decrypt(bytes, aesKey);
-    } else if (!ImageMime.hasRecognizedMagic(bytes)) {
+      if (bytes.length > InboundMediaLimits.MAX_FILE_BYTES) {
+        throw new IllegalStateException("入站文件超过上限 " + InboundMediaLimits.MAX_FILE_BYTES + " 字节");
+      }
+    } else if (!file && !ImageMime.hasRecognizedMagic(bytes)) {
       throw new IllegalStateException("下载内容非明文图片且消息缺 aeskey，无法解密");
     }
     String ext = extensionOf(uri.getPath());
+    if (DEFAULT_EXTENSION.equals(ext) && InboundAttachment.TYPE_VIDEO.equals(attachmentType)) {
+      ext = EXT_MP4;
+    }
     Path dir = mediaRoot.resolve(safeSegment(messageId));
     Files.createDirectories(dir);
     String stem = safeSegment(Integer.toHexString(remoteUrl.hashCode()));
     Path target = dir.resolve(stem + ext);
-    Files.write(target, bytes);
-    if (!ImageMime.hasRecognizedMagic(target)) {
-      try {
-        Files.deleteIfExists(target);
-      } catch (IOException ignored) {
-        // 尽力删除坏文件
+    janitor.ensureQuotaOrThrow(mediaRoot);
+    LimitedMediaWriter.writeLimited(bytes, target, InboundMediaLimits.MAX_FILE_BYTES);
+    if (!file) {
+      if (!ImageMime.hasRecognizedMagic(target)) {
+        try {
+          Files.deleteIfExists(target);
+        } catch (IOException ignored) {
+          // 尽力删除坏文件
+        }
+        throw new IllegalStateException("解密/下载后仍非可识别图片格式");
       }
-      throw new IllegalStateException("解密/下载后仍非可识别图片格式");
-    }
-    if (DEFAULT_EXTENSION.equals(ext)) {
-      String betterExt = ImageMime.extensionFor(ImageMime.probeFile(target));
-      if (!DEFAULT_EXTENSION.equals(betterExt) && !betterExt.equals(ext)) {
-        Path renamed = dir.resolve(stem + betterExt);
+      if (DEFAULT_EXTENSION.equals(ext)) {
+        String betterExt = ImageMime.extensionFor(ImageMime.probeFile(target));
+        if (!DEFAULT_EXTENSION.equals(betterExt) && !betterExt.equals(ext)) {
+          Path renamed = dir.resolve(stem + betterExt);
+          try {
+            Files.move(target, renamed);
+            return renamed;
+          } catch (IOException moveFailed) {
+            LOG.debug("企微图片重命名扩展名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+          }
+        }
+      }
+    } else {
+      String better = InboundMediaExt.betterFileExtension(target, ext);
+      if (better == null
+          && InboundAttachment.TYPE_VIDEO.equals(attachmentType)
+          && InboundMediaExt.isMp4Magic(target)
+          && !EXT_MP4.equals(ext)) {
+        better = EXT_MP4;
+      }
+      if (better != null) {
+        Path renamed = dir.resolve(stem + better);
         try {
           Files.move(target, renamed);
           return renamed;
         } catch (IOException moveFailed) {
-          LOG.debug("企微图片重命名扩展名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
+          LOG.debug("企微文件扩展名重命名失败，保留原文件: {}", sanitize(moveFailed.getMessage()));
         }
       }
     }
@@ -237,20 +308,25 @@ final class WeComInboundImageResolver {
     }
     return mediaHost.endsWith(HOST_SUFFIX_MYQCLOUD)
         || mediaHost.endsWith(HOST_SUFFIX_QCLOUD)
-        || mediaHost.equals(HOST_WEIXIN)
+        || HOST_WEIXIN.equals(mediaHost)
         || mediaHost.endsWith(HOST_SUFFIX_WEIXIN);
   }
 
   private static boolean isTransientTimeout(Throwable error) {
     for (Throwable t = error; t != null; t = t.getCause()) {
       String name = t.getClass().getName();
-      if (name.contains("Timeout") || name.contains("InterruptedIO")) {
+      if (name.contains("Timeout")
+          || name.contains("InterruptedIO")
+          || name.contains("SocketTimeout")) {
         return true;
       }
       String msg = t.getMessage();
       if (msg != null) {
         String lower = asciiLower(msg);
-        if (lower.contains("timeout") || lower.contains("timed out")) {
+        if (lower.contains("timeout")
+            || lower.contains("timed out")
+            || lower.contains("read timed out")
+            || lower.contains("connect timed out")) {
           return true;
         }
       }
@@ -276,17 +352,16 @@ final class WeComInboundImageResolver {
   }
 
   static String safeSegment(String raw) {
-    if (raw == null || raw.isBlank()) {
-      return FALLBACK_SEGMENT;
+    return InboundMediaPaths.safeSegment(raw);
+  }
+
+  private static String hostOf(String url) {
+    try {
+      URI uri = URI.create(url);
+      return uri.getHost() == null ? "" : uri.getHost();
+    } catch (IllegalArgumentException | IllegalStateException e) {
+      return "";
     }
-    String cleaned = raw.replaceAll("[^a-zA-Z0-9._-]", String.valueOf(PATH_SAFE_REPLACEMENT));
-    if (cleaned.length() > MAX_SEGMENT_LEN) {
-      cleaned = cleaned.substring(0, MAX_SEGMENT_LEN);
-    }
-    if (cleaned.isBlank() || cleaned.chars().allMatch(ch -> ch == PATH_SAFE_REPLACEMENT)) {
-      return FALLBACK_SEGMENT;
-    }
-    return cleaned;
   }
 
   private static String asciiLower(String value) {
@@ -301,8 +376,7 @@ final class WeComInboundImageResolver {
   }
 
   private static String sanitize(String value) {
-    return value == null
-        ? ""
-        : value.replace('\r', PATH_SAFE_REPLACEMENT).replace('\n', PATH_SAFE_REPLACEMENT);
+    // 内联替换：SpotBugs CRLF_INJECTION_LOGS 需在本类内可见的 \r/\n 清洗
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }

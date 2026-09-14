@@ -11,6 +11,8 @@ import io.oryxos.core.OryxTool;
 import io.oryxos.core.context.ContextLoader;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.provider.ProviderRequest;
+import io.oryxos.core.provider.ProviderResponse;
+import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
 import java.time.Clock;
 import java.time.Instant;
@@ -132,6 +134,29 @@ class PromptBuilderTest {
     assertFalse(hasMsg(request, "结果1"), "轮内工具消息随轮整体截掉，不撕裂");
     assertTrue(hasMsg(request, "问题2") && hasMsg(request, "结果2"));
     assertTrue(hasMsg(request, "问题3") && hasMsg(request, "结果3"));
+  }
+
+  @Test
+  @DisplayName("历史多图只保留最近一条 user media，避免纯文本轮重传旧图")
+  void pruneHistoricalMediaKeepsOnlyLatestUserMedia() {
+    Session session = new Session("s-media", "ops-agent");
+    session.appendUser("图1", List.of(new Message.MediaPart("image/jpeg", "C:\\tmp\\a.jpg")));
+    session.appendAssistant(new ProviderResponse("看过图1", List.of(), null));
+    session.appendUser("图2", List.of(new Message.MediaPart("image/jpeg", "C:\\tmp\\b.jpg")));
+    session.appendAssistant(new ProviderResponse("看过图2", List.of(), null));
+    session.appendUser("纯文本提问");
+
+    ProviderRequest request = builder.build(session, profile(20, List.of()));
+
+    List<Message> withMedia =
+        request.messages().stream().filter(m -> !m.media().isEmpty()).toList();
+    assertEquals(1, withMedia.size(), "窗口内只保留最近一条带图 user");
+    assertEquals("图2", withMedia.getFirst().content());
+    assertTrue(hasMsg(request, "图1"), "旧图正文仍在历史");
+    assertTrue(
+        request.messages().stream().anyMatch(m -> "图1".equals(m.content()) && m.media().isEmpty()),
+        "旧图附件已剥掉");
+    assertTrue(hasMsg(request, "纯文本提问"));
   }
 
   @Test

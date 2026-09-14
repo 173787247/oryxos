@@ -34,7 +34,7 @@ public class WebSearchTools {
     sandbox.enforce(new SandboxAction(ActionType.HTTP_READ, "web_search:" + query));
     List<SearchProvider.SearchResult> results = provider.search(query);
     if (results.isEmpty()) {
-      return "（未搜到相关结果）";
+      return "（未搜到相关结果；可改用 fetch_webpage 打开公开搜索页，或 http_get 调公开 API）";
     }
     return results.stream()
         .limit(MAX_RESULTS)

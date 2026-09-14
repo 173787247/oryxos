@@ -8,8 +8,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
- * SQLite 存量收敛迁移 V2~V5 的装配（025）：仅 datasource url 为 SQLite 时注册——这些迁移是 SQLite 存量库 的收敛器（幂等依据 PRAGMA，PG
- * 上无意义也无存量：PG 目录的 V1 基线即完整最终结构）。Spring Boot 的 Flyway 自动配置收集容器内全部 {@code JavaMigration} bean 并入迁移序列。
+ * SQLite 存量收敛迁移 V2~V6 的装配（025 + Run 工作台）：仅 datasource url 为 SQLite 时注册。V6 是 JavaMigration（SQLite 无
+ * {@code ADD COLUMN IF NOT EXISTS}）；PostgreSQL 目录另有成对的 V6 SQL。
  */
 @Configuration(proxyBeanMethods = false)
 @Conditional(SqliteMigrationsConfiguration.OnSqliteDatasource.class)
@@ -43,5 +43,10 @@ public class SqliteMigrationsConfiguration {
   @Bean
   NotifyChannelConfigMigration notifyChannelConfigMigration() {
     return new NotifyChannelConfigMigration();
+  }
+
+  @Bean
+  AgentRunColumnsMigration agentRunColumnsMigration() {
+    return new AgentRunColumnsMigration();
   }
 }

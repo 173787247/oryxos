@@ -6,9 +6,13 @@ import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentExecutionStore;
 import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.agent.AgentLoader;
+import io.oryxos.core.agent.AgentRunEventHub;
+import io.oryxos.core.agent.AgentRunEventPublisher;
+import io.oryxos.core.agent.AgentRunEventStore;
 import io.oryxos.core.agent.AgentScheduler;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.agent.AgentStore;
+import io.oryxos.core.agent.InterruptManager;
 import io.oryxos.core.agent.PromptBuilder;
 import io.oryxos.core.agent.ReActLoop;
 import io.oryxos.core.agent.ScheduledTaskStore;
@@ -18,6 +22,7 @@ import io.oryxos.core.agent.WorkspaceWatcher;
 import io.oryxos.core.context.ContextLoader;
 import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.notify.NotifyChannelRegistry;
+import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.provider.LlmCallAuditor;
 import io.oryxos.core.provider.PricingStore;
@@ -52,9 +57,11 @@ import io.oryxos.provider.ProvidersProperties;
 import io.oryxos.provider.SpringAiProviderServiceImpl;
 import io.oryxos.provider.ToolSchemaAdapter;
 import io.oryxos.storage.AgentExecutionRepository;
+import io.oryxos.storage.AgentRunEventRepository;
 import io.oryxos.storage.ApiKeyRepository;
 import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.JpaAgentExecutionStore;
+import io.oryxos.storage.JpaAgentRunEventStore;
 import io.oryxos.storage.JpaLlmCallAuditor;
 import io.oryxos.storage.JpaNotifyChannelRegistry;
 import io.oryxos.storage.JpaPricingStore;
@@ -79,6 +86,7 @@ import io.oryxos.storage.WebUserRepository;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.tool.ToolRegistry;
 import io.oryxos.tool.builtin.FileTools;
+import io.oryxos.tool.builtin.FormatTools;
 import io.oryxos.tool.builtin.HttpTools;
 import io.oryxos.tool.builtin.InteractionTools;
 import io.oryxos.tool.builtin.NotifyTools;
@@ -91,12 +99,22 @@ import io.oryxos.tool.interaction.UserInteraction;
 import io.oryxos.tool.mcp.McpClientService;
 import io.oryxos.tool.mcp.McpConfigLoader;
 import io.oryxos.tool.notify.DingTalkNotifyAdapter;
+import io.oryxos.tool.notify.DiscordNotifyAdapter;
 import io.oryxos.tool.notify.EmailNotifyAdapter;
 import io.oryxos.tool.notify.FeishuNotifyAdapter;
+import io.oryxos.tool.notify.GoogleChatNotifyAdapter;
+import io.oryxos.tool.notify.MatrixNotifyAdapter;
+import io.oryxos.tool.notify.MattermostNotifyAdapter;
 import io.oryxos.tool.notify.NotifyChannelAdapter;
 import io.oryxos.tool.notify.NotifyPoster;
+import io.oryxos.tool.notify.QqNotifyAdapter;
+import io.oryxos.tool.notify.SlackNotifyAdapter;
+import io.oryxos.tool.notify.TeamsNotifyAdapter;
+import io.oryxos.tool.notify.TelegramNotifyAdapter;
 import io.oryxos.tool.notify.WeComNotifyAdapter;
 import io.oryxos.tool.notify.WebhookNotifyAdapter;
+import io.oryxos.tool.notify.WhatsAppNotifyAdapter;
+import io.oryxos.tool.sandbox.AgentAwareProcessStarter;
 import io.oryxos.tool.sandbox.CidfileProcessWrapper;
 import io.oryxos.tool.sandbox.DockerProcessStarter;
 import io.oryxos.tool.sandbox.ExecutionBackendProperties;
@@ -114,10 +132,12 @@ import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
@@ -480,7 +500,7 @@ public class OryxOsRuntime {
   io.oryxos.knowledge.index.KnowledgeIndexService knowledgeIndexService(
       io.oryxos.knowledge.store.ChunkStore chunkStore,
       java.util.function.Supplier<io.oryxos.core.embedding.TextEmbedder> textEmbedderSupplier,
-      ExecutorService agentExecutionExecutor) {
+      @Qualifier("agentExecutionExecutor") ExecutorService agentExecutionExecutor) {
     // 两段式导入的后台段跑在虚拟线程执行器上（宪法 VII：同步代码 + 虚拟线程，无异步编程模型）
     return new io.oryxos.knowledge.index.KnowledgeIndexService(
         oryxosRoot().resolve("knowledge"),
@@ -775,36 +795,59 @@ public class OryxOsRuntime {
       McpClientService mcpClientService,
       UserInteraction userInteraction,
       io.oryxos.core.knowledge.KnowledgeService knowledgeService,
-      ExecutionBackendProperties executionBackendProperties) {
+      ExecutionBackendProperties executionBackendProperties,
+      org.springframework.beans.factory.ObjectProvider<ProfileRegistry> profileRegistryProvider) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
     registry.registerAnnotated(new FileTools(sandbox)); // read/write/list/edit/grep/glob
-    // 024：执行后端按档位装配（local=现状零变化 / docker=短命容器），白名单 enforce 仍在工具内部前置（FR-007）
+    // 024：执行后端按档位装配（local=现状零变化 / docker=短命容器），白名单 enforce 仍在工具内部前置（FR-007）；
+    // US2：全局档为基线，frontmatter sandbox 段按 Agent 覆写（D8 收敛在 AgentAwareProcessStarter）。
+    // ProfileRegistry 走 ObjectProvider 惰性解析——直接注入会成环：
+    // toolRegistry → profileRegistry → agentLoader → tools → toolRegistry（E2E 实证）；
+    // shell 首次执行时上下文必然就绪，getIfAvailable 安全。
     ProcessStarter shellStarter =
-        executionBackendProperties.isDocker()
-            ? new DockerProcessStarter(
-                executionBackendProperties,
-                new WorkspacePathMapper(oryxosRoot()),
-                CidfileProcessWrapper.dockerCliKiller())
-            : new LocalProcessStarter();
+        new AgentAwareProcessStarter(
+            executionBackendProperties,
+            agentName -> {
+              ProfileRegistry profiles = profileRegistryProvider.getIfAvailable();
+              return profiles == null
+                  ? null
+                  : profiles.get(agentName).map(Profile::sandbox).orElse(null);
+            },
+            new LocalProcessStarter(),
+            effective ->
+                new DockerProcessStarter(
+                    effective,
+                    new WorkspacePathMapper(oryxosRoot()),
+                    CidfileProcessWrapper.dockerCliKiller()));
     registry.registerAnnotated(new ShellTools(sandbox, shellStarter));
     registry.registerAnnotated(
         new HttpTools(sandbox, restClient)); // + http_request/fetch_webpage/download_file
     registry.registerAnnotated(new UtilTools()); // current_time / json_extract（纯计算，无沙箱）
     registry.registerAnnotated(
         new WebSearchTools(sandbox, new DuckDuckGoSearchProvider(restClient, sandbox)));
+    registry.registerAnnotated(
+        new FormatTools(sandbox)); // format_sql / export_excel（写路径过 FILE 白名单）
     // chat → ConsoleUserInteraction；serve/gateway → UnsupportedUserInteraction（见 userInteraction
     // bean）
     registry.registerAnnotated(new InteractionTools(userInteraction));
     // notify（19 节 OryxTool 形态）直接注册——渠道实现按 channelType 路由；出网经 NotifyPoster 逐跳复检白名单
     NotifyPoster notifyPoster = new NotifyPoster(sandbox);
-    Map<String, NotifyChannelAdapter> notifyAdapters =
-        Map.of(
-            "webhook", new WebhookNotifyAdapter(notifyPoster),
-            "wecom", new WeComNotifyAdapter(notifyPoster),
-            "feishu", new FeishuNotifyAdapter(notifyPoster),
-            "dingtalk", new DingTalkNotifyAdapter(notifyPoster),
-            "email", new EmailNotifyAdapter(sandbox));
+    Map<String, NotifyChannelAdapter> notifyAdapters = new LinkedHashMap<>();
+    notifyAdapters.put("webhook", new WebhookNotifyAdapter(notifyPoster));
+    notifyAdapters.put("wecom", new WeComNotifyAdapter(notifyPoster));
+    notifyAdapters.put("feishu", new FeishuNotifyAdapter(notifyPoster));
+    notifyAdapters.put("dingtalk", new DingTalkNotifyAdapter(notifyPoster));
+    notifyAdapters.put("email", new EmailNotifyAdapter(sandbox));
+    notifyAdapters.put("slack", new SlackNotifyAdapter(notifyPoster));
+    notifyAdapters.put("discord", new DiscordNotifyAdapter(notifyPoster));
+    notifyAdapters.put("telegram", new TelegramNotifyAdapter(notifyPoster));
+    notifyAdapters.put("whatsapp", new WhatsAppNotifyAdapter(notifyPoster));
+    notifyAdapters.put("teams", new TeamsNotifyAdapter(notifyPoster));
+    notifyAdapters.put("gchat", new GoogleChatNotifyAdapter(notifyPoster));
+    notifyAdapters.put("mattermost", new MattermostNotifyAdapter(notifyPoster));
+    notifyAdapters.put("matrix", new MatrixNotifyAdapter(notifyPoster));
+    notifyAdapters.put("qq", new QqNotifyAdapter(notifyPoster));
     registry.register(new NotifyTools(notifyAdapters, sandbox, notifyChannelRegistry));
     // 记忆工具：save_memory / recall_memory（补齐 20 节预留的两工具面），只认门面对后端无感
     registry.registerAnnotated(new MemoryTools(memoryService));
@@ -869,6 +912,22 @@ public class OryxOsRuntime {
     return new DockerBackendStartupCheck(props);
   }
 
+  /**
+   * 024 US3：执行后端配置快照——web 状态页 controller（组件扫描自动装配）经 core 契约读取； web 与 cli 互不依赖，转换（tool Properties →
+   * core Snapshot）只能在同时看得见两者的本模块完成。
+   */
+  @Bean
+  io.oryxos.core.execution.ExecutionBackendSnapshot executionBackendSnapshot(
+      ExecutionBackendProperties props) {
+    return new io.oryxos.core.execution.ExecutionBackendSnapshot(
+        props.backend(),
+        props.image(),
+        props.memory(),
+        props.cpus(),
+        props.network(),
+        props.user());
+  }
+
   @Bean
   PromptBuilder promptBuilder(
       ContextLoader contextLoader,
@@ -888,20 +947,32 @@ public class OryxOsRuntime {
       ToolRegistry toolRegistry,
       ProfileRegistry profileRegistry,
       ToolInvocationAuditor auditor,
+      AgentRunEventPublisher agentRunEventPublisher,
       io.oryxos.core.policy.ToolPolicyService toolPolicyService,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
     ToolExecutor executor =
-        new ToolExecutor(tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor);
+        new ToolExecutor(
+            tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor, agentRunEventPublisher);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
     executor.setMetricsRecorder(metricsRecorder); // 023：工具调用/策略拦截指标
     return executor;
   }
 
   @Bean
+  InterruptManager interruptManager() {
+    return new InterruptManager();
+  }
+
+  @Bean
   ReActLoop reActLoop(
-      PromptBuilder promptBuilder, ProviderService providerService, ToolExecutor toolExecutor) {
-    return new ReActLoop(promptBuilder, providerService, toolExecutor);
+      PromptBuilder promptBuilder,
+      ProviderService providerService,
+      ToolExecutor toolExecutor,
+      AgentRunEventPublisher agentRunEventPublisher,
+      InterruptManager interruptManager) {
+    return new ReActLoop(
+        promptBuilder, providerService, toolExecutor, agentRunEventPublisher, interruptManager);
   }
 
   @Bean
@@ -990,15 +1061,19 @@ public class OryxOsRuntime {
       SessionManager sessionManager,
       ProfileRegistry profileRegistry,
       AgentExecutionService agentExecutionService,
-      io.oryxos.core.channel.MessageDeduplicator messageDeduplicator) {
+      io.oryxos.core.channel.MessageDeduplicator messageDeduplicator,
+      InterruptManager interruptManager,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
     return new io.oryxos.core.channel.InboundMessageService(
         agentService,
         sessionManager,
         profileRegistry,
         agentExecutionService,
         messageDeduplicator,
-        new io.oryxos.core.channel.DefaultInboundMediaEnricher(),
-        java.time.Duration.ofSeconds(15)); // 「处理中」提示阈值（Edge Case：先行告知）
+        new io.oryxos.core.channel.DefaultInboundMediaEnricher(
+            io.oryxos.cli.WhisperHttpTranscriber.fromEnv(), metricsRecorder),
+        java.time.Duration.ofSeconds(15), // 「处理中」提示延迟（Edge Case：先行告知）
+        interruptManager);
   }
 
   /** 渠道出站守卫：渠道自建 HTTP 不被沙箱自动拦截，经此显式复用 http 域名白名单（宪法 VI / 017 R7）。 */
@@ -1030,19 +1105,7 @@ public class OryxOsRuntime {
             channelConfigLoader,
             inboundChannelRegistry,
             profileRegistry,
-            Map.of(
-                io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
-                resolved ->
-                    new io.oryxos.channel.feishu.FeishuChannelAdapter(
-                        resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-                io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
-                resolved ->
-                    new io.oryxos.channel.wecom.WeComChannelAdapter(
-                        resolved, profileRegistry, inboundMessageService, channelOutboundGuard),
-                io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
-                resolved ->
-                    new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
-                        resolved, profileRegistry, inboundMessageService, channelOutboundGuard)));
+            inboundChannelFactories(profileRegistry, inboundMessageService, channelOutboundGuard));
     // 026：集群档下独连型渠道（企微）走属主协调——持租约副本建连，属主失效自动接管，永不互踢
     if (clusterProps.isEnabled()) {
       io.oryxos.core.channel.ChannelLeaseCoordinator leaseCoordinator =
@@ -1052,6 +1115,140 @@ public class OryxOsRuntime {
       service.setChannelLeaseCoordinator(leaseCoordinator);
     }
     return service;
+  }
+
+  private static Map<
+          String,
+          java.util.function.Function<
+              io.oryxos.core.channel.ChannelConfig, io.oryxos.core.channel.InboundChannelAdapter>>
+      inboundChannelFactories(
+          ProfileRegistry profileRegistry,
+          io.oryxos.core.channel.InboundMessageService inboundMessageService,
+          io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+    Map<
+            String,
+            java.util.function.Function<
+                io.oryxos.core.channel.ChannelConfig, io.oryxos.core.channel.InboundChannelAdapter>>
+        factories = new LinkedHashMap<>();
+    registerEnterpriseChannelFactories(
+        factories, profileRegistry, inboundMessageService, channelOutboundGuard);
+    registerConsumerChannelFactories(
+        factories, profileRegistry, inboundMessageService, channelOutboundGuard);
+    return factories;
+  }
+
+  private static void registerEnterpriseChannelFactories(
+      Map<
+              String,
+              java.util.function.Function<
+                  io.oryxos.core.channel.ChannelConfig,
+                  io.oryxos.core.channel.InboundChannelAdapter>>
+          factories,
+      ProfileRegistry profileRegistry,
+      io.oryxos.core.channel.InboundMessageService inboundMessageService,
+      io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+    factories.put(
+        io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.feishu.FeishuChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.wecom.WeComChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.slack.SlackChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.slack.SlackChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.discord.DiscordChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.discord.DiscordChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.telegram.TelegramChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.telegram.TelegramChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+  }
+
+  private static void registerConsumerChannelFactories(
+      Map<
+              String,
+              java.util.function.Function<
+                  io.oryxos.core.channel.ChannelConfig,
+                  io.oryxos.core.channel.InboundChannelAdapter>>
+          factories,
+      ProfileRegistry profileRegistry,
+      io.oryxos.core.channel.InboundMessageService inboundMessageService,
+      io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+    factories.put(
+        io.oryxos.channel.whatsapp.WhatsAppChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.whatsapp.WhatsAppChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.teams.TeamsChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.teams.TeamsChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.gchat.GoogleChatChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.gchat.GoogleChatChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.mattermost.MattermostChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.mattermost.MattermostChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.matrix.MatrixChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.matrix.MatrixChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.qq.QqChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.qq.QqChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.douyin.DouyinChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.douyin.DouyinChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.weixin.WeixinChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.weixin.WeixinChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.weixinkf.WeixinKfChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.weixinkf.WeixinKfChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.weixinmp.WeixinMpChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.weixinmp.WeixinMpChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.weixinmini.WeixinMiniChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.weixinmini.WeixinMiniChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+    factories.put(
+        io.oryxos.channel.alipay.AlipayChannelAdapter.TYPE,
+        resolved ->
+            new io.oryxos.channel.alipay.AlipayChannelAdapter(
+                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
   }
 
   /**
@@ -1143,6 +1340,7 @@ public class OryxOsRuntime {
       SessionManager sessionManager,
       ScheduledTaskStore scheduledTaskStore,
       AgentExecutionStore agentExecutionStore,
+      AgentExecutionService agentExecutionService,
       io.oryxos.core.cluster.ClusterProperties clusterProperties,
       io.oryxos.core.cluster.CoordinationStore coordinationStore) {
     AgentScheduler scheduler =
@@ -1152,7 +1350,8 @@ public class OryxOsRuntime {
             agentService,
             sessionManager,
             scheduledTaskStore,
-            agentExecutionStore);
+            agentExecutionStore,
+            agentExecutionService);
     // 026：集群档启用到点认领（恰好一次）；单机档不注入保持现状零协调写
     if (clusterProperties.isEnabled()) {
       scheduler.enableFireTimeClaim(coordinationStore, clusterProperties.owner());
@@ -1166,6 +1365,22 @@ public class OryxOsRuntime {
     return new JpaAgentExecutionStore(repository);
   }
 
+  @Bean
+  AgentRunEventStore agentRunEventStore(AgentRunEventRepository repository) {
+    return new JpaAgentRunEventStore(repository);
+  }
+
+  @Bean
+  AgentRunEventHub agentRunEventHub() {
+    return new AgentRunEventHub();
+  }
+
+  @Bean
+  AgentRunEventPublisher agentRunEventPublisher(
+      AgentRunEventStore agentRunEventStore, AgentRunEventHub agentRunEventHub) {
+    return new AgentRunEventPublisher(agentRunEventStore, agentRunEventHub, Clock.systemUTC());
+  }
+
   /** 32 节：异步触发的后台执行器——虚拟线程（宪法 VII：虚拟线程处理并发，非 Reactor/WebFlux）。 */
   @Bean(destroyMethod = "shutdown")
   @SuppressWarnings("PMD.ThreadPoolCreationRule") // Spring 管理完整生命周期；Java 21 虚拟线程无池参数可配置。
@@ -1173,10 +1388,22 @@ public class OryxOsRuntime {
     return Executors.newVirtualThreadPerTaskExecutor();
   }
 
-  @Bean
+  /** Run 工作台 SSE 推流：与 ReAct worker 隔离，避免互相饿死。 */
+  @Bean(destroyMethod = "shutdown")
+  @SuppressWarnings("PMD.ThreadPoolCreationRule")
+  ExecutorService agentRunStreamExecutor() {
+    return Executors.newVirtualThreadPerTaskExecutor();
+  }
+
+  @Bean(initMethod = "reconcileOnStartup")
   AgentExecutionService agentExecutionService(
-      AgentExecutionStore agentExecutionStore, ExecutorService agentExecutionExecutor) {
+      AgentExecutionStore agentExecutionStore,
+      @Qualifier("agentExecutionExecutor") ExecutorService agentExecutionExecutor,
+      AgentRunEventPublisher agentRunEventPublisher) {
     return new AgentExecutionService(
-        agentExecutionStore, agentExecutionExecutor, Clock.systemDefaultZone());
+        agentExecutionStore,
+        agentExecutionExecutor,
+        Clock.systemDefaultZone(),
+        agentRunEventPublisher);
   }
 }

@@ -5,6 +5,7 @@ import io.oryxos.core.notify.NotifyChannelDef;
 import io.oryxos.core.notify.NotifyChannelRegistry;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.CreateNotifyChannelRequest;
+import io.oryxos.web.controller.dto.CredentialMasks;
 import io.oryxos.web.controller.dto.NotifyChannelView;
 import io.oryxos.web.controller.dto.UpdateNotifyChannelRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
@@ -25,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>薄转发给 {@link NotifyChannelRegistry}。错误码沿用既有口径：名字冲突 / 定义非法 → 400 （{@code
  * IllegalArgumentException}）；不存在 → 404（{@code ResourceNotFoundException}）；统一 {@code ApiResponse}
- * 信封。type 必须是已装配的渠道实现之一（webhook/feishu/wecom/dingtalk/email）。
+ * 信封。type 必须是已装配的渠道实现之一（含 026 海外 IM）。
  */
 @SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
@@ -36,12 +37,42 @@ import org.springframework.web.bind.annotation.RestController;
 public class NotifyChannelApiController {
 
   private static final String TYPE_EMAIL = "email";
+  private static final String TYPE_SLACK = "slack";
+  private static final String TYPE_DISCORD = "discord";
+  private static final String TYPE_TELEGRAM = "telegram";
+  private static final String TYPE_WHATSAPP = "whatsapp";
+  private static final String TYPE_MATRIX = "matrix";
+  private static final String TYPE_QQ = "qq";
+  private static final String CFG_URL = "url";
+  private static final String CFG_TOKEN = "token";
+  private static final String CFG_CHANNEL_ID = "channel_id";
+  private static final String CFG_CHAT_ID = "chat_id";
+  private static final String CFG_PHONE_NUMBER_ID = "phone_number_id";
+  private static final String CFG_TO = "to";
+  private static final String CFG_HOMESERVER = "homeserver";
+  private static final String CFG_ROOM_ID = "room_id";
+  private static final String CFG_GROUP_OPENID = "group_openid";
+  private static final String CFG_USER_OPENID = "user_openid";
 
   /** email 渠道 port 的合法上限（TCP 端口最大值）。 */
   private static final int MAX_PORT = 65535;
 
   private static final Set<String> SUPPORTED_TYPES =
-      Set.of("webhook", "feishu", "wecom", "dingtalk", TYPE_EMAIL);
+      Set.of(
+          "webhook",
+          "feishu",
+          "wecom",
+          "dingtalk",
+          TYPE_EMAIL,
+          TYPE_SLACK,
+          TYPE_DISCORD,
+          TYPE_TELEGRAM,
+          TYPE_WHATSAPP,
+          "teams",
+          "gchat",
+          "mattermost",
+          TYPE_MATRIX,
+          TYPE_QQ);
 
   private final NotifyChannelRegistry registry;
 
@@ -90,6 +121,10 @@ public class NotifyChannelApiController {
     // 022：前端编辑表单回填的是敏感项掩码；提交掩码原样或留空 = 未修改，保留原值——否则打码值会覆盖真实凭证
     Map<String, String> config = keepUnchangedSecrets(existing.config(), req.config());
     String url = normalizeUrl(req.type(), req.url());
+    // webhook URL 同口径：提交值等于原 URL 的掩码 = 未修改，保留原 URL
+    if (CredentialMasks.maskWebhookUrl(existing.url()).equals(url)) {
+      url = existing.url();
+    }
     validate(req.type(), url, config);
     NotifyChannelDef saved =
         registry.save(new NotifyChannelDef(name, req.type(), url, req.description(), config));
@@ -130,9 +165,69 @@ public class NotifyChannelApiController {
     }
     if (TYPE_EMAIL.equals(type)) {
       validateEmail(config);
-    } else if (url == null || url.isBlank()) {
-      throw new IllegalArgumentException("渠道 url 为空");
+      return;
     }
+    if (hasText(url) || hasConfig(config, CFG_URL)) {
+      return;
+    }
+    if (TYPE_SLACK.equals(type) || TYPE_DISCORD.equals(type)) {
+      requireConfigPair(config, type, CFG_TOKEN, CFG_CHANNEL_ID);
+      return;
+    }
+    if (TYPE_TELEGRAM.equals(type)) {
+      requireConfigPair(config, type, CFG_TOKEN, CFG_CHAT_ID);
+      return;
+    }
+    if (TYPE_WHATSAPP.equals(type)) {
+      requireConfigKeys(config, type, CFG_TOKEN, CFG_PHONE_NUMBER_ID, CFG_TO);
+      return;
+    }
+    if (TYPE_MATRIX.equals(type)) {
+      requireConfigKeys(config, type, CFG_HOMESERVER, CFG_TOKEN, CFG_ROOM_ID);
+      return;
+    }
+    if (TYPE_QQ.equals(type)) {
+      validateQq(config);
+      return;
+    }
+    throw new IllegalArgumentException("渠道 url 为空");
+  }
+
+  private static void validateQq(Map<String, String> config) {
+    if (!hasConfig(config, CFG_TOKEN)) {
+      throw new IllegalArgumentException("qq 渠道缺少 url，或缺少 token + group_openid/user_openid");
+    }
+    if (hasConfig(config, CFG_GROUP_OPENID) || hasConfig(config, CFG_USER_OPENID)) {
+      return;
+    }
+    throw new IllegalArgumentException("qq 渠道缺少 url，或缺少 token + group_openid/user_openid");
+  }
+
+  private static void requireConfigPair(
+      Map<String, String> config, String type, String first, String second) {
+    if (hasConfig(config, first) && hasConfig(config, second)) {
+      return;
+    }
+    throw new IllegalArgumentException(type + " 渠道缺少 url，或缺少 " + first + " + " + second);
+  }
+
+  private static void requireConfigKeys(Map<String, String> config, String type, String... keys) {
+    if (config == null) {
+      throw new IllegalArgumentException(type + " 渠道缺少配置（需 " + String.join(" + ", keys) + "）");
+    }
+    for (String key : keys) {
+      if (!hasConfig(config, key)) {
+        throw new IllegalArgumentException(type + " 渠道缺少 url，或缺少 " + String.join(" + ", keys));
+      }
+    }
+  }
+
+  private static boolean hasConfig(Map<String, String> config, String key) {
+    return config != null && hasText(config.get(key));
+  }
+
+  private static boolean hasText(String value) {
+    return value != null && !value.isBlank();
   }
 
   private static void validateEmail(Map<String, String> config) {
@@ -165,6 +260,9 @@ public class NotifyChannelApiController {
   }
 
   private static String normalizeUrl(String type, String url) {
-    return TYPE_EMAIL.equals(type) ? "" : url;
+    if (TYPE_EMAIL.equals(type)) {
+      return "";
+    }
+    return url == null ? "" : url;
   }
 }

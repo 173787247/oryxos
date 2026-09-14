@@ -1,10 +1,13 @@
 <script setup>
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import logoUrl from './assets/logo.svg'
 import LoginView from './views/LoginView.vue'
+import RunManagementView from './features/runs/RunManagementView.vue'
 import { isNearBottom } from './chat-scroll.js'
+import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
+import { filterSkills, hiddenSelectedCount, selectAllVisible, clearVisible, renderSet } from './skill-filter.js'
 
 // —— 012-web-auth US3：登录守卫 —— 未登录先查 /api/v1/auth/me；登录页 LoginView 调 /auth/login
 const auth = reactive({ checking: true, enabled: true, username: null })
@@ -58,6 +61,7 @@ const TOP_NAV = [
 ]
 
 const RUNTIME_NAV = [
+  { key: 'runs', label: '流式管理' },
   { key: 'sessions', label: '会话列表', path: '/api/v1/sessions' },
   { key: 'providers', label: 'Provider 列表' },
   { key: 'mcp', label: 'MCP 管理' },
@@ -65,6 +69,7 @@ const RUNTIME_NAV = [
   { key: 'notify-channels', label: 'Notify 渠道' },
   { key: 'whitelist', label: 'SandBox 列表' },
   { key: 'tool-policy', label: '工具策略' },
+  { key: 'exec-backend', label: '执行后端' },
 ]
 
 const NAV = [...TOP_NAV, ...RUNTIME_NAV]
@@ -153,7 +158,7 @@ const overviewCards = computed(() => [
 const overview = {
   tagline: '装在你自己基础设施上的分布式 AI Agent 操作系统 —— 统一底座运行多个业务 Agent',
   status: '运行中',
-  version: 'v0.1.4 · RELEASE',
+  version: 'v0.1.5 · RELEASE',
   capabilities: [
     { name: '对接 LLM', desc: '显式 Provider 映射，多家协议统一' },
     { name: 'ReAct 循环', desc: '自实现推理–行动循环，完全可控' },
@@ -190,7 +195,7 @@ async function load(key) {
   }
 }
 
-function select(key) {
+function select(key, options = {}) {
   active.value = key
   sessionDetail.value = null // 切页时收起会话详情
   execDetail.value = null // 切页时收起执行记录
@@ -206,6 +211,10 @@ function select(key) {
   if (key === 'skills') { cancelSkill(); closeSkillDetail(); loadSkills() }
   if (key === 'knowledge') { cancelKb(); closeKbDetail(); loadKnowledge() }
   if (key === 'overview') { loadOverviewStats() }
+  if (key === 'runs') {
+    runViewRef.value?.load?.()
+    if (!options.fromHash) writeRunHash(selectedRunId.value)
+  }
   if (key === 'report') { loadReport() }
 }
 
@@ -217,10 +226,12 @@ function refresh() {
   if (key === 'notify-channels') { loadNotifyChannels(); return }
   if (key === 'providers') { loadProviders(); return }
   if (key === 'whitelist') { loadWhitelist(); return }
+  if (key === 'exec-backend') { loadExecBackend(); return }
   if (key === 'mcp') { loadMcp(); return }
   if (key === 'skills') { loadSkills(); return }
   if (key === 'knowledge') { kbDetail.value ? refreshKbDetail(kbDetail.value.name) : loadKnowledge(); return }
   if (key === 'overview') { loadOverviewStats(); return }
+  if (key === 'runs') { runViewRef.value?.load?.(); return }
   if (key === 'report') { loadReport(); return }
   if (NAV.find((n) => n.key === key)?.path) load(key)
 }
@@ -439,6 +450,17 @@ async function deleteKbDoc(relPath) {
 
 // —— Skill CRUD：.oryxos/skills/<name>/ 存在即已安装，Agent 通过本地相对软连接绑定。——
 const skills = ref({ loading: false, error: null, data: [] })
+// 028-agent-skill-filter：Skill 选择器共享筛选态（新建页与详情编辑页共用；视图互斥故单实例不互染）。
+// 选择集（agentCreate.skills / agentBinding.selected）与显示集（filterSkills 输出）解耦——筛选只影响显示。
+const skillFilter = reactive({ query: '', showHidden: false })
+// 新建页筛选视野与渲染集（computed：随 skills.data / skillFilter.query / agentCreate.skills 变化刷新）
+const createSkillVisible = computed(() => filterSkills(skills.value.data, skillFilter.query))
+const createSkillRender = computed(() => renderSet(createSkillVisible.value, skills.value.data, agentCreate.skills, skillFilter.showHidden))
+const createSkillHiddenCount = computed(() => hiddenSelectedCount(createSkillVisible.value, agentCreate.skills))
+// 详情编辑页筛选视野与渲染集（同型，绑 agentBinding.selected）
+const editSkillVisible = computed(() => filterSkills(skills.value.data, skillFilter.query))
+const editSkillRender = computed(() => renderSet(editSkillVisible.value, skills.value.data, agentBinding.selected, skillFilter.showHidden))
+const editSkillHiddenCount = computed(() => hiddenSelectedCount(editSkillVisible.value, agentBinding.selected))
 // 绑定一致性不在页面常驻展示：只在 Skill 变更（新建/编辑/归档/导入）后回检，
 // 发现残留或损坏绑定才展开告警面板，无问题保持静默；检查本身失败也会展开。
 const skillIssues = ref({ loading: false, error: null, data: [] })
@@ -642,6 +664,42 @@ async function toggleTask(row) {
 // —— 30 节：Agent 管理（动态增删改 + 一句话生成）——
 const agents = ref({ loading: false, error: null, data: [] })
 const triggering = ref(null) // 正在“立即触发”的 agent 名，防重复点击
+const selectedRunId = ref(null)
+const runViewRef = ref(null)
+
+function writeRunHash(runId) {
+  const next = runId ? runHash(runId) : runListHash()
+  if (location.hash === next) return
+  location.hash = next
+}
+
+function applyLocationHash() {
+  const parsed = parseRunNav(location.hash)
+  if (!parsed) return
+  const next = applyRunNav(location.hash, { page: active.value, runId: selectedRunId.value })
+  selectedRunId.value = parsed.runId
+  if (active.value !== 'runs' && next.page === 'runs') {
+    select('runs', { fromHash: true })
+  }
+}
+
+function openRunWorkbench(runId) {
+  selectedRunId.value = runId
+  select('runs')
+}
+
+function closeRunWorkbench() {
+  selectedRunId.value = null
+  writeRunHash(null)
+}
+
+onMounted(() => {
+  applyLocationHash()
+  window.addEventListener('hashchange', applyLocationHash)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('hashchange', applyLocationHash)
+})
 async function loadAgents() {
   agents.value = { loading: true, error: null, data: [] }
   try {
@@ -702,6 +760,7 @@ function openCreate() {
   agentCreate.files = null
   agentCreate.busy = false
   agentCreate.error = ''
+  skillFilter.query = ''; skillFilter.showHidden = false // 进入新建页清空筛选态
   loadNotifyChannels()
   loadSkills() // Skill 选择器的数据源（可手动指定必启用的 Skill；不选则由作者模型自动选）
   loadKnowledge() // 知识库多选的数据源（FR-018 关联入口之一）
@@ -934,7 +993,7 @@ async function triggerAgent(a) {
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '触发失败')
-    alert(`【${a.name}】已触发，正在后台执行（执行 #${body.data?.executionId}）。\n\n进度看「详情 → 执行历史」，结果看「详情 → 会话」。`)
+    openRunWorkbench(body.data?.executionId)
   } catch (e) {
     alert(`【${a.name}】触发失败：${e.message}`)
   } finally {
@@ -953,7 +1012,7 @@ async function deleteAgent(name) {
   } catch (e) { agents.value = { ...agents.value, error: e.message } }
 }
 
-// —— Notify 渠道管理（CRUD /api/v1/notify-channels）：命名的通知出口，type ∈ feishu/wecom/dingtalk/webhook/email ——
+// —— Notify 渠道管理（CRUD /api/v1/notify-channels）：命名的通知出口，含 026 海外 IM ——
 const notifyChannels = ref({ loading: false, error: null, data: [] })
 async function loadNotifyChannels() {
   notifyChannels.value = { loading: true, error: null, data: [] }
@@ -968,7 +1027,44 @@ async function loadNotifyChannels() {
 }
 
 // 新建/编辑表单：editing 存被编辑渠道的 name（此时 name 只读），null 表示新建
-const nc = reactive({ open: false, editing: null, name: '', type: 'feishu', url: '', description: '', host: '', port: '', from: '', to: '', username: '', password: '', subject: '', encryption: '', busy: false, error: null })
+const nc = reactive({ open: false, editing: null, name: '', type: 'feishu', url: '', description: '', host: '', port: '', from: '', to: '', username: '', password: '', subject: '', encryption: '', token: '', chatId: '', channelId: '', phoneNumberId: '', homeserver: '', roomId: '', groupOpenid: '', userOpenid: '', busy: false, error: null })
+
+function notifyNeedsUrl(type) {
+  return !['email', 'telegram', 'slack', 'discord', 'whatsapp', 'matrix', 'qq'].includes(type)
+}
+
+function buildNotifyConfig() {
+  if (nc.type === 'email') return buildEmailConfig()
+  const config = {}
+  if (nc.token) config.token = nc.token
+  if (nc.type === 'telegram' && nc.chatId) config.chat_id = nc.chatId
+  if ((nc.type === 'slack' || nc.type === 'discord') && nc.channelId) config.channel_id = nc.channelId
+  if (nc.type === 'whatsapp') {
+    if (nc.phoneNumberId) config.phone_number_id = nc.phoneNumberId
+    if (nc.to) config.to = nc.to
+  }
+  if (nc.type === 'matrix') {
+    if (nc.homeserver) config.homeserver = nc.homeserver
+    if (nc.roomId) config.room_id = nc.roomId
+  }
+  if (nc.type === 'qq') {
+    if (nc.groupOpenid) config.group_openid = nc.groupOpenid
+    if (nc.userOpenid) config.user_openid = nc.userOpenid
+  }
+  return Object.keys(config).length ? config : undefined
+}
+
+function notifyFormReady() {
+  if (!nc.name) return false
+  if (nc.type === 'email') return !!(nc.host && nc.port && nc.from && nc.to)
+  if (nc.url) return true
+  if (nc.type === 'telegram') return !!(nc.token && nc.chatId)
+  if (nc.type === 'slack' || nc.type === 'discord') return !!(nc.token && nc.channelId)
+  if (nc.type === 'whatsapp') return !!(nc.token && nc.phoneNumberId && nc.to)
+  if (nc.type === 'matrix') return !!(nc.homeserver && nc.token && nc.roomId)
+  if (nc.type === 'qq') return !!(nc.token && (nc.groupOpenid || nc.userOpenid))
+  return false
+}
 
 async function saveNotifyChannel() {
   nc.busy = true; nc.error = null
@@ -976,10 +1072,9 @@ async function saveNotifyChannel() {
     const url = nc.editing
       ? `/api/v1/notify-channels/${encodeURIComponent(nc.editing)}`
       : '/api/v1/notify-channels'
-    const config = nc.type === 'email' ? buildEmailConfig() : undefined
-    let payload = nc.type === 'email'
-      ? { type: nc.type, url: '', config, description: nc.description }
-      : { type: nc.type, url: nc.url, description: nc.description }
+    const config = buildNotifyConfig()
+    let payload = { type: nc.type, url: nc.type === 'email' ? '' : nc.url, description: nc.description }
+    if (config) payload.config = config
     if (!nc.editing) payload = { name: nc.name, ...payload }
     const res = await fetch(url, {
       method: nc.editing ? 'PUT' : 'POST',
@@ -1001,6 +1096,9 @@ function editNotifyChannel(row) {
   const c = row.config || {}
   nc.host = c.host || ''; nc.port = c.port || ''; nc.from = c.from || ''; nc.to = c.to || ''
   nc.username = c.username || ''; nc.password = c.password || ''; nc.subject = c.subject || ''; nc.encryption = c.encryption || ''
+  nc.token = c.token || ''; nc.chatId = c.chat_id || ''; nc.channelId = c.channel_id || ''
+  nc.phoneNumberId = c.phone_number_id || ''; nc.homeserver = c.homeserver || ''; nc.roomId = c.room_id || ''
+  nc.groupOpenid = c.group_openid || ''; nc.userOpenid = c.user_openid || ''
   nc.error = null
   nc.open = true
 }
@@ -1016,6 +1114,8 @@ function buildEmailConfig() {
 function cancelNc() {
   nc.open = false; nc.editing = null; nc.name = ''; nc.type = 'feishu'; nc.url = ''; nc.description = ''
   nc.host = ''; nc.port = ''; nc.from = ''; nc.to = ''; nc.username = ''; nc.password = ''; nc.subject = ''; nc.encryption = ''
+  nc.token = ''; nc.chatId = ''; nc.channelId = ''; nc.phoneNumberId = ''; nc.homeserver = ''; nc.roomId = ''
+  nc.groupOpenid = ''; nc.userOpenid = ''
   nc.error = null
 }
 
@@ -1308,6 +1408,20 @@ async function submitEnable() {
   } catch (e) { mcpEnable.error = e.message } finally { mcpEnable.busy = false }
 }
 
+// —— 执行后端状态（024 US3，只读 /api/v1/sandbox/execution/status）：档位 / daemon 探测 / 限额 / 覆写一览 ——
+const exec = ref({ loading: false, error: null, data: null })
+async function loadExecBackend() {
+  exec.value = { loading: true, error: null, data: null }
+  try {
+    const res = await fetch('/api/v1/sandbox/execution/status')
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    exec.value = { loading: false, error: null, data: body.data }
+  } catch (e) {
+    exec.value = { loading: false, error: e.message, data: null }
+  }
+}
+
 // —— Sandbox 白名单管理（CRUD /api/v1/sandbox/whitelist）：四类 file/shell/http/smtp 的白名单条目 ——
 const WL_CATS = [
   { key: 'file', label: '文件路径', ph: '允许访问的路径，如 /data 或 /tmp/*' },
@@ -1513,6 +1627,7 @@ async function openAgent(agent) {
   agentBinding.error = null
   agentBinding.issues = []
   agentBinding.saved = false
+  skillFilter.query = ''; skillFilter.showHidden = false // 进入详情编辑页清空筛选态
   agentKb.selected = []
   agentKb.error = null
   agentKb.issues = []
@@ -1735,7 +1850,14 @@ function fmtDuration(ms) {
   return s < 60 ? s.toFixed(2) + ' s' : Math.floor(s / 60) + ' 分 ' + Math.round(s % 60) + ' 秒'
 }
 function execStatusLabel(s) {
-  return { RUNNING: '运行中', SUCCESS: '成功', FAILED: '失败' }[s] || s
+  return {
+    QUEUED: '正在启动',
+    RUNNING: '运行中',
+    CANCELLING: '正在停止',
+    SUCCESS: '成功',
+    FAILED: '失败',
+    CANCELLED: '已取消',
+  }[s] || s
 }
 
 // —— Tab 4：会话 —— 每个 Agent 一个固定 session，直接作为对话展示
@@ -2021,9 +2143,19 @@ const outputRows = computed(() =>
         </template>
 
         <template v-else>
-          <div class="page-head">
+          <div v-if="!(active === 'runs' && selectedRunId)" class="page-head">
             <h2>{{ current.label }}</h2>
             <button class="btn" @click="refresh()">刷新</button>
+          </div>
+
+          <div v-if="active === 'runs'">
+            <RunManagementView
+              ref="runViewRef"
+              :selected-id="selectedRunId"
+              @open="openRunWorkbench"
+              @close="closeRunWorkbench"
+              @go-agents="select('agents')"
+            />
           </div>
 
           <!-- 报表（016 审计看板）：KPI 汇总 + 分布条形图 + 明细下钻；时间窗三档 -->
@@ -2188,7 +2320,7 @@ const outputRows = computed(() =>
           </div>
 
           <!-- Skill：纯 CRUD 列表（存在即已安装）；绑定一致性仅在变更后回检发现问题时展示 -->
-          <div v-if="active === 'skills'">
+          <div v-else-if="active === 'skills'">
             <template v-if="!skillDetail">
             <div class="toolbar">
               <button class="btn" @click="newImport()">从 GitHub 拉取</button>
@@ -2549,6 +2681,43 @@ const outputRows = computed(() =>
             </template>
           </div>
 
+          <div v-else-if="active === 'exec-backend'">
+            <div class="toolbar">
+              <button class="btn" @click="loadExecBackend()">刷新（重新探测 daemon）</button>
+            </div>
+            <p v-if="exec.loading" class="empty">加载中…</p>
+            <p v-else-if="exec.error" class="error">出错：{{ exec.error }}</p>
+            <template v-else-if="exec.data">
+              <h3 class="sec" style="margin-top:20px">全局档位</h3>
+              <table>
+                <tbody>
+                  <tr><td>档位</td><td class="mono">{{ exec.data.backend }}</td></tr>
+                  <tr><td>执行镜像</td><td class="mono">{{ exec.data.image || '（local 档未配置）' }}</td></tr>
+                  <tr><td>镜像 digest</td><td class="mono">{{ exec.data.imageDigest || '-' }}</td></tr>
+                  <tr><td>默认限额</td><td class="mono">{{ exec.data.memory }} / {{ exec.data.cpus }} CPU</td></tr>
+                  <tr><td>网络</td><td class="mono">{{ exec.data.network }}</td></tr>
+                  <tr><td>执行用户</td><td class="mono">{{ exec.data.user }}</td></tr>
+                </tbody>
+              </table>
+              <h3 class="sec" style="margin-top:20px">docker 可用性</h3>
+              <p v-if="exec.data.docker.reachable" class="mono">✅ 可达 —— {{ exec.data.docker.version }}</p>
+              <p v-else class="error">⛔ {{ exec.data.docker.error }}（shell 调用将按 FR-011 fail loud 报错）</p>
+              <h3 class="sec" style="margin-top:20px">Agent 覆写一览（frontmatter sandbox 段）</h3>
+              <table>
+                <thead><tr><th>Agent</th><th>backend 覆写</th><th>memory 覆写</th><th>cpus 覆写</th></tr></thead>
+                <tbody>
+                  <tr v-if="!exec.data.agentOverrides.length"><td colspan="4" class="empty">（无 Agent 声明覆写——全部继承全局档）</td></tr>
+                  <tr v-for="o in exec.data.agentOverrides" :key="o.agent">
+                    <td class="mono">{{ o.agent }}</td>
+                    <td class="mono">{{ o.backend || '（继承）' }}</td>
+                    <td class="mono">{{ o.memory || '（继承）' }}</td>
+                    <td class="mono">{{ o.cpus || '（继承）' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+          </div>
+
           <!-- 30 节：Agent —— 一个列表（含新建/删除）；点"详情"进这个 Agent 的文件浏览器 -->
           <div v-else-if="active === 'agents'">
             <!-- 新建视图：独立整页（不是弹框），把「大模型生成」折叠进来 -->
@@ -2587,10 +2756,23 @@ const outputRows = computed(() =>
                 <label class="empty" style="display:block;margin:6px 0 2px">Skill 绑定（勾选=required；作者可从已安装 Skill 再建议）</label>
                 <div class="skill-picker">
                   <span v-if="!skills.data.length" class="empty">（暂无已安装 Skill，可先到 Skill 页新建或从 GitHub 拉取）</span>
-                  <label v-for="s in skills.data" :key="s.name" class="skill-opt" :title="s.description">
-                    <input type="checkbox" :value="s.name" v-model="agentCreate.skills" />
-                    <span class="mono">{{ s.name }}</span>
-                  </label>
+                  <template v-else>
+                    <input class="gen-input skill-search" v-model="skillFilter.query" placeholder="按名称或描述筛选已安装 Skill" />
+                    <div v-if="createSkillHiddenCount > 0" class="skill-hidden-hint">
+                      <span>当前筛选隐藏了 {{ createSkillHiddenCount }} 项已选</span>
+                      <button type="button" class="btn" @click="skillFilter.showHidden = true" v-if="!skillFilter.showHidden">纳入视野</button>
+                      <button type="button" class="btn" @click="skillFilter.showHidden = false" v-else>恢复筛选</button>
+                    </div>
+                    <div class="skill-batch">
+                      <button type="button" class="btn" @click="agentCreate.skills = selectAllVisible(createSkillVisible, agentCreate.skills)" :disabled="!createSkillVisible.length">全选当前</button>
+                      <button type="button" class="btn" @click="agentCreate.skills = clearVisible(createSkillVisible, agentCreate.skills)" :disabled="!createSkillVisible.length">清空当前</button>
+                    </div>
+                    <label v-for="s in createSkillRender" :key="s.name" class="skill-opt" :class="{ 'skill-hidden': s.hidden }" :title="s.description">
+                      <input type="checkbox" :value="s.name" v-model="agentCreate.skills" />
+                      <span class="mono">{{ s.name }}</span>
+                    </label>
+                    <span v-if="!createSkillRender.length" class="empty">（无匹配 Skill）</span>
+                  </template>
                 </div>
                 <p v-if="agentCreate.suggestedSkills.length" class="empty">作者建议：{{ agentCreate.suggestedSkills.join('、') }}；已合并到最终绑定，可在创建前取消。</p>
                 <p class="empty">绑定保存为 agents/&lt;name&gt;/skills/&lt;skill&gt; 固定相对软连接；AGENT.md 不保存 skills 字段，也不预载正文。</p>
@@ -2744,10 +2926,24 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">skills</span>
                     <div>
                       <div class="skill-picker">
-                        <label v-for="s in skills.data" :key="s.name" class="skill-opt" :title="s.description">
-                          <input type="checkbox" :value="s.name" v-model="agentBinding.selected" @change="agentBinding.saved = false" />
-                          <span class="mono">{{ s.name }}</span>
-                        </label>
+                        <span v-if="!skills.data.length" class="empty">（暂无已安装 Skill）</span>
+                        <template v-else>
+                          <input class="gen-input skill-search" v-model="skillFilter.query" placeholder="按名称或描述筛选已安装 Skill" />
+                          <div v-if="editSkillHiddenCount > 0" class="skill-hidden-hint">
+                            <span>当前筛选隐藏了 {{ editSkillHiddenCount }} 项已选</span>
+                            <button type="button" class="btn" @click="skillFilter.showHidden = true" v-if="!skillFilter.showHidden">纳入视野</button>
+                            <button type="button" class="btn" @click="skillFilter.showHidden = false" v-else>恢复筛选</button>
+                          </div>
+                          <div class="skill-batch">
+                            <button type="button" class="btn" @click="agentBinding.selected = selectAllVisible(editSkillVisible, agentBinding.selected); agentBinding.saved = false" :disabled="!editSkillVisible.length">全选当前</button>
+                            <button type="button" class="btn" @click="agentBinding.selected = clearVisible(editSkillVisible, agentBinding.selected); agentBinding.saved = false" :disabled="!editSkillVisible.length">清空当前</button>
+                          </div>
+                          <label v-for="s in editSkillRender" :key="s.name" class="skill-opt" :class="{ 'skill-hidden': s.hidden }" :title="s.description">
+                            <input type="checkbox" :value="s.name" v-model="agentBinding.selected" @change="agentBinding.saved = false" />
+                            <span class="mono">{{ s.name }}</span>
+                          </label>
+                          <span v-if="!editSkillRender.length" class="empty">（无匹配 Skill）</span>
+                        </template>
                       </div>
                       <div class="ops">
                         <button class="btn" :disabled="agentBinding.saving" @click="saveAgentBindings">{{ agentBinding.saving ? '保存中…' : '保存绑定' }}</button>
@@ -2899,6 +3095,10 @@ const outputRows = computed(() =>
               <!-- Tab 4：会话 —— 每个 Agent 一个固定 session，直接作为对话展示 -->
               <div v-else-if="agentDetail.tab === 'chat'">
                 <div class="sess-meta"><span class="mono">{{ chat.sessionId || '（会话尚未创建）' }}</span></div>
+                <div class="chat-run-hint">
+                  <p>会话发送会等整轮结束才返回。要看实时进度，请用「立即触发」或到「流式管理」。</p>
+                  <button class="btn" type="button" @click="select('runs')">打开流式管理</button>
+                </div>
                 <p v-if="chat.loading && !chat.messages.length" class="empty">加载中…</p>
                 <p v-else-if="chat.error" class="error">出错：{{ chat.error }}</p>
                 <template v-else>
@@ -2986,7 +3186,7 @@ const outputRows = computed(() =>
                   <thead><tr><th>状态</th><th>来源</th><th>开始时间</th><th>结束时间</th><th>时长</th><th>Trace</th><th>错误</th></tr></thead>
                   <tbody>
                     <tr v-if="!execHistory.data.length"><td colspan="7" class="empty">（还没有执行记录 · 点「立即触发」跑一次）</td></tr>
-                    <tr v-for="e in execHistory.data" :key="e.id">
+                    <tr v-for="e in execHistory.data" :key="e.id" class="clickable" @click="openRunWorkbench(e.id)">
                       <td><span :class="['exec-badge', e.status.toLowerCase()]">{{ execStatusLabel(e.status) }}</span></td>
                       <td>{{ e.source === 'schedule' ? '定时' : '手动' }}</td>
                       <td class="mono">{{ fmtTime(e.startedAt) }}</td>
@@ -3150,8 +3350,40 @@ const outputRows = computed(() =>
                     <option value="dingtalk">dingtalk</option>
                     <option value="webhook">webhook</option>
                     <option value="email">email</option>
+                    <option value="slack">slack</option>
+                    <option value="discord">discord</option>
+                    <option value="telegram">telegram</option>
+                    <option value="whatsapp">whatsapp</option>
+                    <option value="teams">teams</option>
+                    <option value="gchat">gchat</option>
+                    <option value="mattermost">mattermost</option>
+                    <option value="matrix">matrix</option>
+                    <option value="qq">qq</option>
                   </select>
-                  <input v-if="nc.type !== 'email'" v-model="nc.url" class="gen-input" placeholder="Webhook URL" />
+                  <input v-if="nc.type !== 'email'" v-model="nc.url" class="gen-input" :placeholder="notifyNeedsUrl(nc.type) ? 'Webhook URL' : 'Webhook URL（可选；也可用下方 token 字段）'" />
+                  <template v-if="nc.type === 'telegram'">
+                    <input v-model="nc.token" class="gen-input" placeholder="Bot Token（建议 ${TELEGRAM_BOT_TOKEN}）" />
+                    <input v-model="nc.chatId" class="gen-input" placeholder="chat_id（私聊数字 ID，群为负数）" />
+                  </template>
+                  <template v-if="nc.type === 'slack' || nc.type === 'discord'">
+                    <input v-model="nc.token" class="gen-input" placeholder="Bot Token（建议环境变量占位）" />
+                    <input v-model="nc.channelId" class="gen-input" placeholder="channel_id" />
+                  </template>
+                  <template v-if="nc.type === 'whatsapp'">
+                    <input v-model="nc.token" class="gen-input" placeholder="Graph access token" />
+                    <input v-model="nc.phoneNumberId" class="gen-input" placeholder="phone_number_id" />
+                    <input v-model="nc.to" class="gen-input" placeholder="to（E.164）" />
+                  </template>
+                  <template v-if="nc.type === 'matrix'">
+                    <input v-model="nc.homeserver" class="gen-input" placeholder="homeserver（https://matrix.example）" />
+                    <input v-model="nc.token" class="gen-input" placeholder="access token" />
+                    <input v-model="nc.roomId" class="gen-input" placeholder="room_id" />
+                  </template>
+                  <template v-if="nc.type === 'qq'">
+                    <input v-model="nc.token" class="gen-input" placeholder="access_token（建议环境变量占位）" />
+                    <input v-model="nc.groupOpenid" class="gen-input" placeholder="group_openid（群；与 user_openid 二选一）" />
+                    <input v-model="nc.userOpenid" class="gen-input" placeholder="user_openid（单聊；与 group_openid 二选一）" />
+                  </template>
                   <template v-if="nc.type === 'email'">
                     <input v-model="nc.host" class="gen-input" placeholder="SMTP host（如 smtp.example.com）" />
                     <input v-model="nc.port" class="gen-input" placeholder="端口（465/587/25）" />
@@ -3168,12 +3400,12 @@ const outputRows = computed(() =>
                     </select>
                   </template>
                   <input v-model="nc.description" class="gen-input" placeholder="描述（可选）" />
-                  <p class="empty">{{ nc.editing ? '编辑现有渠道，渠道名不可改。' : 'type 支持 feishu / wecom / dingtalk / webhook / email；email 填 SMTP 多字段（密码建议 ${SMTP_PASSWORD} 环境变量占位），其余填 Webhook URL。' }}</p>
+                  <p class="empty">{{ nc.editing ? '编辑现有渠道，渠道名不可改。' : 'webhook 类填 URL；telegram / slack / discord 可改填 token + chat_id 或 channel_id；email 填 SMTP。凭证建议 ${ENV} 占位。' }}</p>
                   <p v-if="nc.error" class="error">{{ nc.error }}</p>
                 </div>
                 <div class="modal-foot">
                   <button class="btn" @click="cancelNc">取消</button>
-                  <button class="btn btn-primary" :disabled="nc.busy || !nc.name || (nc.type === 'email' ? !(nc.host && nc.port && nc.from && nc.to) : !nc.url)" @click="saveNotifyChannel">{{ nc.editing ? '保存修改' : '创建' }}</button>
+                  <button class="btn btn-primary" :disabled="nc.busy || !notifyFormReady()" @click="saveNotifyChannel">{{ nc.editing ? '保存修改' : '创建' }}</button>
                 </div>
               </div>
             </div>
@@ -3532,9 +3764,11 @@ th { color: var(--text-2); font-weight: 500; }
 .tag { display: inline-block; background: var(--bg-mute); color: var(--brand); border-radius: var(--radius); padding: 2px 8px; margin-right: 6px; }
 .memtext { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; white-space: pre-wrap; }
 .exec-badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--border); }
-.exec-badge.running { color: var(--brand); border-color: var(--brand); }
-.exec-badge.success { color: #16a34a; border-color: #16a34a; }
+.exec-badge.running, .exec-badge.queued { color: var(--brand); border-color: var(--brand); }
+.exec-badge.success { color: var(--ok); border-color: var(--ok); }
 .exec-badge.failed { color: var(--err); border-color: var(--err); }
+.exec-badge.cancelling, .exec-badge.cancelled { color: var(--brand); border-color: var(--brand); }
+.clickable { cursor: pointer; }
 
 /* 定时任务：状态标记 + 操作按钮 */
 .ok { color: var(--ok); }
@@ -3623,6 +3857,13 @@ th { color: var(--text-2); font-weight: 500; }
 .skill-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
 .skill-opt { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; cursor: pointer; }
 .skill-opt:hover { border-color: var(--brand); }
+/* 028-agent-skill-filter：搜索框横铺、批量与隐藏提示整行 */
+.skill-search { flex: 1 1 100%; margin-bottom: 2px; }
+.skill-batch { flex: 1 1 100%; display: flex; gap: 8px; }
+.skill-batch .btn { padding: 2px 8px; font-size: 12px; }
+.skill-hidden-hint { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim, #888); }
+.skill-hidden-hint .btn { padding: 1px 8px; font-size: 12px; }
+.skill-opt.skill-hidden { opacity: 0.65; border-style: dashed; } /* 被筛选隐藏、临时纳入视野的已选项 */
 /* 新增/创建/启用类主操作：橙色高亮，跟其余次要操作（编辑/删除/取消）区分开 */
 .btn-primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 500; }
 .btn-primary:hover:not(:disabled) { background: var(--brand-2); border-color: var(--brand-2); color: #fff; }
@@ -3686,6 +3927,24 @@ th { color: var(--text-2); font-weight: 500; }
 .chat-send-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 8px; }
 .send-mode-toggle { margin-bottom: 0; }
 .chat-send-hint { font-size: 12px; }
+.chat-run-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.chat-run-hint p {
+  margin: 0;
+  flex: 1 1 260px;
+  color: var(--text-2);
+  line-height: 1.6;
+  font-size: 13px;
+}
 
 @media (max-width: 640px) { .layout { flex-direction: column; } .nav { width: auto; flex-direction: row; flex-wrap: wrap; } .readonly { display: none; } .ws { flex-direction: column; } .ws-tree { width: auto; } }
 

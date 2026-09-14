@@ -17,7 +17,8 @@ import org.yaml.snakeyaml.Yaml;
 public final class AgencyAgentsImporter {
 
   /** 导入器内置的「默认安全工具集」——源文件工具无关（frontmatter 无 tools），落地时给专家一套可跑的安全能力。 */
-  private static final List<String> DEFAULT_TOOLS = List.of("read_file", "shell", "notify");
+  private static final List<String> DEFAULT_TOOLS =
+      List.of("read_file", "shell", "notify", "web_search", "http_get", "fetch_webpage");
 
   /**
    * 3 参便捷重载：name 从 displayName 派生（slug 化）、model 落占位，与 5 参 {@link #toMarkdown} 行为一致。缺 name 时

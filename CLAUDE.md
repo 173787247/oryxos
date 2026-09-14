@@ -174,7 +174,7 @@ OryxOS 启动后在当前目录创建 `.oryxos/` 工作区：
 - 全部状态在 `/data` 卷（`config/` + 工作区 + `oryxos.db` + `logs/`）；`ORYXOS_ROOT=/data/.oryxos` 走环境变量原生支持。镜像非 root（uid 1000）+ 内置 healthcheck（`/api/v1/health`）。
 - 流水线：`ci.yml` 的 `docker-build` job 做 PR 门禁（只构建不推送）；`release.yml` 在 tar.gz Release 之后 buildx 推 `ghcr.io/oryx-labs/oryxos:v<版本>` + `:latest` 到 GHCR（需 `packages: write`，已加）。
 - 本地构建：`make docker`（依赖 `make build` 的胖 jar）。改 Dockerfile/entrypoint/.dockerignore 时，`docker-build` 门禁会自动验证。
-- 停机行为（2026-08 实测）：SIGTERM 能被处理，但某第三方渠道客户端（长连接 WS）的 Lifecycle stop 不回调，Spring 等 30s latch 超时后才完成关闭——**总耗时 ~32s，exit 143**。compose 已配 `stop_grace_period: 40s` 兜住；裸 `docker stop`（默认 10s）会 SIGKILL，SQLite WAL 保证数据安全。tar.gz 路径同病：`bin/stop.sh` 等 10s 后 kill -9。根治需修那个 bean 的 stop 回调（或给它配 lifecycleProcessor 超时），属上游依赖问题。
+- 停机行为：曾实测（2026-08）SIGTERM 能被处理，但飞书 SDK `ws.Client.close()` 存在阻塞不返回的实现路径，把停机拖满 ~32s（exit 143）。现 `FeishuChannelAdapter.closeQuietly` 将 close 放守护线程限时 join（2s 超时放弃等待），stop 不再阻塞 `ChannelAdminService.stopAll` 与进程停机链路；`spring.lifecycle.timeout-per-shutdown-phase: 10s` 另兜 SmartLifecycle 阶段（注意 destroy-method 回调不受其约束，长连接类资源须各自限时关闭）。compose 的 `stop_grace_period: 40s` 保留作余量；裸 `docker stop`（默认 10s）与 `bin/stop.sh`（等 10s kill -9）在限时关闭下均不再踩超时。
 
 ---
 
