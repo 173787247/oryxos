@@ -20,7 +20,7 @@
 ## Phase 2: Foundational（阻塞 US3；US1/US2 不依赖）
 
 - [ ] T003 新建 `oryxos-core/src/main/java/io/oryxos/core/metrics/SpanRecorder.java`：三 default 方法 + NOOP 常量（契约见 contracts/span-recorder.md，MetricsRecorder 同款纪律）
-- [ ] T004 新建 `oryxos-cli/src/main/java/io/oryxos/cli/OtelProperties.java`（`oryxos.otel.endpoint`/`sampler-ratio`）与 `OtelSpanRecorder.java`（traceId 去横线映射、turn spanId=前 16 hex 确定性父子、显式起止时间、BatchSpanProcessor、异常自吞）+ 单测（InMemorySpanExporter：链路结构/时间戳/非法 traceId 不炸）
+- [ ] T004 新建 `oryxos-cli/src/main/java/io/oryxos/cli/OtelProperties.java`（`oryxos.otel.endpoint`/`sampler-ratio`）与 `OtelSpanRecorder.java`（traceId 去横线映射、turn spanId=前 16 hex 确定性父子、显式起止时间、BatchSpanProcessor、异常自吞）+ 单测（InMemorySpanExporter：链路结构/时间戳/非法 traceId 不炸；**endpoint 指向未监听端口时 record 调用不抛不阻塞——BatchSpanProcessor 缓冲语义，analyze A1**）
 - [ ] T005 `oryxos-cli/src/main/java/io/oryxos/cli/OryxOsRuntime.java` 装配 SpanRecorder bean（endpoint 空=NOOP 零初始化）+ 关闭时 flush/shutdown SDK（ContextClosedEvent 监听扩展）
 
 **Checkpoint**: span 契约与导出实现就绪；US1/US2/US3 三线可并行
@@ -37,7 +37,7 @@
 - [ ] T007 [US1] 新建 `charts/oryxos/templates/deployment.yaml`：RollingUpdate(maxUnavailable=0,maxSurge=1)、liveness/readiness 探针（`/actuator/health/liveness|readiness`）、`preStop: sleep 5`、`terminationGracePeriodSeconds: {{ .Values.shutdown.gracePeriodSeconds }}`、Secret env 注入（SPRING_DATASOURCE_* + ORYXOS_MASTER_KEY）、ConfigMap 挂 `/data/config/`、PVC 挂 `/data/.oryxos`
 - [ ] T008 [P] [US1] 新建 `templates/service.yaml`、`templates/configmap.yaml`（cluster.enabled=true、timeout-per-shutdown-phase={{drainTimeout}}、可选 otel.endpoint、extraConfig 合并）、`templates/secret.yaml`（仅 values 直填时渲染）、`templates/pvc.yaml`（replicaCount>1 且非 RWX 时 `fail` 指向 SharedVolumeGuide；缺必填 values 时 `required` 报错）
 - [ ] T009 [US1] 新建 `charts/oryxos/ci/default-values-test.yaml` 与 `scripts/helm-verify.sh`：template 渲染断言（副本 2/双探针路径/grace 40/preStop/RWX/零明文凭证/缺必填渲染失败带指引）+ kubeconform 校验
-- [ ] T010 [US1] `Makefile` 新增 `helm-lint`/`helm-package` 目标；`.github/workflows/ci.yml` 新增 helm job（lint+template+kubeconform+verify，只验不推，与 docker-build 同格）
+- [ ] T010 [US1] `Makefile` 新增 `helm-lint`/`helm-package` 目标；`.github/workflows/ci.yml` 新增 helm job：lint+template+kubeconform+verify **+ kind 安装冒烟段（analyze C1）**——create cluster → 构建/复用镜像 → `kind load` → 附带 PG pod → `helm install`（test values）→ `kubectl rollout status` 双副本就绪 → `GET /api/v1/instances` 双活断言（CI runner 自带 docker，安装冒烟属自动化面）
 - [ ] T011 [US1] 本机执行 `make helm-lint` 全绿（门禁档验收锚点，SC-007 自动化面）
 
 **Checkpoint**: US1 门禁档独立可交付；真机冒烟并入 T015
@@ -53,7 +53,7 @@
 - [ ] T012 [US2] `oryxos-boot/src/main/resources/application.yml` 补两行：`server.shutdown: graceful`、`management.endpoint.health.group.readiness.include: readinessState,db`；核对既有 boot 测试（100ms 停机参数用例）零回归，必要处适配
 - [ ] T013 [US2] `oryxos-core/src/main/java/io/oryxos/core/channel/ChannelAdminService.java` 修 `stopAll()`：与 `stopOne()` 对齐，先 `coordinator.unmanage()`（cancel 续租 + releaseChannel）再 `adapter.stop()`；配套单测（停机路径属主租约被释放、单机档无 coordinator 时零变化）
 - [ ] T014 [P] [US2] `bin/stop.sh` SIGTERM 等待 10s→40s（对齐 compose `stop_grace_period` 与实测 ~32s 口径），注释说明来源
-- [ ] T015 [US2] 真机走查（环境阶梯 V0→V2/V3）：kind 双副本安装冒烟 ≤5min（含 US1 场景 1/2/4）、`scripts/rolling-probe.sh` 持续压测下 `helm upgrade` 零失败、`kubectl delete pod --force` 后接管与归队、preStop 日志含渠道租约释放；环境不可得时如实记录门禁档证据与待补项
+- [ ] T015 [US2] 真机走查（环境阶梯 V0→V2/V3；安装冒烟已由 T010 CI 段自动化覆盖，本任务聚焦交互式面）：`scripts/rolling-probe.sh` 持续压测下 `helm upgrade` 零失败、`kubectl delete pod --force` 后接管与归队、在途轮次优雅窗口抽查；**渠道属主租约释放：有渠道凭证时抽 preStop 日志，无凭证环境以 T013 单测为该路径验收锚点并如实记录（analyze I2）**；环境不可得时如实记录 CI 冒烟证据与待补项
 
 **Checkpoint**: US2 代码面独立可交付（T012~T014 不依赖 Chart）；真机面依赖 US1 Chart
 

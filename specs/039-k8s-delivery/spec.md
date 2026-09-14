@@ -101,8 +101,8 @@
 - **FR-007**: 系统 MUST 支持可选的 OTLP trace 导出：以既有 traceId 为链路上下文，在既有审计点位（轮次处理、LLM 调用、工具调用）产生 span，父子关系与耗时正确；导出端点、采样与开关 MUST 配置化
 - **FR-008**: 未配置导出端点时 MUST 零开销零行为变化（不建连接、不加依赖故障面、无告警噪音）；端点不可达时 MUST 静默降级不影响主链路（低频告警可接受）
 - **FR-009**: OTel span 与库内审计记录 MUST 同源同 traceId（跨系统链路与库内精确回放可互查）
-- **FR-010**: 既有部署形态（裸机 tar.gz/bin、docker compose）MUST 零变化；Helm 为新增选项，不引入任何「必须上 K8s」的行为分叉
-- **FR-011**: Chart MUST 通过模板校验与安装冒烟（lint + 本地集群 install 双副本全绿）进入 CI 门禁可自动化的部分；真机验收按验收卷落卷
+- **FR-010**: 既有部署形态（裸机 tar.gz/bin、docker compose）MUST 零变化；Helm 为新增选项，不引入任何「必须上 K8s」的行为分叉。例外：实证缺陷修复不算破坏——`bin/stop.sh` 停机宽限期与 compose `stop_grace_period`/实测口径对齐（10s→40s）属回归既有文档承诺（analyze I1 裁决 2026-09-14）
+- **FR-011**: Chart MUST 通过模板校验（lint/template/schema）**与 CI 内 kind 集群安装冒烟（install 双副本就绪 + 实例双活断言）**进入 CI 门禁——CI runner 自带容器运行时，安装冒烟属可自动化面不得留人工尾巴（analyze C1 裁决 2026-09-14）；滚动升级压测与故障接管等交互式走查按验收卷落卷
 - **FR-012**: 部署文档 MUST 含：一条命令安装示例、必填/常用 values 说明、RWX 存储要求、升级与回滚操作、故障排查入口（探针失败/CrashLoop/密钥错配）
 
 ### Key Entities *(include if feature involves data)*
