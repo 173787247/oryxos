@@ -27,6 +27,14 @@ public class WebUser {
   @Column(nullable = false)
   private boolean enabled;
 
+  /**
+   * 角色集合的规范化序列（039）：逗号分隔、大写、按 VIEWER,EDITOR,ADMIN 顺序；缺省 VIEWER。
+   *
+   * <p>解析/序列化收在 {@link WebUserService}，本字段只做落库映射。
+   */
+  @Column(name = "roles", nullable = false)
+  private String roles = "VIEWER";
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
@@ -69,6 +77,14 @@ public class WebUser {
 
   public void setEnabled(boolean enabled) {
     this.enabled = enabled;
+  }
+
+  public String getRoles() {
+    return roles;
+  }
+
+  public void setRoles(String roles) {
+    this.roles = roles;
   }
 
   public Instant getCreatedAt() {

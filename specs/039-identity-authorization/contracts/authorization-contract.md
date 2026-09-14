@@ -64,7 +64,7 @@ oryxos:
 > | 能力 | 当前状态 |
 > |------|----------|
 > | 阶段一（**已实现**） | 所有受保护路径一律只要求基线动作 `READ_WORKSPACE`（即 VIEWER 及以上放行、匿名与零角色拒绝）。**没有**路径→动作的差异裁决，`RequestActionResolver` 与「未登记路径 fail-closed」**都不存在**。 |
-> | 阶段二（**未实现**，见 `tasks.md` T019~T023） | §4.1 流程图与 §4.2 全表生效：按资源族 × 方法区分动作，未登记路径拒绝，启动期端点全覆盖校验。 |
+> | 阶段二（**本刀目标**，见 `tasks.md` T019~T023） | §4.1 流程图与 §4.2 全表生效：按资源族 × 方法区分动作，未登记路径拒绝。补登记：`/api/v2/schedules/**` 与 v1 调度同档；`POST /api/v1`（Alipay 截断网关）与 `channels/inbound` 同口径只认证不裁决。 |
 >
 > **由此产生的一个真实误判风险**：只读本契约、不读 `tasks.md` 的读者会以为差异裁决已生效——例如以为 `EDITOR` 访问 `/api/v1/tool-policy/**` 会 403，而**当前实际能通过**（因为基线只要求 VIEWER）。评审与验收请以 `acceptance-report.md` 的 SC 对照表为准。
 
@@ -105,6 +105,9 @@ oryxos:
 | `/api/v1/personas/**` | 其它 | `MANAGE_AGENTS`（人格是 Agent 定义的一部分） |
 | `/api/v1/schedules/**` | GET / HEAD | `READ_WORKSPACE` |
 | `/api/v1/schedules/**` | 其它 | `MANAGE_AGENTS`（调度属于 Agent 定义） |
+| `/api/v2/schedules/**`、`POST /api/v2/agents/{profile}/schedules/{key}/run` | GET / HEAD | `READ_WORKSPACE`（与 v1 调度同档；盘点补登记） |
+| `/api/v2/schedules/**`、`POST /api/v2/agents/{profile}/schedules/{key}/run` | 其它 | `MANAGE_AGENTS` |
+| `POST /api/v1`、`POST /api/v1/` | POST | **不裁决（只认证）**——支付宝截断网关兼容口，与 `channels/inbound` 同属外部平台回调 |
 | `/api/v1/channels/**`（除 inbound）、`/api/v1/notify-channels/**`、`/api/v1/mcp-servers/**` | 任意 | `MANAGE_CHANNELS` + `ResourceRef.channel(name)` |
 | `/api/v1/tool-policy/**`、`/api/v1/sandbox/**` | 任意 | `MANAGE_POLICIES` + `ResourceRef.policy()` |
 | `/api/v1/audit/**` | 任意 | `READ_AUDIT` + `ResourceRef.audit()` |

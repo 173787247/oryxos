@@ -153,4 +153,28 @@ abstract class WebUserServiceContractTest {
     assertThrows(IllegalArgumentException.class, () -> svc.changePassword("nobody", "password2"));
     assertThrows(IllegalArgumentException.class, () -> svc.disable("nobody"));
   }
+
+  @Test
+  @DisplayName("create默认VIEWER_setRoles往返_未知token降权")
+  void roles_roundTripAndUnknownTokenIgnored() {
+    WebUserService svc = service();
+    WebUser created = svc.create("carol", "password1");
+    assertEquals("VIEWER", created.getRoles());
+    assertEquals(java.util.Set.of(io.oryxos.core.auth.Role.VIEWER), svc.rolesOf("carol"));
+
+    svc.setRoles("carol", java.util.Set.of(io.oryxos.core.auth.Role.EDITOR));
+    assertEquals("EDITOR", svc.list().get(0).getRoles());
+    assertEquals(java.util.Set.of(io.oryxos.core.auth.Role.EDITOR), svc.rolesOf("carol"));
+
+    // 直接写脏数据：未知 token 忽略，合法 token 保留
+    WebUser dirty = repository.findByUsername("carol").orElseThrow();
+    dirty.setRoles("EDITOR,NOPE,ADMIN");
+    repository.save(dirty);
+    assertEquals(
+        java.util.Set.of(io.oryxos.core.auth.Role.EDITOR, io.oryxos.core.auth.Role.ADMIN),
+        svc.rolesOf("carol"));
+
+    assertTrue(svc.hasAdminAccount());
+    assertEquals(java.util.Set.of(), svc.rolesOf("nobody"));
+  }
 }

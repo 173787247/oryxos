@@ -26,7 +26,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "oryxos.web.rbac.roles")
 public class RoleMappingProperties {
 
-  /** 管理台账号未自带角色时的默认角色。默认 ADMIN（防单机部署自锁），多人企业部署应显式调低。 */
+  /** 管理台账号未自带角色时的默认角色。落库后应收紧为空；过渡期仍默认 ADMIN 防单机自锁。 */
   private Set<String> defaultUserRoles = new LinkedHashSet<>(Set.of(Role.ADMIN.name()));
 
   /** API Key 未自带角色时的默认角色。默认空 = 拒绝（机器凭证不给默认权限）。 */

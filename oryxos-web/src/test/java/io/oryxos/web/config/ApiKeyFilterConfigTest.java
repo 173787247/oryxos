@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.WebSessionService;
+import io.oryxos.storage.WebUserService;
 import io.oryxos.web.security.ApiKeyAuthFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ class ApiKeyFilterConfigTest {
         config.apiKeyAuthFilter(
             mock(ApiKeyService.class),
             mock(WebSessionService.class),
+            mock(WebUserService.class),
             new WebApiKeyProperties(),
             new ObjectMapper(),
             null);

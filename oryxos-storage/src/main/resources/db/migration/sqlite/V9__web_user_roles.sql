@@ -1,0 +1,21 @@
+-- V9 身份授权（039 第二刀）：web_users 加 roles 列 + 拒绝审计表 authz_events。
+-- V8 已被 027-file-plane 占用，本刀取 V9（勿再写 V8）。
+
+ALTER TABLE web_users ADD COLUMN roles VARCHAR(255) NOT NULL DEFAULT 'VIEWER';
+
+CREATE TABLE IF NOT EXISTS authz_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    principal_kind VARCHAR(16) NOT NULL,
+    principal_id VARCHAR(128) NOT NULL,
+    action VARCHAR(32) NOT NULL,
+    resource_type VARCHAR(32),
+    resource_id VARCHAR(255),
+    reason VARCHAR(512) NOT NULL,
+    request_method VARCHAR(16),
+    request_path VARCHAR(512),
+    trace_id VARCHAR(64),
+    created_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_authz_events_created_at ON authz_events (created_at);
+CREATE INDEX IF NOT EXISTS idx_authz_events_principal ON authz_events (principal_id, created_at);
