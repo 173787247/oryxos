@@ -1,0 +1,19 @@
+OryxOS 已部署：{{ .Release.Name }}（副本 {{ .Values.replicaCount }}，镜像 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}）
+
+1. 等待就绪：
+   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "oryxos.fullname" . }}
+
+2. 副本存活与「谁在处理什么」（026 可见性）：
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "oryxos.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }} &
+   curl -s http://localhost:{{ .Values.service.port }}/api/v1/instances
+
+3. 管理台 / REST：
+   http://localhost:{{ .Values.service.port }}/admin/   与   /api/v1/**（认证见 docs/CliGuide.md 018/012）
+
+4. 多副本共享卷（027）：任一副本建/改 Agent，其余副本 ≤3s 生效；直接改盘后可 POST /api/v1/workspace/refresh。
+{{- if .Values.otel.endpoint }}
+
+5. OTel trace 已启用 → {{ .Values.otel.endpoint }}（traceId 与 /api/v1/audit/trace/{id} 同源互查）。
+{{- end }}
+
+排查入口（探针失败 / CrashLoop / 密钥错配）：docs/K8sDeployGuide.md

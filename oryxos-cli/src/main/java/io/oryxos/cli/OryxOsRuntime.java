@@ -174,7 +174,8 @@ import org.springframework.web.context.WebApplicationContext;
   HttpSandboxProperties.class,
   SmtpSandboxProperties.class,
   ExecutionBackendProperties.class,
-  io.oryxos.core.cluster.ClusterProperties.class
+  io.oryxos.core.cluster.ClusterProperties.class,
+  OtelProperties.class
 })
 public class OryxOsRuntime {
 
@@ -400,6 +401,24 @@ public class OryxOsRuntime {
                             java.util.LinkedHashMap::new)));
     service.setWorkspaceVersionNotifier(workspaceVersionNotifier);
     return service;
+  }
+
+  /**
+   * 039：trace span 导出——endpoint 未配置（默认）注入 NOOP：零 SDK 初始化零连接零导出（FR-008）； 配置后 OTLP gRPC 批量导出，traceId
+   * 与 021 审计同源。destroyMethod 自动识别 close（flush + shutdown）。
+   */
+  @Bean
+  io.oryxos.core.metrics.SpanRecorder spanRecorder(OtelProperties otelProperties) {
+    if (!otelProperties.enabled()) {
+      return io.oryxos.core.metrics.SpanRecorder.NOOP;
+    }
+    io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter exporter =
+        io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter.builder()
+            .setEndpoint(otelProperties.getEndpoint())
+            .build();
+    return new OtelSpanRecorder(
+        io.opentelemetry.sdk.trace.export.BatchSpanProcessor.builder(exporter).build(),
+        otelProperties.getSamplerRatio());
   }
 
   /** 027 FR-011：手动刷新工作区——集群档 bump 全域（副本轮询生效）；单机档本地全量重载。 */

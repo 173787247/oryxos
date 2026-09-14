@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oryxos.fullname" . }}-config
+  labels:
+    {{- include "oryxos.labels" . | nindent 4 }}
+data:
+  # 零明文纪律：凭证只走 Secret 环境变量，绝不出现在本 ConfigMap
+  application.yml: |
+    oryxos:
+      cluster:
+        # 039：K8s 部署默认集群档；instance-id 走默认派生（Pod 名-pid，天然唯一，代次由 epoch 隔离）
+        enabled: true
+      {{- if .Values.otel.endpoint }}
+      otel:
+        endpoint: {{ .Values.otel.endpoint | quote }}
+        sampler-ratio: {{ .Values.otel.samplerRatio }}
+      {{- end }}
+    spring:
+      lifecycle:
+        # US2：graceful 排空 + SmartLifecycle 阶段上限（适配真实 LLM 轮次；< gracePeriodSeconds）
+        timeout-per-shutdown-phase: {{ .Values.shutdown.drainTimeout }}
+    {{- with .Values.extraConfig }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}

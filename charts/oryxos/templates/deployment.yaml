@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oryxos.fullname" . }}
+  labels:
+    {{- include "oryxos.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # US2：滚动升级不断线——先起新副本、旧副本永不欠员；配合就绪门控与 preStop 优雅期
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "oryxos.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oryxos.selectorLabels" . | nindent 8 }}
+      annotations:
+        # 配置变更触发滚动（ConfigMap 内容哈希）
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.shutdown.gracePeriodSeconds }}
+      containers:
+        - name: oryxos
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: JAVA_OPTS
+              value: {{ .Values.env.javaOpts | quote }}
+            - name: TZ
+              value: {{ .Values.env.tz | quote }}
+          # 凭证只走 Secret 环境变量（022 原生面）：SPRING_DATASOURCE_* + ORYXOS_MASTER_KEY
+          envFrom:
+            - secretRef:
+                name: {{ include "oryxos.dbSecretName" . }}
+            - secretRef:
+                name: {{ include "oryxos.masterKeySecretName" . }}
+          # US2：终止序列——preStop 等 endpoint 摘除传播 → SIGTERM → graceful 排空（drainTimeout）→ 租约释放
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep {{ .Values.shutdown.preStopSeconds }}"]
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # 非敏感配置：entrypoint 既有 spring.config.additional-location=/data/config/ 直接生效
+            - name: config
+              mountPath: /data/config
+              readOnly: true
+            # 工作区共享卷（027 文件面；镜像 ORYXOS_ROOT=/data/.oryxos）
+            - name: workspace
+              mountPath: /data/.oryxos
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "oryxos.fullname" . }}-config
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ include "oryxos.fullname" . }}-workspace

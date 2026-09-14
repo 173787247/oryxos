@@ -105,6 +105,15 @@
                 <scope>import</scope>
             </dependency>
 
+            <!-- 039：OpenTelemetry BOM——trace 导出（SpanRecorder 的装配层实现），版本统一由 BOM 管理 -->
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>1.44.1</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- Internal modules -->
             <dependency>
                 <groupId>io.oryxos</groupId>

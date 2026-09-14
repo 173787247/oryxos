@@ -1,0 +1,9 @@
+# 门禁渲染断言用固定 values（scripts/helm-verify.sh 与 ci helm job 共用）。
+# 用 existingSecret 引用式（推荐姿势），CI kind 冒烟前会先 kubectl create 同名 Secret。
+database:
+  existingSecret: oryxos-db
+masterKey:
+  existingSecret: oryxos-master-key
+image:
+  repository: oryxos
+  tag: ci
