@@ -49,6 +49,13 @@ public class ScheduledTask {
   @Column(name = "run_count", nullable = false)
   private long runCount;
 
+  /** 026 到点认领（恰好一次）：CronTrigger 理论触发时刻——各副本同值的 CAS 载体。 */
+  @Column(name = "claimed_fire_time")
+  private Instant claimedFireTime;
+
+  @Column(name = "claimed_by")
+  private String claimedBy;
+
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
 

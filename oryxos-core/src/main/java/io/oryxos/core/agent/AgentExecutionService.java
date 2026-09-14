@@ -174,6 +174,7 @@ public class AgentExecutionService {
       long id, String agentName, String source, String sessionId, Runnable work) {
     runningThreads.put(id, Thread.currentThread());
     AgentRunExecutionContext.set(id);
+    ExecutionContext.set(id); // 026：供租约行关联 execution（悬空轮失败留痕）
     boolean ok = false;
     String error = null;
     boolean cancelled = false;
@@ -220,6 +221,7 @@ public class AgentExecutionService {
       } finally {
         runningThreads.remove(id);
         AgentRunExecutionContext.clear();
+        ExecutionContext.clear();
       }
     }
   }

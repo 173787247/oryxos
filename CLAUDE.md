@@ -391,6 +391,12 @@ provider:
 
 `ConfigLoader` 启动时做必填项和格式校验，缺失或非法时给清晰报错，不静默失败。
 
+多副本部署（026）：`oryxos.cluster.enabled=true`（默认 false=单机档零变化）+ 每副本唯一 `instance-id` + 共享 PostgreSQL。
+正确性由一条 CAS 认领原语保障：session turn 租约（同会话恰好一次、跨副本排队）、调度到点认领（恰好一次，
+fireTime 取 CronTrigger 理论触发时刻绝非墙钟）、事件回执去重（替换进程内 Map）、企微连接属主（永不互踢）、
+instances 心跳（GET /api/v1/instances）。误配组合（cluster + SQLite/markdown 记忆/memory 知识库）启动即拒。
+崩溃轮次标失败不重放，用户重发恢复。
+
 落库凭证（providers.api_key、notify_channels.config 敏感项）经主密钥 AES-GCM 加密存储（022，`enc:v1:` 前缀）：`ORYXOS_MASTER_KEY` 环境变量优先，缺省 `.oryxos/master.key` 首启自动生成；密钥不匹配启动即拒并指路恢复。
 
 ---

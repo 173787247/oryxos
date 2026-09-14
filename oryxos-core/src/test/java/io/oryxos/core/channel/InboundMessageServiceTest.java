@@ -60,7 +60,7 @@ class InboundMessageServiceTest {
             sessionManager,
             profileRegistry,
             executionService,
-            new MessageDeduplicator(),
+            new InMemoryMessageDeduplicator(),
             null,
             Duration.ofMillis(120),
             interruptManager);

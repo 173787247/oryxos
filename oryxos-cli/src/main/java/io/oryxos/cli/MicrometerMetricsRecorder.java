@@ -160,4 +160,40 @@ public class MicrometerMetricsRecorder implements MetricsRecorder {
   private static String tag(String value) {
     return value == null || value.isBlank() ? "unknown" : value;
   }
+
+  @Override
+  public void recordLeaseAcquired(String kind) {
+    try {
+      registry.counter("oryxos_leases_acquired_total", "kind", tag(kind)).increment();
+    } catch (RuntimeException e) {
+      LOG.debug("lease acquired 指标记录失败", e);
+    }
+  }
+
+  @Override
+  public void recordLeaseReclaimed(String kind) {
+    try {
+      registry.counter("oryxos_leases_reclaimed_total", "kind", tag(kind)).increment();
+    } catch (RuntimeException e) {
+      LOG.debug("lease reclaimed 指标记录失败", e);
+    }
+  }
+
+  @Override
+  public void recordFenceConflict(String kind) {
+    try {
+      registry.counter("oryxos_fence_conflicts_total", "kind", tag(kind)).increment();
+    } catch (RuntimeException e) {
+      LOG.debug("fence conflict 指标记录失败", e);
+    }
+  }
+
+  @Override
+  public void recordDuplicateDropped(String channel) {
+    try {
+      registry.counter("oryxos_duplicates_dropped_total", "channel", tag(channel)).increment();
+    } catch (RuntimeException e) {
+      LOG.debug("duplicate dropped 指标记录失败", e);
+    }
+  }
 }

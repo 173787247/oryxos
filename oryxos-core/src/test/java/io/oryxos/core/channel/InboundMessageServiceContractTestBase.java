@@ -79,7 +79,7 @@ public abstract class InboundMessageServiceContractTestBase {
             sessionManager,
             profileRegistry,
             executionService,
-            new MessageDeduplicator(),
+            new InMemoryMessageDeduplicator(),
             null,
             Duration.ofSeconds(30));
     when(profileRegistry.get(AGENT)).thenReturn(Optional.of(mock(Profile.class)));

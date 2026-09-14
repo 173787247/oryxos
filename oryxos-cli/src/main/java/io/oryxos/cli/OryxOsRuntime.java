@@ -173,9 +173,13 @@ import org.springframework.web.context.WebApplicationContext;
   ShellSandboxProperties.class,
   HttpSandboxProperties.class,
   SmtpSandboxProperties.class,
-  ExecutionBackendProperties.class
+  ExecutionBackendProperties.class,
+  io.oryxos.core.cluster.ClusterProperties.class
 })
 public class OryxOsRuntime {
+
+  private static final org.slf4j.Logger LOG =
+      org.slf4j.LoggerFactory.getLogger(OryxOsRuntime.class);
 
   // 工作区根目录默认 ./.oryxos；可用属性 oryxos.root 覆盖（集成测试指向临时工作区，默认行为不变）。
   // 从 Spring Environment 解析（而非 JVM 静态捕获 System property）：使每个上下文各持自己的根，
@@ -688,7 +692,11 @@ public class OryxOsRuntime {
       case "mem0" ->
           new Mem0MemoryStore(
               restClient.mutate().baseUrl(mem0BaseUrl).build(), mem0UserId, mem0ApiKey);
-      default -> new MarkdownMemoryStore(oryxosRoot());
+      case "markdown" -> new MarkdownMemoryStore(oryxosRoot());
+        // 026 顺修：未知值曾静默回落 markdown——配置了却不生效比启动失败更危险（knowledge.store 同口径）
+      default ->
+          throw new IllegalStateException(
+              "未知的 memory.backend: " + backend + "（支持 markdown / sqlite / mem0）");
     };
   }
 
@@ -1007,8 +1015,12 @@ public class OryxOsRuntime {
 
   @Bean
   AgentService agentService(
-      ProfileRegistry profileRegistry, ReActLoop reActLoop, SessionManager sessionManager) {
-    return new AgentService(profileRegistry, reActLoop, sessionManager);
+      ProfileRegistry profileRegistry,
+      ReActLoop reActLoop,
+      SessionManager sessionManager,
+      io.oryxos.core.cluster.TurnCoordinator turnCoordinator) {
+    // 026：单机档 NOOP（零协调开销）、集群档 DB 租约——按 oryxos.cluster.enabled 装配
+    return new AgentService(profileRegistry, reActLoop, sessionManager, turnCoordinator);
   }
 
   @Bean
@@ -1024,8 +1036,18 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  io.oryxos.core.channel.MessageDeduplicator messageDeduplicator() {
-    return new io.oryxos.core.channel.MessageDeduplicator();
+  io.oryxos.core.channel.MessageDeduplicator messageDeduplicator(
+      io.oryxos.core.cluster.ClusterProperties cluster,
+      io.oryxos.core.cluster.CoordinationStore store,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+    // 026：单机档进程内去重（现状）；集群档回执落共享库跨副本判重（两级：本地缓存 + DB 硬闸）
+    if (!cluster.isEnabled()) {
+      return new io.oryxos.core.channel.InMemoryMessageDeduplicator();
+    }
+    io.oryxos.core.channel.SharedReceiptDeduplicator dedup =
+        new io.oryxos.core.channel.SharedReceiptDeduplicator(store);
+    dedup.setMetricsRecorder(metricsRecorder);
+    return dedup;
   }
 
   @Bean
@@ -1073,12 +1095,26 @@ public class OryxOsRuntime {
       io.oryxos.core.channel.InboundChannelRegistry inboundChannelRegistry,
       ProfileRegistry profileRegistry,
       io.oryxos.core.channel.InboundMessageService inboundMessageService,
-      io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
-    return new io.oryxos.core.channel.ChannelAdminService(
-        channelConfigLoader,
-        inboundChannelRegistry,
-        profileRegistry,
-        inboundChannelFactories(profileRegistry, inboundMessageService, channelOutboundGuard));
+      io.oryxos.core.channel.OutboundGuard channelOutboundGuard,
+      io.oryxos.core.cluster.ClusterProperties clusterProps,
+      io.oryxos.core.cluster.CoordinationStore coordinationStore,
+      ThreadPoolTaskScheduler taskScheduler,
+      io.oryxos.core.metrics.MetricsRecorder channelMetricsRecorder) {
+    io.oryxos.core.channel.ChannelAdminService service =
+        new io.oryxos.core.channel.ChannelAdminService(
+            channelConfigLoader,
+            inboundChannelRegistry,
+            profileRegistry,
+            inboundChannelFactories(profileRegistry, inboundMessageService, channelOutboundGuard));
+    // 026：集群档下独连型渠道（企微）走属主协调——持租约副本建连，属主失效自动接管，永不互踢
+    if (clusterProps.isEnabled()) {
+      io.oryxos.core.channel.ChannelLeaseCoordinator leaseCoordinator =
+          new io.oryxos.core.channel.ChannelLeaseCoordinator(
+              coordinationStore, clusterProps, taskScheduler);
+      leaseCoordinator.setMetricsRecorder(channelMetricsRecorder);
+      service.setChannelLeaseCoordinator(leaseCoordinator);
+    }
+    return service;
   }
 
   private static Map<
@@ -1229,6 +1265,65 @@ public class OryxOsRuntime {
     return scheduler;
   }
 
+  /** 026：协调存储恒建（读操作单机档也可答）；写协调只在 cluster.enabled=true 生效。 */
+  @Bean
+  io.oryxos.core.cluster.CoordinationStore coordinationStore(
+      io.oryxos.storage.TurnLeaseRepository turnLeases,
+      io.oryxos.storage.ChannelEventReceiptRepository receipts,
+      io.oryxos.storage.ChannelLeaseRepository channelLeases,
+      io.oryxos.storage.InstanceHeartbeatRepository instances,
+      io.oryxos.storage.ScheduledTaskRepository scheduledTasks) {
+    return new io.oryxos.storage.JpaCoordinationStore(
+        turnLeases, receipts, channelLeases, instances, scheduledTasks);
+  }
+
+  /** 026：轮次互斥——单机档 NOOP（零协调写零变化），集群档 DB 租约（认领「正在执行的一轮」）。 */
+  @Bean
+  io.oryxos.core.cluster.TurnCoordinator turnCoordinator(
+      io.oryxos.core.cluster.ClusterProperties cluster,
+      io.oryxos.core.cluster.CoordinationStore store,
+      ThreadPoolTaskScheduler taskScheduler,
+      AgentExecutionStore agentExecutionStore,
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+    if (!cluster.isEnabled()) {
+      return io.oryxos.core.cluster.TurnCoordinator.NOOP;
+    }
+    io.oryxos.core.cluster.DbTurnCoordinator coordinator =
+        new io.oryxos.core.cluster.DbTurnCoordinator(store, cluster, taskScheduler);
+    coordinator.setMetricsRecorder(metricsRecorder);
+    // 026：抢过期成功 = 前任副本失联——给其悬空轮补失败留痕（不重放，用户重发恢复）
+    coordinator.setReclaimedExecutionHandler(
+        executionId ->
+            agentExecutionStore.finish(
+                executionId, null, false, "副本失联，轮次终止（租约过期被接管）", java.time.Instant.now()));
+    return coordinator;
+  }
+
+  /** 026：心跳循环（仅集群档）——上报存活 + 惰性清理超龄回执与死实例行。 */
+  @Bean
+  Object clusterHeartbeat(
+      io.oryxos.core.cluster.ClusterProperties cluster,
+      io.oryxos.core.cluster.CoordinationStore store,
+      ThreadPoolTaskScheduler taskScheduler) {
+    if (!cluster.isEnabled()) {
+      return new Object();
+    }
+    long epoch = java.lang.management.ManagementFactory.getRuntimeMXBean().getStartTime();
+    String instanceId = cluster.effectiveInstanceId();
+    java.time.Duration interval = cluster.effectiveHeartbeatInterval();
+    return taskScheduler.scheduleAtFixedRate(
+        () -> {
+          try {
+            store.heartbeat(instanceId, epoch);
+            store.purgeExpired(
+                java.time.Duration.ofHours(12), cluster.getLeaseTtl().multipliedBy(3));
+          } catch (RuntimeException e) {
+            LOG.warn("心跳/清理失败（下一周期重试）", e);
+          }
+        },
+        interval);
+  }
+
   /** 28 节：定时任务状态与执行历史落库（重启不丢），并支撑管理台的查看/立即执行/启用停用。 */
   @Bean
   ScheduledTaskStore scheduledTaskStore(
@@ -1245,15 +1340,23 @@ public class OryxOsRuntime {
       SessionManager sessionManager,
       ScheduledTaskStore scheduledTaskStore,
       AgentExecutionStore agentExecutionStore,
-      AgentExecutionService agentExecutionService) {
-    return new AgentScheduler(
-        taskScheduler,
-        profileRegistry,
-        agentService,
-        sessionManager,
-        scheduledTaskStore,
-        agentExecutionStore,
-        agentExecutionService);
+      AgentExecutionService agentExecutionService,
+      io.oryxos.core.cluster.ClusterProperties clusterProperties,
+      io.oryxos.core.cluster.CoordinationStore coordinationStore) {
+    AgentScheduler scheduler =
+        new AgentScheduler(
+            taskScheduler,
+            profileRegistry,
+            agentService,
+            sessionManager,
+            scheduledTaskStore,
+            agentExecutionStore,
+            agentExecutionService);
+    // 026：集群档启用到点认领（恰好一次）；单机档不注入保持现状零协调写
+    if (clusterProperties.isEnabled()) {
+      scheduler.enableFireTimeClaim(coordinationStore, clusterProperties.owner());
+    }
+    return scheduler;
   }
 
   /** 32 节：Agent 执行历史落 SQLite（手动触发 + 定时触发都记，起止时间 / 状态）。 */

@@ -29,6 +29,18 @@ public interface MetricsRecorder {
   /** 一次 fallback 切换（from → to）。 */
   default void recordFallbackSwitch(String from, String to) {}
 
+  /** 026：租约认领成功（kind = turn / schedule / channel）。 */
+  default void recordLeaseAcquired(String kind) {}
+
+  /** 026：抢过期回收一次（前任副本失联判定）。 */
+  default void recordLeaseReclaimed(String kind) {}
+
+  /** 026：fencing 冲突一次（续租失败中止 / 写回被拒）。 */
+  default void recordFenceConflict(String kind) {}
+
+  /** 026：入站重复事件丢弃一次（跨副本/本地判重命中）。 */
+  default void recordDuplicateDropped(String channel) {}
+
   /**
    * 入站 ASR（语音/视频音轨）一次尝试。
    *

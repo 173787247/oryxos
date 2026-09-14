@@ -39,12 +39,24 @@ public class AgentService {
   private final ProfileRegistry profileRegistry;
   private final ReActLoop reActLoop;
   private final SessionManager sessionManager;
+  private final io.oryxos.core.cluster.TurnCoordinator turnCoordinator;
 
   public AgentService(
       ProfileRegistry profileRegistry, ReActLoop reActLoop, SessionManager sessionManager) {
+    // 旧构造委托 NOOP（单机档语义）：既有测试与调用点零破坏
+    this(profileRegistry, reActLoop, sessionManager, io.oryxos.core.cluster.TurnCoordinator.NOOP);
+  }
+
+  /** 026：多副本档注入 DbTurnCoordinator——在进程内会话锁之内叠加跨副本轮次互斥。 */
+  public AgentService(
+      ProfileRegistry profileRegistry,
+      ReActLoop reActLoop,
+      SessionManager sessionManager,
+      io.oryxos.core.cluster.TurnCoordinator turnCoordinator) {
     this.profileRegistry = profileRegistry;
     this.reActLoop = reActLoop;
     this.sessionManager = sessionManager;
+    this.turnCoordinator = turnCoordinator;
   }
 
   public String process(Session session, String userMessage) {
@@ -69,9 +81,17 @@ public class AgentService {
         session.sessionId() == null ? profileNameOrFallback(session) : session.sessionId();
     Lock lock = sessionLocks.computeIfAbsent(sessionKey, id -> new ReentrantLock());
     lock.lock();
+    // 026：进程内锁之内叠加跨副本轮次租约（单机档 NOOP 零开销）——认领「正在执行的一轮」，
+    // 同会话后到消息跨副本排队等待，与单机排队语义等价
+    io.oryxos.core.cluster.TurnLease turnLease = null;
     // 021：兜底开启 trace（controller 先开的场景复用同一 ID，owner=false 不清外层）；
     // 全部触发源（CLI/定时/飞书/REST）经此收口，本轮所有审计落库与日志自动携带同一 traceId
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
+      turnLease = turnCoordinator.acquire(sessionKey);
+      Long executionId = ExecutionContext.currentId();
+      if (executionId != null) {
+        turnLease.attachExecution(executionId); // 026：悬空轮失败留痕的关联键
+      }
       // Controller / Channel 在进入本锁前已拿到 Session；等待锁期间它可能过期，因此必须在锁内重读。
       Session activeSession = sessionManager.get(sessionKey).orElse(session);
       List<Message> expectedMessages = activeSession.messages();
@@ -96,6 +116,10 @@ public class AgentService {
         // 让 triggerAsync 把执行记成失败状态（否则前端显示"执行成功"——错误引导用户）
         boolean exhausted = ReActLoop.MAX_ITERATIONS_REPLY.equals(reply);
         activeSession.retainRecentTurns(profile.settings().maxHistoryTurns());
+        // 026 fencing 硬闸：租约被回收（假死/超长轮被接管）绝不写回——会话历史以接管方为准
+        if (!turnLease.stillHeld()) {
+          throw new io.oryxos.core.cluster.TurnFencedException(sessionKey);
+        }
         // 无论正常结束还是迭代耗尽都保存现场；条件更新确保跨进程旧快照不会覆盖新历史。
         sessionManager.saveIfUnchanged(activeSession, expectedMessages);
         if (exhausted) {
@@ -106,6 +130,9 @@ public class AgentService {
         ProfileContext.clear(); // 虚拟线程每请求独立，用完必须清
       }
     } finally {
+      if (turnLease != null) {
+        turnCoordinator.release(sessionKey, turnLease); // 先释跨副本租约
+      }
       lock.unlock(); // 无论成功失败必须放锁，否则该会话永久卡死
     }
   }

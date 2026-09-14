@@ -93,8 +93,8 @@ class AgentSchedulerTest {
 
     ArgumentCaptor<Trigger> captor = ArgumentCaptor.forClass(Trigger.class);
     verify(taskScheduler).schedule(any(Runnable.class), captor.capture());
-    CronTrigger trigger = assertInstanceOf(CronTrigger.class, captor.getValue());
-    assertEquals(CRON, trigger.getExpression());
+    // 026：trigger 为 FireTimeTrigger 包装（记录理论触发时刻），cron/zone 语义经委托保持
+    Trigger trigger = assertInstanceOf(AgentScheduler.FireTimeTrigger.class, captor.getValue());
     SimpleTriggerContext context =
         new SimpleTriggerContext(Instant.EPOCH, Instant.EPOCH, Instant.EPOCH);
     assertEquals(
