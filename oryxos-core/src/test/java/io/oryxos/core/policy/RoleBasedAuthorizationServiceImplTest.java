@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
  *
  * <p>期望值在本文件里独立重写（不复用实现常量），否则测试会退化成「实现和自己比」的自证。
  */
-class RoleBasedAuthorizationServiceTest {
+class RoleBasedAuthorizationServiceImplTest {
 
   private static final String USER_ID = "alice";
   private static final String USER_DISPLAY_NAME = "Alice";
@@ -78,8 +78,8 @@ class RoleBasedAuthorizationServiceTest {
   private static final Set<Action> API_KEY_ADMIN_ALLOWED = buildApiKeyAdminAllowed();
 
   /** 未配置默认角色：主体自带角色为空即无权。矩阵边界断言一律基于它，避免默认角色干扰。 */
-  private static final RoleBasedAuthorizationService NO_DEFAULTS_SERVICE =
-      new RoleBasedAuthorizationService(Set.of(), Set.of());
+  private static final RoleBasedAuthorizationServiceImpl NO_DEFAULTS_SERVICE =
+      new RoleBasedAuthorizationServiceImpl(Set.of(), Set.of());
 
   /**
    * 同一实例的接口视图：裁决断言全部经 {@link AuthorizationService} 契约调用，证明「换实现不用改调用方」。
@@ -90,11 +90,11 @@ class RoleBasedAuthorizationServiceTest {
 
   /** 默认角色档：USER 未带角色时回落 VIEWER，API Key 未带角色时回落 ADMIN（提权缺陷的复现现场）。 */
   private static final AuthorizationService MIXED_DEFAULTS =
-      new RoleBasedAuthorizationService(Set.of(Role.VIEWER), Set.of(Role.ADMIN));
+      new RoleBasedAuthorizationServiceImpl(Set.of(Role.VIEWER), Set.of(Role.ADMIN));
 
   /** USER 默认 EDITOR、API Key 默认 VIEWER：验证「显式角色优先于默认角色」与回落不越类别边界。 */
   private static final AuthorizationService EDITOR_DEFAULT_SERVICE =
-      new RoleBasedAuthorizationService(Set.of(Role.EDITOR), Set.of(Role.VIEWER));
+      new RoleBasedAuthorizationServiceImpl(Set.of(Role.EDITOR), Set.of(Role.VIEWER));
 
   // ---------------------------------------------------------------- 行为 1：匿名一律拒
 
@@ -569,7 +569,7 @@ class RoleBasedAuthorizationServiceTest {
   @Test
   @DisplayName("构造参数为null_不抛异常_回落为无默认角色即全拒")
   void nullConstructorArgsDegradeToDeny() {
-    AuthorizationService service = new RoleBasedAuthorizationService(null, null);
+    AuthorizationService service = new RoleBasedAuthorizationServiceImpl(null, null);
     Principal roleless = Principal.user(USER_ID, USER_DISPLAY_NAME, Set.of());
 
     // 为什么断言「不抛 + 全拒」：配置缺失时失败方向必须朝拒绝而不是朝放行。

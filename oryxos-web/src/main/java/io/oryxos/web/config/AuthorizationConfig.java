@@ -2,7 +2,7 @@ package io.oryxos.web.config;
 
 import io.oryxos.core.auth.Role;
 import io.oryxos.core.policy.AuthorizationService;
-import io.oryxos.core.policy.RoleBasedAuthorizationService;
+import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
 import io.oryxos.web.security.RbacEnforcer;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -49,7 +49,7 @@ public class AuthorizationConfig {
     Set<Role> userRoles = parseRoles(roleProperties.getDefaultUserRoles());
     Set<Role> apiKeyRoles = parseRoles(roleProperties.getDefaultApiKeyRoles());
     LOG.info(LOG_ROLE_BASED, userRoles, apiKeyRoles, properties.isDenyAnonymous());
-    return new RoleBasedAuthorizationService(userRoles, apiKeyRoles);
+    return new RoleBasedAuthorizationServiceImpl(userRoles, apiKeyRoles);
   }
 
   /**

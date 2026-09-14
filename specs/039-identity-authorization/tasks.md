@@ -19,7 +19,7 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 
 ## 工作树现状（2026-09-14 快照）
 
-以下条目已在工作树落地（未提交），对应任务标 `[X]`：`oryxos-core/.../auth/{Principal,Role}.java`、`oryxos-core/.../policy/{Action,ResourceRef,AuthorizationService,RoleBasedAuthorizationService}.java`、`oryxos-web/.../config/{WebRbacProperties,RoleMappingProperties,AuthorizationConfig}.java`、`oryxos-web/.../security/{PrincipalHolder,RbacEnforcer}.java`、`ApiKeyAuthFilter` 的主体置入与强制点调用（5 参构造）、`ApiKeyFilterConfig` 的强制点装配、`config/application.yml.example` 的注释段、`oryxos-core/src/test/.../{auth/PrincipalTest,policy/RoleBasedAuthorizationServiceTest}.java`。其余任务为待办。**两个阻断 US1 验收的缺口已在 spec.md §Clarifications 记为待裁决/待补**：① 路径 → 动作映射（当前强制点只做 `READ_WORKSPACE` 基线判定）；② 角色落库（当前所有管理台账号都落入 `default-user-roles=ADMIN`，三档矩阵对 USER 主体不生效）。
+以下条目已在工作树落地（未提交），对应任务标 `[X]`：`oryxos-core/.../auth/{Principal,Role}.java`、`oryxos-core/.../policy/{Action,ResourceRef,AuthorizationService,RoleBasedAuthorizationServiceImpl}.java`、`oryxos-web/.../config/{WebRbacProperties,RoleMappingProperties,AuthorizationConfig}.java`、`oryxos-web/.../security/{PrincipalHolder,RbacEnforcer}.java`、`ApiKeyAuthFilter` 的主体置入与强制点调用（5 参构造）、`ApiKeyFilterConfig` 的强制点装配、`config/application.yml.example` 的注释段、`oryxos-core/src/test/.../{auth/PrincipalTest,policy/RoleBasedAuthorizationServiceImplTest}.java`。其余任务为待办。**两个阻断 US1 验收的缺口已在 spec.md §Clarifications 记为待裁决/待补**：① 路径 → 动作映射（当前强制点只做 `READ_WORKSPACE` 基线判定）；② 角色落库（当前所有管理台账号都落入 `default-user-roles=ADMIN`，三档矩阵对 USER 主体不生效）。
 
 ---
 
@@ -46,15 +46,15 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 - [X] T006 [P] `oryxos-core/src/main/java/io/oryxos/core/policy/Action.java`：11 个受控动作（读/运行/管理三族；javadoc 写明与 `ToolPolicyService` 正交、主体不同）
 - [X] T007 [P] `oryxos-core/src/main/java/io/oryxos/core/policy/ResourceRef.java`：`type+id` 最小资源引用 + `TYPE_*` 常量与工厂（`workspace/agent/knowledge/skill/channel/session/audit/policy/member`）
 - [X] T008 `oryxos-core/src/main/java/io/oryxos/core/policy/AuthorizationService.java`（依赖 T005/T006/T007）：唯一决策契约 + `ALLOW_ALL` 常量 + 嵌套 `Decision{allowed, reason}`（`denied(reason)` 对空理由兜底）；javadoc 写明「默认关零行为变化」「拒绝必须可解释」「实现不得缓存主体角色」三条硬约束
-- [X] T009 `oryxos-core/src/main/java/io/oryxos/core/policy/RoleBasedAuthorizationService.java`（依赖 T008）：矩阵落为 `EnumSet` 逐级叠加（VIEWER ⊆ EDITOR ⊆ ADMIN）、API Key 上限（ADMIN 减 `MANAGE_MEMBERS`/`MANAGE_POLICIES`）、角色不取并集（主体自带优先，空则回落按类别默认档）、`matrix()` 只读视图
+- [X] T009 `oryxos-core/src/main/java/io/oryxos/core/policy/RoleBasedAuthorizationServiceImpl.java`（依赖 T008）：矩阵落为 `EnumSet` 逐级叠加（VIEWER ⊆ EDITOR ⊆ ADMIN）、API Key 上限（ADMIN 减 `MANAGE_MEMBERS`/`MANAGE_POLICIES`）、角色不取并集（主体自带优先，空则回落按类别默认档）、`matrix()` 只读视图
 - [X] T010 [P] `oryxos-core/src/test/java/io/oryxos/core/auth/PrincipalTest.java`：null 归一、角色去重冻结、`isAuthorizable`、`describe` 不含敏感值
-- [X] T011 [P] `oryxos-core/src/test/java/io/oryxos/core/policy/RoleBasedAuthorizationServiceTest.java`：三档 × 11 动作全矩阵断言、`VIEWER ⊆ EDITOR ⊆ ADMIN` 包含关系、API Key 上限（给 ADMIN 仍不得成员/策略）、空角色拒绝、匿名拒绝（含「伪造带 ADMIN 角色的匿名主体仍被拒」）、`null` 主体/动作不抛异常且拒绝、`ALLOW_ALL` 恒允许且容忍 null、`Decision.denied` 不产出空理由、默认档兜底与「角色不取并集」
+- [X] T011 [P] `oryxos-core/src/test/java/io/oryxos/core/policy/RoleBasedAuthorizationServiceImplTest.java`：三档 × 11 动作全矩阵断言、`VIEWER ⊆ EDITOR ⊆ ADMIN` 包含关系、API Key 上限（给 ADMIN 仍不得成员/策略）、空角色拒绝、匿名拒绝（含「伪造带 ADMIN 角色的匿名主体仍被拒」）、`null` 主体/动作不抛异常且拒绝、`ALLOW_ALL` 恒允许且容忍 null、`Decision.denied` 不产出空理由、默认档兜底与「角色不取并集」
 - [X] T012 [P] `oryxos-web/src/main/java/io/oryxos/web/config/WebRbacProperties.java`（`oryxos.web.rbac.*`：`enabled` 默认 false、`deny-anonymous` 默认 true）与 `oryxos-web/src/main/java/io/oryxos/web/config/RoleMappingProperties.java`（`oryxos.web.rbac.roles.*`：`default-user-roles` 默认 `[ADMIN]`、`default-api-key-roles` 默认空；两前缀必须分开，同前缀会绑定冲突）
-- [X] T013 `oryxos-web/src/main/java/io/oryxos/web/config/AuthorizationConfig.java`（依赖 T012）：`@EnableConfigurationProperties({WebRbacProperties, RoleMappingProperties})`；`enabled=false` 时注入 `AuthorizationService.ALLOW_ALL`、开启时注入 `RoleBasedAuthorizationService`（角色名解析大小写不敏感、未知角色 WARN 忽略）；同时产出 `RbacEnforcer` Bean（两扇门共享同一实例）。**注**：`WebAuthConfig` 无需改动（本类自注册两属性）
+- [X] T013 `oryxos-web/src/main/java/io/oryxos/web/config/AuthorizationConfig.java`（依赖 T012）：`@EnableConfigurationProperties({WebRbacProperties, RoleMappingProperties})`；`enabled=false` 时注入 `AuthorizationService.ALLOW_ALL`、开启时注入 `RoleBasedAuthorizationServiceImpl`（角色名解析大小写不敏感、未知角色 WARN 忽略）；同时产出 `RbacEnforcer` Bean（两扇门共享同一实例）。**注**：`WebAuthConfig` 无需改动（本类自注册两属性）
 - [X] T014 [P] `oryxos-web/src/main/java/io/oryxos/web/security/PrincipalHolder.java`：请求属性承载（属性名 `io.oryxos.web.principal`，未认证读回 `Principal.anonymous()`）；javadoc 写明「不用 ThreadLocal 的理由 = 线程复用下漏清理即越权」
 - [X] T015 `oryxos-web/src/main/java/io/oryxos/web/security/RbacEnforcer.java`（依赖 T008/T012/T014）：`enabled=false` 恒放行；匿名按 `denyAnonymous` 裁决；已认证主体调 `AuthorizationService.decide`；拒绝写 403 与结构化日志（待 T018 接审计持久化）
 
-**Checkpoint**: `mvn -q -pl oryxos-core,oryxos-web test` 全绿；`RoleBasedAuthorizationServiceTest` 覆盖全矩阵；默认档下 `RbacEnforcer` 恒放行（零行为变化可断言）
+**Checkpoint**: `mvn -q -pl oryxos-core,oryxos-web test` 全绿；`RoleBasedAuthorizationServiceImplTest` 覆盖全矩阵；默认档下 `RbacEnforcer` 恒放行（零行为变化可断言）
 
 ---
 
@@ -169,7 +169,7 @@ Task: "T005 Role.java 三档角色"
 Task: "T006 Action.java 受控动作词表"
 Task: "T007 ResourceRef.java 资源引用"
 Task: "T014 PrincipalHolder.java 请求属性承载"
-# 随后串行：T008 AuthorizationService → T009 RoleBasedAuthorizationService →（并行）T010/T011 测试
+# 随后串行：T008 AuthorizationService → T009 RoleBasedAuthorizationServiceImpl →（并行）T010/T011 测试
 ```
 
 ---

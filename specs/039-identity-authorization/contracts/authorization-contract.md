@@ -5,7 +5,7 @@
 ## 1. 主体与裁决语义承诺
 
 1. **唯一主体**：一次请求的「谁」只有一个表达——`io.oryxos.core.auth.Principal{kind, id, displayName, roles}`；`kind ∈ {USER, API_KEY, ANONYMOUS}`，**主体永远不是 `null`**（未认证归一为 `Anonymous(anonymous)`）。任何从 `sessions.user_id` 推导主体的实现都是错的——该列被控制台写成常量 `default`。
-2. **唯一决策点**：`AuthorizationService` 只有一个实现（`RoleBasedAuthorizationService`），API / 管理台 / 运行时三条路径都调它；Controller 与 Filter **不得**直接比对角色做判定。
+2. **唯一决策点**：`AuthorizationService` 只有一个实现（`RoleBasedAuthorizationServiceImpl`），API / 管理台 / 运行时三条路径都调它；Controller 与 Filter **不得**直接比对角色做判定。
 3. **只做减法**：裁决结果永远 ⊆ 主体角色所允许的动作集合；没有任何「临时提权」通道——同请求里带 session 与 Key 时**角色不取并集**。
 4. **确定收敛**：同输入同结果；矩阵是代码常量（`EnumSet` 逐级叠加），不是运行时可改数据；扩档先改 spec。
 5. **拒绝可解释**：`Decision.reason()` 是能被人读懂的一句话，直接进审计与拒绝响应；错误码不充当理由。

@@ -26,7 +26,7 @@ import java.util.Set;
  *
  * <p>线程安全：构造后成员全部不可变，可安全共享为单例 Bean。
  */
-public final class RoleBasedAuthorizationService implements AuthorizationService {
+public final class RoleBasedAuthorizationServiceImpl implements AuthorizationService {
 
   /** 拒绝理由文案（集中常量：P3C 要求字面量抽常量，同时保证审计文案一致）。 */
   private static final String REASON_ANONYMOUS = "匿名请求未被授权";

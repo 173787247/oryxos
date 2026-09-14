@@ -76,10 +76,10 @@ oryxos-core/
 │   ├── Action.java                        # 已落地：11 个受控动作
 │   ├── ResourceRef.java                   # 已落地：type+id 最小资源引用（含 TYPE_* 常量与工厂）
 │   ├── AuthorizationService.java          # 已落地：唯一决策契约 + ALLOW_ALL + 嵌套 Decision
-│   └── RoleBasedAuthorizationService.java # 已落地：最小角色矩阵实现（含 API Key 能力上限）
+│   └── RoleBasedAuthorizationServiceImpl.java # 已落地：最小角色矩阵实现（含 API Key 能力上限）
 ├── src/test/java/io/oryxos/core/auth|policy/
 │   ├── PrincipalTest.java                 # 已落地：null 归一/角色冻结/isAuthorizable
-│   └── RoleBasedAuthorizationServiceTest.java  # 已落地：三档矩阵、Key 上限、确定性、默认档
+│   └── RoleBasedAuthorizationServiceImplTest.java  # 已落地：三档矩阵、Key 上限、确定性、默认档
 
 oryxos-storage/
 ├── src/main/resources/db/migration/postgresql/V8__web_user_roles.sql   # 新增：ALTER web_users 加 roles + CREATE authz_events

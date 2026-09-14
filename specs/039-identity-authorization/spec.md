@@ -20,7 +20,7 @@
 
 - Q: RBAC 的隔离边界该用什么词？仓库里「Workspace」已被「Agent 工作区根目录」（`oryxos.root` / `.oryxos`）占用，直接拿来做租户边界会一词二义。 → **A（推荐）**：本刀**不引入新的顶层名词**，统一用「**边界 / boundary**」描述授权范围；`Action.MANAGE_WORKSPACE` 与 `ResourceRef.TYPE_WORKSPACE` 只是既有实现里已固化的动作与资源词表，其语义**限定为「本部署的授权范围整体」**，与「Agent 工作区根目录」无关（消歧段落见 §Edge Cases 与 contracts §1）。正式命名（Tenant / Org / Project）留待 #462 的租户模型裁决，届期只改文档与枚举文案、不改接口形状。理由：名词未定就落进接口，评审会把精力耗在命名而非权限边界上；且 `docs/DemandAnalysis.md:530` 的三级租户模型（组织/部门/项目）比任何单一名词都更可能定稿。**状态：待 maintainer 裁决。**
 - Q: flag 关闭时 `/admin/**` 的既有语义是否原样保留？ → **A（推荐）**：原样保留，且 flag 开启时也不改动它——本刀**不新增任何 URL pattern、不改 `AuthFilterConfig` / `ApiKeyFilterConfig` 的注册模式**；`/admin/**` 继续只做认证（登录页与 `/admin/assets/**` 放行、session cookie 有效即通过、不查 `web_users.enabled`，全部维持 012 已记录裁决）；授权裁决只发生在 `/api/v1|v2/*`、`/actuator/*` 这条既有门内（控制台的数据面本来就走 `/api/v1/**`，见 018 的 session 即凭据设计）。理由：`ApiKeyFilterConfig.PROTECTED_URL_PATTERNS` 是**单个手维护数组**，其类注释明写「新增 API 版本时必须同步登记，否则该版本整棵子树匿名可达」——任何靠加 pattern 实现的授权都会把这个坑放大一倍。**状态：待 maintainer 裁决。**
-- Q: API Key 的归属怎么定——挂到人或组织继承其权限，还是绑成 Agent 的委托身份？ → **A（推荐）**：本刀**不做归属建模**（`api_keys` 不加 `owner`/`scope` 列，018 已明确「按 Key 细分端点权限留到 v1.0 租户模型定型后」），API Key 主体**默认不给任何角色**（`oryxos.web.rbac.roles.default-api-key-roles` 默认空 = 一律拒绝，机器凭证不默认授权）；需要让机器调用方在授权开启后继续干活时，由部署方显式授予（例如 `[EDITOR]`），并叠加实现层已固化的**Key 能力上限**：即使显式给到 ADMIN，`MANAGE_MEMBERS` 与 `MANAGE_POLICIES` 也不放行（`RoleBasedAuthorizationService.API_KEY_MAX_ACTIONS`）——不让一把可被复制到任意环境的长期凭证去改治理规则本身。理由：挂到人需要 `owner` 列 + 归属治理，与 #463 资产治理重叠且本刀不做；绑 Agent 会把主体与 020 的 Agent 级工具策略（那问的是「Agent 能不能用这个工具」）混为一谈，主体语义反而更糊。真要做到「Key 代表谁」，先做 #461 的身份映射。**状态：待 maintainer 裁决（安全默认值取「不给权限」，需要放行时靠显式配置而非隐式继承）。**
+- Q: API Key 的归属怎么定——挂到人或组织继承其权限，还是绑成 Agent 的委托身份？ → **A（推荐）**：本刀**不做归属建模**（`api_keys` 不加 `owner`/`scope` 列，018 已明确「按 Key 细分端点权限留到 v1.0 租户模型定型后」），API Key 主体**默认不给任何角色**（`oryxos.web.rbac.roles.default-api-key-roles` 默认空 = 一律拒绝，机器凭证不默认授权）；需要让机器调用方在授权开启后继续干活时，由部署方显式授予（例如 `[EDITOR]`），并叠加实现层已固化的**Key 能力上限**：即使显式给到 ADMIN，`MANAGE_MEMBERS` 与 `MANAGE_POLICIES` 也不放行（`RoleBasedAuthorizationServiceImpl.API_KEY_MAX_ACTIONS`）——不让一把可被复制到任意环境的长期凭证去改治理规则本身。理由：挂到人需要 `owner` 列 + 归属治理，与 #463 资产治理重叠且本刀不做；绑 Agent 会把主体与 020 的 Agent 级工具策略（那问的是「Agent 能不能用这个工具」）混为一谈，主体语义反而更糊。真要做到「Key 代表谁」，先做 #461 的身份映射。**状态：待 maintainer 裁决（安全默认值取「不给权限」，需要放行时靠显式配置而非隐式继承）。**
 
 **待裁决（1 项，阻断 US1 可验收性）**
 
@@ -32,7 +32,7 @@
 
 **待确认（1 项，质量门禁口径）**
 
-- Q: `RoleBasedAuthorizationService` 的命名与落位与既有范式不一致，是否要在实现期调整？ → **A（推荐）**：（a）落位——角色矩阵是**零持久化依赖的纯函数**，放 `oryxos-core/policy` 可让运行时与 Web 复用同一实现；这与 `ToolPolicyService`（接口在 core、SQLite 实现在 storage）的依赖倒置范式**有意收窄**，持久化面（角色列读取、拒绝审计落库）仍落 `oryxos-storage`，本 spec 显式声明该偏差（评审最易追问处）。（b）命名——020 先例把实现类改名 `ToolPolicyServiceImpl` 以满足 P3C「Service 实现类必须以 `Impl` 结尾」；`RoleBasedAuthorizationService` 若被 P3C 拦下，按同一先例改名（或去掉 `Service` 后缀），文档同步。**状态：待确认（以 `mvn verify` 的 P3C 结果为准）。**
+- Q: `RoleBasedAuthorizationServiceImpl` 的命名与落位与既有范式不一致，是否要在实现期调整？ → **A（推荐）**：（a）落位——角色矩阵是**零持久化依赖的纯函数**，放 `oryxos-core/policy` 可让运行时与 Web 复用同一实现；这与 `ToolPolicyService`（接口在 core、SQLite 实现在 storage）的依赖倒置范式**有意收窄**，持久化面（角色列读取、拒绝审计落库）仍落 `oryxos-storage`，本 spec 显式声明该偏差（评审最易追问处）。（b）命名——020 先例把实现类改名 `ToolPolicyServiceImpl` 以满足 P3C「Service 实现类必须以 `Impl` 结尾」；`RoleBasedAuthorizationServiceImpl` 若被 P3C 拦下，按同一先例改名（或去掉 `Service` 后缀），文档同步。**状态：待确认（以 `mvn verify` 的 P3C 结果为准）。**
 
 **已裁决（本刀内部拍板，随 spec 生效）**
 

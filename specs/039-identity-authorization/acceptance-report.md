@@ -21,7 +21,7 @@ mvn -B clean verify -pl oryxos-web -am \
 | 套件 | 用例数 | 说明 |
 |------|--------|------|
 | `io.oryxos.core.auth.PrincipalTest` | 13 | 新增：主体构造/归一/不可变角色集/匿名语义 |
-| `io.oryxos.core.policy.RoleBasedAuthorizationServiceTest` | 27 | 新增：三档角色边界、API Key 上限、**角色不叠加（防提权）**；逐动作穷举 11 个动作而非点样例 |
+| `io.oryxos.core.policy.RoleBasedAuthorizationServiceImplTest` | 27 | 新增：三档角色边界、API Key 上限、**角色不叠加（防提权）**；逐动作穷举 11 个动作而非点样例 |
 | `io.oryxos.core.policy.ResourceRefTest` | 6 | 新增：资源词表与 `describe()` 退化 |
 | `io.oryxos.core.policy.PolicyInterceptTest` | 4 | 既有（020 工具策略）：未回归 |
 | `io.oryxos.web.security.ApiKeyAuthFilterTest` | 22 | 既有 20 个全绿 + 新增 2 条「默认关不得多打一次库」 |
@@ -39,7 +39,7 @@ mvn -B clean verify -pl oryxos-web -am \
 **本次证据不能支撑的结论**（不写成绿灯）：
 
 - **PMD/P3C 与 SpotBugs 两道门未验证**：本机 Maven 3.9.9 与仓库锁定的 `maven-pmd-plugin:3.21.2` / `spotbugs-maven-plugin:4.8.6.4` 存在 API 不兼容（`MavenMultiPageReport`、`doxia.logging.LogEnabled`）；换 Maven 3.8.8 同样失败（实测）。**这两道门只能由 CI 证明**。
-- **P3C 命名风险未证伪**：`RoleBasedAuthorizationService` 作为实现类可能触发 P3C「Service 实现类须以 `Impl` 结尾」（020 先例改名 `ToolPolicyServiceImpl`），需 CI 结果确认。
+- **P3C 命名风险未证伪**：`RoleBasedAuthorizationServiceImpl` 作为实现类可能触发 P3C「Service 实现类须以 `Impl` 结尾」（020 先例改名 `ToolPolicyServiceImpl`），需 CI 结果确认。
 
 **独立复核**：本切面的契约与实现由独立于实现者的复核方在隔离快照中复跑，报告见仓库外交付目录 `oryxos-contrib/research/authz-verification.md`（含逐文件 md5 锚点、失败面分析与变异检验结论）。
 
@@ -66,7 +66,7 @@ mvn -B clean verify -pl oryxos-web -am \
 | core 词表 | `oryxos-core/.../core/policy/Action.java` | 11 个动作，读/运行/管理三族 |
 | core 资源 | `oryxos-core/.../core/policy/ResourceRef.java` | `type+id` + `TYPE_*` 常量与工厂 |
 | core 决策 | `oryxos-core/.../core/policy/AuthorizationService.java` | `ALLOW_ALL` + `decide` + 嵌套 `Decision{ALLOWED, denied}` |
-| core 实现 | `oryxos-core/.../core/policy/RoleBasedAuthorizationService.java` | 三档 `EnumSet` 叠加、API Key 上限（减成员/策略）、角色不取并集、`matrix()` 只读视图 |
+| core 实现 | `oryxos-core/.../core/policy/RoleBasedAuthorizationServiceImpl.java` | 三档 `EnumSet` 叠加、API Key 上限（减成员/策略）、角色不取并集、`matrix()` 只读视图 |
 | web 配置 | `oryxos-web/.../config/{WebRbacProperties,RoleMappingProperties,AuthorizationConfig}.java` | 开关与默认档、`enabled=false` 注入 `ALLOW_ALL`、`RbacEnforcer` Bean |
 | web 承载 | `oryxos-web/.../security/PrincipalHolder.java` | 请求属性 `io.oryxos.web.principal`，未认证读回匿名主体 |
 | web 强制点 | `oryxos-web/.../security/RbacEnforcer.java` | flag 关恒放行；启用时**只做基线判定**（`READ_WORKSPACE`）与 403 + WARN 日志 |

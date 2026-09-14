@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.oryxos.core.auth.Role;
 import io.oryxos.core.policy.AuthorizationService;
-import io.oryxos.core.policy.RoleBasedAuthorizationService;
+import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
 import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
@@ -113,7 +113,7 @@ class RbacEnforcerTest {
   void rbacDisabled_passesThrough() throws Exception {
     rbacProperties.setEnabled(false);
     when(apiKeyService.verify(KEY)).thenReturn(true);
-    buildMvc(new RoleBasedAuthorizationService(Set.of(Role.ADMIN), Set.of(Role.ADMIN)));
+    buildMvc(new RoleBasedAuthorizationServiceImpl(Set.of(Role.ADMIN), Set.of(Role.ADMIN)));
 
     mvc.perform(get("/api/v1/profiles").header("Authorization", "Bearer " + KEY))
         .andExpect(status().isOk());
@@ -126,7 +126,7 @@ class RbacEnforcerTest {
   void rbacEnabled_adminUser_allowed() throws Exception {
     rbacProperties.setEnabled(true);
     when(sessionService.findValid(SESSION_ID)).thenReturn(Optional.of(session("alice")));
-    buildMvc(new RoleBasedAuthorizationService(Set.of(Role.ADMIN), Set.of()));
+    buildMvc(new RoleBasedAuthorizationServiceImpl(Set.of(Role.ADMIN), Set.of()));
 
     mvc.perform(get("/api/v1/profiles").cookie(new Cookie("oryxos_session", SESSION_ID)))
         .andExpect(status().isOk());
@@ -140,7 +140,7 @@ class RbacEnforcerTest {
     rbacProperties.setEnabled(true);
     when(sessionService.findValid(SESSION_ID)).thenReturn(Optional.of(session("bob")));
     // 账号无角色且默认档为空 → 裁决拒绝。这里刻意用「已认证但零角色」表达最常见的越权形态。
-    buildMvc(new RoleBasedAuthorizationService(Set.of(), Set.of()));
+    buildMvc(new RoleBasedAuthorizationServiceImpl(Set.of(), Set.of()));
 
     mvc.perform(get("/api/v1/profiles").cookie(new Cookie("oryxos_session", SESSION_ID)))
         .andExpect(status().isForbidden());
@@ -154,7 +154,7 @@ class RbacEnforcerTest {
     rbacProperties.setEnabled(true);
     when(apiKeyService.verify(KEY)).thenReturn(true);
     when(apiKeyService.findNameByPlaintext(KEY)).thenReturn("ci-bot");
-    buildMvc(new RoleBasedAuthorizationService(Set.of(Role.ADMIN), Set.of()));
+    buildMvc(new RoleBasedAuthorizationServiceImpl(Set.of(Role.ADMIN), Set.of()));
 
     mvc.perform(get("/api/v1/profiles").header("Authorization", "Bearer " + KEY))
         .andExpect(status().isForbidden());
@@ -168,7 +168,7 @@ class RbacEnforcerTest {
     rbacProperties.setEnabled(true);
     when(apiKeyService.verify(KEY)).thenReturn(true);
     when(apiKeyService.findNameByPlaintext(KEY)).thenReturn("ci-bot");
-    buildMvc(new RoleBasedAuthorizationService(Set.of(), Set.of(Role.VIEWER)));
+    buildMvc(new RoleBasedAuthorizationServiceImpl(Set.of(), Set.of(Role.VIEWER)));
 
     mvc.perform(get("/api/v1/profiles").header("Authorization", "Bearer " + KEY))
         .andExpect(status().isOk());
@@ -181,7 +181,7 @@ class RbacEnforcerTest {
   void rbacEnabled_forbiddenIsNotHtml() throws Exception {
     rbacProperties.setEnabled(true);
     when(sessionService.findValid(SESSION_ID)).thenReturn(Optional.of(session("bob")));
-    buildMvc(new RoleBasedAuthorizationService(Set.of(), Set.of()));
+    buildMvc(new RoleBasedAuthorizationServiceImpl(Set.of(), Set.of()));
 
     mvc.perform(get("/api/v1/profiles").cookie(new Cookie("oryxos_session", SESSION_ID)))
         .andExpect(status().isForbidden())

@@ -80,7 +80,7 @@
 
 - **`AuthorizationService.Decision`**：一次裁决的结果 `{allowed, reason}`，内存对象；被两扇 Filter、拒绝响应与管理台「为什么」共用同一文案。
 - **`Principal`**：请求级不可变值，不是持久化实体；`roles` 由 `web_users.roles` 解析而来（API Key 主体来自配置默认档）。
-- **角色矩阵**：`RoleBasedAuthorizationService` 内的静态集合（代码常量，评审可通读），`matrix()` 只读视图供管理台/文档展示，不落库。
+- **角色矩阵**：`RoleBasedAuthorizationServiceImpl` 内的静态集合（代码常量，评审可通读），`matrix()` 只读视图供管理台/文档展示，不落库。
 
 ## 配置面
 

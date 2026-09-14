@@ -2,7 +2,7 @@
 
 **Feature**: 039-identity-authorization | **Date**: 2026-09-14
 
-现状摸底已完成（`oryxos-web/security` 与 `oryxos-web/config` 逐文件、`oryxos-storage` 用户与会话三件套、`oryxos-core/policy` 既有策略层、`db/migration` 两 vendor 版本账、`specs/012/018/020/026` 既有裁决逐条，行号在案），并对本刀**阶段一已落地**的实现（`Principal`/`Role`/`Action`/`ResourceRef`/`AuthorizationService`/`RoleBasedAuthorizationService`/`WebRbacProperties`/`RoleMappingProperties`/`AuthorizationConfig`/`PrincipalHolder`/`RbacEnforcer`）做了逐类核对——本文的命名与配置键一律以工作树实现为准，阶段二（角色落库、路径映射、拒绝审计落库、启动校验）为设计目标并在 tasks.md 中列出。技术上下文无 NEEDS CLARIFICATION；未定项已在 spec.md §Clarifications 显式标注为待裁决。
+现状摸底已完成（`oryxos-web/security` 与 `oryxos-web/config` 逐文件、`oryxos-storage` 用户与会话三件套、`oryxos-core/policy` 既有策略层、`db/migration` 两 vendor 版本账、`specs/012/018/020/026` 既有裁决逐条，行号在案），并对本刀**阶段一已落地**的实现（`Principal`/`Role`/`Action`/`ResourceRef`/`AuthorizationService`/`RoleBasedAuthorizationServiceImpl`/`WebRbacProperties`/`RoleMappingProperties`/`AuthorizationConfig`/`PrincipalHolder`/`RbacEnforcer`）做了逐类核对——本文的命名与配置键一律以工作树实现为准，阶段二（角色落库、路径映射、拒绝审计落库、启动校验）为设计目标并在 tasks.md 中列出。技术上下文无 NEEDS CLARIFICATION；未定项已在 spec.md §Clarifications 显式标注为待裁决。
 
 ## R1 主体载体：不可变值对象 + 请求属性，绝不用 ThreadLocal
 
@@ -27,7 +27,7 @@
 
 ## R3 角色矩阵：EnumSet 逐级叠加 + Key 能力上限 + 角色不取并集
 
-**Decision**: 矩阵集中一处（`RoleBasedAuthorizationService` 的静态集合）：
+**Decision**: 矩阵集中一处（`RoleBasedAuthorizationServiceImpl` 的静态集合）：
 - `VIEWER = {READ_WORKSPACE, READ_AUDIT}`
 - `EDITOR = VIEWER + {RUN_AGENT, MANAGE_AGENTS, MANAGE_KNOWLEDGE, MANAGE_SKILLS, MANAGE_SESSIONS}`
 - `ADMIN = EDITOR + {MANAGE_WORKSPACE, MANAGE_CHANNELS, MANAGE_POLICIES, MANAGE_MEMBERS}`
@@ -40,7 +40,7 @@
 
 ## R4 实现落位：矩阵落 core，持久化面落 storage（与 020 范式的有意收窄）
 
-**Decision**: `AuthorizationService` 接口与 `RoleBasedAuthorizationService` 实现均落 `oryxos-core/policy`；角色列读取（`WebUserService.rolesOf`）与授权事件落库（`AuthzEventRecorder`）落 `oryxos-storage`。
+**Decision**: `AuthorizationService` 接口与 `RoleBasedAuthorizationServiceImpl` 实现均落 `oryxos-core/policy`；角色列读取（`WebUserService.rolesOf`）与授权事件落库（`AuthzEventRecorder`）落 `oryxos-storage`。
 
 **Rationale**: `ToolPolicyService` 之所以「接口在 core、实现在 storage」，是因为它的实现必须读库（`tool_policy_rules`）。本刀的角色矩阵是**零持久化依赖的纯函数**，放 core 才能让运行时不依赖 `oryxos-web` 就复用同一实现（#462 的验收要求）；持久化面按惯例留在 storage。这是一处**与立项输入（issue #462）的偏差**：立项描述倾向「实现落 storage」，本计划的裁决是「决策实现落 core、状态落 storage」，理由如上，请评审重点确认（见 spec.md §Clarifications 第 5 条：命名与落位待确认）。
 
