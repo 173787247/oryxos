@@ -25,6 +25,9 @@ public class JpaCoordinationStore implements CoordinationStore {
   /** 抢过期 turn 时记下前任的未完结 execution（供补失败留痕）；单线程调用语义（认领在会话锁内）。 */
   private final ThreadLocal<Long> lastReclaimedExecution = new ThreadLocal<>();
 
+  /** commitGeneration 的持有校验续租时长：仅覆盖提交自身的毫秒级窗口，提交末尾即释放。 */
+  private static final long COMMIT_HOLD_SECONDS = 30L;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "注入的 Repository 是 Spring 共享 Bean，本就不应防御性拷贝。")
@@ -223,7 +226,7 @@ public class JpaCoordinationStore implements CoordinationStore {
   public boolean commitGeneration(String kbName, long generation, String owner) {
     Instant now = dbNow();
     // 校验仍持有（rowcount 语义的条件续租即校验）；已被接管则不提交、旧代不动
-    if (buildClaims.renew(kbName, owner, now.plusSeconds(30)) != 1) {
+    if (buildClaims.renew(kbName, owner, now.plusSeconds(COMMIT_HOLD_SECONDS)) != 1) {
       return false;
     }
     KnowledgeGenerationEntity row =

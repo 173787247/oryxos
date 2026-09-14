@@ -48,8 +48,8 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
   }
 
   /** Creates the fixed relative link; rebinding the same valid Skill is idempotent. */
-  /** 027：绑定软连接变更后递增 agents 域版本号（单机档 NOOP）。 */
-  private io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+  /** 027：绑定软连接变更后递增 agents 域版本号（单机档 NOOP）。volatile：装配期一次写，绑定方法同步块外读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
       io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
 
   public void setWorkspaceVersionNotifier(

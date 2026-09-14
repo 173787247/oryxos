@@ -9,8 +9,15 @@ import java.util.List;
  */
 public class WorkspaceRefreshService {
 
-  /** 刷新结果（web 层直接投影为响应体）。 */
-  public record RefreshResult(String mode, List<String> domains, Instant triggeredAt) {}
+  /** 刷新结果（web 层直接投影为响应体）；domains 经 List.copyOf 定格为不可变。 */
+  public record RefreshResult(String mode, List<String> domains, Instant triggeredAt) {
+    @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+        value = {"EI_EXPOSE_REP", "EI_EXPOSE_REP2"},
+        justification = "紧凑构造器 List.copyOf 已定格不可变，返回该引用无暴露风险。")
+    public RefreshResult {
+      domains = List.copyOf(domains);
+    }
+  }
 
   private final boolean clusterEnabled;
   private final WorkspaceVersionNotifier notifier;

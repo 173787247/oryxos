@@ -77,12 +77,13 @@ class MigrationEvolutionIT {
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
       assertNotNull(context.getBean(AgentScheduler.class));
     }
-    // 模拟执行中途被杀的落盘形态：最后一个迁移 V6 的效果已在（工作台列/事件表），但 history 未记成功——
-    // 中断只可能发生在序列尾部（后续迁移尚未开始），删中间行反而是 out-of-order 校验该拒绝的形态
+    // 模拟执行中途被杀的落盘形态：最后一个迁移 V8（027 文件面，IF NOT EXISTS/OR IGNORE 幂等）效果已在，
+    // 但 history 未记成功——中断只可能发生在序列尾部（后续迁移尚未开始），删中间行反而是
+    // out-of-order 校验该拒绝的形态（V6/V7 之后已有更高版本，删它们会被 Flyway validate 拒启）
     try (Connection connection = DriverManager.getConnection(dbUrl);
         Statement statement = connection.createStatement()) {
       assertEquals(
-          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '6'"));
+          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '8'"));
     }
 
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
@@ -92,9 +93,9 @@ class MigrationEvolutionIT {
         Statement statement = connection.createStatement();
         ResultSet rows =
             statement.executeQuery(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '6' AND success = 1")) {
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '8' AND success = 1")) {
       assertTrue(rows.next());
-      assertEquals(1, rows.getLong(1), "V6 should have converged idempotently on restart");
+      assertEquals(1, rows.getLong(1), "V8 should have converged idempotently on restart");
     }
   }
 

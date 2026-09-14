@@ -22,7 +22,11 @@ public final class AtomicFiles {
   public static void write(Path target, byte[] content) {
     Path temp = tempSibling(target);
     try {
-      Files.createDirectories(target.toAbsolutePath().getParent());
+      Path parent = target.toAbsolutePath().getParent();
+      if (parent == null) {
+        throw new IOException("目标路径缺少父目录: " + target);
+      }
+      Files.createDirectories(parent);
       Files.write(temp, content);
       Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     } catch (IOException e) {

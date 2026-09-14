@@ -109,8 +109,8 @@ public class SkillService {
   private final SkillLoader loader;
   private final AgentSkillBindingService bindings;
 
-  /** 027：文件落盘后递增 skills 域版本号（单机档 NOOP）。 */
-  private io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+  /** 027：文件落盘后递增 skills 域版本号（单机档 NOOP）。volatile：装配期一次写，同步/非同步方法混合读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
       io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
 
   public SkillService(SkillStore store, SkillRegistry registry, SkillLoader loader) {

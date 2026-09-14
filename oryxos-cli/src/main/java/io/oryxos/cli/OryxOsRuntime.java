@@ -448,10 +448,8 @@ public class OryxOsRuntime {
       try {
         coordinationStore.bumpWorkspaceVersion(domain, owner);
       } catch (RuntimeException e) {
-        notifierLog.warn(
-            "工作区版本号递增失败（其他副本感知将延迟到下次变更/手动刷新）: domain={} err={}",
-            domain,
-            String.valueOf(e.getMessage()).replace('\r', '_').replace('\n', '_'));
+        // 静态消息 + throwable：不拼动态串（CRLF 纪律）；domain 见异常堆栈上下文
+        notifierLog.warn("工作区版本号递增失败（其他副本感知将延迟到下次变更/手动刷新）", e);
       }
     };
   }

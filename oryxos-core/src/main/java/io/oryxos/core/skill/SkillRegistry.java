@@ -48,7 +48,7 @@ public class SkillRegistry {
    * 对象本身不可变，不受替换影响。
    */
   public void replaceAll(Collection<Skill> fresh) {
-    Map<String, Skill> next = new ConcurrentHashMap<>();
+    Map<String, Skill> next = new ConcurrentHashMap<>(Math.max(16, fresh.size() * 2));
     for (Skill skill : fresh) {
       next.put(skill.name(), skill);
     }

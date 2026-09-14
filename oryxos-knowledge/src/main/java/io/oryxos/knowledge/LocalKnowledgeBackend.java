@@ -48,8 +48,8 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
   private final KnowledgeIndexService indexService;
   private final Supplier<TextEmbedder> embedderSupplier;
 
-  /** 027：知识源文件变更后递增 knowledge 域版本号（单机档 NOOP）。 */
-  private io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+  /** 027：知识源文件变更后递增 knowledge 域版本号（单机档 NOOP）。volatile：装配期一次写多线程读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
       io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(

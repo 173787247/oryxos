@@ -50,13 +50,14 @@ public class KnowledgeIndexService {
   private final Chunker chunker = new Chunker();
   private final ConcurrentHashMap<String, Long> activeGenerations = new ConcurrentHashMap<>();
 
-  // 027 集群档协调（可选装配；未启用 = 单机档全部现状，零协调读写）
-  private io.oryxos.core.cluster.CoordinationStore coordination;
-  private String coordinationOwner;
-  private java.time.Duration claimTtl = java.time.Duration.ofSeconds(30);
-  private java.time.Duration claimPollInterval = java.time.Duration.ofMillis(500);
-  private java.time.Duration claimWaitTimeout = java.time.Duration.ofSeconds(120);
-  private io.oryxos.core.metrics.MetricsRecorder metricsRecorder =
+  // 027 集群档协调（可选装配；未启用 = 单机档全部现状，零协调读写）。
+  // volatile：装配期一次写，同步方法与后台索引线程混合读。
+  private volatile io.oryxos.core.cluster.CoordinationStore coordination;
+  private volatile String coordinationOwner;
+  private volatile java.time.Duration claimTtl = java.time.Duration.ofSeconds(30);
+  private volatile java.time.Duration claimPollInterval = java.time.Duration.ofMillis(500);
+  private volatile java.time.Duration claimWaitTimeout = java.time.Duration.ofSeconds(120);
+  private volatile io.oryxos.core.metrics.MetricsRecorder metricsRecorder =
       io.oryxos.core.metrics.MetricsRecorder.NOOP;
 
   /**

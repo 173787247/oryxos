@@ -347,8 +347,8 @@ public class AgentLifecycleService {
     this.knowledgeCandidates = knowledgeCandidates;
   }
 
-  /** 027：文件落盘后递增 agents 域版本号（单机档 NOOP，集群档其余副本秒级轮询感知）。 */
-  private io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+  /** 027：文件落盘后递增 agents 域版本号（单机档 NOOP，集群档其余副本秒级轮询感知）。volatile：装配期一次写多线程读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
       io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
 
   public void setWorkspaceVersionNotifier(

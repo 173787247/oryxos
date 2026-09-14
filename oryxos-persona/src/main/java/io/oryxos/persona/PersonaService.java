@@ -25,8 +25,8 @@ public class PersonaService {
   private final PersonaPresetCatalog builtins;
   private final PersonaStore store;
 
-  /** 027：文件落盘后递增 personas 域版本号（单机档 NOOP）。 */
-  private io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+  /** 027：文件落盘后递增 personas 域版本号（单机档 NOOP）。volatile：装配期一次写多线程读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
       io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
 
   public PersonaService(PersonaPresetCatalog builtins, PersonaStore store) {

@@ -66,6 +66,7 @@ class KnowledgeExactlyOnceIT {
         .run(
             "--oryxos.root=" + root,
             "--oryxos.providers[0].name=mock",
+            "--embedding.provider=mock",
             "--spring.datasource.url=" + url,
             "--oryxos.cluster.enabled=" + clusterEnabled,
             "--oryxos.cluster.instance-id=" + instanceId,
