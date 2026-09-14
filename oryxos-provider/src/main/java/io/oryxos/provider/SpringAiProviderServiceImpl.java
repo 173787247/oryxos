@@ -100,6 +100,15 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     this.metrics = metrics;
   }
 
+  /** 039：LLM span 补记（ToolExecutor.setMetricsRecorder 同款 setter 惯例）；未装配 NOOP 零开销。 */
+  private volatile io.oryxos.core.metrics.SpanRecorder spanRecorder =
+      io.oryxos.core.metrics.SpanRecorder.NOOP;
+
+  public void setSpanRecorder(io.oryxos.core.metrics.SpanRecorder spanRecorder) {
+    this.spanRecorder =
+        spanRecorder == null ? io.oryxos.core.metrics.SpanRecorder.NOOP : spanRecorder;
+  }
+
   @Override
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "CRLF_INJECTION_LOGS",
@@ -403,6 +412,14 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     } catch (RuntimeException ignored) {
       // FR-010：指标失败静默
     }
+    // 039：LLM span 与审计同区间同 traceId 补记（recorder 内部自吞异常）
+    spanRecorder.recordLlmSpan(
+        io.oryxos.core.agent.TraceContext.current(),
+        attempt.provider(),
+        attempt.model(),
+        false,
+        startedAt,
+        durationMs);
   }
 
   /**
@@ -442,6 +459,14 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     } catch (RuntimeException ignored) {
       // FR-010：指标失败静默
     }
+    // 039：LLM span 与审计同区间同 traceId 补记
+    spanRecorder.recordLlmSpan(
+        io.oryxos.core.agent.TraceContext.current(),
+        attempt.provider(),
+        attempt.model(),
+        true,
+        startedAt,
+        durationMs);
     // 021 日志与审计互查（SC-007）：处理路径关键日志点——MDC 自动携带 traceId，不记 prompt 内容
     LOG.info(
         "LLM 调用完成: provider={} model={} totalTokens={} durationMs={}",

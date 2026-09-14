@@ -36,6 +36,10 @@ public class AgentService {
   /** 会话 id → 该会话的串行锁。会话数是有限的（channel:user:profile 三元组），增长有界，可接受。 */
   private final ConcurrentMap<String, Lock> sessionLocks = new ConcurrentHashMap<>();
 
+  /** 039：turn 根 span 补记（默认 NOOP 零开销；OTel 实现由装配层注入）。 */
+  private volatile io.oryxos.core.metrics.SpanRecorder spanRecorder =
+      io.oryxos.core.metrics.SpanRecorder.NOOP;
+
   private final ProfileRegistry profileRegistry;
   private final ReActLoop reActLoop;
   private final SessionManager sessionManager;
@@ -87,6 +91,10 @@ public class AgentService {
     // 021：兜底开启 trace（controller 先开的场景复用同一 ID，owner=false 不清外层）；
     // 全部触发源（CLI/定时/飞书/REST）经此收口，本轮所有审计落库与日志自动携带同一 traceId
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
+      // 039：turn 根 span 与本 Scope 同址同源（traceId/起止时间与审计一致），在执行段 finally 补记；
+      // 未进入执行段的失败（租约等待超时等）不产生 turn span——没有开轮就没有轮 span
+      long turnStartedAt = System.currentTimeMillis();
+      boolean turnSuccess = false;
       turnLease = turnCoordinator.acquire(sessionKey);
       Long executionId = ExecutionContext.currentId();
       if (executionId != null) {
@@ -125,9 +133,17 @@ public class AgentService {
         if (exhausted) {
           throw new AgentMaxIterationsExceededException(reply);
         }
+        turnSuccess = true;
         return reply;
       } finally {
         ProfileContext.clear(); // 虚拟线程每请求独立，用完必须清
+        spanRecorder.recordTurnSpan(
+            traceScope.traceId(),
+            session.profileName(),
+            channelOf(sessionKey),
+            turnSuccess,
+            turnStartedAt,
+            System.currentTimeMillis() - turnStartedAt);
       }
     } finally {
       if (turnLease != null) {
@@ -212,5 +228,19 @@ public class AgentService {
   private static String profileNameOrFallback(Session session) {
     String name = session.profileName();
     return name == null ? "(null-session)" : name;
+  }
+
+  public void setSpanRecorder(io.oryxos.core.metrics.SpanRecorder spanRecorder) {
+    this.spanRecorder =
+        spanRecorder == null ? io.oryxos.core.metrics.SpanRecorder.NOOP : spanRecorder;
+  }
+
+  /** 039：sessionId 惯例为「channel:...」联合键，取首段作 span 的渠道属性（无冒号即整串）。 */
+  private static String channelOf(String sessionKey) {
+    if (sessionKey == null) {
+      return "unknown";
+    }
+    int idx = sessionKey.indexOf(':');
+    return idx > 0 ? sessionKey.substring(0, idx) : sessionKey;
   }
 }

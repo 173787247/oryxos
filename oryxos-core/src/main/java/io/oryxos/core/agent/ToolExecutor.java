@@ -64,6 +64,15 @@ public class ToolExecutor {
     this.metrics = metrics == null ? io.oryxos.core.metrics.MetricsRecorder.NOOP : metrics;
   }
 
+  /** 039：工具 span 补记（setMetricsRecorder 同款惯例）；未装配 NOOP 零开销。 */
+  private io.oryxos.core.metrics.SpanRecorder spanRecorder =
+      io.oryxos.core.metrics.SpanRecorder.NOOP;
+
+  public void setSpanRecorder(io.oryxos.core.metrics.SpanRecorder spanRecorder) {
+    this.spanRecorder =
+        spanRecorder == null ? io.oryxos.core.metrics.SpanRecorder.NOOP : spanRecorder;
+  }
+
   /** 31 节：注入 MCP 工具归属表 + ProfileRegistry，用以按调用方 Agent 的 mcp_servers 声明做白名单校验。 */
   public ToolExecutor(
       Map<String, OryxTool> tools,
@@ -195,6 +204,14 @@ public class ToolExecutor {
     } catch (RuntimeException ignored) {
       // FR-010
     }
+    // 039：工具 span 与审计同区间同 traceId 补记（recorder 内部自吞异常）
+    spanRecorder.recordToolSpan(
+        TraceContext.current(),
+        call.name(),
+        result.success(),
+        false,
+        startedAt,
+        System.currentTimeMillis() - startedAt);
     // 021 日志与审计互查（SC-007）：处理路径关键日志点——MDC 自动携带 traceId，不记参数/结果（防敏感泄漏）
     LOG.info(
         "工具执行完成: tool={} success={} durationMs={}",
@@ -312,6 +329,14 @@ public class ToolExecutor {
     } catch (RuntimeException ignored) {
       // FR-010：指标失败静默
     }
+    // 039：失败/被策略拦截同样补记 span（blockedByPolicy 由 blockedBy 判定）
+    spanRecorder.recordToolSpan(
+        TraceContext.current(),
+        call.name(),
+        false,
+        blockedBy != null,
+        startedAt,
+        System.currentTimeMillis() - startedAt);
     return ToolResult.error(errorMessage, false);
   }
 

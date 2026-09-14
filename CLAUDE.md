@@ -405,6 +405,15 @@ bump 对应域（agents/skills/personas/knowledge），各副本按 `workspace-p
 `knowledge_generations` 已提交代次；导入索引段与重建同认领互斥（排队不丢）。运维直接改盘走
 `POST /api/v1/workspace/refresh` 逃生舱。
 
+容器交付（039）：官方 Helm Chart（`charts/oryxos/`，`docs/K8sDeployGuide.md`）——必填仅两项密文引用
+（数据库三键 + `ORYXOS_MASTER_KEY`，K8s Secret→环境变量走 022 原生面），集群档默认开、工作区 RWX PVC、
+liveness/readiness 探针（readiness 含 db）、RollingUpdate 0/1 + preStop + grace 40s。`server.shutdown=graceful`
+已入 boot 默认（在途请求排空=timeout-per-shutdown-phase）；`ChannelAdminService.stopAll` 停机先释放渠道属主
+租约（接管秒级不等 TTL）。OTel trace 可选导出（`oryxos.otel.endpoint`，不配零开销）：`SpanRecorder` 契约在
+core（MetricsRecorder 同款 NOOP 纪律），turn/llm/tool 三 span 与审计同 traceId 同计时区间事后补记，
+turn 根 spanId = traceId 前 16 hex 确定性父子。门禁：`make helm-lint`（lint/template/kubeconform/断言）+
+ci helm job 的 kind 安装冒烟；mock provider 可 `-Doryxos.mock.latency-ms` 注入固定时延供吞吐压测。
+
 落库凭证（providers.api_key、notify_channels.config 敏感项）经主密钥 AES-GCM 加密存储（022，`enc:v1:` 前缀）：`ORYXOS_MASTER_KEY` 环境变量优先，缺省 `.oryxos/master.key` 首启自动生成；密钥不匹配启动即拒并指路恢复。
 
 ---

@@ -234,4 +234,32 @@ class AgentServiceTest {
     verify(sessionManager, never()).save(any());
     assertNull(ProfileContext.current());
   }
+
+  @Test
+  @DisplayName("039：turn 根 span 与 Scope 同源——成功 success=true、循环异常 success=false")
+  void turnSpanRecordedWithTraceIdOnSuccessAndFailure() {
+    java.util.List<String> spans = new java.util.ArrayList<>();
+    agentService.setSpanRecorder(
+        new io.oryxos.core.metrics.SpanRecorder() {
+          @Override
+          public void recordTurnSpan(
+              String traceId,
+              String agentName,
+              String channel,
+              boolean success,
+              long startEpochMs,
+              long durationMs) {
+            spans.add(agentName + ":" + success + ":" + (traceId != null && !traceId.isBlank()));
+          }
+        });
+    when(reActLoop.run(any(), any(), any())).thenReturn("ok");
+    agentService.process(session, "hi");
+
+    when(reActLoop.run(any(), any(), any())).thenThrow(new IllegalStateException("provider down"));
+    org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalStateException.class, () -> agentService.process(session, "hi"));
+
+    org.junit.jupiter.api.Assertions.assertEquals(
+        java.util.List.of("ops-agent:true:true", "ops-agent:false:true"), spans);
+  }
 }

@@ -267,16 +267,20 @@ public class OryxOsRuntime {
       ProviderRegistry providerRegistry,
       LlmCallAuditor auditor,
       PricingStore pricingStore,
-      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
+      io.oryxos.core.metrics.SpanRecorder spanRecorder) {
     // 动态解析（31 节）：按名从注册表取参数、经工厂即时建/缓存 ChatModel（宪法 III 显式映射，只是运行时可变）
     ProviderChatModelFactory factory = new ProviderChatModelFactory();
-    return new SpringAiProviderServiceImpl(
-        providerRegistry,
-        def -> factory.buildOne(def.name(), def.apiKey(), def.baseUrl()),
-        new ToolSchemaAdapter(),
-        auditor,
-        pricingStore,
-        metricsRecorder); // 023：LLM 调用/token/切换指标
+    SpringAiProviderServiceImpl service =
+        new SpringAiProviderServiceImpl(
+            providerRegistry,
+            def -> factory.buildOne(def.name(), def.apiKey(), def.baseUrl()),
+            new ToolSchemaAdapter(),
+            auditor,
+            pricingStore,
+            metricsRecorder); // 023：LLM 调用/token/切换指标
+    service.setSpanRecorder(spanRecorder); // 039：LLM span（未配 otel.endpoint 时为 NOOP）
+    return service;
   }
 
   @Bean
@@ -1098,13 +1102,15 @@ public class OryxOsRuntime {
       ToolInvocationAuditor auditor,
       AgentRunEventPublisher agentRunEventPublisher,
       io.oryxos.core.policy.ToolPolicyService toolPolicyService,
-      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
+      io.oryxos.core.metrics.SpanRecorder spanRecorder) {
     // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
     ToolExecutor executor =
         new ToolExecutor(
             tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor, agentRunEventPublisher);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
     executor.setMetricsRecorder(metricsRecorder); // 023：工具调用/策略拦截指标
+    executor.setSpanRecorder(spanRecorder); // 039：工具 span（未配 otel.endpoint 时为 NOOP）
     return executor;
   }
 
@@ -1167,9 +1173,13 @@ public class OryxOsRuntime {
       ProfileRegistry profileRegistry,
       ReActLoop reActLoop,
       SessionManager sessionManager,
-      io.oryxos.core.cluster.TurnCoordinator turnCoordinator) {
+      io.oryxos.core.cluster.TurnCoordinator turnCoordinator,
+      io.oryxos.core.metrics.SpanRecorder spanRecorder) {
     // 026：单机档 NOOP（零协调开销）、集群档 DB 租约——按 oryxos.cluster.enabled 装配
-    return new AgentService(profileRegistry, reActLoop, sessionManager, turnCoordinator);
+    AgentService service =
+        new AgentService(profileRegistry, reActLoop, sessionManager, turnCoordinator);
+    service.setSpanRecorder(spanRecorder); // 039：turn 根 span（未配 otel.endpoint 时为 NOOP）
+    return service;
   }
 
   @Bean

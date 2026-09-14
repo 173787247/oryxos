@@ -161,4 +161,27 @@ class ChannelAdminServiceTest {
     assertTrue(e.getMessage().contains("wecom"));
     assertTrue(e.getMessage().contains("stub"));
   }
+
+  @Test
+  @DisplayName("039 US2：stopAll 停机先释放属主租约（unmanage）再断连——新属主秒级接管不等 TTL")
+  void stopAllReleasesChannelLeasesBeforeStopping() {
+    ChannelLeaseCoordinator coordinator = mock(ChannelLeaseCoordinator.class);
+    admin.setChannelLeaseCoordinator(coordinator);
+    admin.add(config("chan-a", "ops-agent", true));
+    lifecycle.setLength(0);
+
+    admin.stopAll();
+
+    org.mockito.Mockito.verify(coordinator).unmanage("chan-a");
+    assertTrue(lifecycle.toString().contains("stop:chan-a"));
+  }
+
+  @Test
+  @DisplayName("039 US2：单机档（无 coordinator）stopAll 零变化")
+  void stopAllWithoutCoordinatorIsUnchanged() {
+    admin.add(config("chan-a", "ops-agent", true));
+    lifecycle.setLength(0);
+    admin.stopAll(); // 不抛 NPE
+    assertTrue(lifecycle.toString().contains("stop:chan-a"));
+  }
 }
