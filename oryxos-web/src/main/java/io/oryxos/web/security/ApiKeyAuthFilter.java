@@ -1,6 +1,8 @@
 package io.oryxos.web.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.auth.Principal;
+import io.oryxos.core.auth.Role;
 import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.web.common.ApiResponse;
@@ -13,6 +15,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -84,6 +89,9 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
   private final WebApiKeyProperties properties;
   private final ObjectMapper objectMapper;
 
+  /** RBAC 强制点（039）：{@code null} = 未启用授权切面（四参构造的既有路径）。 */
+  private final RbacEnforcer rbacEnforcer;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification =
@@ -94,10 +102,29 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebSessionService sessionService,
       WebApiKeyProperties properties,
       ObjectMapper objectMapper) {
+    this(apiKeyService, sessionService, properties, objectMapper, null);
+  }
+
+  /**
+   * 带 RBAC 强制点的构造（039-identity-authorization）。
+   *
+   * <p>{@code rbacEnforcer} 允许为 {@code null}——既有部署与单测走四参构造时不设授权切面，行为与 018 完全一致
+   * （默认关零行为变化）。装配侧（{@code ApiKeyFilterConfig}）在容器启动时始终注入真实实例。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "rbacEnforcer 为 Spring 注入的共享单例，构造注入存同一引用正是意图（同上）。")
+  public ApiKeyAuthFilter(
+      ApiKeyService apiKeyService,
+      WebSessionService sessionService,
+      WebApiKeyProperties properties,
+      ObjectMapper objectMapper,
+      RbacEnforcer rbacEnforcer) {
     this.apiKeyService = apiKeyService;
     this.sessionService = sessionService;
     this.properties = properties;
     this.objectMapper = objectMapper;
+    this.rbacEnforcer = rbacEnforcer;
   }
 
   @Override
@@ -115,15 +142,55 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     // (1) API Key 路径（Bearer / X-API-Key 等效）
     String presented = extractKey(request);
     if (presented != null && apiKeyService.verify(presented)) {
+      if (!prepareAndAuthorize(request, response, () -> apiKeyPrincipal(presented))) {
+        return;
+      }
       filterChain.doFilter(request, response);
       return;
     }
     // (2) 管理台 session 互认（FR-011：session 即凭据）
-    if (authenticatedBySession(request)) {
+    Optional<String> sessionUser = sessionUsername(request);
+    if (sessionUser.isPresent()) {
+      String username = sessionUser.get();
+      if (!prepareAndAuthorize(
+          request, response, () -> Principal.user(username, username, Set.of()))) {
+        return;
+      }
       filterChain.doFilter(request, response);
       return;
     }
     reject(response);
+  }
+
+  /**
+   * 置入主体并做授权裁决（039）。
+   *
+   * <p>{@code rbac.enabled=false} 时<b>连主体都不构造</b>。为此这里刻意收 {@link Supplier} 而不是 {@link
+   * Principal}：Java 在进入方法前就会求值全部实参，若直接传主体对象，「构造主体」（其中包含一次库读）会在 判活之前发生，判活就形同虚设——这个坑踩过一次，注释留档。判定收敛在
+   * {@link RbacEnforcer#isActive()}。
+   *
+   * @return {@code false} 表示已写出拒绝响应，调用方必须立即返回
+   */
+  private boolean prepareAndAuthorize(
+      HttpServletRequest request, HttpServletResponse response, Supplier<Principal> principal)
+      throws IOException {
+    if (rbacEnforcer == null || !rbacEnforcer.isActive()) {
+      return true;
+    }
+    PrincipalHolder.set(request, principal.get());
+    return rbacEnforcer.authorize(request, response);
+  }
+
+  /**
+   * 构造 API Key 主体：审计里只允许出现 Key 名称，绝不出现明文。
+   *
+   * <p>拿不到名称时回落到固定占位而不是抛异常——主体标识缺失不应把一条本已通过认证的请求打挂。
+   */
+  private Principal apiKeyPrincipal(String presented) {
+    String name = apiKeyService.findNameByPlaintext(presented);
+    String id = name == null || name.isBlank() ? Principal.API_KEY_FALLBACK_ID : name;
+    Set<Role> noRoles = Set.of();
+    return Principal.apiKey(id, id, noRoles);
   }
 
   private static boolean isExempt(HttpServletRequest request) {
@@ -151,10 +218,15 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     return header == null || header.isBlank() ? null : header.strip();
   }
 
-  private boolean authenticatedBySession(HttpServletRequest request) {
+  /**
+   * 管理台 session 互认（FR-011）：返回有效 session 的账号名，无效/无 cookie 返 {@link Optional#empty()}。
+   *
+   * <p>018 只关心「session 是否有效」（布尔），039 需要主体标识（是谁），因此把塌缩掉的用户名还原出来。 判定条件与 018 完全一致，只是不再丢弃账号名。
+   */
+  private Optional<String> sessionUsername(HttpServletRequest request) {
     Cookie[] cookies = request.getCookies();
     if (cookies == null) {
-      return false;
+      return Optional.empty();
     }
     return Arrays.stream(cookies)
         .filter(c -> BasicAuthFilter.SESSION_COOKIE.equals(c.getName()))
@@ -162,7 +234,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
         .filter(v -> v != null && !v.isBlank())
         .findFirst()
         .flatMap(sessionService::findValid)
-        .isPresent();
+        .map(session -> session.getUsername());
   }
 
   /** 统一 401：所有失败原因同一响应（防探测，FR-004）。 */
