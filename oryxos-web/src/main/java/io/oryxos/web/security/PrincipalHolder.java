@@ -22,6 +22,11 @@ public final class PrincipalHolder {
   private PrincipalHolder() {}
 
   /** 置入主体（认证成功的 Filter 调用）。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UC_USELESS_VOID_METHOD",
+      justification =
+          "副作用在 HttpServletRequest.setAttribute：主体随后由同请求的 get()/isAuthenticated() 读取；"
+              + "SpotBugs 不建模 servlet 请求属性，误报为无用 void 方法。")
   public static void set(HttpServletRequest request, Principal principal) {
     if (principal != null) {
       request.setAttribute(ATTRIBUTE, principal);

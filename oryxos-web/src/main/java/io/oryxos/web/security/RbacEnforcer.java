@@ -55,6 +55,11 @@ public final class RbacEnforcer {
 
   private final WebRbacProperties properties;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification =
+          "authorizationService/properties 均为 Spring 注入的共享单例，构造注入存同一引用正是意图"
+              + "（镜像 AuthStartupCheck / ApiKeyAuthFilter 的 SuppressFBWarnings 模式）。")
   public RbacEnforcer(AuthorizationService authorizationService, WebRbacProperties properties) {
     this.authorizationService = authorizationService;
     this.properties = properties;
@@ -100,6 +105,12 @@ public final class RbacEnforcer {
   }
 
   /** 统一拒绝：写 403 + 留审计日志（拒绝必须可解释，理由来自决策点）。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification =
+          "日志字段为 Principal.describe()/Action 枚举/ResourceRef.describe()/Decision.reason；"
+              + "前三者由内部类型生成，reason 来自授权决策点固定文案，均非未消毒的请求原文"
+              + "（镜像 ApiKeyService 的 SuppressFBWarnings 模式）。")
   private void deny(HttpServletResponse response, Principal principal, String reason)
       throws IOException {
     LOG.warn(

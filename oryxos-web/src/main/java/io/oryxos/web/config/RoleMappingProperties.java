@@ -32,19 +32,25 @@ public class RoleMappingProperties {
   /** API Key 未自带角色时的默认角色。默认空 = 拒绝（机器凭证不给默认权限）。 */
   private Set<String> defaultApiKeyRoles = new LinkedHashSet<>();
 
+  /** 返回防御性拷贝，避免调用方改动内部集合（SpotBugs EI_EXPOSE_REP）。 */
   public Set<String> getDefaultUserRoles() {
-    return defaultUserRoles;
+    return Set.copyOf(defaultUserRoles);
   }
 
   public void setDefaultUserRoles(Set<String> defaultUserRoles) {
-    this.defaultUserRoles = defaultUserRoles;
+    this.defaultUserRoles =
+        defaultUserRoles == null ? new LinkedHashSet<>() : new LinkedHashSet<>(defaultUserRoles);
   }
 
+  /** 返回防御性拷贝，避免调用方改动内部集合（SpotBugs EI_EXPOSE_REP）。 */
   public Set<String> getDefaultApiKeyRoles() {
-    return defaultApiKeyRoles;
+    return Set.copyOf(defaultApiKeyRoles);
   }
 
   public void setDefaultApiKeyRoles(Set<String> defaultApiKeyRoles) {
-    this.defaultApiKeyRoles = defaultApiKeyRoles;
+    this.defaultApiKeyRoles =
+        defaultApiKeyRoles == null
+            ? new LinkedHashSet<>()
+            : new LinkedHashSet<>(defaultApiKeyRoles);
   }
 }

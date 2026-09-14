@@ -40,6 +40,11 @@ public class AuthorizationConfig {
    * @param roleProperties 默认角色配置
    */
   @Bean
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification =
+          "日志仅记录枚举 Role 集合与 boolean 开关；角色名来自配置绑定后经 parseRoles 归一为 Role 枚举，"
+              + "无法携带 CR/LF（镜像 ApiKeyService 的 SuppressFBWarnings 模式）。")
   AuthorizationService authorizationService(
       WebRbacProperties properties, RoleMappingProperties roleProperties) {
     if (!properties.isEnabled()) {
@@ -64,6 +69,11 @@ public class AuthorizationConfig {
   }
 
   /** 角色名解析：大小写不敏感、去空白；无法识别的角色名直接忽略并告警，不阻断启动（配置写错不应导致服务起不来）。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification =
+          "告警日志中的角色名来自部署方 YAML/环境变量配置（非请求体）；非法名仅用于启动诊断，"
+              + "且随后被忽略不进入授权矩阵（镜像既有 CRLF_INJECTION_LOGS 落案模式）。")
   private static Set<Role> parseRoles(Set<String> raw) {
     Set<Role> parsed = new LinkedHashSet<>();
     if (raw == null) {
