@@ -54,8 +54,8 @@
 **Independent Test**: KnowledgeExactlyOnceIT 双副本同触发恰一执行、kill 接管、检索一致；单机档知识全量测试零回归。
 
 - [ ] T015 [US2] `oryxos-knowledge/src/main/java/io/oryxos/knowledge/index/KnowledgeIndexService.java` 活跃代次改造：activeGeneration 改读 `CoordinationStore.committedGeneration`（每副本缓存 + 总线失效回调），替换 max(generation) 推断，空态兼容首建；importDocument/rebuild 的代次提交改走 commitGeneration；配套单测
-- [ ] T016 [US2] 同文件 rebuild 接认领：集群档先 tryAcquireIndexBuild（失败返回「构建进行中」明确提示）、按文档批次 renewIndexBuild（失败立即中止丢弃本代）、完成条件提交、异常路径 releaseIndexBuild + 丢弃新代；单机档 NOOP 直通；配套单测
-- [ ] T017 [US2] 新建 `oryxos-boot/src/test/java/io/oryxos/boot/KnowledgeExactlyOnceIT.java`：双副本同时 rebuild 恰一执行、kill 持有者 TTL 后接管完成、构建全程检索恒读已提交代次、单机档零协调写
+- [ ] T016 [US2] 同文件 rebuild 与 importDocument 接认领：集群档 rebuild 先 tryAcquireIndexBuild（失败返回「构建进行中」明确提示）、每文档一续 renewIndexBuild（失败立即中止丢弃本代）、完成条件提交、异常路径 releaseIndexBuild + 丢弃新代；**importDocument 的异步索引段同走该认领（短持有，claim 被 rebuild 持有期间排队等待）**——收口跨副本 import↔rebuild 竞态（analyze U1）；单机档 NOOP 直通；配套单测
+- [ ] T017 [US2] 新建 `oryxos-boot/src/test/java/io/oryxos/boot/KnowledgeExactlyOnceIT.java`：双副本同时 rebuild 恰一执行、kill 持有者 TTL 后接管完成、构建全程检索恒读已提交代次、**A rebuild 中 B import 不丢文档（US2 场景 5）**、单机档零协调写
 
 **Checkpoint**: US2 独立可交付——embedding 成本不再翻倍、代次不互覆
 
@@ -81,7 +81,7 @@
 
 - [ ] T023 指标：`oryxos-core/.../metrics/MetricsRecorder.java` 新增 `recordWorkspaceReloaded(String domain)`；`oryxos-cli/.../MicrometerMetricsRecorder.java` 实现（`oryxos_workspace_reloads_total{domain}`）；索引认领路径挂 recordLeaseAcquired/Reclaimed/FenceConflict（kind="index"）；补 026 遗留的 `recordLeaseAcquired("schedule")` 埋点（AgentScheduler claimFireTime 赢者路径）
 - [ ] T024 [P] 文档同步：CLAUDE.md（027 配置项与行为一句话 + 模块表无变更确认）、`config/application.yml.example`（workspace-poll-interval 注释样例）、docs/CliGuide.md 集群段落；顺手修 `sqlite/V7__coordination.sql` 首行注释笔误（V6→V7）
-- [ ] T025 全量门禁 + 验收落卷：`mvn clean install`（含 IT）BUILD SUCCESS；按 quickstart V2/V3 双真进程走查与单机走查；如实撰写 `specs/027-file-plane/acceptance-report.md`（SC-001~007 对照，NFS 抽查视环境如实记录）
+- [ ] T025 全量门禁 + 验收落卷：`mvn clean install`（含 IT）BUILD SUCCESS，其中 **ClusterStartupCheckTest 既有 5 用例回归绿为 SC-005 显式验收项**；按 quickstart V2/V3 双真进程走查与单机走查；如实撰写 `specs/027-file-plane/acceptance-report.md`（SC-001~007 对照；SC-006 轮询负载以机理证据落卷——每副本每秒 1 次 4 行单查询；NFS 抽查视环境如实记录）
 
 ---
 
@@ -90,9 +90,10 @@
 ```
 Phase 1 (T001,T002) → Phase 2 (T003→T004→T005→T006; T007 独立)
 Phase 2 完成后：US1 (T008~T014)、US2 (T015~T017)、US3 (T018~T022) 三线可并行
-  US1 内：T008/T009 并行 → T010/T011 并行 → T012 → T13 → T014
+  US1 内：T008/T009 并行 → T010/T011 并行 → T012 → T013 → T014
   US2 内：T015 → T016 → T017（T015 依赖 T005 的 committedGeneration）
   US3 内：T018/T019/T020/T022 并行（依赖 T007）；T021 依赖 T008/T009 的 bump 接线
+         及 US1 的 T010/T011（单机档刷新路径调 reconcileAll/replaceAll）——US3 完整交付须在 US1 之后
 Phase 6：T023 依赖三线主体；T024 可随时并行；T025 收尾必须最后
 ```
 

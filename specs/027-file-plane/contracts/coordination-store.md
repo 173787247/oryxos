@@ -26,7 +26,7 @@ boolean tryAcquireIndexBuild(String kbName, long generation, String owner, Durat
 /** 027：构建期间按批续租。false = 认领已失（被接管），调用方必须立即中止并丢弃本代。 */
 boolean renewIndexBuild(String kbName, String owner, Duration ttl);
 
-/** 027：释放认领（只删自己的；提交成功或中止清理时调用）。 */
+/** 027：释放认领（只删自己的；仅供中止/异常清理路径调用——成功提交由 commitGeneration 在事务内释放）。 */
 void releaseIndexBuild(String kbName, String owner);
 
 /** 027：条件提交代次——仍持有认领才生效（同事务：校验 claim + UPSERT committed_generation +

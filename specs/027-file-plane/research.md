@@ -30,6 +30,7 @@
   1. **认领**：新表 `knowledge_build_claims`（`kb_name` PK、`owner`、`lease_until`、`generation`），`CoordinationStore` 新增 `tryAcquireIndexBuild / renewIndexBuild / releaseIndexBuild`——语义与 channel 租约同构（唯一约束互斥 + 条件更新抢过期）；构建期间按批续租（与 turn 租约同款心跳纪律），续租失败立即中止本副本构建。
   2. **已提交代次显式化**：新表 `knowledge_generations`（`kb_name` PK、`committed_generation`、`updated_at`）。检索读已提交代次（每副本缓存 + 总线失效）；替换「max(generation) 推断」——同时修掉单机档「重建期间首次惰性推断读到构建中代次」的既有隐患。
   3. **条件提交**：重建完成的提交 = 同事务内「校验本副本仍持有认领（rowcount=1 条件更新 claim）+ 写 committed_generation + deleteGenerationsBelow + 递增 knowledge 域版本号」；认领已失（被接管）则丢弃本副本新代，不提交不删旧。
+  - **import↔rebuild 跨副本协调（analyze U1 修补）**：单机靠 service 级 `synchronized` 串行化的互斥在集群档失效——`importDocument` 的异步索引段也走同一 `knowledge_build_claims` 认领（短持有，rebuild 持有期间排队等待），防止导入文档落在将被 `deleteGenerationsBelow` 淘汰的旧代上静默丢失。
   - 单机档：认领与续租走 NOOP（cluster 关闭时零协调写），代次表照常使用（修隐患对单机同样有效，但行为口径不变：检索结果一致）。
 - **Rationale**: 恰好一次的存储形态与 026 完全同构（零新机制承诺）；显式代次是集群下检索一致性的唯一可靠载体。
 - **Alternatives considered**: 复用 `channel_leases` 表加 kind 列——026 刚裁决过每场景独立表（语义清晰、清理策略各异），跟随；构建状态机全量入协调表（进度、批次）——恢复语义是「接管重建」不是「断点续跑」，无需进度持久化，拒。
