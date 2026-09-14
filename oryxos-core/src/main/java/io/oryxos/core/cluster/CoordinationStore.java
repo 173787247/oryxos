@@ -3,6 +3,9 @@ package io.oryxos.core.cluster;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.OptionalLong;
+import java.util.Set;
 
 /**
  * 多副本协调存储契约（026，跨模块契约放 core——依赖倒置）：一条 CAS 认领原语（插入捕唯一约束冲突 + 条件更新抢过期 + owner 条件续租/释放）套四类载体——turn
@@ -58,6 +61,37 @@ public interface CoordinationStore {
 
   /** 惰性清理：批删超龄回执与死实例行；心跳循环顺手调用。 */
   void purgeExpired(Duration receiptTtl, Duration instanceDeadAfter);
+
+  /** 027：工作区版本号的合法域（表恒 4 行，运行期只 UPDATE 不增删行）。 */
+  Set<String> WORKSPACE_DOMAINS = Set.of("agents", "skills", "personas", "knowledge");
+
+  /**
+   * 027 工作区版本总线：递增某域版本号（DB 侧 version = version + 1 原子自增）。 MUST 在文件落盘成功之后调用（读到新版本号 ⇒ 必能读到新内容，配合共享卷
+   * close-to-open 一致性）。 未知域抛 IllegalArgumentException。
+   */
+  void bumpWorkspaceVersion(String domain, String owner);
+
+  /** 027：一次读取全部域的当前版本号（轮询每 tick 调一次，单查询 4 行）。 */
+  Map<String, Long> workspaceVersions();
+
+  /** 027 知识索引构建认领：语义同 tryAcquireChannel（互斥 + 抢过期）；generation 为本次构建目标代次。 */
+  boolean tryAcquireIndexBuild(String kbName, long generation, String owner, Duration ttl);
+
+  /** 027：构建期间按批续租（fencing）。false = 认领已失（被接管），调用方必须立即中止并丢弃本代。 */
+  boolean renewIndexBuild(String kbName, String owner, Duration ttl);
+
+  /** 027：释放认领（只删自己的；仅供中止/异常清理路径——成功提交由 commitGeneration 顺带释放）。 */
+  void releaseIndexBuild(String kbName, String owner);
+
+  /**
+   * 027 条件提交代次：仍持有认领才生效（校验 claim rowcount → 写 committed_generation → bump knowledge 域 → 释放
+   * claim）。false = 认领已失，未提交、旧代未动。旧代片段清理（deleteGenerationsBelow）由调用方在提交成功后执行——
+   * 垃圾回收语义，中断残留由下次重建清理，不需要事务性。
+   */
+  boolean commitGeneration(String kbName, long generation, String owner);
+
+  /** 027：读某库已提交代次；empty = 尚无已提交代次（首建前，检索返回空与现状口径一致）。 */
+  OptionalLong committedGeneration(String kbName);
 
   /** 实例信息（运维查询载体）。 */
   record InstanceInfo(String instanceId, long epoch, Instant startedAt, Instant lastHeartbeatAt) {}

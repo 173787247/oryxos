@@ -48,6 +48,16 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
   }
 
   /** Creates the fixed relative link; rebinding the same valid Skill is idempotent. */
+  /** 027：绑定软连接变更后递增 agents 域版本号（单机档 NOOP）。volatile：装配期一次写，绑定方法同步块外读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+      io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
+
+  public void setWorkspaceVersionNotifier(
+      io.oryxos.core.cluster.WorkspaceVersionNotifier notifier) {
+    this.workspaceNotifier =
+        notifier == null ? io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP : notifier;
+  }
+
   public synchronized AgentSkillBinding bind(String agentName, String skillName) {
     String agent = safe(agentName, "Agent");
     String skill = safe(skillName, "Skill");
@@ -74,6 +84,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
             .filter(binding -> binding.name().equals(skill))
             .findFirst()
             .orElseThrow(() -> new IllegalStateException("刚创建的 Skill 绑定未通过一致性校验: " + skill));
+    workspaceNotifier.bump("agents");
     return legacy(created, agent);
   }
 
@@ -91,6 +102,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     } catch (IOException e) {
       throw new UncheckedIOException("解绑 Agent Skill 失败: " + agent + "/" + skill, e);
     }
+    workspaceNotifier.bump("agents");
   }
 
   /**
@@ -154,6 +166,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
           LOG.warn("清理 Agent Skill 绑定备份失败: {}", sanitize(move.temporary().toString()));
         }
       }
+      workspaceNotifier.bump("agents");
       return after;
     } catch (IOException e) {
       rollbackReplace(created, removed);

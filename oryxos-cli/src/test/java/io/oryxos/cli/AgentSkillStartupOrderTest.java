@@ -32,8 +32,16 @@ class AgentSkillStartupOrderTest {
     SkillStore store = runtime.skillStore();
     SkillLoader skillLoader = runtime.skillLoader();
     SkillRegistry skillRegistry = runtime.skillRegistry(skillLoader);
-    AgentSkillBindingService bindings = runtime.agentSkillBindingService(skillLoader);
-    SkillService seeded = runtime.skillService(store, skillRegistry, skillLoader, bindings);
+    AgentSkillBindingService bindings =
+        runtime.agentSkillBindingService(
+            skillLoader, io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP);
+    SkillService seeded =
+        runtime.skillService(
+            store,
+            skillRegistry,
+            skillLoader,
+            bindings,
+            io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP);
     AgentSkillStartupReport report = runtime.agentSkillStartupReport(seeded, bindings);
     AgentLoader agents = new AgentLoader(root.resolve("agents"), Set.of("mock"));
     ProfileRegistry profiles = runtime.profileRegistry(agents, report);

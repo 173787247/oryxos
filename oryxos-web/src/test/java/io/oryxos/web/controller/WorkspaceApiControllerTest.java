@@ -38,11 +38,59 @@ class WorkspaceApiControllerTest {
     Files.writeString(agent.resolve("AGENT.md"), "---\nname: demo\n---\n正文内容");
     Files.createDirectories(oryxosRoot.resolve("archive"));
     lifecycle = org.mockito.Mockito.mock(io.oryxos.core.agent.AgentLifecycleService.class);
-    mvc =
-        MockMvcBuilders.standaloneSetup(
-                new WorkspaceApiController(oryxosRoot.toString(), lifecycle))
-            .setControllerAdvice(new GlobalExceptionHandler())
-            .build();
+    bumpedDomains.clear();
+    localReloads.set(0);
+    mvc = mvcWith(clusterRefreshService());
+  }
+
+  // 027 refresh 端点：集群档 bump 全域 / 单机档本地重载（可观测的记录桩）
+  private final java.util.List<String> bumpedDomains =
+      java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+  private final java.util.concurrent.atomic.AtomicInteger localReloads =
+      new java.util.concurrent.atomic.AtomicInteger();
+
+  private io.oryxos.core.cluster.WorkspaceRefreshService clusterRefreshService() {
+    return new io.oryxos.core.cluster.WorkspaceRefreshService(
+        true, bumpedDomains::add, localReloads::incrementAndGet);
+  }
+
+  private io.oryxos.core.cluster.WorkspaceRefreshService standaloneRefreshService() {
+    return new io.oryxos.core.cluster.WorkspaceRefreshService(
+        false, bumpedDomains::add, localReloads::incrementAndGet);
+  }
+
+  private MockMvc mvcWith(io.oryxos.core.cluster.WorkspaceRefreshService refresh) {
+    return MockMvcBuilders.standaloneSetup(
+            new WorkspaceApiController(oryxosRoot.toString(), lifecycle, refresh))
+        .setControllerAdvice(new GlobalExceptionHandler())
+        .build();
+  }
+
+  @Test
+  @DisplayName("027 refresh：集群档递增全部 4 域版本号，不做本地重载")
+  void refresh_clusterBumpsAllDomains() throws Exception {
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/api/v1/workspace/refresh"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.mode").value("cluster"))
+        .andExpect(jsonPath("$.data.domains.length()").value(4));
+    org.junit.jupiter.api.Assertions.assertEquals(
+        java.util.List.of("agents", "skills", "personas", "knowledge"), bumpedDomains);
+    org.junit.jupiter.api.Assertions.assertEquals(0, localReloads.get());
+  }
+
+  @Test
+  @DisplayName("027 refresh：单机档本地全量重载，零版本号写入")
+  void refresh_standaloneReloadsLocally() throws Exception {
+    mvcWith(standaloneRefreshService())
+        .perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/api/v1/workspace/refresh"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.mode").value("standalone"));
+    org.junit.jupiter.api.Assertions.assertEquals(1, localReloads.get());
+    org.junit.jupiter.api.Assertions.assertTrue(bumpedDomains.isEmpty());
   }
 
   @Test

@@ -397,6 +397,14 @@ fireTime 取 CronTrigger 理论触发时刻绝非墙钟）、事件回执去重�
 instances 心跳（GET /api/v1/instances）。误配组合（cluster + SQLite/markdown 记忆/memory 知识库）启动即拒。
 崩溃轮次标失败不重放，用户重发恢复。
 
+文件面分布式（027）：`.oryxos/` 工作区放共享卷（只依赖读写可见 + rename 原子，不依赖文件锁/inotify，
+支持矩阵见 `docs/SharedVolumeGuide.md`）。变更感知走 `workspace_versions` 版本号总线——管理写路径落盘后
+bump 对应域（agents/skills/personas/knowledge），各副本按 `workspace-poll-interval`（默认 1s）轮询重载，
+集群档不装 WatchService watcher（单机档 watcher 零回归）；全部工作区写入经 `AtomicFiles` 原子改名落盘。
+知识索引重建经 `knowledge_build_claims` CAS 认领恰好一次（冲突 409、崩溃 TTL 后接管），检索恒读
+`knowledge_generations` 已提交代次；导入索引段与重建同认领互斥（排队不丢）。运维直接改盘走
+`POST /api/v1/workspace/refresh` 逃生舱。
+
 落库凭证（providers.api_key、notify_channels.config 敏感项）经主密钥 AES-GCM 加密存储（022，`enc:v1:` 前缀）：`ORYXOS_MASTER_KEY` 环境变量优先，缺省 `.oryxos/master.key` 首启自动生成；密钥不匹配启动即拒并指路恢复。
 
 ---

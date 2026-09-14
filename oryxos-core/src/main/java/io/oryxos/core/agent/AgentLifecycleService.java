@@ -44,6 +44,9 @@ import org.yaml.snakeyaml.error.YAMLException;
     justification = "协作者均为 Spring 注入的共享单例，构造注入共享同一引用正是意图（无法也不应防御性拷贝）。")
 public class AgentLifecycleService {
 
+  private static final org.slf4j.Logger LOG =
+      org.slf4j.LoggerFactory.getLogger(AgentLifecycleService.class);
+
   private static final String PARENT_PATH_SEGMENT = "..";
 
   /** 025：AGENT.md frontmatter 里人格段的键。 */
@@ -344,6 +347,16 @@ public class AgentLifecycleService {
     this.knowledgeCandidates = knowledgeCandidates;
   }
 
+  /** 027：文件落盘后递增 agents 域版本号（单机档 NOOP，集群档其余副本秒级轮询感知）。volatile：装配期一次写多线程读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+      io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
+
+  public void setWorkspaceVersionNotifier(
+      io.oryxos.core.cluster.WorkspaceVersionNotifier notifier) {
+    this.workspaceNotifier =
+        notifier == null ? io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP : notifier;
+  }
+
   /**
    * 创建：只需 name + description，后台按模板脚手架出 Agent 自有文件并单独提交 Skill 绑定。name 冲突第一步就拒；中途失败回滚已写目录，不留半个 Agent。
    */
@@ -384,6 +397,7 @@ public class AgentLifecycleService {
       } else if (initialSkills != null && !initialSkills.isEmpty()) {
         throw new IllegalStateException("Agent Skill 绑定服务未装配");
       }
+      workspaceNotifier.bump("agents");
       return profile;
     } catch (RuntimeException e) {
       if (profile != null) {
@@ -452,6 +466,42 @@ public class AgentLifecycleService {
       skillBindings.logCurrentIssues();
     }
     return profile;
+  }
+
+  /**
+   * 027：盘 ↔ 注册表全量对账——盘上有的逐目录 {@link #refresh}（新增即注册、已有即重派生，幂等）， 注册表有而盘上无的 {@link
+   * #unregisterByDir}。供集群档版本号轮询与手动刷新入口调用；副本重启后 按当前盘面重建注册表也走此路径（不依赖错过的事件）。单目录失败只记日志不阻断其余对账。
+   */
+  public synchronized void reconcileAll() {
+    java.nio.file.Path agentsDir = agentStore.agentsDir();
+    Set<String> onDisk = new java.util.LinkedHashSet<>();
+    if (java.nio.file.Files.isDirectory(agentsDir)) {
+      try (java.util.stream.Stream<Path> dirs = java.nio.file.Files.list(agentsDir)) {
+        dirs.filter(dir -> java.nio.file.Files.isDirectory(dir))
+            .filter(dir -> java.nio.file.Files.isRegularFile(dir.resolve("AGENT.md")))
+            .sorted()
+            .forEach(
+                dir -> {
+                  onDisk.add(String.valueOf(dir.getFileName()));
+                  try {
+                    refresh(dir);
+                  } catch (RuntimeException e) {
+                    LOG.error(
+                        "对账时跳过损坏的 Agent 目录 {}: {}",
+                        sanitize(String.valueOf(dir.getFileName())),
+                        sanitize(e.getMessage()));
+                  }
+                });
+      } catch (IOException e) {
+        LOG.error("扫描 agents 目录失败，保留现有注册表: {}", sanitize(e.getMessage()));
+        return; // 盘不可读时不做「消失即注销」——避免共享卷抖动清空注册表（spec Edge Case）
+      }
+    }
+    for (Profile profile : List.copyOf(profileRegistry.all())) {
+      if (!onDisk.contains(profile.name())) {
+        unregisterByDir(agentsDir.resolve(profile.name()));
+      }
+    }
   }
 
   /** WorkspaceWatcher 刷新用（issue #61）：先注销旧定时，再按目录重注册。 */
@@ -864,6 +914,7 @@ public class AgentLifecycleService {
     if (skillBindings != null) {
       skillBindings.logCurrentIssues();
     }
+    workspaceNotifier.bump("agents");
     return updated;
   }
 
@@ -1094,6 +1145,11 @@ public class AgentLifecycleService {
     if (skillBindings != null) {
       skillBindings.logCurrentIssues();
     }
+    workspaceNotifier.bump("agents");
+  }
+
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 
   /** WorkspaceWatcher 收到删除事件用：目录已被手工删，只注销 + 移索引，不归档。 */

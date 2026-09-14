@@ -25,9 +25,19 @@ public class PersonaService {
   private final PersonaPresetCatalog builtins;
   private final PersonaStore store;
 
+  /** 027：文件落盘后递增 personas 域版本号（单机档 NOOP）。volatile：装配期一次写多线程读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+      io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
+
   public PersonaService(PersonaPresetCatalog builtins, PersonaStore store) {
     this.builtins = builtins;
     this.store = store;
+  }
+
+  public void setWorkspaceVersionNotifier(
+      io.oryxos.core.cluster.WorkspaceVersionNotifier notifier) {
+    this.workspaceNotifier =
+        notifier == null ? io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP : notifier;
   }
 
   /** 统一入口记录：内置/自定义都能投影成卡片元数据；{@code builtin=true} 表示 classpath 只读、不可 CRUD。 */
@@ -76,6 +86,7 @@ public class PersonaService {
       throw new IllegalArgumentException("自定义人格已存在: " + k);
     }
     store.write(k, content);
+    workspaceNotifier.bump("personas");
     return customEntry(k);
   }
 
@@ -89,6 +100,7 @@ public class PersonaService {
       throw new IllegalArgumentException("自定义人格不存在: " + key);
     }
     store.write(key, content);
+    workspaceNotifier.bump("personas");
     return customEntry(key);
   }
 
@@ -101,6 +113,7 @@ public class PersonaService {
       throw new IllegalArgumentException("自定义人格不存在: " + key);
     }
     store.delete(key);
+    workspaceNotifier.bump("personas");
   }
 
   private static void requireContent(String content) {

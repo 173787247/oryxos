@@ -99,9 +99,17 @@ public class AgentScheduler {
 
   private volatile String claimOwner;
 
+  private volatile io.oryxos.core.metrics.MetricsRecorder metricsRecorder =
+      io.oryxos.core.metrics.MetricsRecorder.NOOP;
+
   public void enableFireTimeClaim(io.oryxos.core.cluster.CoordinationStore store, String owner) {
     this.coordinationStore = store;
     this.claimOwner = owner;
+  }
+
+  public void setMetricsRecorder(io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+    this.metricsRecorder =
+        metricsRecorder == null ? io.oryxos.core.metrics.MetricsRecorder.NOOP : metricsRecorder;
   }
 
   /** Registers schedules for every currently loaded Agent. */
@@ -284,11 +292,12 @@ public class AgentScheduler {
       // 026 到点认领（恰好一次）：fireTime 为理论触发时刻，条件更新 rowcount==1 才执行；
       // 认领失败 = 另一副本已认领本次到点，静默跳过。单机档（未注入）保持现状。
       io.oryxos.core.cluster.CoordinationStore store = coordinationStore;
-      if (store != null
-          && fireTime != null
-          && !store.claimFireTime(scheduleId, fireTime, claimOwner)) {
-        LOG.info("Schedule {} fireTime {} 已被其他副本认领，跳过", sanitizeLogValue(scheduleId), fireTime);
-        return;
+      if (store != null && fireTime != null) {
+        if (!store.claimFireTime(scheduleId, fireTime, claimOwner)) {
+          LOG.info("Schedule {} fireTime {} 已被其他副本认领，跳过", sanitizeLogValue(scheduleId), fireTime);
+          return;
+        }
+        metricsRecorder.recordLeaseAcquired("schedule"); // 027 补 026 遗留埋点：到点认领赢者
       }
       executeLocked(profile, schedule, scheduleId);
     } finally {

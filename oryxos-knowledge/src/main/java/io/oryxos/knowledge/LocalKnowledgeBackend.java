@@ -48,6 +48,10 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
   private final KnowledgeIndexService indexService;
   private final Supplier<TextEmbedder> embedderSupplier;
 
+  /** 027：知识源文件变更后递增 knowledge 域版本号（单机档 NOOP）。volatile：装配期一次写多线程读。 */
+  private volatile io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceNotifier =
+      io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "store/indexService 为装配层注入的共享单例，构造注入存同一引用正是意图（镜像既有 SuppressFBWarnings 模式）。")
@@ -269,16 +273,26 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
     } catch (IOException e) {
       throw new UncheckedIOException("删除知识库目录失败: " + name, e);
     }
+    workspaceNotifier.bump("knowledge");
+  }
+
+  public void setWorkspaceVersionNotifier(
+      io.oryxos.core.cluster.WorkspaceVersionNotifier notifier) {
+    this.workspaceNotifier =
+        notifier == null ? io.oryxos.core.cluster.WorkspaceVersionNotifier.NOOP : notifier;
   }
 
   @Override
   public DocumentStatus importDocument(String kbName, String relPath) {
-    return indexService.importDocument(kbName, relPath);
+    DocumentStatus status = indexService.importDocument(kbName, relPath);
+    workspaceNotifier.bump("knowledge");
+    return status;
   }
 
   @Override
   public void deleteDocument(String kbName, String relPath) {
     indexService.deleteDocument(kbName, relPath);
+    workspaceNotifier.bump("knowledge");
   }
 
   @Override

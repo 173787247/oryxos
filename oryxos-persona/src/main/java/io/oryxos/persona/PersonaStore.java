@@ -54,7 +54,8 @@ public class PersonaStore {
     Path file = file(key);
     try {
       Files.createDirectories(personasDir);
-      Files.writeString(file, content);
+      // 027 FR-004：原子改名落盘——共享卷上其他副本绝不读到半写人格文件
+      io.oryxos.core.io.AtomicFiles.writeString(file, content);
     } catch (IOException e) {
       throw new UncheckedIOException("写入自定义人格失败: " + key, e);
     }

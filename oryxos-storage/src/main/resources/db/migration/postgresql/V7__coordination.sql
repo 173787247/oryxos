@@ -1,4 +1,4 @@
--- V6 协调面（026-session-ownership，PostgreSQL 方言）：注释与语义同 sqlite 侧；TIMESTAMPTZ 对齐 V1 口径。
+-- V7 协调面（026-session-ownership，PostgreSQL 方言）：注释与语义同 sqlite 侧；TIMESTAMPTZ 对齐 V1 口径。
 
 CREATE TABLE IF NOT EXISTS session_turn_leases (
     session_id VARCHAR(512) PRIMARY KEY,

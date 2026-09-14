@@ -109,6 +109,14 @@ public class GlobalExceptionHandler {
   }
 
   /** 429 — 同会话跨副本排队等待超限（026）：前一条消息处理超长，请稍候重发。 */
+  /** 409 — 027：索引重建已由其他副本执行中（恰好一次，不重复构建）。 */
+  @ExceptionHandler(io.oryxos.core.knowledge.KnowledgeBuildInProgressException.class)
+  public ResponseEntity<ApiResponse<Void>> handleKnowledgeBuildInProgress(
+      io.oryxos.core.knowledge.KnowledgeBuildInProgressException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(ApiResponse.error(HttpStatus.CONFLICT.value(), ex.getMessage()));
+  }
+
   @ExceptionHandler(io.oryxos.core.cluster.TurnWaitTimeoutException.class)
   public ResponseEntity<ApiResponse<Void>> handleTurnWaitTimeout(
       io.oryxos.core.cluster.TurnWaitTimeoutException ex) {

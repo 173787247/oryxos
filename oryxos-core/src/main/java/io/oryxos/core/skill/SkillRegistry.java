@@ -43,6 +43,19 @@ public class SkillRegistry {
     return skills.remove(name) != null;
   }
 
+  /**
+   * 027：全量替换为一份新扫描结果（集群档重载用）——先增改后删失，读方（ContextLoader 按名解析） 任一时刻见到的都是完整条目；在途轮次持有的 Skill
+   * 对象本身不可变，不受替换影响。
+   */
+  public void replaceAll(Collection<Skill> fresh) {
+    Map<String, Skill> next = new ConcurrentHashMap<>(Math.max(16, fresh.size() * 2));
+    for (Skill skill : fresh) {
+      next.put(skill.name(), skill);
+    }
+    skills.putAll(next);
+    skills.keySet().retainAll(next.keySet());
+  }
+
   public boolean exists(String name) {
     return skills.containsKey(name);
   }
