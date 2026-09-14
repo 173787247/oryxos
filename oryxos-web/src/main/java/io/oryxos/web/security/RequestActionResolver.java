@@ -131,22 +131,29 @@ public final class RequestActionResolver {
       return Resolution.of(Action.READ_WORKSPACE, ResourceRef.workspace());
     }
     if (matchesInvoke(p) && HttpMethod.POST.matches(m)) {
-      return Resolution.of(Action.RUN_AGENT, ResourceRef.agent(segmentAfter(p, PATH_AGENTS_PREFIX)));
+      return Resolution.of(
+          Action.RUN_AGENT, ResourceRef.agent(segmentAfter(p, PATH_AGENTS_PREFIX)));
     }
     if (isUnder(p, PATH_SESSIONS) || isUnder(p, PATH_RUNS)) {
       return Resolution.of(Action.MANAGE_SESSIONS, ResourceRef.session(null));
     }
     if (isUnder(p, PATH_AGENTS)) {
       return readOrManage(
-          m, Action.MANAGE_AGENTS, ResourceRef.agent(segmentAfter(p, PATH_AGENTS_PREFIX)));
+          m,
+          Action.MANAGE_AGENTS,
+          ResourceRef.agent(segmentAfter(p, PATH_AGENTS_PREFIX)));
     }
     if (isUnder(p, PATH_KNOWLEDGE)) {
       return readOrManage(
-          m, Action.MANAGE_KNOWLEDGE, ResourceRef.knowledge(segmentAfter(p, PATH_KNOWLEDGE_PREFIX)));
+          m,
+          Action.MANAGE_KNOWLEDGE,
+          ResourceRef.knowledge(segmentAfter(p, PATH_KNOWLEDGE_PREFIX)));
     }
     if (isUnder(p, PATH_SKILLS)) {
       return readOrManage(
-          m, Action.MANAGE_SKILLS, ResourceRef.skill(segmentAfter(p, PATH_SKILLS_PREFIX)));
+          m,
+          Action.MANAGE_SKILLS,
+          ResourceRef.skill(segmentAfter(p, PATH_SKILLS_PREFIX)));
     }
     if (isUnder(p, PATH_PERSONAS) || isUnder(p, PATH_SCHEDULES)) {
       return readOrManage(m, Action.MANAGE_AGENTS, ResourceRef.agent(null));
