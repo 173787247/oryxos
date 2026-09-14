@@ -79,6 +79,14 @@ public record Principal(Kind kind, String id, String displayName, Set<Role> role
     return new Principal(Kind.ANONYMOUS, ANONYMOUS_ID, ANONYMOUS_ID, Set.of());
   }
 
+  /**
+   * 角色视图：每次返回防御性副本，避免 SpotBugs EI_EXPOSE_REP（即便字段已是不可变包装，accessor 直接返回字段引用仍会被判定）。
+   */
+  @Override
+  public Set<Role> roles() {
+    return roles.isEmpty() ? Set.of() : Set.copyOf(roles);
+  }
+
   /** 是否未认证主体。 */
   public boolean isAnonymous() {
     return kind == Kind.ANONYMOUS;
