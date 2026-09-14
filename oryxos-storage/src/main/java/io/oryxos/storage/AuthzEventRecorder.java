@@ -31,6 +31,10 @@ public class AuthzEventRecorder {
   }
 
   /** 记录一次拒绝；失败吞掉并记 ERROR。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "CRLF_INJECTION_LOGS",
+      justification =
+          "exception toString for diagnostics only, write failure must not change deny decision; no request body in log.")
   public void record(
       Principal principal,
       Action action,
