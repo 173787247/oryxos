@@ -77,9 +77,9 @@ class MigrationEvolutionIT {
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
       assertNotNull(context.getBean(AgentScheduler.class));
     }
-    // 模拟执行中途被杀的落盘形态：最后一个迁移 V9（039 web_user_roles，IF NOT EXISTS 幂等）效果已在，
+    // 模拟执行中途被杀的落盘形态：最后一个迁移 V9（039 web_user_roles，JavaMigration + PRAGMA 幂等）效果已在，
     // 但 history 未记成功——中断只可能发生在序列尾部（后续迁移尚未开始），删中间行反而是
-    // out-of-order 校验该拒绝的形态（V8 之后已有更高版本，删它们会被 Flyway validate 拒启）
+    // out-of-order 校验该拒绝的形态（与 V8 尾部测法相同：只删末版 history，再启必须收敛）
     try (Connection connection = DriverManager.getConnection(dbUrl);
         Statement statement = connection.createStatement()) {
       assertEquals(
