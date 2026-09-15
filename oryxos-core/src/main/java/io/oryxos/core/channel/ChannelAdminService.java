@@ -53,9 +53,16 @@ public class ChannelAdminService {
     }
   }
 
-  /** 停止全部运行中渠道（进程关闭钩子）。 */
+  /**
+   * 停止全部运行中渠道（进程关闭钩子）。039 US2：与 {@link #stopOne} 对齐——先释放独连型渠道的属主租约 （cancel 续租 +
+   * releaseChannel），本副本优雅退出后新属主立刻可接管，不再干等 TTL 过期（此前 stopAll 漏调 unmanage，滚动升级窗口内企微类渠道最长断联一个租约周期）。
+   */
   public synchronized void stopAll() {
+    ChannelLeaseCoordinator coordinator = channelLeaseCoordinator;
     for (ChannelStatus status : registry.statusAll()) {
+      if (coordinator != null) {
+        coordinator.unmanage(status.name());
+      }
       registry.get(status.name()).ifPresent(InboundChannelAdapter::stop);
     }
   }

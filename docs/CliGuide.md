@@ -211,6 +211,7 @@ Agent 的 `AGENT.md` provider 节可声明 `fallback:` 有序备用列表（每�
 - **误配拒启**：cluster 开着但配了 SQLite / markdown 记忆档 / memory 知识库 → 启动失败并指明改法（带病运行比失败更危险）。
 - 参数（有安全默认，一般不用动）：`lease-ttl` 30s / `heartbeat-interval` TTL/3 / `poll-interval` 500ms / `wait-timeout` 120s / `workspace-poll-interval` 1s（027）。
 - **文件面（027）**：`.oryxos/` 工作区放共享卷（NFS / K8s RWX PVC，支持矩阵见 `docs/SharedVolumeGuide.md`）——任一副本上建/改/删 Agent、Skill、人格，其余副本 ≤3s 生效（DB 版本号总线，集群档不再依赖 inotify）；知识索引重建跨副本恰好一次（认领冲突返回 409「构建进行中」，执行副本崩溃 30s 后可接管）；运维直接改盘后调 `POST /api/v1/workspace/refresh` 触发全副本重载。
+- **K8s 一条命令部署（039）**：`helm install oryxos charts/oryxos --set database.existingSecret=… --set masterKey.existingSecret=…`——双副本默认档、滚动升级零失败（就绪门控 + preStop 优雅期 + 停机即释放渠道属主租约）、可选 `otel.endpoint` 把每轮 trace 接进 Jaeger/Tempo（与 `/api/v1/audit/trace/{id}` 同源互查）。安装/升级/排查见 `docs/K8sDeployGuide.md`；裸机与 compose 形态零变化（`bin/stop.sh` 宽限统一为 40s，对齐实测优雅停机口径）。
 
 ## 5. 配置与凭证
 

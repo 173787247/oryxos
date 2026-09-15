@@ -27,8 +27,33 @@ import org.springframework.ai.chat.prompt.Prompt;
  */
 public class MockChatModel implements ChatModel {
 
+  /**
+   * 039 US4：可选固定时延（毫秒），模拟真实 LLM 往返供吞吐线性性压测——系统属性 {@code -Doryxos.mock.latency-ms=800}（K8s 走 Helm
+   * values 的 env.javaOpts 注入）。 默认 0 = 现状零变化。
+   */
+  private static final String LATENCY_PROP = "oryxos.mock.latency-ms";
+
+  private final long latencyMs;
+
+  public MockChatModel() {
+    long configured = 0L;
+    try {
+      configured = Long.getLong(LATENCY_PROP, 0L);
+    } catch (RuntimeException ignored) {
+      // 非法值按 0 处理（mock 面不因配置笔误拒启）
+    }
+    this.latencyMs = Math.max(0L, configured);
+  }
+
   @Override
   public ChatResponse call(Prompt prompt) {
+    if (latencyMs > 0) {
+      try {
+        Thread.sleep(latencyMs); // 虚拟线程上阻塞即让出 carrier（宪法 VII 形态）
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
     List<Message> messages = prompt.getInstructions();
     Message last = messages.isEmpty() ? null : messages.get(messages.size() - 1);
     // 最后一条是工具结果 → 工具已回填，第二轮收尾；否则最近是用户消息、第一轮触发 save_memory。

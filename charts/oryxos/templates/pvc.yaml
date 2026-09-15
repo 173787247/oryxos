@@ -1,0 +1,19 @@
+{{- /* 027 文件面：多副本必须 RWX（读写可见 + rename 原子，见 docs/SharedVolumeGuide.md） */ -}}
+{{- if and (gt (int .Values.replicaCount) 1) (ne .Values.workspace.accessMode "ReadWriteMany") -}}
+{{- fail "replicaCount > 1 时工作区必须 ReadWriteMany（RWX）共享卷——各副本要读写同一 .oryxos 工作区。存储类要求见 docs/SharedVolumeGuide.md；单副本可改 workspace.accessMode=ReadWriteOnce" -}}
+{{- end -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "oryxos.fullname" . }}-workspace
+  labels:
+    {{- include "oryxos.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.workspace.accessMode }}
+  {{- if .Values.workspace.storageClassName }}
+  storageClassName: {{ .Values.workspace.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.workspace.size }}

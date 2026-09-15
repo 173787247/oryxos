@@ -114,3 +114,15 @@ jobs:
             --push \
             .
           echo "已推送 ${IMAGE}:v${VERSION} 与 :latest（linux/amd64 + linux/arm64）"
+
+      # ── 039：Helm chart 第三种产物——打包 tgz 追加到同一 Release 附件（appVersion 对齐 pom 版本）。
+      # 顺序放在镜像之后：chart 失败不阻塞 tar.gz 与镜像发版；不做 OCI chart 仓库（YAGNI，R8）。
+      - name: Package & upload Helm chart
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          bash scripts/install-k8s-tools.sh gate
+          export PATH="$HOME/bin:$PATH"
+          helm package charts/oryxos --app-version "${VERSION}-RELEASE" -d dist/
+          gh release upload "v${VERSION}" dist/oryxos-*.tgz --clobber
+          echo "已上传 chart 附件到 Release v${VERSION}"

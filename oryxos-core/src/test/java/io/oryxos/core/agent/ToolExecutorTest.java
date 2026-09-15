@@ -254,6 +254,44 @@ class ToolExecutorTest {
     assertTrue(payloads.contains("***"));
   }
 
+  /** 039 US3：工具 span 与审计同区间——成功/失败/策略拦截三路径各补记一次，traceId 取当前上下文。 */
+  @Test
+  @DisplayName("039：成功/失败/被拦三路径均补记 tool span")
+  void spanRecordedOnSuccessFailureAndPolicyBlock() {
+    List<String> spans = new ArrayList<>();
+    executor.setSpanRecorder(
+        new io.oryxos.core.metrics.SpanRecorder() {
+          @Override
+          public void recordToolSpan(
+              String traceId,
+              String toolName,
+              boolean success,
+              boolean blockedByPolicy,
+              long startEpochMs,
+              long durationMs) {
+            spans.add(toolName + ":" + success + ":" + blockedByPolicy + ":" + traceId);
+            assertTrue(durationMs >= 0);
+          }
+        });
+    try (TraceContext.Scope scope = TraceContext.openIfAbsent()) {
+      when(httpGet.execute(any())).thenReturn(ToolResult.ok("ok"));
+      executor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+
+      when(httpGet.execute(any())).thenReturn(ToolResult.error("boom", false));
+      executor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+
+      executor.setToolPolicy(
+          (agent, tool) ->
+              io.oryxos.core.policy.ToolPolicyService.PolicyDecision.denied("策略拒绝")); // 020 拦截路径
+      executor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+
+      assertEquals(3, spans.size());
+      assertTrue(spans.get(0).startsWith("http_get:true:false:" + scope.traceId()));
+      assertTrue(spans.get(1).startsWith("http_get:false:false:"));
+      assertTrue(spans.get(2).startsWith("http_get:false:true:"), "被拦记 blockedByPolicy=true");
+    }
+  }
+
   private static final class MemoryEventStore implements AgentRunEventStore {
     final List<AgentRunEvent> rows = new ArrayList<>();
 

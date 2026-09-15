@@ -1,0 +1,77 @@
+# OryxOS Helm values（039）。契约详见 specs/039-k8s-delivery/contracts/helm-values.md 与 docs/K8sDeployGuide.md。
+# 必填仅两项密文引用：database.existingSecret 与 masterKey.existingSecret（或用 *.url/value 由 chart 渲染 Secret）。
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/oryx-labs/oryxos
+  # 默认取 Chart.appVersion；显式指定可覆盖
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# ── 必填：数据库（共享 PostgreSQL，025/026 前提） ─────────────────────────
+database:
+  # 推荐：引用已有 Secret，须含 SPRING_DATASOURCE_URL / SPRING_DATASOURCE_USERNAME / SPRING_DATASOURCE_PASSWORD 三键
+  existingSecret: ""
+  # 或由 chart 渲染 Secret（值不落 ConfigMap；仍建议生产走 existingSecret）
+  url: ""
+  username: ""
+  password: ""
+
+# ── 必填：主密钥（022 落库凭证加密） ─────────────────────────────────────
+masterKey:
+  # 推荐：引用已有 Secret，须含 ORYXOS_MASTER_KEY 键
+  existingSecret: ""
+  # 或由 chart 渲染（openssl rand -base64 32）
+  value: ""
+
+# ── 工作区共享卷（027 文件面；replicaCount>1 必须 RWX，见 docs/SharedVolumeGuide.md） ──
+workspace:
+  storageClassName: ""
+  accessMode: ReadWriteMany
+  size: 5Gi
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# ── 生命周期（US2：滚动升级不断线） ──────────────────────────────────────
+shutdown:
+  # terminationGracePeriodSeconds：与 docker-compose stop_grace_period 同口径（实测优雅停机 ~32s）
+  gracePeriodSeconds: 40
+  # 注入 spring.lifecycle.timeout-per-shutdown-phase：graceful 排空 + SmartLifecycle 阶段上限（适配真实 LLM 轮次）
+  drainTimeout: 30s
+  # preStop sleep：等 endpoint 摘除在集群内传播
+  preStopSeconds: 5
+
+probes:
+  liveness:
+    path: /actuator/health/liveness
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 6
+  readiness:
+    path: /actuator/health/readiness
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 6
+
+# ── OTel trace 导出（US3；空=禁用零开销） ────────────────────────────────
+otel:
+  endpoint: ""
+  samplerRatio: 1.0
+
+env:
+  javaOpts: "-XX:MaxRAMPercentage=75.0"
+  tz: Asia/Shanghai
+
+# 追加合并进 /data/config/application.yml 的任意配置段（如 providers/embedding）
+extraConfig: {}

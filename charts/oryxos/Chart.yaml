@@ -1,0 +1,12 @@
+apiVersion: v2
+name: oryxos
+description: >-
+  OryxOS — Distributed AI Agent OS on your own infrastructure.
+  多副本正确性（CAS 租约/恰好一次/文件面共享卷）开箱即得；数据不出域，不锁云生态。
+type: application
+# chart 自身版本（模板演进独立演版）
+version: 0.1.0
+# 对应应用镜像版本（与 pom <version> 同口径，release 时同步）
+appVersion: "0.1.5-RELEASE"
+keywords: [ai, agent, llm, self-hosted]
+home: https://github.com/oryx-labs/oryxos

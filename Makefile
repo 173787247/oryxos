@@ -24,7 +24,7 @@ STAGE     := $(DIST_DIR)/$(DIST_NAME)
 BOOT_JAR  := oryxos-boot/target/oryxos-boot-$(VERSION).jar
 TARBALL   := $(DIST_DIR)/$(DIST_NAME).tar.gz
 
-.PHONY: help build release docker clean sync-upstream hooks
+.PHONY: help build release docker clean sync-upstream hooks helm-lint helm-package
 
 help:
 	@echo "OryxOS make 目标（version = $(VERSION)）："
@@ -66,6 +66,15 @@ release: build
 docker:
 	@test -f "$(BOOT_JAR)" || { echo "[ERROR] 找不到 $(BOOT_JAR)，先 make build"; exit 1; }
 	docker build --build-arg JAR_FILE=$(BOOT_JAR) -t oryxos:$(VERSION) .
+
+# 039 门禁档：chart lint + template 渲染断言 + kubeconform（无集群全自动；工具缺失先跑 scripts/install-k8s-tools.sh gate）
+helm-lint:
+	bash scripts/helm-verify.sh
+
+# 039：打包 chart（appVersion 对齐 pom VERSION），产物落 dist/
+helm-package:
+	@mkdir -p "$(DIST_DIR)"
+	PATH="$$HOME/bin:$$PATH" helm package charts/oryxos --app-version "$(VERSION)" -d "$(DIST_DIR)"
 
 clean:
 	rm -rf "$(DIST_DIR)"

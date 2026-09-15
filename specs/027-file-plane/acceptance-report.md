@@ -40,7 +40,7 @@
 | SC-004 无半写 | ✅ | AtomicFilesTest + 四处写路径收口 |
 | SC-005 误配拒启回归 | ✅ | ClusterStartupCheckTest 5/5（零新增组合按 R7 裁决） |
 | SC-006 单机零回归 + 轮询负载 | ✅ | 全量单测绿 + 真机单机走查；负载机理证据：每副本每 tick 一次 4 行单查询（workspace_versions 恒 4 行），1s 间隔 = 每秒 1 读，对共享 PG（数千写/s 余量，025 论证）占比 <0.1% |
-| SC-007 支持矩阵 + 真卷走查 | ⚠️ 部分 | `docs/SharedVolumeGuide.md` 已交付；同机共享目录走查全过（满足读写可见 + rename 原子的最强形态）；**NFS 真卷抽查本轮环境无 NFS 未执行**，留待 028 K8s（RWX PVC）环境按 quickstart V4 补做 |
+| SC-007 支持矩阵 + 真卷走查 | ✅（039 补记） | `docs/SharedVolumeGuide.md` 已交付；同机共享目录走查全过；**RWX PVC 抽查已由 039 真机走查兑现**（kind + hostPath 静态 RWX PV：A 建 B 见 1~2s、直接改盘 + refresh 两 Pod 3s 内生效，详见 `specs/039-k8s-delivery/acceptance-report.md`）|
 
 ## 遗留与如实记录
 

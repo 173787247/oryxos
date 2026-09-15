@@ -33,7 +33,7 @@
 ## 推荐挂载与部署要点
 
 - **NFS**：默认参数即可（`vers=4.1,actimeo` 保持默认量级）；不要加 `nocto`。
-- **K8s**：`.oryxos` 用 RWX PVC 挂载到所有副本同一路径，`ORYXOS_ROOT` 指向挂载点。
+- **K8s（039 起为标准姿势）**：官方 Helm Chart 已把 `.oryxos` 声明为 RWX PVC 挂到 `/data/.oryxos`（镜像 `ORYXOS_ROOT` 原生指向），`workspace.storageClassName` 指定支持 RWX 的存储类（NFS provisioner / CephFS / 云厂商文件存储）；`replicaCount>1` 而存储类非 RWX 时 chart 渲染期即拒并指路本文。安装与排查见 `docs/K8sDeployGuide.md`。本地 kind 验收用单节点 hostPath 静态 PV 等价 RWX（同节点天然满足两项依赖）。
 - **直接改盘（运维逃生舱）**：集群档下绕过管理台直接修改共享卷不会被自动感知——改完调 `POST /api/v1/workspace/refresh` 触发全副本重载；单机档仍由 watcher 自动感知。
 - **误配自检边界**：卷「是否真正共享」无法从配置判定，启动不做探测（探测在慢 NFS 上误判、同机部署上漏判）；部署后按 `specs/027-file-plane/quickstart.md` 的走查步骤验证一次即可。
 

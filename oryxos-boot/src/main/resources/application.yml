@@ -42,6 +42,9 @@ spring:
 
 server:
   port: 8080
+  # 039 US2：SIGTERM 后先停接新请求、给在途请求排空窗口（时长 = timeout-per-shutdown-phase）——
+  # 滚动升级不断线的 web 侧前提；单机档同样受益（此前直接掐连接）。
+  shutdown: graceful
   # 反向代理（nginx/caddy 终止 TLS）下识别 X-Forwarded-Proto/Host/Port：
   # 没有它 request.isSecure() 恒为 false，登录 cookie 不会带 Secure 属性。
   # 直连部署无副作用（无 X-Forwarded-* 头时行为不变）。
@@ -124,6 +127,11 @@ management:
     health:
       probes:
         enabled: true
+      # 039 US2：readiness 含数据库可达——DB 断连的副本必须被 K8s 摘流（此前只看状态位，
+      # 半死副本仍显示就绪）。liveness 保持仅状态位（DB 抖动不该触发重启）。
+      group:
+        readiness:
+          include: readinessState,db
       # 匿名探活只看聚合 UP/DOWN；组件/数据源/磁盘等详情需认证（when-authorized）
       show-details: when-authorized
       show-components: when-authorized
