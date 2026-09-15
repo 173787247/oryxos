@@ -34,7 +34,8 @@ public class AuthzEventRecorder {
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "CRLF_INJECTION_LOGS",
       justification =
-          "exception toString for diagnostics only, write failure must not change deny decision; no request body in log.")
+          "exception toString for diagnostics only; write failure must not change deny"
+              + " decision; no request body in log.")
   public void record(
       Principal principal,
       Action action,
