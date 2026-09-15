@@ -64,10 +64,13 @@ probes:
     periodSeconds: 5
     failureThreshold: 6
 
-# ── OTel trace 导出（US3；空=禁用零开销） ────────────────────────────────
+# ── OTel 导出（trace=039 US3，metrics=#471；各自空=禁用零开销） ──────────
 otel:
+  # trace：OTLP gRPC 端点（如 http://collector:4317）
   endpoint: ""
   samplerRatio: 1.0
+  # metrics：OTLP/HTTP 端点（如 http://collector:4318/v1/metrics）；Prometheus 拉取口径始终保留
+  metricsEndpoint: ""
 
 env:
   javaOpts: "-XX:MaxRAMPercentage=75.0"

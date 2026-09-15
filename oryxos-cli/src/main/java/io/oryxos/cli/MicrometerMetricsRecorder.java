@@ -205,4 +205,15 @@ public class MicrometerMetricsRecorder implements MetricsRecorder {
       LOG.debug("workspace reloaded 指标记录失败", e);
     }
   }
+
+  @Override
+  public void recordLlmCost(String provider, String model, long costMicros) {
+    try {
+      registry
+          .counter("oryxos_llm_cost_micros_total", "provider", tag(provider), "model", tag(model))
+          .increment(costMicros);
+    } catch (RuntimeException e) {
+      LOG.debug("llm cost 指标记录失败", e);
+    }
+  }
 }

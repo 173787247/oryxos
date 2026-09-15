@@ -7,6 +7,9 @@
 {{- if .Values.otel.endpoint -}}
 {{- $_ := set (get $base "oryxos") "otel" (dict "endpoint" .Values.otel.endpoint "sampler-ratio" .Values.otel.samplerRatio) -}}
 {{- end -}}
+{{- if .Values.otel.metricsEndpoint -}}
+{{- $_ := set $base "management" (dict "otlp" (dict "metrics" (dict "export" (dict "enabled" true "url" .Values.otel.metricsEndpoint)))) -}}
+{{- end -}}
 {{- $merged := mergeOverwrite (deepCopy .Values.extraConfig) $base -}}
 apiVersion: v1
 kind: ConfigMap

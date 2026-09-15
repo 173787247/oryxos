@@ -138,6 +138,17 @@ management:
   metrics:
     tags:
       application: oryxos
+  # #471：指标 OTLP 导出——默认禁用（零连接零导出，Prometheus 拉取口径不变）；
+  # 启用：management.otlp.metrics.export.enabled=true + url 指向 collector 的 /v1/metrics
+  # （K8s 部署经 Helm values otel.metricsEndpoint 注入，见 docs/K8sDeployGuide.md）
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  # OTel 资源标识：trace（039）与 metrics（#471）在标准后端按同一 service.name 关联
+  opentelemetry:
+    resource-attributes:
+      service.name: oryxos
 
 # OpenAPI / Swagger UI
 # 默认关闭：接口模型不向网络暴露。本地调试可临时开启：

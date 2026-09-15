@@ -138,6 +138,12 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- #471：指标 OTLP 导出（与 039 trace 导出并列成对）——默认禁用（application.yml
+             management.otlp.metrics.export.enabled=false），配置 url 后推送 OTel collector -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-otlp</artifactId>
+        </dependency>
 
         <!-- Structured JSON logging (prod profile) -->
         <dependency>

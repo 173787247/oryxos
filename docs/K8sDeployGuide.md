@@ -38,6 +38,7 @@ curl -s localhost:8080/api/v1/instances   # 双副本 alive、clusterEnabled=tru
 | `shutdown.gracePeriodSeconds` | 40 | 终止宽限（与 compose 同口径） |
 | `shutdown.drainTimeout` | 30s | 在途请求排空 + 停机阶段上限（适配真实 LLM 轮次） |
 | `otel.endpoint` | ""（禁用） | OTLP gRPC 端点（如 `http://jaeger:4317`）；配置即导出 trace（traceId 与 `/api/v1/audit/trace/{id}` 同源互查），不配零开销 |
+| `otel.metricsEndpoint` | ""（禁用） | #471：指标 OTLP/HTTP 端点（如 `http://collector:4318/v1/metrics`）——LLM 时延/token/成本/错误与 JVM/HTTP 全量指标推送 OTel 后端（`service.name=oryxos` 与 trace 关联）；Prometheus 拉取口径不受影响 |
 | `resources` | 512Mi/250m ~ 2Gi/2 | 容器资源 |
 | `extraConfig` | {} | 合并进 `/data/config/application.yml` 的任意段（providers/embedding 等） |
 
