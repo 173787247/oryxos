@@ -23,6 +23,15 @@ spec:
         # 配置变更触发滚动（ConfigMap 内容哈希）
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
+      # 关闭 K8s service-link 环境变量注入：Service 名为 oryxos 时会注入
+      # ORYXOS_PORT=tcp://<clusterIP>:8080，覆盖镜像的 ORYXOS_PORT=8080 端口号语义，
+      # entrypoint 解析端口直接崩（真机走查实测）。服务发现一律走 DNS，不需要 link 变量。
+      enableServiceLinks: false
+      # 工作区卷属主：容器以 uid/gid 1000 运行（镜像 USER oryxos），fsGroup 让 CSI 卷挂载时
+      # 归组可写（hostPath 类卷不支持 fsGroup，需存储侧预置权限——见 SharedVolumeGuide）。
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       terminationGracePeriodSeconds: {{ .Values.shutdown.gracePeriodSeconds }}
       containers:
         - name: oryxos

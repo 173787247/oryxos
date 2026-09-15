@@ -262,4 +262,26 @@ class AgentServiceTest {
     org.junit.jupiter.api.Assertions.assertEquals(
         java.util.List.of("ops-agent:true:true", "ops-agent:false:true"), spans);
   }
+
+  @Test
+  @DisplayName("039：无状态一轮（invoke/群聊）同样补记 turn span")
+  void statelessTurnSpanRecorded() {
+    java.util.List<String> spans = new java.util.ArrayList<>();
+    agentService.setSpanRecorder(
+        new io.oryxos.core.metrics.SpanRecorder() {
+          @Override
+          public void recordTurnSpan(
+              String traceId,
+              String agentName,
+              String channel,
+              boolean success,
+              long startEpochMs,
+              long durationMs) {
+            spans.add(agentName + ":" + success);
+          }
+        });
+    when(reActLoop.run(any(), any(), any())).thenReturn("ok");
+    agentService.processStateless("ops-agent", "hi");
+    org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of("ops-agent:true"), spans);
+  }
 }

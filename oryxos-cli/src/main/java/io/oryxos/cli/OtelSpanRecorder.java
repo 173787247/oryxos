@@ -164,7 +164,8 @@ public final class OtelSpanRecorder implements SpanRecorder, AutoCloseable {
       attributes.accept(span);
       endSpan(span, success, startEpochMs, durationMs);
     } catch (RuntimeException e) {
-      LOG.debug("{} span 记录失败", name, e);
+      // 静态消息（CRLF 纪律）；span 名见异常堆栈上下文
+      LOG.debug("子 span 记录失败", e);
     }
   }
 

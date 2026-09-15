@@ -7,3 +7,12 @@ masterKey:
 image:
   repository: oryxos
   tag: ci
+# 冒烟用 mock provider/embedding（无 key 全链路，025 起惯例）
+extraConfig:
+  oryxos:
+    providers:
+      - name: mock
+  embedding:
+    provider: mock
+  memory:
+    backend: sqlite

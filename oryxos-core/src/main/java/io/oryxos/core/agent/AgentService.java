@@ -209,17 +209,31 @@ public class AgentService {
     ProfileContext.set(profile);
     // 021：同 process——兜底开启 trace，已开启则复用
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
-      List<Message.MediaPart> parts = media == null ? List.of() : media;
-      String reply;
-      if (parts.isEmpty() && listener == StreamListener.NOOP) {
-        reply = reActLoop.run(session, userMessage, profile);
-      } else {
-        reply = reActLoop.run(session, userMessage, parts, profile, listener);
+      // 039：无状态一轮同样补记 turn 根 span（invoke/群聊问答路径；真机走查实测缺口）
+      long turnStartedAt = System.currentTimeMillis();
+      boolean turnSuccess = false;
+      try {
+        List<Message.MediaPart> parts = media == null ? List.of() : media;
+        String reply;
+        if (parts.isEmpty() && listener == StreamListener.NOOP) {
+          reply = reActLoop.run(session, userMessage, profile);
+        } else {
+          reply = reActLoop.run(session, userMessage, parts, profile, listener);
+        }
+        if (ReActLoop.MAX_ITERATIONS_REPLY.equals(reply)) {
+          throw new AgentMaxIterationsExceededException(reply);
+        }
+        turnSuccess = true;
+        return reply;
+      } finally {
+        spanRecorder.recordTurnSpan(
+            traceScope.traceId(),
+            agentName,
+            channelOf(statelessSessionId),
+            turnSuccess,
+            turnStartedAt,
+            System.currentTimeMillis() - turnStartedAt);
       }
-      if (ReActLoop.MAX_ITERATIONS_REPLY.equals(reply)) {
-        throw new AgentMaxIterationsExceededException(reply);
-      }
-      return reply;
     } finally {
       ProfileContext.clear();
     }

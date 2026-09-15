@@ -58,6 +58,8 @@ kubectl -n "${NS}" create secret generic oryxos-master-key \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "== 单节点 RWX：hostPath 静态 PV（storageClassName=manual-rwx） =="
+# hostPath 不支持 fsGroup 属主变更：节点内预建目录并放开权限（容器以 uid 1000 运行）
+docker exec "${CLUSTER}-control-plane" sh -c 'mkdir -p /tmp/oryxos-workspace && chmod 0777 /tmp/oryxos-workspace'
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolume

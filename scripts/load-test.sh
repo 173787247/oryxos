@@ -21,7 +21,7 @@ worker() {
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 120 \
       -X POST "${BASE}/api/v1/agents/${AGENT}/invoke" \
       -H 'Content-Type: application/json' \
-      -d "{\"message\":\"load-${id}-${i}\"}") || code=000
+      -d "{\"content\":\"load-${id}-${i}\"}") || code=000
     [ "${code}" = "200" ] && okc=$((okc + 1))
   done
   echo "${okc}" > "${TMP}/w${id}"
