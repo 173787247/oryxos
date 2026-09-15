@@ -194,7 +194,8 @@ public class UserCommand implements Runnable {
     public void run() {
       io.oryxos.core.auth.Role role;
       try {
-        role = io.oryxos.core.auth.Role.valueOf(roleName.strip().toUpperCase(java.util.Locale.ROOT));
+        role =
+            io.oryxos.core.auth.Role.valueOf(roleName.strip().toUpperCase(java.util.Locale.ROOT));
       } catch (RuntimeException ex) {
         throw new IllegalStateException(
             "invalid role '" + roleName + "' (expected VIEWER|EDITOR|ADMIN)");
