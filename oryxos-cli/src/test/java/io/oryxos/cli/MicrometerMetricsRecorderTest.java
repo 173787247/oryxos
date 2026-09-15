@@ -151,4 +151,20 @@ class MicrometerMetricsRecorderTest {
             })
         .doesNotThrowAnyException();
   }
+
+  @Test
+  void llm成本_按微分累加与审计同源可对账() { // #471
+    recorder.recordLlmCost("deepseek", "deepseek-chat", 1500);
+    recorder.recordLlmCost("deepseek", "deepseek-chat", 500);
+    assertThat(
+            registry
+                .counter(
+                    "oryxos_llm_cost_micros_total",
+                    "provider",
+                    "deepseek",
+                    "model",
+                    "deepseek-chat")
+                .count())
+        .isEqualTo(2000.0);
+  }
 }

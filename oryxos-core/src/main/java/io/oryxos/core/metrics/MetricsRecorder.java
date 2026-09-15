@@ -44,6 +44,9 @@ public interface MetricsRecorder {
   /** 027：工作区某域重载一次（版本号轮询感知变更后；domain = agents/skills/personas/knowledge）。 */
   default void recordWorkspaceReloaded(String domain) {}
 
+  /** #471：一次成功 LLM 调用的成本（微分单位，与审计表 cost_micros 同源同算；无定价时不调用）。 */
+  default void recordLlmCost(String provider, String model, long costMicros) {}
+
   /**
    * 入站 ASR（语音/视频音轨）一次尝试。
    *

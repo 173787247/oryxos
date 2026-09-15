@@ -432,6 +432,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   private void recordSuccess(
       String sessionId, Profile profile, Attempt attempt, ProviderResponse result, long startedAt) {
     long durationMs = System.currentTimeMillis() - startedAt;
+    Long costMicros = computeCost(attempt.provider(), attempt.model(), result.usage());
     try {
       audit.record(
           sessionId,
@@ -439,7 +440,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
           attempt.provider(),
           attempt.model(),
           result.usage(),
-          computeCost(attempt.provider(), attempt.model(), result.usage()),
+          costMicros,
           true,
           null,
           durationMs);
@@ -455,6 +456,10 @@ public class SpringAiProviderServiceImpl implements ProviderService {
             attempt.model(),
             result.usage().promptTokens(),
             result.usage().completionTokens());
+      }
+      // #471：成本进指标（与审计 cost_micros 同源同算，可对账）；无定价（null）不记
+      if (costMicros != null && costMicros > 0) {
+        metrics.recordLlmCost(attempt.provider(), attempt.model(), costMicros);
       }
     } catch (RuntimeException ignored) {
       // FR-010：指标失败静默
