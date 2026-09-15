@@ -139,9 +139,7 @@ public final class RequestActionResolver {
     }
     if (isUnder(p, PATH_AGENTS)) {
       return readOrManage(
-          m,
-          Action.MANAGE_AGENTS,
-          ResourceRef.agent(segmentAfter(p, PATH_AGENTS_PREFIX)));
+          m, Action.MANAGE_AGENTS, ResourceRef.agent(segmentAfter(p, PATH_AGENTS_PREFIX)));
     }
     if (isUnder(p, PATH_KNOWLEDGE)) {
       return readOrManage(
@@ -151,9 +149,7 @@ public final class RequestActionResolver {
     }
     if (isUnder(p, PATH_SKILLS)) {
       return readOrManage(
-          m,
-          Action.MANAGE_SKILLS,
-          ResourceRef.skill(segmentAfter(p, PATH_SKILLS_PREFIX)));
+          m, Action.MANAGE_SKILLS, ResourceRef.skill(segmentAfter(p, PATH_SKILLS_PREFIX)));
     }
     if (isUnder(p, PATH_PERSONAS) || isUnder(p, PATH_SCHEDULES)) {
       return readOrManage(m, Action.MANAGE_AGENTS, ResourceRef.agent(null));
