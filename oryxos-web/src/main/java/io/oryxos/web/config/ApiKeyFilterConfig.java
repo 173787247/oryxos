@@ -34,13 +34,14 @@ public class ApiKeyFilterConfig {
   FilterRegistrationBean<ApiKeyAuthFilter> apiKeyAuthFilter(
       ApiKeyService apiKeyService,
       WebSessionService sessionService,
+      io.oryxos.storage.WebUserService userService,
       WebApiKeyProperties properties,
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer) {
     FilterRegistrationBean<ApiKeyAuthFilter> registration = new FilterRegistrationBean<>();
     registration.setFilter(
         new ApiKeyAuthFilter(
-            apiKeyService, sessionService, properties, objectMapper, rbacEnforcer));
+            apiKeyService, sessionService, userService, properties, objectMapper, rbacEnforcer));
     registration.addUrlPatterns(PROTECTED_URL_PATTERNS);
     registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 11);
     return registration;

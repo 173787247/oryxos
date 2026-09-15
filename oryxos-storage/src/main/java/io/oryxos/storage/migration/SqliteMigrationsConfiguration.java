@@ -8,8 +8,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
- * SQLite 存量收敛迁移 V2~V6 的装配（025 + Run 工作台）：仅 datasource url 为 SQLite 时注册。V6 是 JavaMigration（SQLite 无
- * {@code ADD COLUMN IF NOT EXISTS}）；PostgreSQL 目录另有成对的 V6 SQL。
+ * SQLite 存量收敛迁移 V2~V6 + V9 的装配（025 + Run 工作台 + 039 角色）：仅 datasource url 为 SQLite 时注册。V6/V9 是
+ * JavaMigration（SQLite 无 {@code ADD COLUMN IF NOT EXISTS}）；PostgreSQL 目录另有成对的 V6/V9 SQL。V7/V8 为纯
+ * SQL。
  */
 @Configuration(proxyBeanMethods = false)
 @Conditional(SqliteMigrationsConfiguration.OnSqliteDatasource.class)
@@ -48,5 +49,10 @@ public class SqliteMigrationsConfiguration {
   @Bean
   AgentRunColumnsMigration agentRunColumnsMigration() {
     return new AgentRunColumnsMigration();
+  }
+
+  @Bean
+  WebUserRolesMigration webUserRolesMigration() {
+    return new WebUserRolesMigration();
   }
 }

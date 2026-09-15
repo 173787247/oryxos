@@ -1141,6 +1141,13 @@ public class OryxOsRuntime {
     return new WebUserService(repository, passwordEncoder);
   }
 
+  /** 039：授权拒绝审计落库（写失败不抛，不影响裁决）。 */
+  @Bean
+  io.oryxos.storage.AuthzEventRecorder authzEventRecorder(
+      io.oryxos.storage.AuthzEventRepository repository) {
+    return new io.oryxos.storage.AuthzEventRecorder(repository);
+  }
+
   /**
    * 012-web-auth US3：浏览器登录 session 管理（create/findValid 惰性清过期/delete）。ttl 走 @Value 读字面量，避免 cli 引
    * oryxos-web 的 WebAuthProperties 类。

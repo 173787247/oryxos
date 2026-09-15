@@ -86,10 +86,11 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
   private final ApiKeyService apiKeyService;
   private final WebSessionService sessionService;
+  private final io.oryxos.storage.WebUserService userService;
   private final WebApiKeyProperties properties;
   private final ObjectMapper objectMapper;
 
-  /** RBAC 强制点（039）：{@code null} = 未启用授权切面（四参构造的既有路径）。 */
+  /** RBAC 强制点（039）：{@code null} = 未启用授权切面（四参/五参构造的既有路径）。 */
   private final RbacEnforcer rbacEnforcer;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -102,15 +103,10 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebSessionService sessionService,
       WebApiKeyProperties properties,
       ObjectMapper objectMapper) {
-    this(apiKeyService, sessionService, properties, objectMapper, null);
+    this(apiKeyService, sessionService, null, properties, objectMapper, null);
   }
 
-  /**
-   * 带 RBAC 强制点的构造（039-identity-authorization）。
-   *
-   * <p>{@code rbacEnforcer} 允许为 {@code null}——既有部署与单测走四参构造时不设授权切面，行为与 018 完全一致
-   * （默认关零行为变化）。装配侧（{@code ApiKeyFilterConfig}）在容器启动时始终注入真实实例。
-   */
+  /** 带 RBAC 强制点的构造（039 第一刀兼容路径：无 WebUserService 时 session 主体角色为空，回落配置默认档）。 */
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "rbacEnforcer 为 Spring 注入的共享单例，构造注入存同一引用正是意图（同上）。")
@@ -120,8 +116,23 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebApiKeyProperties properties,
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer) {
+    this(apiKeyService, sessionService, null, properties, objectMapper, rbacEnforcer);
+  }
+
+  /** 完整构造（039 第二刀）：session 分支经 {@code userService.rolesOf} 解析库内角色。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "userService/rbacEnforcer 为 Spring 注入共享单例，存同一引用正是意图。")
+  public ApiKeyAuthFilter(
+      ApiKeyService apiKeyService,
+      WebSessionService sessionService,
+      io.oryxos.storage.WebUserService userService,
+      WebApiKeyProperties properties,
+      ObjectMapper objectMapper,
+      RbacEnforcer rbacEnforcer) {
     this.apiKeyService = apiKeyService;
     this.sessionService = sessionService;
+    this.userService = userService;
     this.properties = properties;
     this.objectMapper = objectMapper;
     this.rbacEnforcer = rbacEnforcer;
@@ -152,8 +163,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     Optional<String> sessionUser = sessionUsername(request);
     if (sessionUser.isPresent()) {
       String username = sessionUser.get();
-      if (!prepareAndAuthorize(
-          request, response, () -> Principal.user(username, username, Set.of()))) {
+      if (!prepareAndAuthorize(request, response, () -> userPrincipal(username))) {
         return;
       }
       filterChain.doFilter(request, response);
@@ -191,6 +201,12 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     String id = name == null || name.isBlank() ? Principal.API_KEY_FALLBACK_ID : name;
     Set<Role> noRoles = Set.of();
     return Principal.apiKey(id, id, noRoles);
+  }
+
+  /** session 主体：角色来自 web_users.roles（每请求重解析）；无 userService 时角色空 → 回落配置默认档。 */
+  private Principal userPrincipal(String username) {
+    Set<Role> roles = userService == null ? Set.of() : userService.rolesOf(username);
+    return Principal.user(username, username, roles);
   }
 
   private static boolean isExempt(HttpServletRequest request) {

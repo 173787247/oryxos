@@ -64,8 +64,10 @@ public class AuthorizationConfig {
    */
   @Bean
   RbacEnforcer rbacEnforcer(
-      AuthorizationService authorizationService, WebRbacProperties properties) {
-    return new RbacEnforcer(authorizationService, properties);
+      AuthorizationService authorizationService,
+      WebRbacProperties properties,
+      io.oryxos.storage.AuthzEventRecorder authzEventRecorder) {
+    return new RbacEnforcer(authorizationService, properties, authzEventRecorder);
   }
 
   /** 角色名解析：大小写不敏感、去空白；无法识别的角色名直接忽略并告警，不阻断启动（配置写错不应导致服务起不来）。 */
