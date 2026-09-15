@@ -107,14 +107,14 @@ class LegacyTakeoverIT {
             last_status, run_count, updated_at)
           VALUES (
             'daily', 'legacy-agent', '0 0 0 1 1 *', 'Asia/Shanghai', 'legacy message', 0,
-            '2026-01-01T00:00:00Z', '2025-12-31T00:00:00Z', 'success', 7,
-            '2025-12-31T00:00:00Z')
+            '2026-01-01T00:00:00Z', '2025-12-31 00:00:00', 'success', 7,
+            '2025-12-31 00:00:00')
           """);
       statement.execute(
           """
           INSERT INTO task_executions (
             task_id, session_id, started_at, success, error_message, duration_ms)
-          VALUES ('daily', 'legacy-session', '2025-12-31T00:00:00Z', 1, NULL, 42)
+          VALUES ('daily', 'legacy-session', '2025-12-31 00:00:00', 1, NULL, 42)
           """);
       statement.execute(
           """
@@ -134,7 +134,7 @@ class LegacyTakeoverIT {
           """);
       statement.execute(
           "INSERT INTO llm_calls (session_id, provider, model, success, duration_ms, created_at)"
-              + " VALUES ('s-1', 'deepseek', 'deepseek-chat', 1, 100, '2025-12-31T00:00:00Z')");
+              + " VALUES ('s-1', 'deepseek', 'deepseek-chat', 1, 100, '2025-12-31 00:00:00')");
       statement.execute(
           """
           CREATE TABLE memory_entries (
@@ -146,7 +146,7 @@ class LegacyTakeoverIT {
           """);
       statement.execute(
           "INSERT INTO memory_entries (scope, content, created_at)"
-              + " VALUES ('ARCHIVAL', 'legacy memory', '2025-12-31T00:00:00Z')");
+              + " VALUES ('ARCHIVAL', 'legacy memory', '2025-12-31 00:00:00')");
       statement.execute(
           """
           CREATE TABLE notify_channels (
@@ -161,7 +161,7 @@ class LegacyTakeoverIT {
       statement.execute(
           "INSERT INTO notify_channels (name, type, url, created_at, updated_at)"
               + " VALUES ('ops', 'webhook', 'https://example.com/hook',"
-              + " '2025-12-31T00:00:00Z', '2025-12-31T00:00:00Z')");
+              + " '2025-12-31 00:00:00', '2025-12-31 00:00:00')");
     }
   }
 

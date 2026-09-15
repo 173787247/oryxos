@@ -334,6 +334,36 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!-- #453：构建环境硬约束（fail）+ 依赖收敛软检查（仅告警，存量收敛问题不阻断，
+                     待清零后再升 fail——避免一次性引爆）。 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>3.5.0</version>
+                    <executions>
+                        <execution>
+                            <id>enforce-environment</id>
+                            <goals><goal>enforce</goal></goals>
+                            <configuration>
+                                <rules>
+                                    <requireJavaVersion><version>[21,)</version></requireJavaVersion>
+                                    <requireMavenVersion><version>[3.8,)</version></requireMavenVersion>
+                                </rules>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>warn-dependency-convergence</id>
+                            <goals><goal>enforce</goal></goals>
+                            <configuration>
+                                <rules>
+                                    <dependencyConvergence/>
+                                </rules>
+                                <fail>false</fail>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
                 <!-- Tests: exclude @Tag("integration") by default (CI skips smoke ITs);
                      run locally with: mvn test -Dgroups=integration -DexcludedGroups= -->
                 <plugin>
