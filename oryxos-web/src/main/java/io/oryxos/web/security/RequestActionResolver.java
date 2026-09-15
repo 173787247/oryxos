@@ -3,6 +3,7 @@ package io.oryxos.web.security;
 import io.oryxos.core.policy.Action;
 import io.oryxos.core.policy.ResourceRef;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Locale;
 import org.springframework.http.HttpMethod;
 
 /**
@@ -105,14 +106,14 @@ public final class RequestActionResolver {
     if (request == null) {
       return null;
     }
-    String method = request.getMethod() == null ? "" : request.getMethod().toUpperCase();
+    String method = request.getMethod() == null ? "" : request.getMethod().toUpperCase(Locale.ROOT);
     String path = normalize(request.getRequestURI());
     return resolve(method, path);
   }
 
   /** 纯函数入口（单测友好）。 */
   public static Resolution resolve(String method, String path) {
-    String m = method == null ? "" : method.toUpperCase();
+    String m = method == null ? "" : method.toUpperCase(Locale.ROOT);
     String p = normalize(path);
     if (HttpMethod.OPTIONS.matches(m)) {
       return Resolution.skip();
