@@ -8,6 +8,7 @@ import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentRunEvent;
 import io.oryxos.core.agent.AgentRunEventStore;
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.auth.Principal;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Session;
 import io.oryxos.core.session.SessionManager;
@@ -17,8 +18,11 @@ import io.oryxos.web.controller.dto.AgentRunEventView;
 import io.oryxos.web.controller.dto.AgentRunView;
 import io.oryxos.web.controller.dto.CreateRunRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
+import io.oryxos.web.security.RuntimeAgentGuard;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,6 +58,9 @@ public class AgentRunApiController {
   private final ProfileRegistry profileRegistry;
   private final ObjectMapper objectMapper;
 
+  /** 503：开跑前 decide + 异步线程装回 Principal；可空以便单测直构。 */
+  private RuntimeAgentGuard runtimeAgentGuard;
+
   public AgentRunApiController(
       AgentExecutionService executionService,
       AgentRunEventStore eventStore,
@@ -69,8 +76,14 @@ public class AgentRunApiController {
     this.objectMapper = objectMapper;
   }
 
+  @Autowired(required = false)
+  public void setRuntimeAgentGuard(RuntimeAgentGuard runtimeAgentGuard) {
+    this.runtimeAgentGuard = runtimeAgentGuard;
+  }
+
   @PostMapping
-  public ApiResponse<AgentRunView> create(@RequestBody CreateRunRequest req) {
+  public ApiResponse<AgentRunView> create(
+      @RequestBody CreateRunRequest req, HttpServletRequest request) {
     String agentName = req == null ? null : req.agentName();
     String content = req == null ? null : req.content();
     if (agentName == null || agentName.isBlank()) {
@@ -83,6 +96,10 @@ public class AgentRunApiController {
       throw new IllegalArgumentException("消息超过 32KB 上限");
     }
     requireAgent(agentName);
+    Principal actor =
+        runtimeAgentGuard == null
+            ? null
+            : runtimeAgentGuard.authorizeAndCapture(request, agentName);
     Session session = sessionManager.getOrCreate(CONSOLE_CHANNEL, CONSOLE_USER, agentName);
     long id =
         executionService.triggerAsync(
@@ -90,7 +107,16 @@ public class AgentRunApiController {
             TRIGGER_SOURCE_MANUAL,
             session.sessionId(),
             content,
-            () -> agentService.process(session, content));
+            () -> {
+              if (actor != null) {
+                RuntimeAgentGuard.install(actor);
+              }
+              try {
+                agentService.process(session, content);
+              } finally {
+                RuntimeAgentGuard.clear();
+              }
+            });
     return ApiResponse.ok(toView(requireRun(id)));
   }
 

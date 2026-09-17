@@ -7,6 +7,7 @@ import io.oryxos.core.policy.AuthorizationService;
 import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
 import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.security.RbacEnforcer;
+import io.oryxos.web.security.RuntimeAgentGuard;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -81,6 +82,12 @@ public class AuthorizationConfig {
   @Bean
   AssetBindGuard assetBindGuard(AuthorizationService authorizationService) {
     return new AssetBindGuard(authorizationService);
+  }
+
+  /** 运行时开跑 Agent：同一 decide + PrincipalContext 载体（#503）。 */
+  @Bean
+  RuntimeAgentGuard runtimeAgentGuard(AssetBindGuard assetBindGuard) {
+    return new RuntimeAgentGuard(assetBindGuard);
   }
 
   /**

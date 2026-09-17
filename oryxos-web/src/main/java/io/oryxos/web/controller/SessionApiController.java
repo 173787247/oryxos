@@ -13,11 +13,13 @@ import io.oryxos.web.controller.dto.SessionStatsView;
 import io.oryxos.web.controller.dto.SessionSummaryView;
 import io.oryxos.web.controller.dto.SessionView;
 import io.oryxos.web.error.SessionNotFoundException;
+import io.oryxos.web.security.RuntimeAgentGuard;
 import io.oryxos.web.sse.SseStreamSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -57,9 +59,17 @@ public class SessionApiController {
   /** SSE 编排（019）：默认实例保 telescoping 构造与测试直构可用，运行时由 @Autowired setter 覆盖为容器单例。 */
   private SseStreamSupport sseStreamSupport = SseStreamSupport.defaultSupport();
 
-  @org.springframework.beans.factory.annotation.Autowired
+  /** 503：开跑前 decide + PrincipalContext；可空以便单测直构（与 flag 关同向）。 */
+  private RuntimeAgentGuard runtimeAgentGuard;
+
+  @Autowired
   public void setSseStreamSupport(SseStreamSupport sseStreamSupport) {
     this.sseStreamSupport = sseStreamSupport;
+  }
+
+  @Autowired(required = false)
+  public void setRuntimeAgentGuard(RuntimeAgentGuard runtimeAgentGuard) {
+    this.runtimeAgentGuard = runtimeAgentGuard;
   }
 
   public SessionApiController(AgentService agentService, SessionManager sessionManager) {
@@ -93,13 +103,20 @@ public class SessionApiController {
         sessionManager.get(id).orElseThrow(() -> new SessionNotFoundException(id)); // → 404
     // 021：controller 先 open 拿 ID 回传调用方；AgentService 兜底 openIfAbsent 复用同一 ID
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
-      if (SseStreamSupport.wantsEventStream(request)) {
-        sseStreamSupport.stream(
-            response, listener -> agentService.process(session, content, listener));
-        return null; // 响应已由 SSE 流写出并提交（trace 事件由 SseStreamSupport 发出）
+      if (runtimeAgentGuard != null) {
+        runtimeAgentGuard.bindForRun(request, session.profileName());
       }
-      String reply = agentService.process(session, content); // 同一编排入口；审计在 process 内
-      return ApiResponse.ok(new MessageResponse(reply, traceScope.traceId()));
+      try {
+        if (SseStreamSupport.wantsEventStream(request)) {
+          sseStreamSupport.stream(
+              response, listener -> agentService.process(session, content, listener));
+          return null; // 响应已由 SSE 流写出并提交（trace 事件由 SseStreamSupport 发出）
+        }
+        String reply = agentService.process(session, content); // 同一编排入口；审计在 process 内
+        return ApiResponse.ok(new MessageResponse(reply, traceScope.traceId()));
+      } finally {
+        RuntimeAgentGuard.clear();
+      }
     }
   }
 
