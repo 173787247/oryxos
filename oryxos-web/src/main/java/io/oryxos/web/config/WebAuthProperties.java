@@ -58,12 +58,24 @@ public class WebAuthProperties {
     this.sessionTtl = sessionTtl;
   }
 
+  /** 返回防御性深拷贝（SpotBugs EI_EXPOSE_REP）。 */
   public Map<String, List<String>> getUserTeamIds() {
-    return userTeamIds;
+    if (userTeamIds == null || userTeamIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<String, List<String>> copy = new LinkedHashMap<>();
+    userTeamIds.forEach((k, v) -> copy.put(k, v == null ? List.of() : List.copyOf(v)));
+    return Map.copyOf(copy);
   }
 
   public void setUserTeamIds(Map<String, List<String>> userTeamIds) {
-    this.userTeamIds = userTeamIds == null ? new LinkedHashMap<>() : userTeamIds;
+    if (userTeamIds == null) {
+      this.userTeamIds = new LinkedHashMap<>();
+      return;
+    }
+    Map<String, List<String>> copy = new LinkedHashMap<>();
+    userTeamIds.forEach((k, v) -> copy.put(k, v == null ? new ArrayList<>() : new ArrayList<>(v)));
+    this.userTeamIds = copy;
   }
 
   /** 密码登录用：查配置中的团队声明；无条目 → 空列表。 */
