@@ -1,7 +1,9 @@
 package io.oryxos.storage;
 
 import io.oryxos.core.auth.Role;
+import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -28,8 +30,11 @@ public class WebUserService {
 
   private static final Logger LOG = LoggerFactory.getLogger(WebUserService.class);
 
+  private static final SecureRandom RANDOM = new SecureRandom();
+
   private static final int MIN_PASSWORD_LENGTH = 8;
   private static final int MAX_USERNAME_LENGTH = 64;
+  private static final int OIDC_PASSWORD_BYTES = 32;
 
   /** 角色字段序列化分隔符（DB 存 CSV：VIEWER,EDITOR）。 */
   private static final String ROLES_DELIMITER = ",";
@@ -58,6 +63,25 @@ public class WebUserService {
     user.setEnabled(true);
     user.setRoles(DEFAULT_ROLES_SERIALIZED);
     return repository.save(user);
+  }
+
+  /**
+   * OIDC JIT（#502）：确保本地账号存在。已存在则返回既有行；否则用随机不可知密码创建（默认 VIEWER），密码登录需事后改密。
+   *
+   * <p>不把 IdP subject 当 username；调用方已按 preferred_username / email 推导合法名。
+   */
+  public WebUser ensureOidcProvisioned(String username) {
+    validateUsername(username);
+    String clean = username.strip();
+    return repository
+        .findByUsername(clean)
+        .orElseGet(
+            () -> {
+              byte[] buf = new byte[OIDC_PASSWORD_BYTES];
+              RANDOM.nextBytes(buf);
+              String opaque = Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
+              return create(clean, opaque);
+            });
   }
 
   /** 删账号；不存在抛 IllegalArgumentException。 */

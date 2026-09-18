@@ -36,7 +36,7 @@ public class IdentityMappingService {
   }
 
   /**
-   * 插入或更新映射。本地用户必须已存在（无 JIT）。审计失败则抛出并回滚。
+   * 插入或更新映射。本地用户必须已存在（JIT 时由 {@code WebUserService#ensureOidcProvisioned} 先建）。审计失败则抛出并回滚。
    *
    * @return 落库后的映射行
    */

@@ -41,6 +41,18 @@ class OidcGroupRoleSyncTest {
   }
 
   @Test
+  void unmatchedWithRevokeClearsRoles() {
+    WebUserService users = mock(WebUserService.class);
+    WebOidcProperties properties = new WebOidcProperties();
+    properties.setGroupRoles(Map.of("oryxos-editors", "EDITOR"));
+    properties.setRevokeUnmatchedRoles(true);
+    OidcGroupRoleSync sync = new OidcGroupRoleSync(users);
+
+    assertThat(sync.apply("alice", List.of("unknown"), properties)).contains(Set.of());
+    verify(users).setRoles("alice", Set.of());
+  }
+
+  @Test
   void claimShapesNormalize() {
     assertThat(OidcGroupClaims.normalize(null)).isEmpty();
     assertThat(OidcGroupClaims.normalize("  ops  ")).containsExactly("ops");
