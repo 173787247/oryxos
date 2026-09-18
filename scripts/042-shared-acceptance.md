@@ -1,6 +1,8 @@
 # 042 real shared-volume acceptance kit
 
-## Environment discovery — 2026-09-18 UTC
+## Initial environment discovery — 2026-09-18 UTC
+
+**Later update:** a separate three-node kind cluster with actual NFSv4.1 was subsequently built and exercised on Docker Desktop. See [kind NFS acceptance](../specs/042-workspace-storage/kind-nfs-acceptance.md). The initial discovery below is historical; the remaining infrastructure gap is independent kernels/failure domains and production storage redundancy, not the ability to run NFS locally.
 
 Read-only discovery, including approved access outside the sandbox, found:
 

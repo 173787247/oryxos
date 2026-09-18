@@ -117,3 +117,7 @@ Docker 验收 UI：`http://localhost:18042/admin/`，副本 B：`http://localhos
 - 最终应用代码提交 `027e4d0`，本地验收镜像 `oryxos:042-acceptance`，镜像 ID `sha256:1ca49ed4c8203025b07a1eee8f8b3a04e863d0e195b3370b00a4af5ccd04be0e`。后续文档提交不改变运行二进制。
 - 最终安装产物再扫描通过：171 个对象、0 条未排除发现、121 条已审查排除记录；日志 `/tmp/oryxos-042-owasp-final-artifact.log`。Spring 未修补组件及排除适用条件见 [风险记录](security-triage.md)，不宣称无漏洞。
 - 本地交付文档与 PR 草稿已准备。远程推送被自动审批拒绝，理由为尚未明确授权将源码和验收文档发布到公开仓库；未进行推送或创建 PR。T017 仍待明确发布授权及实际远程 CI 结果。
+
+### 补充：已搭建真实 NFS 协议验收环境
+
+用户提出复用 Docker Desktop/kind 后，实际完成三节点 kind + NFSv4.1 + 双 worker 应用验证，见 [NFS 验收记录](kind-nfs-acceptance.md)。这补齐本地 NFS 协议验证，并缩小环境缺口；独立内核/物理故障域、生产 NFS 高可用及完整 T013 场景仍未验证。20 次运行注册表收敛最大 0.915 秒，NFS 暂停后约 14.1 秒 readiness 摘流、恢复后约 1 秒就绪；旧版本冲突、Skill/知识源共享及 worker A 暂停时 B 可读均通过。
