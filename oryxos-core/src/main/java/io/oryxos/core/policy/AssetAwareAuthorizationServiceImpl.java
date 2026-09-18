@@ -155,8 +155,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
   }
 
   /**
-   * WORKSPACE + orgOwner：仅 {@code workspaceOrgAclEnabled} 时生效。无 orgOwner 不另拒。API_KEY / 匿名跳过；USER 须持有
-   * 至少一个 teamId，且该队在目录中的 {@code org_id} 等于 orgOwner（或 ADMIN）。
+   * WORKSPACE + orgOwner：仅 {@code workspaceOrgAclEnabled} 时生效。无 orgOwner 不另拒。API_KEY / 匿名跳过；USER
+   * 须持有 至少一个 teamId，且该队在目录中的 {@code org_id} 等于 orgOwner（或 ADMIN）。
    */
   private Decision workspaceOrgGate(Principal principal, AssetGovernance governance) {
     if (!workspaceOrgAclEnabled) {
