@@ -42,8 +42,9 @@
 - 团队 HTTP API（#546）：`oryxos.web.teams-api.enabled`（默认关→404）；`/api/v1/teams` + `/api/v1/users/{u}/teams`；RBAC 映射 `MANAGE_MEMBERS`
 - Admin 管队 UI（#548）：管理台「团队管理」页（list/create/rename/delete + 按用户增删成员）；同 `teams-api.enabled`；无 orgs/JIT
 - 版本快照（#537）：V13 `asset_governance_revisions`；`oryxos.web.asset-governance.version-history-enabled`（默认关）开时 PUT 追加全文，GET `.../governance/revisions`
-- 版本回滚（#541）：`POST .../governance/revisions/{id}/restore`（agents/skills/knowledge/channels）；同 flag；写回现网并追加新快照；无 diff/Admin UI
-- 版本 diff（#544）：`GET .../governance/revisions/{id}/diff?against={otherId}` 返回统一 diff 文本；无 Admin UI
+- 版本回滚（#541）：`POST .../governance/revisions/{id}/restore`（agents/skills/knowledge/channels）；同 flag；写回现网并追加新快照
+- 版本 diff（#544）：`GET .../governance/revisions/{id}/diff?against={otherId}` 返回统一 diff 文本
+- Admin 版本历史 UI（#550）：Agent / Skill / Knowledge / Channel 治理面板下列表、双选 unified-diff、回滚；同 `version-history-enabled`（关→空态）
 - `/skills/catalog`：已安装行叠加 GOVERNANCE 列表门禁；012 PUBLIC/PRIVATE 标签仍只管候选过滤，外部未安装行不变
 - Agent 作者路径：`validateCatalog` / `generate-files` / `saveFiles(skillBindings)` 经 `isVisible` 谓词过滤可用 Skill（CLI 无谓词时行为不变）
 - Knowledge 作者路径：创建 / bind / replace / `saveFiles(knowledgeBindings)` / `generate-files` 经 `isVisible` 过滤（CLI 无谓词时行为不变）
@@ -51,4 +52,3 @@
 ## Out of scope (honest gaps)
 
 - orgs 层级 / JIT 建队（#535+#539+#546+#548：成员表 + 目录表 + CLI + teams HTTP API + Admin 管队 UI，默认关；无 orgs/JIT）
-- 完整 diff / 回滚 Admin UI（#537+#541+#544 仅快照 list + restore + unified-diff API）

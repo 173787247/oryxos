@@ -53,7 +53,8 @@ Append-only full-text snapshots when `version-history-enabled`:
 - id, resource_type, resource_id, version_label, snapshot_text, actor, created_at
 - GET `.../governance/revisions` lists newest-first
 - POST `.../governance/revisions/{id}/restore` writes snapshot back to live GOVERNANCE / channels.yaml and appends a new revision
-- GET `.../governance/revisions/{id}/diff?against={otherId}` returns unified-diff text of the two snapshots (no Admin UI)
+- GET `.../governance/revisions/{id}/diff?against={otherId}` returns unified-diff text of the two snapshots
+- Admin UI (#550): list / pick-two diff / restore on Agent·Skill·Knowledge·Channel governance panels
 
 ## Runtime wiring
 

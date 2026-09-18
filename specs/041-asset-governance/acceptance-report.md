@@ -22,9 +22,9 @@
 - [x] Password login optional `oryxos.web.auth.user-team-ids` → `SessionTeamIdsCache` (default empty)
 
 - [x] Admin teams page (#548) behind same `teams-api.enabled` (list/create/rename/delete + user membership add/remove)
+- [x] Admin revision history UI (#550): Agent / Skill / Knowledge / Channel governance panels → list / diff / restore (`version-history-enabled`)
 
 ## Honest gaps
 
 - No orgs hierarchy / JIT team provisioning (#535+#539+#546+#548: memberships + catalog CLI + teams HTTP API + Admin teams page; flag-off default)
 - Team memberships may reference ids without a catalog row (catalog is optional metadata)
-- No diff/rollback Admin UI (#537+#541+#544: revision list + restore + unified-diff API only)
