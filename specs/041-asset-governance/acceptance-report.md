@@ -23,6 +23,6 @@
 
 ## Honest gaps
 
-- No orgs hierarchy / JIT team provisioning / Admin team UI (#535+#539: memberships + catalog CLI only)
+- No orgs hierarchy / JIT team provisioning / Admin team UI (#535+#539+#546: memberships + catalog CLI + teams HTTP API flag-off default)
 - Team memberships may reference ids without a catalog row (catalog is optional metadata)
 - No diff/rollback Admin UI (#537+#541+#544: revision list + restore + unified-diff API only)

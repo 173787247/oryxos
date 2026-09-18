@@ -89,6 +89,12 @@ public final class RequestActionResolver {
 
   private static final String PATH_INSTANCES = "/api/v1/instances";
 
+  private static final String PATH_TEAMS = "/api/v1/teams";
+
+  private static final String PATH_USERS = "/api/v1/users";
+
+  private static final String SEGMENT_TEAMS = "/teams";
+
   private static final String SUFFIX_INVOKE = "/invoke";
 
   private static final String SEGMENT_SCHEDULES = "/schedules/";
@@ -180,8 +186,28 @@ public final class RequestActionResolver {
       }
       return null;
     }
+    // teams / user team memberships：ADMIN-only（MANAGE_MEMBERS）；含 GET
+    if (isUnder(p, PATH_TEAMS) || isUserTeamsPath(p)) {
+      return Resolution.of(Action.MANAGE_MEMBERS, ResourceRef.member(null));
+    }
     // 未登记：fail-closed
     return null;
+  }
+
+
+  /** /api/v1/users/{username}/teams[/{teamId}] */
+  private static boolean isUserTeamsPath(String path) {
+    String prefix = PATH_USERS + PATH_SEP;
+    if (!path.startsWith(prefix)) {
+      return false;
+    }
+    String rest = path.substring(prefix.length());
+    int slash = rest.indexOf(PATH_SEP);
+    if (slash < 0) {
+      return false;
+    }
+    String afterUser = rest.substring(slash);
+    return SEGMENT_TEAMS.equals(afterUser) || afterUser.startsWith(SEGMENT_TEAMS + PATH_SEP);
   }
 
   private static boolean isSkipPath(String path) {

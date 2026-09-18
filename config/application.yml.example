@@ -198,6 +198,11 @@ oryxos:
   #     # 持久化团队成员并入 Principal.teamIds（#535）。默认关；开后与 session 缓存取并集。
   #     # CLI: oryxos team create|rename|list|delete + member-add|member-remove|member-list
   #     # durable-team-memberships-enabled: true
+  # 团队 HTTP API（#546）。默认关=404。开启后 GET/POST/PATCH/DELETE /api/v1/teams
+  # 与用户成员 PUT/DELETE /api/v1/users/{u}/teams/{teamId}；RBAC 下映射 MANAGE_MEMBERS（ADMIN）。
+  # web:
+  #   teams-api:
+  #     enabled: true
   #     roles:
   #       default-user-roles: []           # 空=拒绝；可选显式 [VIEWER]/[EDITOR]/[ADMIN]
   #       default-api-key-roles: []        # 默认空 = 机器凭证不默认授权
