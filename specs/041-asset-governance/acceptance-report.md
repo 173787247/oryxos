@@ -23,6 +23,6 @@
 
 ## Honest gaps
 
-- No durable teams/orgs/members tables or JIT team provisioning
+- No teams catalog / orgs hierarchy / JIT team provisioning / Admin team UI (#535 adds `team_memberships` + CLI only)
 - Team ids remain session-scoped (process cache; restart clears)
 - No full version history
