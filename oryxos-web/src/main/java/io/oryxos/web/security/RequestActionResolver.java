@@ -194,7 +194,6 @@ public final class RequestActionResolver {
     return null;
   }
 
-
   /** /api/v1/users/{username}/teams[/{teamId}] */
   private static boolean isUserTeamsPath(String path) {
     String prefix = PATH_USERS + PATH_SEP;
