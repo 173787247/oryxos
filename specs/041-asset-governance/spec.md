@@ -54,5 +54,5 @@
 
 ## Out of scope (honest gaps)
 
-- dept·project 多级 / `parent_team_id` / OIDC group→org JIT / auto memberships（#554 organizations + `teams.org_id`；#548/#556 Admin；#558 WORKSPACE `orgOwner`；#560 session `orgIds` 缓存 opt-in；相关 API/UI 仍默认关）
-- OIDC JIT 目录行已落地：`oryxos.web.oidc.jit-team-catalog-enabled`（#552，默认关）；仍不自动写 `team_memberships`
+- dept·project 多级 / `parent_team_id` / OIDC group→org JIT / membership revoke-on-login（#554 organizations + `teams.org_id`；#548/#556 Admin；#558 WORKSPACE `orgOwner`；#560 session `orgIds` 缓存 opt-in；相关 API/UI 仍默认关）
+- OIDC JIT 目录行已落地：`oryxos.web.oidc.jit-team-catalog-enabled`（#552，默认关）；OIDC JIT 成员写已落地：`oryxos.web.oidc.jit-team-memberships-enabled`（#562，默认关；无 catalog 行则跳过；本 cut 不撤销未匹配成员）

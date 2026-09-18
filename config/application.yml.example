@@ -226,6 +226,7 @@ oryxos:
   #     # group-roles:
   #     #   oryxos-editors: EDITOR
   #     # jit-team-catalog-enabled: false  # true 时登录按 groups 幂等写 teams 目录行（display_name=id）
+  #     # jit-team-memberships-enabled: false  # true 时登录按 groups 幂等写 team_memberships（无 catalog 行则跳过；不撤销未匹配）
   #     # 可选：跳过 discovery 时显式端点
   #     # authorization-endpoint:
   #     # token-endpoint:

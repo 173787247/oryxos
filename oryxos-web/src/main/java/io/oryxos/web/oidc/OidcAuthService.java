@@ -7,6 +7,7 @@ import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
 import io.oryxos.storage.IdentityMappingService;
 import io.oryxos.storage.TeamCatalogService;
+import io.oryxos.storage.TeamMembershipService;
 import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
@@ -57,6 +58,7 @@ public class OidcAuthService {
   private final OidcGroupRoleSync groupRoleSync;
   private final SessionTeamIdsCache teamIdsCache;
   private final TeamCatalogService teamCatalogService;
+  private final TeamMembershipService teamMembershipService;
   private final SessionOrgIdsCache orgIdsCache;
   private final WebRbacProperties rbacProperties;
   private final TeamOrgLookup teamOrgLookup;
@@ -80,6 +82,7 @@ public class OidcAuthService {
         userService,
         sessionService,
         authEventRecorder,
+        null,
         null,
         null,
         null,
@@ -111,6 +114,7 @@ public class OidcAuthService {
         null,
         null,
         null,
+        null,
         null);
   }
 
@@ -139,6 +143,7 @@ public class OidcAuthService {
         teamCatalogService,
         null,
         null,
+        null,
         null);
   }
 
@@ -158,6 +163,39 @@ public class OidcAuthService {
       SessionOrgIdsCache orgIdsCache,
       WebRbacProperties rbacProperties,
       TeamOrgLookup teamOrgLookup) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        teamCatalogService,
+        orgIdsCache,
+        rbacProperties,
+        teamOrgLookup,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService,
+      SessionOrgIdsCache orgIdsCache,
+      WebRbacProperties rbacProperties,
+      TeamOrgLookup teamOrgLookup,
+      TeamMembershipService teamMembershipService) {
     this.properties = properties;
     this.tokenClient = tokenClient;
     this.pendingStore = pendingStore;
@@ -168,6 +206,7 @@ public class OidcAuthService {
     this.groupRoleSync = new OidcGroupRoleSync(userService);
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
     this.teamCatalogService = teamCatalogService;
+    this.teamMembershipService = teamMembershipService;
     this.orgIdsCache = orgIdsCache == null ? new SessionOrgIdsCache() : orgIdsCache;
     this.rbacProperties = rbacProperties;
     this.teamOrgLookup = teamOrgLookup;
@@ -248,6 +287,7 @@ public class OidcAuthService {
       return OidcLoginResult.failure("group role sync failed");
     }
     ensureTeamCatalogRows(claims.groups());
+    ensureTeamMemberships(username, claims.groups());
     try {
       authEventRecorder.recordOrThrow(
           AuthEventType.LOGIN_SUCCESS, username, "oidc issuer=" + claims.issuer());
@@ -344,6 +384,40 @@ public class OidcAuthService {
         LOG.warn(
             "OIDC JIT team catalog ensure 失败 group={}：{}",
             sanitize(group),
+            sanitize(ex.toString()));
+      }
+    }
+  }
+
+  /**
+   * Flag 开时对 IdP groups 幂等写 {@code team_memberships}（#562）。无 catalog 行则跳过并打日志；add 失败只打日志，不阻断登录。本
+   * cut 不撤销未出现在 groups 中的成员关系。
+   */
+  private void ensureTeamMemberships(String username, List<String> groups) {
+    if (!properties.isJitTeamMembershipsEnabled() || teamMembershipService == null) {
+      return;
+    }
+    if (groups == null || groups.isEmpty()) {
+      return;
+    }
+    for (String group : new LinkedHashSet<>(groups)) {
+      if (group == null || group.isBlank()) {
+        continue;
+      }
+      if (teamCatalogService != null && teamCatalogService.find(group).isEmpty()) {
+        LOG.warn(
+            "OIDC JIT team membership skip (no catalog row) group={} user={}",
+            sanitize(group),
+            sanitize(username));
+        continue;
+      }
+      try {
+        teamMembershipService.add(username, group);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT team membership add 失败 group={} user={}：{}",
+            sanitize(group),
+            sanitize(username),
             sanitize(ex.toString()));
       }
     }
