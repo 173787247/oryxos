@@ -99,6 +99,9 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
   /** #535：可选合并持久化 team_memberships；null = 仅 session 缓存。 */
   private final PrincipalTeamIdsMerger teamIdsMerger;
 
+  /** Session→组织声明（#560）；缺省空。 */
+  private final SessionOrgIdsCache orgIdsCache;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification =
@@ -183,6 +186,32 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       RbacEnforcer rbacEnforcer,
       SessionTeamIdsCache teamIdsCache,
       PrincipalTeamIdsMerger teamIdsMerger) {
+    this(
+        apiKeyService,
+        sessionService,
+        userService,
+        properties,
+        objectMapper,
+        rbacEnforcer,
+        teamIdsCache,
+        teamIdsMerger,
+        null);
+  }
+
+  /** 完整构造 + session 团队/组织缓存（#535 / #560）。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "team/org caches 与 merger 为 Spring 注入共享单例，存同一引用正是意图。")
+  public ApiKeyAuthFilter(
+      ApiKeyService apiKeyService,
+      WebSessionService sessionService,
+      io.oryxos.storage.WebUserService userService,
+      WebApiKeyProperties properties,
+      ObjectMapper objectMapper,
+      RbacEnforcer rbacEnforcer,
+      SessionTeamIdsCache teamIdsCache,
+      PrincipalTeamIdsMerger teamIdsMerger,
+      SessionOrgIdsCache orgIdsCache) {
     this.apiKeyService = apiKeyService;
     this.sessionService = sessionService;
     this.userService = userService;
@@ -191,6 +220,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     this.rbacEnforcer = rbacEnforcer;
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
     this.teamIdsMerger = teamIdsMerger;
+    this.orgIdsCache = orgIdsCache == null ? new SessionOrgIdsCache() : orgIdsCache;
   }
 
   @Override
@@ -259,13 +289,14 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     return Principal.apiKey(id, id, noRoles);
   }
 
-  /** session 主体：角色来自 web_users.roles；团队 = session 缓存 ∪（可选）持久化成员。 */
+  /** session 主体：角色来自 web_users.roles；团队 = session 缓存 ∪（可选）持久化成员；组织 = session org 缓存。 */
   private Principal userPrincipal(String username, String sessionId) {
     Set<Role> roles = userService == null ? Set.of() : userService.rolesOf(username);
     Set<String> sessionTeams = teamIdsCache.get(sessionId);
     Set<String> teams =
         teamIdsMerger == null ? sessionTeams : teamIdsMerger.merge(username, sessionTeams);
-    return Principal.user(username, username, roles, teams);
+    Set<String> orgs = orgIdsCache.get(sessionId);
+    return Principal.user(username, username, roles, teams, orgs);
   }
 
   private static boolean isExempt(HttpServletRequest request) {

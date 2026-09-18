@@ -30,7 +30,11 @@ public class AuthFilterConfig {
       LoginAttemptService loginAttemptService,
       org.springframework.beans.factory.ObjectProvider<
               io.oryxos.web.security.PrincipalTeamIdsMerger>
-          teamIdsMerger) {
+          teamIdsMerger,
+      io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache,
+      io.oryxos.web.security.SessionOrgIdsCache sessionOrgIdsCache,
+      WebRbacProperties rbacProperties,
+      io.oryxos.core.policy.TeamOrgLookup teamOrgLookup) {
     FilterRegistrationBean<BasicAuthFilter> registration = new FilterRegistrationBean<>();
     registration.setFilter(
         new BasicAuthFilter(
@@ -39,7 +43,11 @@ public class AuthFilterConfig {
             properties,
             objectMapper,
             loginAttemptService,
-            teamIdsMerger.getIfAvailable()));
+            teamIdsMerger.getIfAvailable(),
+            sessionTeamIdsCache,
+            sessionOrgIdsCache,
+            rbacProperties,
+            teamOrgLookup));
     registration.addUrlPatterns("/admin/*");
     registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
     return registration;

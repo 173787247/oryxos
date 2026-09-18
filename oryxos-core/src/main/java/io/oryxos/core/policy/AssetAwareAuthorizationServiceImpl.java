@@ -156,7 +156,7 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   /**
    * WORKSPACE + orgOwner：仅 {@code workspaceOrgAclEnabled} 时生效。无 orgOwner 不另拒。API_KEY / 匿名跳过；USER
-   * 须持有 至少一个 teamId，且该队在目录中的 {@code org_id} 等于 orgOwner（或 ADMIN）。
+   * 优先用 {@code Principal.orgIds}（#560）；空则回退 teamIds × {@link TeamOrgLookup}（#558 兼容）。
    */
   private Decision workspaceOrgGate(Principal principal, AssetGovernance governance) {
     if (!workspaceOrgAclEnabled) {
@@ -183,6 +183,9 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
   }
 
   private boolean belongsToOrg(Principal subject, String orgOwner) {
+    if (!subject.orgIds().isEmpty()) {
+      return subject.hasOrg(orgOwner);
+    }
     if (teamOrgLookup == null) {
       return false;
     }
