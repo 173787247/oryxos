@@ -2,6 +2,10 @@ package io.oryxos.web.config;
 
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.convert.DurationUnit;
 
@@ -10,6 +14,9 @@ import org.springframework.boot.convert.DurationUnit;
  *
  * <p>{@code oryxos.web.auth.enabled} 默认 {@code false}——假设内网现状不变（宪法核心阶段边界）； 置 {@code true} 后 {@code
  * /admin/**} 启用认证（浏览器走 session/cookie + 登录页，curl 走 Basic Auth）， {@code /api/v1/**} 不受影响。
+ *
+ * <p>{@code user-team-ids}（041 / #504）：可选 username→团队 id 列表。密码登录成功后写入 {@code SessionTeamIdsCache}，供
+ * WORKSPACE teamOwner 门禁；默认空=密码登录 session 无 teamIds（与升级前一致）。非 durable teams 表。
  */
 @ConfigurationProperties(prefix = "oryxos.web.auth")
 public class WebAuthProperties {
@@ -23,6 +30,9 @@ public class WebAuthProperties {
   /** session 过期时间（web_sessions.expires_at = created_at + ttl）。默认 12 小时。 */
   @DurationUnit(ChronoUnit.HOURS)
   private Duration sessionTtl = Duration.ofHours(12);
+
+  /** 本地用户 → 团队 id（与 OIDC groups / {@code Principal.teamIds} 对齐）。缺省空 map。 */
+  private Map<String, List<String>> userTeamIds = new LinkedHashMap<>();
 
   public boolean isEnabled() {
     return enabled;
@@ -46,5 +56,32 @@ public class WebAuthProperties {
 
   public void setSessionTtl(Duration sessionTtl) {
     this.sessionTtl = sessionTtl;
+  }
+
+  public Map<String, List<String>> getUserTeamIds() {
+    return userTeamIds;
+  }
+
+  public void setUserTeamIds(Map<String, List<String>> userTeamIds) {
+    this.userTeamIds = userTeamIds == null ? new LinkedHashMap<>() : userTeamIds;
+  }
+
+  /** 密码登录用：查配置中的团队声明；无条目 → 空列表。 */
+  public List<String> teamIdsFor(String username) {
+    if (username == null || username.isBlank() || userTeamIds == null || userTeamIds.isEmpty()) {
+      return List.of();
+    }
+    List<String> found = userTeamIds.get(username);
+    if (found == null || found.isEmpty()) {
+      return List.of();
+    }
+    List<String> cleaned = new ArrayList<>();
+    for (String id : found) {
+      if (id == null || id.isBlank()) {
+        continue;
+      }
+      cleaned.add(id.strip());
+    }
+    return List.copyOf(cleaned);
   }
 }

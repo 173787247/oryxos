@@ -8,8 +8,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Session 作用域团队声明（041 / #504）：OIDC 登录时把 id_token groups 挂到 sessionId；请求期填入 {@code
- * Principal.teamIds}。进程内缓存、不落库——重启丢失；Basic Auth 登录不写入（teamIds 空）。真正的 teams 表 / JIT 仍 defer。
+ * Session 作用域团队声明（041 / #504）：OIDC 登录写 id_token groups；密码登录可写 {@code oryxos.web.auth.user-team-ids}
+ * 配置。请求期填入 {@code Principal.teamIds}。进程内缓存、不落库——重启丢失。真正的 teams 表 / JIT 仍 defer。
  */
 public final class SessionTeamIdsCache {
 

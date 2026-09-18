@@ -20,7 +20,10 @@ import io.oryxos.storage.WebUserService;
 import io.oryxos.web.GlobalExceptionHandler;
 import io.oryxos.web.config.WebAuthProperties;
 import io.oryxos.web.security.LoginAttemptService;
+import io.oryxos.web.security.SessionTeamIdsCache;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +42,7 @@ class AuthApiControllerTest {
   private WebUserService userService;
   private WebSessionService sessionService;
   private WebAuthProperties properties;
+  private SessionTeamIdsCache teamIdsCache;
   private MockMvc mvc;
 
   @BeforeEach
@@ -47,6 +51,7 @@ class AuthApiControllerTest {
     sessionService = mock(WebSessionService.class);
     properties = new WebAuthProperties();
     properties.setEnabled(true);
+    teamIdsCache = new SessionTeamIdsCache();
     mvc =
         MockMvcBuilders.standaloneSetup(
                 new AuthApiController(
@@ -54,9 +59,27 @@ class AuthApiControllerTest {
                     sessionService,
                     properties,
                     new LoginAttemptService(),
-                    mock(AuthEventRecorder.class)))
+                    mock(AuthEventRecorder.class),
+                    teamIdsCache))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+  }
+
+  @Test
+  @DisplayName("login_配置了user-team-ids_写入SessionTeamIdsCache")
+  void login_configuredUserTeamIds_populatesSessionCache() throws Exception {
+    properties.setUserTeamIds(Map.of("admin", List.of("eng", "platform")));
+    when(userService.verify("admin", "s3cret-pw")).thenReturn(true);
+    when(sessionService.create("admin")).thenReturn(newSession("admin", "sid-teams"));
+
+    mvc.perform(
+            post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"admin\",\"password\":\"s3cret-pw\"}"))
+        .andExpect(status().isOk());
+
+    org.assertj.core.api.Assertions.assertThat(teamIdsCache.get("sid-teams"))
+        .containsExactly("eng", "platform");
   }
 
   @Test
