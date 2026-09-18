@@ -32,12 +32,11 @@
 - `GET/PUT .../governance`（agents / skills / knowledge）
 - V11 `asset_governance_events` 审计
 - 入站消息 OFFLINE 门禁（`InboundMessageService` + `InboundAssetGovernanceGate`；平台挑战握手仍在适配器层，不经本闸）
-- Admin：Agent 详情「治理」面板（`GET/PUT /api/v1/agents/{name}/governance`）
+- Admin：Agent / Skill / Knowledge 详情「治理」面板（`GET/PUT /api/v1/{agents|skills|knowledge}/{name}/governance`）
 
 ## Out of scope (honest gaps)
 
 - 入站渠道（channels.yaml）治理管理台 UI
-- Skill / Knowledge 治理面板（API 已有，UI 未接）
 - Team ACL / JIT teams / 组织归属
 - 完整版本历史
 - Catalog 可见性仍只是标签，不驱动列表过滤

@@ -8,6 +8,14 @@ import RunManagementView from './features/runs/RunManagementView.vue'
 import { isNearBottom } from './chat-scroll.js'
 import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
 import { filterSkills, hiddenSelectedCount, selectAllVisible, clearVisible, renderSet } from './skill-filter.js'
+import {
+  blankGov,
+  createGovernanceEdit,
+  loadGovernance,
+  startEditGovernance as beginGovEdit,
+  cancelEditGovernance as abortGovEdit,
+  saveGovernance as persistGovernance,
+} from './features/governance/governance-edit.js'
 
 // —— 012-web-auth US3：登录守卫 —— 未登录先查 /api/v1/auth/me；登录页 LoginView 调 /auth/login
 const auth = reactive({ checking: true, enabled: true, username: null })
@@ -253,6 +261,7 @@ function cancelKb() { kbForm.open = false; kbForm.name = ''; kbForm.description 
 function closeKbDetail() { kbDetail.value = null }
 async function refreshKbDetail(name) {
   kbDetail.value = { ...(kbDetail.value || { name }), name, loading: true, error: null, busy: false }
+  loadKbGovernance(name)
   try {
     const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}`)
     const body = await res.json()
@@ -551,6 +560,7 @@ const skillDetail = ref(null) // { name, description, body, loading, error, node
 async function openSkillDetail(row) {
   skillDetail.value = { name: row.name, description: row.description || '', body: row.body || '', loading: true, error: null, node: null }
   fileView.value = null // 从「未选中」开始，避免跨视图串台预览
+  loadSkillGovernance(row.name)
   try {
     const res = await fetch('/api/v1/workspace/tree')
     const body = await res.json()
@@ -1827,87 +1837,45 @@ async function savePersona() {
   } catch (e) { personaEdit.error = e.message } finally { personaEdit.saving = false }
 }
 
-// —— 041 / #504：Agent GOVERNANCE.yml 治理面板（GET/PUT /agents/{name}/governance）——
-const governanceEdit = reactive({
-  open: false,
-  loading: false,
-  saving: false,
-  error: '',
-  owner: '',
-  version: '',
-  visibility: '',
-  riskLevel: '',
-  health: '',
-  loaded: false,
-})
-function blankGov(v) {
-  return v == null || v === '' ? '—' : v
-}
-async function loadAgentGovernance(name) {
-  governanceEdit.loading = true
-  governanceEdit.error = ''
-  governanceEdit.open = false
-  governanceEdit.loaded = false
-  try {
-    const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}/governance`)
-    const body = await res.json()
-    if (body.code !== 0) throw new Error(body.message || '治理加载失败')
-    const g = body.data || {}
-    governanceEdit.owner = g.owner || ''
-    governanceEdit.version = g.version || ''
-    governanceEdit.visibility = g.visibility || ''
-    governanceEdit.riskLevel = g.riskLevel || ''
-    governanceEdit.health = g.health || ''
-    governanceEdit.loaded = true
-  } catch (e) {
-    governanceEdit.error = e.message
-  } finally {
-    governanceEdit.loading = false
-  }
+// —— 041 / #504：GOVERNANCE.yml 面板（agents / skills / knowledge 共用 helpers）——
+const governanceEdit = reactive(createGovernanceEdit())
+const skillGovernance = reactive(createGovernanceEdit())
+const kbGovernance = reactive(createGovernanceEdit())
+function loadAgentGovernance(name) {
+  return loadGovernance(governanceEdit, 'agents', name)
 }
 function startEditGovernance() {
-  governanceEdit.open = true
-  governanceEdit.error = ''
-  governanceEdit.saving = false
+  beginGovEdit(governanceEdit)
 }
-async function cancelEditGovernance() {
-  governanceEdit.open = false
-  if (agentDetail.value?.name) await loadAgentGovernance(agentDetail.value.name)
+function cancelEditGovernance() {
+  return abortGovEdit(governanceEdit, 'agents', agentDetail.value?.name)
 }
-async function saveGovernance() {
-  if (!agentDetail.value) return
-  governanceEdit.saving = true
-  governanceEdit.error = ''
-  try {
-    const res = await fetch(
-      `/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/governance`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          owner: governanceEdit.owner.trim() || null,
-          version: governanceEdit.version.trim() || null,
-          visibility: governanceEdit.visibility.trim() || null,
-          riskLevel: governanceEdit.riskLevel.trim() || null,
-          health: governanceEdit.health.trim() || null,
-        }),
-      },
-    )
-    const body = await res.json()
-    if (body.code !== 0) throw new Error(body.message || '保存失败')
-    const g = body.data || {}
-    governanceEdit.owner = g.owner || ''
-    governanceEdit.version = g.version || ''
-    governanceEdit.visibility = g.visibility || ''
-    governanceEdit.riskLevel = g.riskLevel || ''
-    governanceEdit.health = g.health || ''
-    governanceEdit.open = false
-    governanceEdit.loaded = true
-  } catch (e) {
-    governanceEdit.error = e.message
-  } finally {
-    governanceEdit.saving = false
-  }
+function saveGovernance() {
+  return persistGovernance(governanceEdit, 'agents', agentDetail.value?.name)
+}
+function loadSkillGovernance(name) {
+  return loadGovernance(skillGovernance, 'skills', name)
+}
+function startEditSkillGovernance() {
+  beginGovEdit(skillGovernance)
+}
+function cancelEditSkillGovernance() {
+  return abortGovEdit(skillGovernance, 'skills', skillDetail.value?.name)
+}
+function saveSkillGovernance() {
+  return persistGovernance(skillGovernance, 'skills', skillDetail.value?.name)
+}
+function loadKbGovernance(name) {
+  return loadGovernance(kbGovernance, 'knowledge', name)
+}
+function startEditKbGovernance() {
+  beginGovEdit(kbGovernance)
+}
+function cancelEditKbGovernance() {
+  return abortGovEdit(kbGovernance, 'knowledge', kbDetail.value?.name)
+}
+function saveKbGovernance() {
+  return persistGovernance(kbGovernance, 'knowledge', kbDetail.value?.name)
 }
 
 // —— 执行历史 tab：该 Agent 每次触发的起止时间 / 状态 / 时长（手动 + 定时）——
@@ -2493,6 +2461,51 @@ const outputRows = computed(() =>
               <button class="btn back" @click="closeSkillDetail">← 返回 Skill 列表</button>
               <div class="sess-meta"><span>Skill</span><span class="mono">{{ skillDetail.name }}</span></div>
               <p class="empty">{{ skillDetail.description || '—' }}</p>
+              <!-- 041 / #504：Skill GOVERNANCE.yml -->
+              <div style="margin:12px 0 16px">
+                <div class="sess-meta"><span>治理</span>
+                  <button v-if="!skillGovernance.open && skillGovernance.loaded" class="btn" @click="startEditSkillGovernance">编辑治理</button>
+                </div>
+                <p v-if="skillGovernance.loading" class="empty">加载治理…</p>
+                <p v-else-if="skillGovernance.error && !skillGovernance.open" class="error">{{ skillGovernance.error }}</p>
+                <template v-else-if="skillGovernance.open">
+                  <div class="gen-box">
+                    <div class="info-row edit"><label class="k">health</label>
+                      <select v-model="skillGovernance.health" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="DEPRECATED">DEPRECATED</option>
+                        <option value="OFFLINE">OFFLINE</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">owner</label><input v-model="skillGovernance.owner" class="gen-input" placeholder="属主用户名（可选）" /></div>
+                    <div class="info-row edit"><label class="k">visibility</label>
+                      <select v-model="skillGovernance.visibility" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="PRIVATE">PRIVATE</option>
+                        <option value="WORKSPACE">WORKSPACE</option>
+                        <option value="PUBLIC">PUBLIC</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">version</label><input v-model="skillGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
+                    <div class="info-row edit"><label class="k">riskLevel</label><input v-model="skillGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-actions">
+                      <button class="btn btn-primary" :disabled="skillGovernance.saving" @click="saveSkillGovernance">保存</button>
+                      <button class="btn" :disabled="skillGovernance.saving" @click="cancelEditSkillGovernance">取消</button>
+                      <span v-if="skillGovernance.saving" class="empty">保存中…</span>
+                      <span v-if="skillGovernance.error" class="error">{{ skillGovernance.error }}</span>
+                    </div>
+                    <p class="empty">写入 Skill 目录 GOVERNANCE.yml。OFFLINE 时（需开启 rbac + asset-governance）不可绑定/调用；PRIVATE 仅属主/ADMIN 可管。空值表示未设治理。</p>
+                  </div>
+                </template>
+                <div v-else-if="skillGovernance.loaded" class="info-grid">
+                  <div class="info-row"><span class="k">health</span><span class="mono">{{ blankGov(skillGovernance.health) }}</span></div>
+                  <div class="info-row"><span class="k">owner</span><span>{{ blankGov(skillGovernance.owner) }}</span></div>
+                  <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(skillGovernance.visibility) }}</span></div>
+                  <div class="info-row"><span class="k">version</span><span>{{ blankGov(skillGovernance.version) }}</span></div>
+                  <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(skillGovernance.riskLevel) }}</span></div>
+                </div>
+              </div>
               <p v-if="skillDetail.loading" class="empty">加载中…</p>
               <p v-else-if="skillDetail.error" class="error">出错：{{ skillDetail.error }}</p>
               <!-- 有真实目录子树 → 文件浏览器 -->
@@ -2579,6 +2592,51 @@ const outputRows = computed(() =>
             <div v-else>
               <button class="btn back" @click="closeKbDetail">← 返回知识库列表</button>
               <div class="sess-meta"><span>知识库</span><span class="mono">{{ kbDetail.name }}</span></div>
+              <!-- 041 / #504：Knowledge GOVERNANCE.yml -->
+              <div style="margin:12px 0 16px">
+                <div class="sess-meta"><span>治理</span>
+                  <button v-if="!kbGovernance.open && kbGovernance.loaded" class="btn" @click="startEditKbGovernance">编辑治理</button>
+                </div>
+                <p v-if="kbGovernance.loading" class="empty">加载治理…</p>
+                <p v-else-if="kbGovernance.error && !kbGovernance.open" class="error">{{ kbGovernance.error }}</p>
+                <template v-else-if="kbGovernance.open">
+                  <div class="gen-box">
+                    <div class="info-row edit"><label class="k">health</label>
+                      <select v-model="kbGovernance.health" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="DEPRECATED">DEPRECATED</option>
+                        <option value="OFFLINE">OFFLINE</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">owner</label><input v-model="kbGovernance.owner" class="gen-input" placeholder="属主用户名（可选）" /></div>
+                    <div class="info-row edit"><label class="k">visibility</label>
+                      <select v-model="kbGovernance.visibility" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="PRIVATE">PRIVATE</option>
+                        <option value="WORKSPACE">WORKSPACE</option>
+                        <option value="PUBLIC">PUBLIC</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">version</label><input v-model="kbGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
+                    <div class="info-row edit"><label class="k">riskLevel</label><input v-model="kbGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-actions">
+                      <button class="btn btn-primary" :disabled="kbGovernance.saving" @click="saveKbGovernance">保存</button>
+                      <button class="btn" :disabled="kbGovernance.saving" @click="cancelEditKbGovernance">取消</button>
+                      <span v-if="kbGovernance.saving" class="empty">保存中…</span>
+                      <span v-if="kbGovernance.error" class="error">{{ kbGovernance.error }}</span>
+                    </div>
+                    <p class="empty">写入知识库目录 GOVERNANCE.yml。OFFLINE 时（需开启 rbac + asset-governance）不可检索/绑定；PRIVATE 仅属主/ADMIN 可管。空值表示未设治理。</p>
+                  </div>
+                </template>
+                <div v-else-if="kbGovernance.loaded" class="info-grid">
+                  <div class="info-row"><span class="k">health</span><span class="mono">{{ blankGov(kbGovernance.health) }}</span></div>
+                  <div class="info-row"><span class="k">owner</span><span>{{ blankGov(kbGovernance.owner) }}</span></div>
+                  <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(kbGovernance.visibility) }}</span></div>
+                  <div class="info-row"><span class="k">version</span><span>{{ blankGov(kbGovernance.version) }}</span></div>
+                  <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(kbGovernance.riskLevel) }}</span></div>
+                </div>
+              </div>
               <p v-if="kbDetail.loading" class="empty">加载中…</p>
               <template v-else>
                 <p class="empty">{{ kbDetail.base?.description || '—' }}（后端：{{ kbDetail.base?.backend || '—' }} · 状态：{{ kbDetail.base?.indexStatus || '—' }} · 片段 {{ kbDetail.base?.chunkCount ?? '—' }}）</p>
