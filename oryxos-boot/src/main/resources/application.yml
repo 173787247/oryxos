@@ -122,7 +122,8 @@ oryxos:
       # revoke-unmatched-roles: false   # true 时 group-roles 已配但零命中 → 清空 roles
       # jit-provision-enabled: false    # true 时未映射 subject 按 preferred_username/email 建用户+mapping
       # jit-team-catalog-enabled: false # true 时登录按 groups 幂等写 teams 目录行（display_name=id）
-      # jit-team-memberships-enabled: false # true 时登录按 groups 幂等写 team_memberships（无 catalog 行则跳过；不撤销未匹配）
+      # jit-team-memberships-enabled: false # true 时登录按 groups 幂等写 team_memberships（无 catalog 行则跳过）
+      # revoke-unmatched-team-memberships: false # true 时（须 JIT memberships）移除不在期望集中的成员；空 groups → 清空
       # group-claim: groups
       # group-roles: {}
 

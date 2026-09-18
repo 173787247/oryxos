@@ -70,10 +70,17 @@ public class WebOidcProperties {
 
   /**
    * 登录后是否按 IdP groups 幂等写 {@code team_memberships}（#562）。默认关——关时不写库。开时对每组调用 {@code
-   * TeamMembershipService.add}；无 catalog 行则跳过并打日志（可先开 {@link #jitTeamCatalogEnabled}）。本 cut
-   * 不撤销未匹配成员。
+   * TeamMembershipService.add}；无 catalog 行则跳过并打日志（可先开 {@link #jitTeamCatalogEnabled}）。撤销未匹配见 {@link
+   * #revokeUnmatchedTeamMemberships}。
    */
   private boolean jitTeamMembershipsEnabled = false;
+
+  /**
+   * 在 {@link #jitTeamMembershipsEnabled} 路径上，登录确保 add 之后是否移除不在「当前 IdP groups 且 catalog 存在」期望集中的
+   * durable {@code team_memberships}（#564）。默认关。空 groups 且本开关开 → 清空全部成员（对齐 {@link
+   * #revokeUnmatchedRoles} 零命中语义）。失败只打日志，不阻断登录。
+   */
+  private boolean revokeUnmatchedTeamMemberships = false;
 
   public boolean isEnabled() {
     return enabled;
@@ -194,5 +201,13 @@ public class WebOidcProperties {
 
   public void setJitTeamMembershipsEnabled(boolean jitTeamMembershipsEnabled) {
     this.jitTeamMembershipsEnabled = jitTeamMembershipsEnabled;
+  }
+
+  public boolean isRevokeUnmatchedTeamMemberships() {
+    return revokeUnmatchedTeamMemberships;
+  }
+
+  public void setRevokeUnmatchedTeamMemberships(boolean revokeUnmatchedTeamMemberships) {
+    this.revokeUnmatchedTeamMemberships = revokeUnmatchedTeamMemberships;
   }
 }
