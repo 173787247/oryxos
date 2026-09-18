@@ -14,11 +14,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * IdP 组 → 本地角色的身份同步（040 / #461）。
+ * IdP 组 → 本地角色的身份同步（040 / #461 / #502）。
  *
- * <p>只在 {@code oryxos.web.oidc.group-roles} 非空、且至少一个组命中时，调用 {@link
- * WebUserService#setRoles}。未命中不改已有角色（避免一次缺 claim 把管理员锁死）。<b>不</b>调用 {@code
- * AuthorizationService}——后续请求仍走 session→Principal→既有决策点。
+ * <p>只在 {@code oryxos.web.oidc.group-roles} 非空时动角色：至少一个组命中 → {@link WebUserService#setRoles}
+ * 写入命中集；零命中且 {@code revoke-unmatched-roles=false}（默认）→ 不写库；零命中且 revoke 开 → 清空角色。<b>不</b>调用 {@code
+ * AuthorizationService}。
  */
 public final class OidcGroupRoleSync {
 
@@ -34,7 +34,7 @@ public final class OidcGroupRoleSync {
   }
 
   /**
-   * @return 实际写入的角色；映射表为空或没有任何命中时为空（未写库）
+   * @return 实际写入的角色；映射表为空、或零命中且未开 revoke 时为空（未写库）
    */
   public Optional<Set<Role>> apply(
       String username, List<String> groups, WebOidcProperties properties) {
@@ -44,7 +44,11 @@ public final class OidcGroupRoleSync {
     }
     Set<Role> matched = match(groups, configured);
     if (matched.isEmpty()) {
-      return Optional.empty();
+      if (!properties.isRevokeUnmatchedRoles()) {
+        return Optional.empty();
+      }
+      userService.setRoles(username, Set.of());
+      return Optional.of(Set.of());
     }
     userService.setRoles(username, matched);
     return Optional.of(matched);

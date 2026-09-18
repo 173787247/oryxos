@@ -118,7 +118,9 @@ oryxos:
     oidc:
       enabled: false
       scopes: openid profile email
-      # group-roles 为空则不改角色。非空时仅命中组才 setRoles，未命中不撤权。不调用 AuthorizationService。
+      # group-roles 为空则不改角色。非空时命中才 setRoles；未命中默认不撤权。
+      # revoke-unmatched-roles: false   # true 时 group-roles 已配但零命中 → 清空 roles
+      # jit-provision-enabled: false    # true 时未映射 subject 按 preferred_username/email 建用户+mapping
       # group-claim: groups
       # group-roles: {}
 
