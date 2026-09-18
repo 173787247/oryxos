@@ -72,8 +72,12 @@ public class ChannelApiController {
   }
 
   @GetMapping
-  public ApiResponse<List<ChannelView>> list() {
-    return ApiResponse.ok(admin.listRaw().stream().map(ChannelView::from).toList());
+  public ApiResponse<List<ChannelView>> list(HttpServletRequest request) {
+    return ApiResponse.ok(
+        admin.listRaw().stream()
+            .filter(c -> assetBindGuard.isVisible(request, ResourceRef.channel(c.name())))
+            .map(ChannelView::from)
+            .toList());
   }
 
   @GetMapping("/status")

@@ -53,6 +53,31 @@ class AssetBindGuardTest {
     org.assertj.core.api.Assertions.assertThat(resource.getValue().id()).isEqualTo(SKILL);
   }
 
+  @Test
+  void isVisibleFalseWhenDecideDenies() {
+    AuthorizationService authorization = mock(AuthorizationService.class);
+    when(authorization.decide(any(), eq(Action.READ_WORKSPACE), eq(ResourceRef.agent("ops"))))
+        .thenReturn(AuthorizationService.Decision.denied("私有资产仅属主或管理员可访问"));
+    AssetBindGuard guard = new AssetBindGuard(authorization);
+    HttpServletRequest request = requestWith(Principal.user("bob", "bob", Set.of(Role.VIEWER)));
+
+    org.assertj.core.api.Assertions.assertThat(guard.isVisible(request, ResourceRef.agent("ops")))
+        .isFalse();
+  }
+
+  @Test
+  void isVisibleTrueWhenDecideAllows() {
+    AuthorizationService authorization = mock(AuthorizationService.class);
+    when(authorization.decide(any(), eq(Action.READ_WORKSPACE), any()))
+        .thenReturn(AuthorizationService.Decision.ALLOWED);
+    AssetBindGuard guard = new AssetBindGuard(authorization);
+    HttpServletRequest request = requestWith(Principal.user("alice", "alice", Set.of(Role.VIEWER)));
+
+    org.assertj.core.api.Assertions.assertThat(
+            guard.isVisible(request, ResourceRef.skill("public-skill")))
+        .isTrue();
+  }
+
   private static HttpServletRequest requestWith(Principal principal) {
     HttpServletRequest request = mock(HttpServletRequest.class);
     when(request.getAttribute("io.oryxos.web.principal")).thenReturn(principal);

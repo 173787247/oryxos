@@ -34,9 +34,10 @@
 - 入站消息 OFFLINE 门禁（`InboundMessageService` + `InboundAssetGovernanceGate`；平台挑战握手仍在适配器层，不经本闸）
 - Admin：Agent / Skill / Knowledge 详情「治理」面板（`GET/PUT /api/v1/{agents|skills|knowledge}/{name}/governance`）
 - Admin：入站渠道列表 + `channels.yaml` `governance:` 面板（`GET/PUT /api/v1/channels/{name}/governance`）
+- 列表过滤：`GET` agents/skills/knowledge/channels 在 rbac+asset-governance 开启时按具名 `decide(READ_WORKSPACE)` 剔除 OFFLINE / PRIVATE 他属主条目
 
 ## Out of scope (honest gaps)
 
 - Team ACL / JIT teams / 组织归属
 - 完整版本历史
-- Catalog 可见性仍只是标签，不驱动列表过滤
+- `/skills/catalog` 的 012 作者可见性与 GOVERNANCE visibility 合成（本刀只过滤已安装库列表）

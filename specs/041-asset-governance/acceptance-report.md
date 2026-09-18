@@ -13,10 +13,14 @@
 - [x] Unit tests: flag off passthrough, OFFLINE/PRIVATE, store roundtrip, guard
 - [x] Inbound OFFLINE gate (`InboundAssetGovernanceGate` in `InboundMessageService`; challenges stay in adapters)
 - [x] Admin UI: Agent / Skill / Knowledge detail「治理」panels → `GET/PUT /api/v1/{agents|skills|knowledge}/{name}/governance`
+<<<<<<< HEAD
 - [x] Admin UI: 入站渠道 list + governance panel → `GET/PUT /api/v1/channels/{name}/governance`
+=======
+- [x] Catalog list filter via `AssetBindGuard.isVisible` → `decide(READ_WORKSPACE, named resource)` on agents/skills/knowledge/channels lists
+>>>>>>> 71c2ef7 (feat(governance): filter asset lists by GOVERNANCE visibility (#504))
 
 ## Honest gaps
 
 - No JIT teams / org ownership
 - No full version history
-- Catalog visibility still label-only (no list filtering)
+- `/skills/catalog` 012 author visibility not merged with GOVERNANCE.yml
