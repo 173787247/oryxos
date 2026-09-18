@@ -15,6 +15,7 @@ public class TeamMembershipService {
 
   private static final int MAX_USERNAME = 64;
   private static final int MAX_TEAM_ID = 128;
+  private static final char SPACE = ' ';
 
   private final TeamMembershipRepository repository;
   private final WebUserRepository userRepository;
@@ -78,7 +79,7 @@ public class TeamMembershipService {
     if (clean.length() > MAX_USERNAME) {
       throw new IllegalArgumentException("username must be <= " + MAX_USERNAME + " chars");
     }
-    if (clean.indexOf(' ') >= 0) {
+    if (clean.indexOf(SPACE) >= 0) {
       throw new IllegalArgumentException("username must not contain spaces");
     }
     return clean;
