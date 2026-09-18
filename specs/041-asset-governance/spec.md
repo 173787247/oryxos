@@ -12,7 +12,7 @@
 
 给 Agent / Skill / Knowledge 增加可选的 `GOVERNANCE.yml` 侧车元数据（owner、visibility、health 等），并在 `#462` 的唯一决策点 `AuthorizationService.decide` 上叠加一层资产门禁（装饰器），使 OFFLINE 资产不可用、PRIVATE 资产仅 owner/ADMIN 可管。
 
-渠道**不**使用 `GOVERNANCE.yml` 侧车。可选治理字段嵌在 `.oryxos/channels.yaml` 每条渠道的 `governance:` 块（同一 `AssetGovernance`）。缺块 = 未设。写入只经 `ChannelAdminService.add/update` → `ChannelConfigLoader.save`，不另写侧车以免被覆盖丢掉。写 API 在落盘前额外 `decide(MANAGE_CHANNELS, channel(name))`；Filter 仍映射 `channel(null)`。
+渠道**不**使用 `GOVERNANCE.yml` 侧车。可选治理字段嵌在 `.oryxos/channels.yaml` 每条渠道的 `governance:` 块（同一 `AssetGovernance`）。缺块 = 未设。写入只经 `ChannelAdminService.add/update/updateGovernance` → `ChannelConfigLoader.save`，不另写侧车以免被覆盖丢掉。写 API 在落盘前额外 `decide(MANAGE_CHANNELS, channel(name))`；Filter 仍映射 `channel(null)`。
 
 ## Hard constraints
 
@@ -29,14 +29,14 @@
 - `AssetAwareAuthorizationServiceImpl` 装饰 `RoleBasedAuthorizationServiceImpl`（渠道 OFFLINE/PRIVATE 复用，不另写裁决）
 - 绑定 / 调用额外 `decide`（Skill / Knowledge / Agent OFFLINE）
 - 渠道增/改/删额外 `decide(MANAGE_CHANNELS, channel(name))`
-- `GET/PUT .../governance`（agents / skills / knowledge）
+- `GET/PUT .../governance`（agents / skills / knowledge / channels）
 - V11 `asset_governance_events` 审计
 - 入站消息 OFFLINE 门禁（`InboundMessageService` + `InboundAssetGovernanceGate`；平台挑战握手仍在适配器层，不经本闸）
 - Admin：Agent / Skill / Knowledge 详情「治理」面板（`GET/PUT /api/v1/{agents|skills|knowledge}/{name}/governance`）
+- Admin：入站渠道列表 + `channels.yaml` `governance:` 面板（`GET/PUT /api/v1/channels/{name}/governance`）
 
 ## Out of scope (honest gaps)
 
-- 入站渠道（channels.yaml）治理管理台 UI
 - Team ACL / JIT teams / 组织归属
 - 完整版本历史
 - Catalog 可见性仍只是标签，不驱动列表过滤

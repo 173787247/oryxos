@@ -218,6 +218,50 @@ class ChannelApiControllerTest {
     verify(admin).update(eq(CHANNEL), any());
   }
 
+  @Test
+  @DisplayName("GET governance：回显 channels.yaml 治理块")
+  void getGovernance() throws Exception {
+    ChannelConfig withGov =
+        RAW.withGovernance(
+            new AssetGovernance(
+                "alice",
+                "1",
+                AssetGovernance.Visibility.PRIVATE,
+                "low",
+                AssetGovernance.Health.OFFLINE));
+    when(admin.listRaw()).thenReturn(List.of(withGov));
+
+    mvc.perform(get("/api/v1/channels/" + CHANNEL + "/governance"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.owner").value("alice"))
+        .andExpect(jsonPath("$.data.health").value("OFFLINE"))
+        .andExpect(jsonPath("$.data.visibility").value("PRIVATE"));
+  }
+
+  @Test
+  @DisplayName("GET governance：渠道不存在 → 404")
+  void getGovernanceMissing() throws Exception {
+    when(admin.listRaw()).thenReturn(List.of());
+    mvc.perform(get("/api/v1/channels/ghost/governance")).andExpect(status().isNotFound());
+  }
+
+  @Test
+  @DisplayName("PUT governance：转发 updateGovernance")
+  void putGovernance() throws Exception {
+    when(admin.listRaw()).thenReturn(List.of(RAW));
+    when(admin.updateGovernance(eq(CHANNEL), any()))
+        .thenReturn(new AssetGovernance("bob", null, null, null, AssetGovernance.Health.ACTIVE));
+
+    mvc.perform(
+            put("/api/v1/channels/" + CHANNEL + "/governance")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"owner\":\"bob\",\"health\":\"ACTIVE\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.owner").value("bob"))
+        .andExpect(jsonPath("$.data.health").value("ACTIVE"));
+    verify(admin).updateGovernance(eq(CHANNEL), any());
+  }
+
   private static String updateBody() {
     return "{\"name\":\"ops-feishu\",\"type\":\"feishu\",\"appId\":\"a\","
         + "\"appSecret\":\"b\",\"agent\":\"ops-agent\",\"enabled\":true}";
