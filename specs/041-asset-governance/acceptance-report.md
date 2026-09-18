@@ -18,10 +18,10 @@
 - [x] WORKSPACE `teamOwner` gate behind `workspace-team-acl-enabled` (default off); OIDC groups → session `Principal.teamIds`
 - [x] `/skills/catalog` installed rows also filtered via `AssetBindGuard.isVisible` (012 tags unchanged for external candidates)
 - [x] Agent author paths (`validateCatalog` / `generate-files` / `saveFiles` skill bindings) honor `isVisible` predicate
+- [x] Knowledge author paths (create/bind/replace/saveFiles/generate-files) honor `isVisible` predicate
 
 ## Honest gaps
 
 - No durable teams/orgs/members tables or JIT team provisioning
 - Team ids are session-scoped (OIDC groups cache); Basic Auth sessions have empty teamIds
 - No full version history
-- Knowledge author-path visibility predicate still deferred

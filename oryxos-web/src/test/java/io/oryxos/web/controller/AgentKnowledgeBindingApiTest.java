@@ -16,11 +16,15 @@ import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.memory.MemoryService;
+import io.oryxos.core.policy.Action;
+import io.oryxos.core.policy.AuthorizationService;
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.SessionManager;
 import io.oryxos.core.testing.SymlinkAssumptions;
 import io.oryxos.web.GlobalExceptionHandler;
+import io.oryxos.web.security.AssetBindGuard;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -113,6 +117,42 @@ class AgentKnowledgeBindingApiTest {
 
     mvc.perform(get("/api/v1/agents/ops/knowledge"))
         .andExpect(jsonPath("$.data.bindings[0].name").value("ops-manual"));
+  }
+
+  @Test
+  @DisplayName("GOVERNANCE 列表不可见时拒绝绑定知识库")
+  void bindRejectsWhenGovernanceHidesKnowledge() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
+    AuthorizationService authorization = mock(AuthorizationService.class);
+    when(authorization.decide(any(), eq(Action.MANAGE_KNOWLEDGE), any()))
+        .thenReturn(AuthorizationService.Decision.ALLOWED);
+    when(authorization.decide(any(), eq(Action.READ_WORKSPACE), eq(ResourceRef.knowledge("faq"))))
+        .thenReturn(AuthorizationService.Decision.denied("私有资产仅属主或管理员可访问"));
+    when(authorization.decide(
+            any(), eq(Action.READ_WORKSPACE), eq(ResourceRef.knowledge("ops-manual"))))
+        .thenReturn(AuthorizationService.Decision.ALLOWED);
+
+    AgentApiController controller =
+        new AgentApiController(
+            lifecycle,
+            mock(AgentService.class),
+            mock(SessionManager.class),
+            new ProfileRegistry(Map.of("ops", profile("ops"))),
+            mock(MemoryService.class),
+            mock(AgentExecutionService.class),
+            null,
+            null,
+            new KnowledgeBindingService(root));
+    controller.setAssetBindGuard(new AssetBindGuard(authorization));
+    MockMvc gated =
+        MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+
+    gated
+        .perform(put("/api/v1/agents/ops/knowledge/faq"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Knowledge")));
   }
 
   private void knowledgeBase(String name, String description) throws Exception {

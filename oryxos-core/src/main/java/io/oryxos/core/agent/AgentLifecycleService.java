@@ -725,7 +725,8 @@ public class AgentLifecycleService {
       List<String> requiredSkills,
       String provider,
       String model) {
-    return generateDraft(name, description, notifyChannel, requiredSkills, provider, model, null);
+    return generateDraft(
+        name, description, notifyChannel, requiredSkills, provider, model, null, null);
   }
 
   /**
@@ -739,6 +740,20 @@ public class AgentLifecycleService {
       String provider,
       String model,
       Predicate<String> skillVisible) {
+    return generateDraft(
+        name, description, notifyChannel, requiredSkills, provider, model, skillVisible, null);
+  }
+
+  /** 生成草稿；{@code knowledgeVisible} 非空时只把可见知识库注入提示词（与 Skill GOVERNANCE 列表门禁同口径）。 */
+  public GeneratedAgentDraft generateDraft(
+      String name,
+      String description,
+      String notifyChannel,
+      List<String> requiredSkills,
+      String provider,
+      String model,
+      Predicate<String> skillVisible,
+      Predicate<String> knowledgeVisible) {
     String genProvider =
         authorProvider == null || authorProvider.isBlank()
             ? (defaultProvider == null || defaultProvider.isBlank() ? "deepseek" : defaultProvider)
@@ -783,6 +798,16 @@ public class AgentLifecycleService {
             Profile.Settings.defaults());
     Map<String, String> knowledgeBases =
         knowledgeCandidates == null ? Map.of() : knowledgeCandidates.get();
+    if (knowledgeVisible != null && !knowledgeBases.isEmpty()) {
+      Map<String, String> filtered = new LinkedHashMap<>();
+      knowledgeBases.forEach(
+          (kb, descriptionText) -> {
+            if (knowledgeVisible.test(kb)) {
+              filtered.put(kb, descriptionText);
+            }
+          });
+      knowledgeBases = filtered;
+    }
     String prompt =
         AGENT_AUTHOR_PROMPT
                 .replace("{name}", name)
