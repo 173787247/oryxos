@@ -166,6 +166,30 @@ class AgentSchedulerTest {
   }
 
   @Test
+  void runOnceInstallsSchedulerPrincipalDuringProcessAndClearsAfter() {
+    Profile profile = profileWith(List.of(sc("task-1")));
+    when(sessionManager.getOrCreate(any(), any(), any()))
+        .thenReturn(new Session("sched-sid", PROFILE_NAME));
+    io.oryxos.core.auth.Principal custom =
+        io.oryxos.core.auth.Principal.apiKey(
+            "scheduler", "scheduler", java.util.Set.of(io.oryxos.core.auth.Role.EDITOR));
+    scheduler.setRunPrincipal(custom);
+    java.util.concurrent.atomic.AtomicReference<io.oryxos.core.auth.Principal> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    when(agentService.process(any(), any()))
+        .thenAnswer(
+            inv -> {
+              seen.set(io.oryxos.core.auth.PrincipalContext.current());
+              return "ok";
+            });
+
+    scheduler.runOnce(profile, sc("task-1"), scheduleId("task-1"));
+
+    assertSame(custom, seen.get());
+    org.junit.jupiter.api.Assertions.assertNull(io.oryxos.core.auth.PrincipalContext.current());
+  }
+
+  @Test
   void multipleAgentsUseDifferentSchedulerSessions() {
     Profile alpha = profileNamed("alpha-agent", sc("alpha-task"));
     Profile beta = profileNamed("beta-agent", sc("beta-task"));
