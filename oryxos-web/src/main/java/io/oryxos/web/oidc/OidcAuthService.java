@@ -390,15 +390,39 @@ public class OidcAuthService {
   }
 
   /**
-   * Flag 开时对 IdP groups 幂等写 {@code team_memberships}（#562）。无 catalog 行则跳过并打日志；add 失败只打日志，不阻断登录。本
-   * cut 不撤销未出现在 groups 中的成员关系。
+   * Flag 开时对 IdP groups 幂等写 {@code team_memberships}（#562）。无 catalog 行则跳过并打日志；add 失败只打日志，不阻断登录。
+   * {@code revoke-unmatched-team-memberships} 开时再移除不在 catalog-present 期望集中的成员（#564）；空 groups 对齐
+   * revoke-unmatched-roles：期望集为空 → 清空全部 durable 成员。
    */
   private void ensureTeamMemberships(String username, List<String> groups) {
     if (!properties.isJitTeamMembershipsEnabled() || teamMembershipService == null) {
       return;
     }
-    if (groups == null || groups.isEmpty()) {
+    Set<String> expected = catalogPresentExpectation(username, groups);
+    for (String group : expected) {
+      try {
+        teamMembershipService.add(username, group);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT team membership add 失败 group={} user={}：{}",
+            sanitize(group),
+            sanitize(username),
+            sanitize(ex.toString()));
+      }
+    }
+    if (!properties.isRevokeUnmatchedTeamMemberships()) {
       return;
+    }
+    revokeUnmatchedTeamMemberships(username, expected);
+  }
+
+  /**
+   * IdP groups 中存在 catalog 行的期望集（无 {@link TeamCatalogService} 时等同去重后的非空 groups）。空/null groups → 空集。
+   */
+  private Set<String> catalogPresentExpectation(String username, List<String> groups) {
+    LinkedHashSet<String> expected = new LinkedHashSet<>();
+    if (groups == null || groups.isEmpty()) {
+      return Set.copyOf(expected);
     }
     for (String group : new LinkedHashSet<>(groups)) {
       if (group == null || group.isBlank()) {
@@ -411,12 +435,33 @@ public class OidcAuthService {
             sanitize(username));
         continue;
       }
+      expected.add(group);
+    }
+    return Set.copyOf(expected);
+  }
+
+  /** 移除 durable 成员中不在期望集的条目；list/remove 失败只打日志。 */
+  private void revokeUnmatchedTeamMemberships(String username, Set<String> expected) {
+    Set<String> current;
+    try {
+      current = teamMembershipService.listTeamIds(username);
+    } catch (RuntimeException ex) {
+      LOG.warn(
+          "OIDC JIT team membership list 失败 user={}：{}",
+          sanitize(username),
+          sanitize(ex.toString()));
+      return;
+    }
+    for (String teamId : current) {
+      if (expected.contains(teamId)) {
+        continue;
+      }
       try {
-        teamMembershipService.add(username, group);
+        teamMembershipService.remove(username, teamId);
       } catch (RuntimeException ex) {
         LOG.warn(
-            "OIDC JIT team membership add 失败 group={} user={}：{}",
-            sanitize(group),
+            "OIDC JIT team membership remove 失败 group={} user={}：{}",
+            sanitize(teamId),
             sanitize(username),
             sanitize(ex.toString()));
       }

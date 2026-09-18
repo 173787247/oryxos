@@ -415,4 +415,85 @@ class OidcAuthServiceTest {
     assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
     verify(teamMembershipService, never()).add(anyString(), anyString());
   }
+
+  @Test
+  @DisplayName("revoke unmatched memberships关_不调用remove")
+  void callback_revokeUnmatchedMembershipsOff_noRemoves() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    properties.setRevokeUnmatchedTeamMemberships(false);
+    Team eng = new Team();
+    eng.setTeamId("eng");
+    when(teamCatalogService.find("eng")).thenReturn(Optional.of(eng));
+    when(teamMembershipService.listTeamIds("alice")).thenReturn(Set.of("eng", "legacy"));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService).add("alice", "eng");
+    verify(teamMembershipService, never()).remove(anyString(), anyString());
+    verify(teamMembershipService, never()).listTeamIds(anyString());
+  }
+
+  @Test
+  @DisplayName("revoke unmatched memberships开_移除多余并保留命中")
+  void callback_revokeUnmatchedMembershipsOn_removesExtrasKeepsMatched() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    properties.setRevokeUnmatchedTeamMemberships(true);
+    Team eng = new Team();
+    eng.setTeamId("eng");
+    when(teamCatalogService.find("eng")).thenReturn(Optional.of(eng));
+    when(teamMembershipService.listTeamIds("alice")).thenReturn(Set.of("eng", "legacy"));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService).add("alice", "eng");
+    verify(teamMembershipService).remove("alice", "legacy");
+    verify(teamMembershipService, never()).remove("alice", "eng");
+  }
+
+  @Test
+  @DisplayName("revoke unmatched memberships开_空groups清空全部成员")
+  void callback_revokeUnmatchedMembershipsOn_emptyGroupsClearsAll() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    properties.setRevokeUnmatchedTeamMemberships(true);
+    when(teamMembershipService.listTeamIds("alice")).thenReturn(Set.of("eng", "ops"));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of()));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService, never()).add(anyString(), anyString());
+    verify(teamMembershipService).remove("alice", "eng");
+    verify(teamMembershipService).remove("alice", "ops");
+  }
 }
