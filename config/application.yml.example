@@ -196,7 +196,7 @@ oryxos:
   #     enabled: true
   #     deny-anonymous: true
   #     # 持久化团队成员并入 Principal.teamIds（#535）。默认关；开后与 session 缓存取并集。
-  #     # CLI: oryxos team member-add|member-remove|member-list
+  #     # CLI: oryxos team create|rename|list|delete + member-add|member-remove|member-list
   #     # durable-team-memberships-enabled: true
   #     roles:
   #       default-user-roles: []           # 空=拒绝；可选显式 [VIEWER]/[EDITOR]/[ADMIN]
