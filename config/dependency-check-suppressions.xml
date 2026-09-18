@@ -55,14 +55,14 @@
         <cve>CVE-2026-47890</cve>
         <cve>CVE-2026-47891</cve>
     </suppress>
-    <suppress>
+    <suppress until="2027-01-01Z">
         <notes><![CDATA[
-        Spring Boot 3.5.16 pins Spring Framework 6.2.19. Dependency-Check reports
-        CVE-2026-47884 (CVSS >= 8) against spring-core 6.2.19; OSS remediation tracks
-        Spring Framework 7 / Boot 4 (6.2.20+ enterprise-only for this advisory line).
-        OryxOS uses conventional Spring MVC @RestController; no WebFlux functional
-        RouterFunction / SSE view-fragment surfaces implicated by the sibling 6.2.19
-        advisories already suppressed above. Remove when Boot pins a fixed Framework.
+        CVE-2026-47884 affects XsltView with a /** mapping that renders views without an
+        explicit view name. Official advisory: https://spring.io/security/cve-2026-47884/
+        OryxOS serves static Vue assets and JSON RestControllers, not XsltView/XSLT templates.
+        This is a deployment-specific non-applicability assessment, not a patched Framework.
+        Adding XSLT view resolution invalidates this assessment.
+        Recheck at Framework upgrade or architecture change; see specs/042-workspace-storage/security-triage.md.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.springframework/.*@6\.2\.19$</packageUrl>
         <cve>CVE-2026-47884</cve>
@@ -139,5 +139,107 @@
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.springframework\.ai/.*@1\.1\.8$</packageUrl>
         <cve>CVE-2026-59318</cve>
+    </suppress>
+    <suppress until="2027-01-01Z">
+        <notes><![CDATA[
+        Component mismatch: this CVE is in npm @opentelemetry/core, not the Java API.
+        https://github.com/open-telemetry/opentelemetry-js/security/advisories/GHSA-8988-4f7v-96qf
+        Exact observed Maven versions only; do not suppress unrelated Java advisories.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry/((opentelemetry-api|opentelemetry-context|opentelemetry-exporter-common|opentelemetry-exporter-otlp|opentelemetry-exporter-otlp-common|opentelemetry-exporter-sender-okhttp|opentelemetry-sdk|opentelemetry-sdk-common|opentelemetry-sdk-extension-autoconfigure-spi|opentelemetry-sdk-logs|opentelemetry-sdk-metrics|opentelemetry-sdk-trace)@1\.44\.1|opentelemetry-api-incubator@1\.44\.1-alpha)$</packageUrl>
+        <cve>CVE-2026-54285</cve>
+    </suppress>
+    <suppress until="2027-01-01Z">
+        <notes><![CDATA[
+        Component mismatches: generated Java protobuf messages do not contain Go/.NET/C++/JS exporters
+        or propagators. The advisories identify those other implementations, not opentelemetry-proto.
+        Primary evidence by CVE is in specs/042-workspace-storage/security-triage.md.
+        https://github.com/open-telemetry/opentelemetry-go/security/advisories/GHSA-w8rr-5gcm-pp58
+        https://github.com/open-telemetry/opentelemetry-dotnet/security/advisories/GHSA-38h3-2333-qx47
+        https://github.com/open-telemetry/opentelemetry-go/security/advisories/GHSA-5wrp-cwcj-q835
+        https://github.com/open-telemetry/opentelemetry-cpp/issues/3958
+        https://github.com/open-telemetry/opentelemetry-js/security/advisories/GHSA-8988-4f7v-96qf
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.proto/opentelemetry-proto@1\.5\.0-alpha$</packageUrl>
+        <cve>CVE-2026-41078</cve>
+        <cve>CVE-2026-39882</cve>
+        <cve>CVE-2026-40894</cve>
+        <cve>CVE-2026-41178</cve>
+        <cve>CVE-2026-44967</cve>
+        <cve>CVE-2026-54285</cve>
+    </suppress>
+    <suppress until="2027-01-01Z">
+        <notes><![CDATA[
+        Current deployment non-applicability, NOT a claim that Spring AI is patched.
+        47851 requires the Spring AI PDF outline reader; 47852/59294 require TransformersEmbeddingModel
+        and its ResourceCacheService. These modules are absent from the runtime dependency graph.
+        OryxOS uses its own bounded PDFBox extraction and remote embedding adapters.
+        The unused spring-ai-mcp bridge was removed; only these enumerated AI modules remain.
+        Adding Spring AI PDF readers/ONNX transformers invalidates this exclusion immediately.
+        https://spring.io/security/cve-2026-47851/
+        https://spring.io/security/cve-2026-47852/
+        https://spring.io/security/cve-2026-59294/
+        1.1.9 is Enterprise Support Only; OSS fix 2.0.1 needs a separate platform migration.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.ai/spring-ai-(commons|model|openai|retry|template-st)@1\.1\.8$</packageUrl>
+        <cve>CVE-2026-47851</cve>
+        <cve>CVE-2026-47852</cve>
+        <cve>CVE-2026-59294</cve>
+    </suppress>
+    <suppress until="2027-01-01Z">
+        <notes><![CDATA[
+        Current deployment non-applicability, NOT a claim that Framework 6.2.19 is patched.
+        Per-CVE primary advisory links and trigger analysis: specs/042-workspace-storage/security-triage.md.
+        MVC/servlet Tomcat + JSON/static Vue; no reactive server/RSocket, UrlHandlerFilter,
+        UrlFileNameViewController, FreeMarker views, EscapedErrors HTML rendering, untrusted SpEL,
+        or binding to self-populating lists. Simple query scalars and Jackson request bodies do not
+        enable those specific triggers. Adding any of these APIs/configurations invalidates the
+        corresponding exclusion; reviewing library additions alone is insufficient.
+        https://spring.io/security/cve-2026-59282/
+        https://spring.io/security/cve-2026-47886/
+        6.2.20 is Enterprise Support Only; OSS fix 7.0.9 requires platform migration.
+        Maintainers must reassess before expiry and on endpoint/binding/view/expression changes.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/(spring-aop|spring-aspects|spring-beans|spring-context|spring-context-support|spring-core|spring-expression|spring-jcl|spring-jdbc|spring-messaging|spring-orm|spring-tx|spring-web|spring-webflux|spring-webmvc)@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47883</cve>
+        <cve>CVE-2026-47885</cve>
+        <cve>CVE-2026-47886</cve>
+        <cve>CVE-2026-47887</cve>
+        <cve>CVE-2026-47888</cve>
+        <cve>CVE-2026-47889</cve>
+        <cve>CVE-2026-47893</cve>
+        <cve>CVE-2026-59280</cve>
+        <cve>CVE-2026-59281</cve>
+        <cve>CVE-2026-59282</cve>
+    </suppress>
+    <suppress until="2027-01-01Z">
+        <notes><![CDATA[
+        Current deployment non-applicability: Sort.by uses literal lastActiveAt in JpaSessionManager;
+        no controller accepts Sort/Pageable and no untrusted sort expression enters repositories.
+        Fixed-order repository methods and bounded PageRequest paging do not accept property names.
+        Adding client-selectable sort/property strings invalidates this exclusion.
+        https://spring.io/security/cve-2026-47834/
+        This does not claim the dependency is patched; upgrade with the supported platform line.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.data/spring-data-jpa@3\.5\.13$</packageUrl>
+        <cve>CVE-2026-47834</cve>
+    </suppress>
+    <suppress until="2027-01-01Z">
+        <notes><![CDATA[
+        Current deployment non-applicability, NOT a patched Spring Security claim.
+        Only crypto jar is included (no WebAuthn/filter chain/authorization server).
+        PasswordEncoderFactory uses standard DelegatingPasswordEncoder bcrypt, not Password4j.
+        LocalMasterKeyCipher uses JCE AES/GCM with SecureRandom IV, not AesBytesEncryptor/CBC.
+        Adding WebAuthn, DigestAuthenticationFilter, KeyBasedPersistenceTokenService, Password4j,
+        in-memory authorization server or Spring AES encryptors requires immediate reassessment.
+        https://spring.io/security/cve-2026-47841/
+        https://spring.io/security/cve-2026-47842/
+        https://spring.io/security/cve-2026-59276/
+        6.5.12 is Enterprise Support Only; OSS fix 7.0.7 requires compatibility assessment.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.security/spring-security-crypto@6\.5\.11$</packageUrl>
+        <cve>CVE-2026-47841</cve>
+        <cve>CVE-2026-47842</cve>
+        <cve>CVE-2026-59276</cve>
     </suppress>
 </suppressions>

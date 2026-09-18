@@ -19,13 +19,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * 黑盒集成测试：打一个**已经在外面跑着**的 OryxOS 实例（默认 {@code http://localhost:8080}），不自己起服务。
+ * 黑盒集成测试：打一个显式指定的隔离 OryxOS 实例，不自己起服务，也不自动探测开发服务。
  *
  * <p>用法：先 {@code bin/start.sh 8080} 起服务（需有 {@code mock} provider + 一个 {@code provider: mock} 的
  * Agent）， 再手动跑：
  *
  * <pre>{@code
- * mvn -pl oryxos-boot test -Dtest=LiveApiIT -Dsurefire.failIfNoSpecifiedTests=false
+ * mvn -pl oryxos-boot test -Dtest=LiveApiIT -Doryxos.base-url=http://localhost:18042
  * # 打别的实例：-Doryxos.base-url=http://host:port  换 Agent：-Doryxos.test-profile=xxx
  * }</pre>
  *
@@ -34,8 +34,7 @@ import org.junit.jupiter.api.Test;
  */
 class LiveApiIT {
 
-  private static final String BASE =
-      System.getProperty("oryxos.base-url", "http://localhost:8080") + "/api/v1";
+  private static final String BASE = System.getProperty("oryxos.base-url", "") + "/api/v1";
   private static final String PROFILE = System.getProperty("oryxos.test-profile", "mock-agent");
 
   private final HttpClient http =
@@ -44,6 +43,9 @@ class LiveApiIT {
 
   @BeforeEach
   void serviceMustBeUp() {
+    assumeTrue(
+        !System.getProperty("oryxos.base-url", "").isBlank(),
+        "必须显式指定隔离测试实例 -Doryxos.base-url；不访问默认开发服务");
     assumeTrue(reachable(), "服务未在 " + BASE + " 运行——先 bin/start.sh，本用例跳过");
   }
 
@@ -77,7 +79,7 @@ class LiveApiIT {
         "会话应出现在列表");
 
     // ⑥ 记忆查得到刚写入的 token（save_memory 真写了）
-    assertTrue(get("/memory").asText().contains(token), "记忆应查得到本次写入");
+    assertTrue(get("/agents/" + PROFILE + "/memory").asText().contains(token), "记忆应查得到本次写入");
 
     // ⑦ 工具清单含 save_memory
     assertTrue(

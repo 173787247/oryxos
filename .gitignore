@@ -82,3 +82,4 @@ oryxos.db-wal
 # Python offline workspace recovery tooling
 __pycache__/
 *.pyc
+.gstack/

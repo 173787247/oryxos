@@ -1,3 +1,5 @@
+import { revisionHeaders } from '../../workspace-revision.js'
+
 /**
  * Shared GOVERNANCE.yml editor state + API helpers (#504).
  * apiKind: 'agents' | 'skills' | 'knowledge'
@@ -71,7 +73,7 @@ export async function saveGovernance(state, apiKind, name) {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...(state.revision ? { 'If-Match': state.revision } : {}),
+        ...revisionHeaders(state.revision),
       },
       body: JSON.stringify({
         owner: state.owner.trim() || null,

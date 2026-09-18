@@ -1,6 +1,6 @@
 # 042 实现与验收记录
 
-分支：`042-workspace-storage`，基线：`main@ccd952c`。用户已批准首期及可插拔文件接口。代码、测试与 Speckit 产物均在当前工作区，未提交、推送或部署。
+分支：`042-workspace-storage`。已合并 `main@894d1e6`；实现快照 `d0162ed`，后续包含治理权限集成、安全依赖修复与交付验证。2026-09-18 已启动隔离 Docker 双副本及 Helm 实例；真实跨主机 T013 仍待资源。下方首轮记录保留为历史证据，最终交付以本节新增记录为准。
 
 ## 交付范围
 
@@ -8,7 +8,7 @@
 
 存储插件由 Spring Bean（服务端）或 ServiceLoader（轻 CLI）扩展。未知、重复或能力不足的插件拒绝启动；原生 OSS/S3 插件不在本期实现范围。POSIX 语义及本机执行视图仍是首期能力要求。
 
-## 验证记录
+## 首轮验证记录（2026-09-17）
 
 T001–T012 已完成，T013 等待真实外部共享环境。下列结果来自实际命令；未把默认跳过的扫描或同机测试算作真实跨节点验收。
 
@@ -67,4 +67,47 @@ Shell 发布父目录增加显式空值守卫后，`ShellToolsTest` 13 项复跑
 - 单文件原子替换不等于多文件目录快照，亦不等于文件、绑定和数据库联合事务。Shell 完成边界以所等待的命令退出为准，调用方须等待其后台写者；首期不提供后台进程写入的快照隔离。
 - 工作区版本为不透明 UUID，内容/备份指纹另用 SHA-256；失败响应后的代次不能用于未经重读的自动重试。
 - 第一方编辑器带 If-Match；旧外部客户端省略时只有写互斥。在线写管理统一经 API，直接改盘及轻 CLI 须在维护停写窗口。
-- 用户现有 Docker PG、mem0、工作区数据和挂载中的旧 boot JAR 均未用于故障测试或替换。新分支需独立部署验证，不能据此报告当前在线 UI 已升级。
+- 原有 8080 服务及其挂载旧 JAR 保留。新版本在 18042/18043 使用已有 Docker PG 的独立数据库、独立工作区和独立 mem0 namespace。故障注入仅针对新验收实例。首次运行旧 LiveApiIT 因默认 8080 误连原实例，产生的唯一测试会话已归档；测试已改为强制显式指定隔离地址。
+
+## 交付补齐记录（2026-09-18）
+
+### 当前产物与门禁
+
+- 隔离目录 `/tmp/oryxos-042-delivery` 不包含本机密钥/应用配置，也不共享原服务挂载 JAR。`mvn -B clean verify` 通过：337 类、2070 项、0 失败/错误/跳过，同时通过格式/Checkstyle/PMD/P3C/SpotBugs/FindSecBugs。日志 `/tmp/oryxos-042-clean-verify.log`。该轮基线为 `main@fd685b4`；后续 `894d1e6` 合并后的完整重跑单列最终结果。
+- 全部 CI IT 加健康测试：`mvn -B -pl oryxos-boot -am package '-Dtest=*IT,WorkspaceHealthIndicatorTest' -DexcludedGroups=integration -Dsurefire.failIfNoSpecifiedTests=false -Dpmd.skip=true -Dspotbugs.skip=true`，28 项，0 失败/错误；1 项未指定在线地址按设计跳过。日志 `/tmp/oryxos-042-all-it-final.log`。
+- 额外显式运行 `KnowledgeFlowIT,RestartRecoveryIT,WorkspaceHealthIndicatorTest`，通过；日志 `/tmp/oryxos-042-install-final.log`。该 install 将当前内部模块装入 Maven 缓存，消除扫描旧内部 JAR 的问题，CI 同步改为 clean install 后扫描。
+- `LiveApiIT` 显式连接隔离 kind `http://127.0.0.1:18044`，真实创建会话、调用 mock 模型与 save_memory、查询历史及按 Agent 隔离的记忆，1 项通过且无跳过。修复其过时 `/memory` 路径为 `/agents/{name}/memory`。日志 `/tmp/oryxos-042-live-it-final.log`。
+- MCP 真实 stdio 与 HTTP/SSE 初始化、列表、工具调用：2 项通过，无外部 MCP 依赖；日志 `/tmp/oryxos-042-mcp-transport.log`。
+- 阻塞存储探针：独立请求线程不等待 probe；可控时钟 14s UP、15s DOWN、解除阻塞后 UP，且没有额外 probe/残留临时文件。boot 模块定向静态检查通过，日志 `/tmp/oryxos-042-boot-quality.log`。
+- 前端 41 项通过；离线恢复 3 项、安全假设检测 6 项通过；Helm 模板/schema/existingClaim 配置断言通过。
+- Docker 官方镜像构建通过。kind 专用集群实际 Helm 安装 `shared-posix` + `existingClaim`，双副本 readiness、实例双活、跨 Pod Agent 可见通过。日志 `/tmp/oryxos-042-kind-smoke-final.log`。首次 PG 镜像下载超时，加载本机镜像后重跑通过；未放宽 readiness 断言。kind 是单宿主，不计 T013 或 SC-002 的正式计时。
+
+### 安全告警
+
+当前产物显式 Dependency-Check aggregate：171 个扫描对象，0 个未处理告警、121 条带理由排除记录，退出 0；日志 `/tmp/oryxos-042-owasp-final.log`。npm audit 包含开发依赖为 0。
+
+这不代表所有底层 Spring 库已修补。真实可升级项已升级；OTel 跨语言错误匹配按精确模块/版本排除；Spring 未启用的受影响功能按部署条件评估，排除 2027-01-01 到期，并增加 CI 源码/实际依赖变更检测。完整官方依据、触发条件、残余风险及企业/社区修复路径见 [security-triage.md](security-triage.md)。新自定义 Java 插件或外部 Spring 配置必须重新评估这些条件。
+
+### 浏览器与实际故障演练
+
+Docker 验收 UI：`http://localhost:18042/admin/`，副本 B：`http://localhost:18043/admin/`。连接既有 Docker PostgreSQL 的 `oryxos042_acceptance` 数据库及 mem0，使用专用工作区卷和 mem0 namespace，模型为无需 key 的 mock。
+
+- 浏览器创建 `mock-agent`，选择 mock provider/model、绑定 json-output Skill，成功。
+- A/B 两个浏览器页面打开同一 Agent；B 保存成功，A 旧草稿保存显示“工作区版本已变化”，重新查询仍为 B 内容。证据 `/tmp/oryxos-042-evidence/stale-edit-rejected.png`。
+- 浏览器创建/编辑 `qa042-skill`，副本 B 读取到最终正文。
+- 浏览器创建知识库、上传 `knowledge.md`，刷新索引后 READY、1 chunk；副本 B 详情返回同一文档 READY。证据 `/tmp/oryxos-042-evidence/knowledge-ready.png`。
+- 当前 mem0 按 Agent 读取链路返回成功；端到端写记忆测试在隔离 kind 的 PG 记忆后端运行。
+- 专用共享卷身份标记暂时移走：A/B readiness 均 503，新 Agent 写入 503；finally 恢复标记后均 200，既有 Agent 内容保留，拒绝的 Agent 未被创建。证据 `/tmp/oryxos-042-evidence/identity-fault.json`。这是真实容器故障注入，仍不是 NFS 断挂载或跨宿主故障。
+
+### 外部验收限制
+
+已实际查找 Docker contexts、Kubernetes contexts/nodes、NFS/Ceph/CIFS 挂载、SSH 配置和虚拟化工具。只有一个 Docker Desktop/WSL2 内核；没有可访问的第二台独立主机或真实共享卷。已向用户请求两台 SSH 主机与挂载路径，其余交付继续。
+
+[环境调查与执行矩阵](../../scripts/042-shared-acceptance.md) 和 [双节点存储子集脚本](../../scripts/042-shared-storage-probe.py) 已准备。T013 保持未完成；不能用两个本机容器、单节点 kind、代码测试或已写好的脚本代替真实跨主机证据。
+
+### 最终合并门禁与本机恢复
+
+- `main@894d1e6` 合并后 `mvn -B verify` 完整重跑：338 类、2077 项测试，失败/错误/跳过均为 0，全部质量插件通过；`/tmp/oryxos-042-merged-verify-final.log`。
+- 专用工作区停写备份并恢复到新卷：16 个普通文件 SHA-256 与 1 个相对软链接目标一致，tar 摘要也一致。
+- 独立第二个停写窗口，对专用数据库重新 dump 并实际 restore 到全新 `oryxos042_restore_check`；31 张 public 表行数及 7 条 Flyway 迁移记录一致。两次维护窗口均恢复 a/b healthy；未启动恢复副本应用，不宣称跨资源原子快照。
+- 私有证据 `/tmp/oryxos-042-evidence/local-restore-20260918T070921Z/evidence.json` 与 `database-restore-evidence.json`；备份/清单只保存在私有本机目录，不提交数据库内容或密钥。

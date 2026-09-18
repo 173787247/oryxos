@@ -52,3 +52,19 @@ describe('governance-edit helpers', () => {
     }
   })
 })
+
+// Missing snapshot metadata must never silently disable concurrency protection.
+it('refuses governance writes without a read revision', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => { calls++; throw new Error('unexpected request') }
+  try {
+    const state = createGovernanceEdit()
+    await saveGovernance(state, 'agents', 'demo')
+    assert.equal(calls, 0)
+    assert.match(state.error, /重新加载/)
+    assert.equal(state.saving, false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

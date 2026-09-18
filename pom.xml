@@ -27,6 +27,9 @@
         <!-- 025：覆盖 Boot BOM 的 42.7.11——CVE-2026-54291（CVSS 8.2）修复于 42.7.12（OSV 实证），OWASP 门禁线 8.0 -->
         <postgresql.version>42.7.12</postgresql.version>
         <pdfbox.version>3.0.8</pdfbox.version>
+        <poi.version>5.5.1</poi.version>
+        <commons-io.version>2.22.0</commons-io.version>
+        <commons-compress.version>1.28.0</commons-compress.version>
         <oapi-sdk.version>2.8.5</oapi-sdk.version>
 
         <!-- Infrastructure libraries -->
@@ -137,6 +140,19 @@
                 <groupId>com.squareup.okio</groupId>
                 <artifactId>okio</artifactId>
                 <version>3.9.1</version>
+            </dependency>
+
+            <!-- Keep parser dependencies above the CVE-2024-47554/25710/26308 fixes even
+                 when embedded-postgres or another transitive dependency wins mediation. -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${commons-io.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons-compress.version}</version>
             </dependency>
 
             <!-- Internal modules -->

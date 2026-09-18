@@ -3,6 +3,16 @@
 本文件记录 OryxOS 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+- 工作区存储插件接口及本地/共享 POSIX 实现，可接入现有 RWX 卷；共享身份校验、存储健康探测与遗漏通知对账。
+- 管理编辑版本冲突保护、原子文件发布、维护恢复工具，以及按 Agent/运行隔离的输出目录。
+
+### Fixed
+- 存储暂时不可用时保留已加载 Agent/Skill，恢复后重试；知识解析与内容指纹使用同一源文件快照。
+- 升级 Office/压缩与前端依赖，移除未使用的 Spring AI MCP 桥接；为有条件安全排除增加到期复审及变更检测。
+
 ## [0.1.5-RELEASE] - 2026-09-11
 
 ### Added
