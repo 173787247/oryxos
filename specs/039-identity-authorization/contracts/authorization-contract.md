@@ -144,5 +144,5 @@ Content-Type: application/json
 - `PROTECTED_URL_PATTERNS` / `/admin/*` 两个注册数组零改动；**不新增任何 URL pattern**；不引入 Spring Security filter chain（维持 `spring-security-crypto` 单 jar 边界）。
 - `tool_policy_rules` 与 020 的语义零变化；本契约的 `Action` 与工具策略（主体=Agent 名）正交、叠加生效、互不豁免。
 - `tool_invocations` / `llm_calls` 的列与写入口径零变化；`web_sessions`、`api_keys`、`sessions` 表零改动；`web_users` 只加一列 `roles`（NOT NULL DEFAULT `VIEWER`，旧行自动补齐）。
-- 运行时：本刀不改 `AgentService.process*` 签名、不改 `ReActLoop` / `ToolExecutor`；接口与值对象在 `oryxos-core`，运行时将来复用无需依赖 `oryxos-web`。
+- 运行时：`ToolExecutor` 在 `PrincipalContext` 有主体时对 Agent 做 `decide(RUN_AGENT)`（#527）；无上下文（CLI）不裁决。接口与值对象在 `oryxos-core`，不反向依赖 `oryxos-web`。
 - 管理台：新增 `/api/v1/auth/me` 的 `roles` / `rbacEnabled` 两个返回字段（追加式，旧前端忽略即可）；不改既有页面与按钮行为（按钮级隐藏不在本刀）。
