@@ -1228,8 +1228,44 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  CliChannel cliChannel(AgentService agentService, SessionManager sessionManager) {
-    return new CliChannel(agentService, sessionManager);
+  CliChannel cliChannel(
+      AgentService agentService,
+      SessionManager sessionManager,
+      org.springframework.core.env.Environment environment) {
+    CliChannel channel = new CliChannel(agentService, sessionManager);
+    // 039 / #533：角色取 default-user-roles（与管理台空默认档一致）；不反向依赖 oryxos-web
+    channel.setRunRoles(
+        parseRoleNames(bindStringList(environment, "oryxos.web.rbac.roles.default-user-roles")));
+    return channel;
+  }
+
+  private static java.util.List<String> bindStringList(
+      org.springframework.core.env.Environment environment, String property) {
+    return org.springframework.boot.context.properties.bind.Binder.get(environment)
+        .bind(
+            property,
+            org.springframework.boot.context.properties.bind.Bindable.listOf(String.class))
+        .orElse(java.util.List.of());
+  }
+
+  private static java.util.Set<io.oryxos.core.auth.Role> parseRoleNames(
+      java.util.List<String> raw) {
+    java.util.Set<io.oryxos.core.auth.Role> parsed = new java.util.LinkedHashSet<>();
+    if (raw == null) {
+      return parsed;
+    }
+    for (String name : raw) {
+      if (name == null || name.isBlank()) {
+        continue;
+      }
+      try {
+        parsed.add(
+            io.oryxos.core.auth.Role.valueOf(name.strip().toUpperCase(java.util.Locale.ROOT)));
+      } catch (IllegalArgumentException ignored) {
+        // 非法名忽略（与 AuthorizationConfig.parseRoles 同口径）
+      }
+    }
+    return parsed;
   }
 
   // ── 017：入站 IM 渠道（飞书长连接）────────────────────────────────────────
