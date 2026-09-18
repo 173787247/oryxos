@@ -1106,6 +1106,8 @@ public class OryxOsRuntime {
       ToolInvocationAuditor auditor,
       AgentRunEventPublisher agentRunEventPublisher,
       io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.policy.AuthorizationService>
+          authorizationService,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
       io.oryxos.core.metrics.SpanRecorder spanRecorder) {
     // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
@@ -1113,6 +1115,10 @@ public class OryxOsRuntime {
         new ToolExecutor(
             tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor, agentRunEventPublisher);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
+    // 039/#527：web 装配注入同一 decide；纯 CLI 无 Bean 时 ALLOW_ALL
+    executor.setAuthorizationService(
+        authorizationService.getIfAvailable(
+            () -> io.oryxos.core.policy.AuthorizationService.ALLOW_ALL));
     executor.setMetricsRecorder(metricsRecorder); // 023：工具调用/策略拦截指标
     executor.setSpanRecorder(spanRecorder); // 039：工具 span（未配 otel.endpoint 时为 NOOP）
     return executor;
