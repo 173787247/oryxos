@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -124,25 +125,45 @@ class McpClientServiceTest {
   }
 
   @Test
-  @DisplayName("每个 server 的 request_timeout 转换为客户端使用的 Duration")
-  void requestTimeout_isResolvedPerServer() throws IOException {
+  @DisplayName("连接 tools/list 探测最多 60 秒，较短配置保持原值")
+  void connectProbeTimeout_isBounded() {
+    McpServerConfig shortTimeout =
+        new McpServerConfig("short", "stdio", "echo", Map.of(), null, Map.of(), 15);
+    McpServerConfig longTimeout =
+        new McpServerConfig("long", "stdio", "echo", Map.of(), null, Map.of(), 300);
+
+    assertEquals(Duration.ofSeconds(15), McpClientService.connectProbeTimeout(shortTimeout));
+    assertEquals(Duration.ofSeconds(60), McpClientService.connectProbeTimeout(longTimeout));
+  }
+
+  @Test
+  @DisplayName("tools/list 卡住时按连接探测上限返回并关闭客户端")
+  void connectProbeTimeout_closesStalledClient() throws Exception {
+    McpSyncClient client = mock(McpSyncClient.class);
+    when(client.listTools())
+        .thenAnswer(
+            invocation -> {
+              Thread.sleep(Duration.ofSeconds(10));
+              return new McpSchema.ListToolsResult(List.of(), null);
+            });
     McpConfigLoader loader =
         loaderWith(
             """
             servers:
-              - name: default-timeout
+              - name: stalled
                 transport: stdio
                 command: echo
-              - name: long-task
-                transport: http
-                url: https://example.com/mcp
-                request_timeout: 240
+                request_timeout: 1
             """);
+    McpClientService service = new McpClientService(loader, config -> client);
 
-    List<McpServerConfig> configs = loader.load();
+    long started = System.nanoTime();
+    service.connectAll(new ToolRegistry());
+    long elapsed = System.nanoTime() - started;
 
-    assertEquals(Duration.ofSeconds(30), configs.get(0).requestTimeout());
-    assertEquals(Duration.ofSeconds(240), configs.get(1).requestTimeout());
+    assertTrue(elapsed < Duration.ofSeconds(3).toNanos(), "连接探测应在 1 秒左右返回");
+    assertTrue(service.status("stalled").error().contains("tools/list 探测超过 1 秒"));
+    verify(client).closeGracefully();
   }
 
   @Test

@@ -8,6 +8,7 @@ import io.oryxos.core.mcp.McpServerConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -162,6 +163,7 @@ class McpConfigLoaderTest {
     assertEquals(
         McpServerConfig.DEFAULT_REQUEST_TIMEOUT_SECONDS, configs.get(0).requestTimeoutSeconds());
     assertEquals(300, configs.get(1).requestTimeoutSeconds());
+    assertEquals(Duration.ofSeconds(300), configs.get(1).requestTimeout());
 
     loader.save(configs);
     String saved = Files.readString(configFile());
@@ -172,7 +174,7 @@ class McpConfigLoaderTest {
   @Test
   @DisplayName("request_timeout 非整数或超出 1..3600 秒时 fail-loud")
   void requestTimeout_rejectsInvalidValues() throws Exception {
-    for (String invalid : List.of("0", "3601", "1.5", "\"60\"")) {
+    for (String invalid : List.of("-1", "0", "3601", "99999999999", "1.5", "\"60\"")) {
       write(
           """
           servers:

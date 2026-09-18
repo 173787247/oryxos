@@ -109,7 +109,7 @@ servers:
 
   - name: my-internal-api
     transport: http
-    url: https://mcp.internal.example.com
+    url: https://mcp.internal.example.com/sse
     request_timeout: 300
     headers:
       Authorization: Bearer ${INTERNAL_API_TOKEN}
@@ -117,7 +117,7 @@ servers:
 
 OryxOS 在启动时连接每个 MCP server：`stdio` 启动本地子进程，`http` 连接远程 server。server 暴露的工具以其声明的名称注册到 `ToolRegistry` 中。
 
-> **配置 Schema。** `McpConfigLoader` 解析顶层的 `servers:` 列表。每个条目包含 `name`、`transport`，并按传输类型使用 `command`/`env`（`stdio`）或 `url`/`headers`（`http`）。`command` 是按空白切分的单个字符串，**没有独立的 `args:` 字段**。可选的 `request_timeout` 是 1–3600 之间的整数秒数，缺省保持 30 秒；适合为 ETL、部署等较慢 server 单独放宽。`${ENV_VAR}` 占位符只在 `env` 和 `headers` 的值里解析，密钥不得内联写进 `command` 或 `url`。
+> **配置 Schema。** `McpConfigLoader` 解析顶层的 `servers:` 列表。每个条目包含 `name`、`transport`，并按传输类型使用 `command`/`env`（`stdio`）或 `url`/`headers`（`http`，当前为 legacy SSE，`url` 需指向 SSE 端点）。`command` 是按空白切分的单个字符串，**没有独立的 `args:` 字段**。可选的 `request_timeout` 是 1–3600 之间的整数秒数，缺省保持 30 秒；非整数或越界会被当作配置错误并阻止启动。它控制 `tools/call` 等普通请求，但不改变 SDK 独立的 20 秒初始化超时。启动和管理 API 写操作中的 `tools/list` 连接探测最多等待 `min(request_timeout, 60)` 秒，避免故障 server 长时间阻塞控制面。`${ENV_VAR}` 占位符只在 `env` 和 `headers` 的值里解析，密钥不得内联写进 `command` 或 `url`。
 
 ## 推荐 MCP 服务器
 
@@ -136,7 +136,7 @@ OryxOS 刻意让内置工具保持精简。内置工具是**通用原语**——
 | 网络搜索 | Brave Search |
 | 可观测性 | Sentry |
 
-每个条目都带有关于前置依赖（主机上需有 Node.js/`npx` 或 `uv`/`uvx`）、凭证处理的注释，并在相关处说明厂商是否已提供官方替代品、或提供了核心阶段仅支持 stdio 传输尚无法使用的远程（HTTP）server。凡是确切包名可能已变更之处，目录都会在注释里如实说明，而不是凭空猜测。
+每个条目都带有关于前置依赖（主机上需有 Node.js/`npx` 或 `uv`/`uvx`）、凭证处理的注释，并在相关处说明厂商是否已提供官方替代品。当前 `http` 传输使用 legacy SSE；只提供 Streamable HTTP 的远程 server 要等后续 transport 支持。凡是确切包名可能已变更之处，目录都会在注释里如实说明，而不是凭空猜测。
 
 ## 沙箱
 

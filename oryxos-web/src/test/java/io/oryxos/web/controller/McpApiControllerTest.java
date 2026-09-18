@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -58,6 +59,25 @@ class McpApiControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data[0].headers.Authorization").value("****3456"))
         .andExpect(jsonPath("$.data[0].requestTimeoutSeconds").value(120));
+  }
+
+  @Test
+  @DisplayName("add 自定义 requestTimeoutSeconds_传给管理服务并回显")
+  void add_customTimeout_passesThrough() throws Exception {
+    when(admin.add(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    mvc.perform(
+            post("/api/v1/mcp-servers")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"slow\",\"transport\":\"stdio\",\"command\":\"echo\","
+                        + "\"env\":{},\"headers\":{},\"requestTimeoutSeconds\":240}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.requestTimeoutSeconds").value(240));
+
+    ArgumentCaptor<McpServerConfig> captor = ArgumentCaptor.forClass(McpServerConfig.class);
+    verify(admin).add(captor.capture());
+    Assertions.assertEquals(240, captor.getValue().requestTimeoutSeconds());
   }
 
   @Test
@@ -134,7 +154,9 @@ class McpApiControllerTest {
                         + "\"env\":{},\"headers\":{},\"requestTimeoutSeconds\":0}"))
         .andExpect(status().isBadRequest())
         .andExpect(
-            jsonPath("$.message").value(org.hamcrest.Matchers.containsString("request_timeout")));
+            jsonPath("$.message")
+                .value(
+                    org.hamcrest.Matchers.containsString("request_timeout/requestTimeoutSeconds")));
   }
 
   @Test

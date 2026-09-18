@@ -17,7 +17,9 @@
 #       command:   <string>   # ONE line. It is split on whitespace: the first
 #                             # token is the executable, the rest are its args.
 #                             # There is NO separate `args:` field.
-#       request_timeout: 30   # optional integer seconds, 1..3600; default 30
+#       request_timeout: 30   # optional integer seconds, 1..3600; default 30.
+#                             # Does not change SDK initialize timeout (20s).
+#                             # Startup/admin tools/list probe is capped at 60s.
 #       env:                  # process environment for the subprocess (a map)
 #         KEY: value          # values MAY use ${ENV_VAR} placeholders (resolved
 #                             # from OryxOS's own environment at load time)

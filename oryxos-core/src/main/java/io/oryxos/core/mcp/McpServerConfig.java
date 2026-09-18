@@ -21,7 +21,9 @@ public record McpServerConfig(
     Map<String, String> headers,
     int requestTimeoutSeconds) {
 
+  /** 沿用 OryxOS 在引入可配置项前写死的请求超时，非 MCP SDK 默认值。 */
   public static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 30;
+
   public static final int MIN_REQUEST_TIMEOUT_SECONDS = 1;
   public static final int MAX_REQUEST_TIMEOUT_SECONDS = 3600;
 
@@ -31,7 +33,7 @@ public record McpServerConfig(
     if (requestTimeoutSeconds < MIN_REQUEST_TIMEOUT_SECONDS
         || requestTimeoutSeconds > MAX_REQUEST_TIMEOUT_SECONDS) {
       throw new IllegalArgumentException(
-          "MCP request_timeout 必须在 "
+          "MCP 请求超时 request_timeout/requestTimeoutSeconds 必须在 "
               + MIN_REQUEST_TIMEOUT_SECONDS
               + ".."
               + MAX_REQUEST_TIMEOUT_SECONDS
