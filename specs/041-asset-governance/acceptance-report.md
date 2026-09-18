@@ -19,9 +19,10 @@
 - [x] `/skills/catalog` installed rows also filtered via `AssetBindGuard.isVisible` (012 tags unchanged for external candidates)
 - [x] Agent author paths (`validateCatalog` / `generate-files` / `saveFiles` skill bindings) honor `isVisible` predicate
 - [x] Knowledge author paths (create/bind/replace/saveFiles/generate-files) honor `isVisible` predicate
+- [x] Password login optional `oryxos.web.auth.user-team-ids` → `SessionTeamIdsCache` (default empty)
 
 ## Honest gaps
 
 - No durable teams/orgs/members tables or JIT team provisioning
-- Team ids are session-scoped (OIDC groups cache); Basic Auth sessions have empty teamIds
+- Team ids remain session-scoped (process cache; restart clears)
 - No full version history

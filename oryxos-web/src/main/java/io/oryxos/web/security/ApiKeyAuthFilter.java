@@ -93,7 +93,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
   /** RBAC 强制点（039）：{@code null} = 未启用授权切面（四参/五参构造的既有路径）。 */
   private final RbacEnforcer rbacEnforcer;
 
-  /** Session→OIDC groups（041）；缺省空缓存，Basic/无 OIDC 登录时 teamIds 为空。 */
+  /** Session→团队声明（041）；OIDC groups 或密码登录 user-team-ids；缺省空。 */
   private final SessionTeamIdsCache teamIdsCache;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
