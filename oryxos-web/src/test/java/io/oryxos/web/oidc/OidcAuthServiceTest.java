@@ -201,4 +201,57 @@ class OidcAuthServiceTest {
         .recordOrThrow(eq(AuthEventType.GROUP_ROLE_SYNC), eq("alice"), eq("roles=[EDITOR]"));
     verifyNoInteractions(authorizationService);
   }
+
+  @Test
+  @DisplayName("JIT开_未映射时建用户映射并建session")
+  void callback_jitProvision_createsUserMappingAndSession() {
+    pendingStore.put("st", "verifier");
+    properties.setJitProvisionEnabled(true);
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-new", "alice@example.com", "alice", List.of()));
+    when(mappingService.findByIssuerAndSubject("https://idp.example", "sub-new"))
+        .thenReturn(Optional.empty());
+    IdentityMapping created = new IdentityMapping();
+    created.setUsername("alice");
+    when(mappingService.upsert("https://idp.example", "sub-new", "alice", "alice@example.com"))
+        .thenReturn(created);
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid-jit");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(userService).ensureOidcProvisioned("alice");
+    verify(mappingService).upsert("https://idp.example", "sub-new", "alice", "alice@example.com");
+    verify(sessionService).create("alice");
+    verifyNoInteractions(authorizationService);
+  }
+
+  @Test
+  @DisplayName("revoke开_组未命中时清空角色")
+  void callback_revokeUnmatched_clearsRoles() {
+    pendingStore.put("st", "verifier");
+    properties.setGroupRoles(Map.of("oryxos-editors", "EDITOR"));
+    properties.setRevokeUnmatchedRoles(true);
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("unknown")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(userService).setRoles("alice", Set.of());
+    verify(authEventRecorder)
+        .recordOrThrow(eq(AuthEventType.GROUP_ROLE_SYNC), eq("alice"), eq("roles=[]"));
+  }
 }

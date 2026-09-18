@@ -1,5 +1,6 @@
 package io.oryxos.web.controller;
 
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.core.skill.AgentSkillBindingService;
 import io.oryxos.core.skill.SkillCatalog;
 import io.oryxos.core.skill.SkillCatalogEntry;
@@ -13,7 +14,9 @@ import io.oryxos.web.controller.dto.SkillCatalogView;
 import io.oryxos.web.controller.dto.SkillView;
 import io.oryxos.web.controller.dto.UpdateSkillRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
+import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.skill.GithubFolderFetcher;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -84,6 +87,8 @@ public class SkillApiController {
   private final SkillCatalog catalog;
   private final AgentSkillBindingService bindings;
 
+  private AssetBindGuard assetBindGuard;
+
   public SkillApiController(SkillService skills) {
     this(skills, null, null);
   }
@@ -96,9 +101,21 @@ public class SkillApiController {
     this.bindings = bindings;
   }
 
+  @Autowired(required = false)
+  public void setAssetBindGuard(AssetBindGuard assetBindGuard) {
+    this.assetBindGuard = assetBindGuard;
+  }
+
   @GetMapping
-  public ApiResponse<List<SkillView>> list() {
-    return ApiResponse.ok(skills.listCurrent().stream().map(SkillView::from).toList());
+  public ApiResponse<List<SkillView>> list(HttpServletRequest request) {
+    return ApiResponse.ok(
+        skills.listCurrent().stream()
+            .filter(
+                s ->
+                    assetBindGuard == null
+                        || assetBindGuard.isVisible(request, ResourceRef.skill(s.name())))
+            .map(SkillView::from)
+            .toList());
   }
 
   @GetMapping("/{name}")
@@ -445,6 +462,7 @@ public class SkillApiController {
 
   @GetMapping("/catalog")
   public ApiResponse<List<SkillCatalogView>> catalog(
+      HttpServletRequest request,
       @RequestParam(required = false) String q,
       @RequestParam(defaultValue = "all") String visibility) {
     if (catalog == null) {
@@ -460,7 +478,24 @@ public class SkillApiController {
     } else {
       throw new IllegalArgumentException("非法 visibility: " + visibility);
     }
-    return ApiResponse.ok(catalog.query(q, filter).stream().map(SkillCatalogView::from).toList());
+    // 012 visibility 标签先过滤；已安装行再叠加 GOVERNANCE 列表门禁（未安装外部候选不动）。
+    return ApiResponse.ok(
+        catalog.query(q, filter).stream()
+            .filter(entry -> isCatalogEntryVisible(request, entry))
+            .map(SkillCatalogView::from)
+            .toList());
+  }
+
+  /** 已安装（或本机 registry 已有同名）Skill 走 {@code isVisible}；外部未安装候选只保留 012 标签语义。 */
+  private boolean isCatalogEntryVisible(HttpServletRequest request, SkillCatalogEntry entry) {
+    if (assetBindGuard == null || entry == null || entry.name() == null || entry.name().isBlank()) {
+      return true;
+    }
+    boolean local = entry.installed() || skills.get(entry.name()).isPresent();
+    if (!local) {
+      return true;
+    }
+    return assetBindGuard.isVisible(request, ResourceRef.skill(entry.name()));
   }
 
   @GetMapping("/binding-issues")

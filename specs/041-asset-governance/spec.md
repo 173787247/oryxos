@@ -12,7 +12,7 @@
 
 给 Agent / Skill / Knowledge 增加可选的 `GOVERNANCE.yml` 侧车元数据（owner、visibility、health 等），并在 `#462` 的唯一决策点 `AuthorizationService.decide` 上叠加一层资产门禁（装饰器），使 OFFLINE 资产不可用、PRIVATE 资产仅 owner/ADMIN 可管。
 
-渠道**不**使用 `GOVERNANCE.yml` 侧车。可选治理字段嵌在 `.oryxos/channels.yaml` 每条渠道的 `governance:` 块（同一 `AssetGovernance`）。缺块 = 未设。写入只经 `ChannelAdminService.add/update` → `ChannelConfigLoader.save`，不另写侧车以免被覆盖丢掉。写 API 在落盘前额外 `decide(MANAGE_CHANNELS, channel(name))`；Filter 仍映射 `channel(null)`。
+渠道**不**使用 `GOVERNANCE.yml` 侧车。可选治理字段嵌在 `.oryxos/channels.yaml` 每条渠道的 `governance:` 块（同一 `AssetGovernance`）。缺块 = 未设。写入只经 `ChannelAdminService.add/update/updateGovernance` → `ChannelConfigLoader.save`，不另写侧车以免被覆盖丢掉。写 API 在落盘前额外 `decide(MANAGE_CHANNELS, channel(name))`；Filter 仍映射 `channel(null)`。
 
 ## Hard constraints
 
@@ -29,13 +29,19 @@
 - `AssetAwareAuthorizationServiceImpl` 装饰 `RoleBasedAuthorizationServiceImpl`（渠道 OFFLINE/PRIVATE 复用，不另写裁决）
 - 绑定 / 调用额外 `decide`（Skill / Knowledge / Agent OFFLINE）
 - 渠道增/改/删额外 `decide(MANAGE_CHANNELS, channel(name))`
-- `GET/PUT .../governance`（agents / skills / knowledge）
+- `GET/PUT .../governance`（agents / skills / knowledge / channels）
 - V11 `asset_governance_events` 审计
+- 入站消息 OFFLINE 门禁（`InboundMessageService` + `InboundAssetGovernanceGate`；平台挑战握手仍在适配器层，不经本闸）
+- Admin：Agent / Skill / Knowledge 详情「治理」面板（`GET/PUT /api/v1/{agents|skills|knowledge}/{name}/governance`）
+- Admin：入站渠道列表 + `channels.yaml` `governance:` 面板（`GET/PUT /api/v1/channels/{name}/governance`）
+- 列表过滤：`GET` agents/skills/knowledge/channels 在 rbac+asset-governance 开启时按具名 `decide(READ_WORKSPACE)` 剔除 OFFLINE / PRIVATE 他属主条目
+- WORKSPACE 团队门禁：`teamOwner` 字段 + `oryxos.web.asset-governance.workspace-team-acl-enabled`（默认关）；OIDC groups 经 session 缓存注入 `Principal.teamIds`
+- 密码登录可选 `oryxos.web.auth.user-team-ids` → 同 session 缓存（默认空=不声明团队）
+- `/skills/catalog`：已安装行叠加 GOVERNANCE 列表门禁；012 PUBLIC/PRIVATE 标签仍只管候选过滤，外部未安装行不变
+- Agent 作者路径：`validateCatalog` / `generate-files` / `saveFiles(skillBindings)` 经 `isVisible` 谓词过滤可用 Skill（CLI 无谓词时行为不变）
+- Knowledge 作者路径：创建 / bind / replace / `saveFiles(knowledgeBindings)` / `generate-files` 经 `isVisible` 过滤（CLI 无谓词时行为不变）
 
 ## Out of scope (honest gaps)
 
-- 渠道治理管理台 UI
-- 入站 webhook 按治理门禁
-- Team ACL / JIT teams / 组织归属
+- 持久化 teams/orgs/members 表、JIT 建队、Admin 管队
 - 完整版本历史
-- Catalog 可见性仍只是标签，不驱动列表过滤

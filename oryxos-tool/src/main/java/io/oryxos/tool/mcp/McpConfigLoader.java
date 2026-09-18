@@ -34,6 +34,7 @@ public class McpConfigLoader {
   private static final Logger LOG = LoggerFactory.getLogger(McpConfigLoader.class);
 
   private static final Pattern ENV_PLACEHOLDER = Pattern.compile("\\$\\{([A-Za-z0-9_]+)}");
+  private static final String FIELD_REQUEST_TIMEOUT = "request_timeout";
 
   private final Path configFile;
 
@@ -58,7 +59,8 @@ public class McpConfigLoader {
         raw.command(),
         resolvePlaceholderMap(raw.env()),
         raw.url(),
-        resolvePlaceholderMap(raw.headers()));
+        resolvePlaceholderMap(raw.headers()),
+        raw.requestTimeoutSeconds());
   }
 
   /** 不解析占位符的原始配置——管理台 CRUD 专用（展示 + 改后回写），保证 {@code ${VAR}} 字面量原样落盘。 */
@@ -94,7 +96,8 @@ public class McpConfigLoader {
               asString(entry.get("command")),
               asStringMap(entry.get("env"), "env"),
               asString(entry.get("url")),
-              asStringMap(entry.get("headers"), "headers")));
+              asStringMap(entry.get("headers"), "headers"),
+              asRequestTimeoutSeconds(entry.get(FIELD_REQUEST_TIMEOUT))));
     }
     return configs;
   }
@@ -117,6 +120,9 @@ public class McpConfigLoader {
       }
       if (!c.headers().isEmpty()) {
         entry.put("headers", c.headers());
+      }
+      if (c.requestTimeoutSeconds() != McpServerConfig.DEFAULT_REQUEST_TIMEOUT_SECONDS) {
+        entry.put(FIELD_REQUEST_TIMEOUT, c.requestTimeoutSeconds());
       }
       servers.add(entry);
     }
@@ -204,6 +210,28 @@ public class McpConfigLoader {
     // YAML 1.1：裸 yes/on/null 会变成 Boolean/null；String.valueOf(true)→"true" 会静默改名（对齐 #198）
     throw new IllegalArgumentException(
         "期望 YAML 字符串（yes/on/null 等请加引号），实际是 " + value.getClass().getSimpleName() + ": " + value);
+  }
+
+  private static int asRequestTimeoutSeconds(Object value) {
+    if (value == null) {
+      return McpServerConfig.DEFAULT_REQUEST_TIMEOUT_SECONDS;
+    }
+    if (!(value instanceof Integer) && !(value instanceof Long)) {
+      throw new IllegalArgumentException(
+          "mcp_servers.yaml 的 "
+              + FIELD_REQUEST_TIMEOUT
+              + " 必须是整数秒数: "
+              + sanitize(String.valueOf(value)));
+    }
+    long seconds = ((Number) value).longValue();
+    if (seconds < Integer.MIN_VALUE || seconds > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(
+          "mcp_servers.yaml 的 "
+              + FIELD_REQUEST_TIMEOUT
+              + " 超出整数范围: "
+              + sanitize(String.valueOf(value)));
+    }
+    return (int) seconds;
   }
 
   private static String sanitize(String value) {

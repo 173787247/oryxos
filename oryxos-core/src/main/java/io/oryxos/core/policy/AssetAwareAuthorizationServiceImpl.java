@@ -5,11 +5,11 @@ import io.oryxos.core.auth.Role;
 
 /**
  * 资产治理装饰器（041 / #463）：先走既有 {@link AuthorizationService#decide}，再在开关打开且角色已允许时 叠加 OFFLINE / PRIVATE
- * 门禁。
+ * （及可选 WORKSPACE team）门禁。
  *
  * <p>唯一权限路径仍是本接口——本类是装饰器，不是第二条授权通道。flag 关或委托已拒绝时原样返回，保证默认关零变化。 缺侧车（空治理）不加额外拒绝。
  *
- * <p>API_KEY：本刀只挡 OFFLINE，不做 owner 匹配（Key 名称不是账号归属模型）。
+ * <p>API_KEY：本刀只挡 OFFLINE，不做 owner / team 匹配（Key 名称不是账号归属模型）。
  */
 public final class AssetAwareAuthorizationServiceImpl implements AuthorizationService {
 
@@ -18,23 +18,40 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   private static final String REASON_PRIVATE = "私有资产仅属主或管理员可访问";
 
+  /** WORKSPACE+teamOwner 拒绝理由（固定文案，进审计）。 */
+  public static final String REASON_WORKSPACE_TEAM = "工作区资产仅同队成员或管理员可访问";
+
   private final AuthorizationService delegate;
 
   private final AssetGovernanceStore store;
 
   private final boolean enabled;
 
+  private final boolean workspaceTeamAclEnabled;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "delegate/store 为注入共享单例，存同一引用正是意图。")
   public AssetAwareAuthorizationServiceImpl(
       AuthorizationService delegate, AssetGovernanceStore store, boolean enabled) {
+    this(delegate, store, enabled, false);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "delegate/store 为注入共享单例，存同一引用正是意图。")
+  public AssetAwareAuthorizationServiceImpl(
+      AuthorizationService delegate,
+      AssetGovernanceStore store,
+      boolean enabled,
+      boolean workspaceTeamAclEnabled) {
     this.delegate = delegate == null ? AuthorizationService.ALLOW_ALL : delegate;
     if (store == null) {
       throw new IllegalArgumentException("store 不能为空");
     }
     this.store = store;
     this.enabled = enabled;
+    this.workspaceTeamAclEnabled = workspaceTeamAclEnabled;
   }
 
   @Override
@@ -53,7 +70,11 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
     if (governance.health() == AssetGovernance.Health.OFFLINE) {
       return Decision.denied(REASON_OFFLINE);
     }
-    return privateGate(principal, governance);
+    Decision privateDecision = privateGate(principal, governance);
+    if (!privateDecision.allowed()) {
+      return privateDecision;
+    }
+    return workspaceTeamGate(principal, governance);
   }
 
   /** PRIVATE：仅 USER 且 owner 存在且不匹配、又非 ADMIN 时拒绝。API_KEY / 匿名 / 无 owner 本刀不在这里拒绝。 */
@@ -76,5 +97,33 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       return Decision.ALLOWED;
     }
     return Decision.denied(REASON_PRIVATE);
+  }
+
+  /**
+   * WORKSPACE + teamOwner：仅 {@code workspaceTeamAclEnabled} 时生效。无 teamOwner 不另拒（存量兼容）。API_KEY /
+   * 匿名跳过（与 PRIVATE 同口径）；USER 须同队或 ADMIN。
+   */
+  private Decision workspaceTeamGate(Principal principal, AssetGovernance governance) {
+    if (!workspaceTeamAclEnabled) {
+      return Decision.ALLOWED;
+    }
+    if (governance.visibility() != AssetGovernance.Visibility.WORKSPACE) {
+      return Decision.ALLOWED;
+    }
+    String teamOwner = governance.teamOwner();
+    if (teamOwner == null || teamOwner.isBlank()) {
+      return Decision.ALLOWED;
+    }
+    Principal subject = principal == null ? Principal.anonymous() : principal;
+    if (subject.kind() != Principal.Kind.USER) {
+      return Decision.ALLOWED;
+    }
+    if (subject.hasRole(Role.ADMIN)) {
+      return Decision.ALLOWED;
+    }
+    if (subject.hasTeam(teamOwner)) {
+      return Decision.ALLOWED;
+    }
+    return Decision.denied(REASON_WORKSPACE_TEAM);
   }
 }

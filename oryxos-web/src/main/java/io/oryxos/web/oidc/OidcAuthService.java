@@ -9,6 +9,7 @@ import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.config.WebOidcProperties;
+import io.oryxos.web.security.SessionTeamIdsCache;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -34,6 +35,11 @@ public class OidcAuthService {
 
   private static final SecureRandom RANDOM = new SecureRandom();
 
+  /** 与 {@code WebUserService} 用户名长度上限对齐（JIT 推导名不得超长）。 */
+  private static final int MAX_JIT_USERNAME_LENGTH = 64;
+
+  private static final char EMAIL_LOCAL_SEPARATOR = '@';
+
   private final WebOidcProperties properties;
   private final OidcTokenClient tokenClient;
   private final OidcPendingStore pendingStore;
@@ -42,6 +48,7 @@ public class OidcAuthService {
   private final WebSessionService sessionService;
   private final AuthEventRecorder authEventRecorder;
   private final OidcGroupRoleSync groupRoleSync;
+  private final SessionTeamIdsCache teamIdsCache;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -54,6 +61,29 @@ public class OidcAuthService {
       WebUserService userService,
       WebSessionService sessionService,
       AuthEventRecorder authEventRecorder) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache) {
     this.properties = properties;
     this.tokenClient = tokenClient;
     this.pendingStore = pendingStore;
@@ -62,6 +92,7 @@ public class OidcAuthService {
     this.sessionService = sessionService;
     this.authEventRecorder = authEventRecorder;
     this.groupRoleSync = new OidcGroupRoleSync(userService);
+    this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
   }
 
   public boolean isEnabled() {
@@ -121,8 +152,14 @@ public class OidcAuthService {
     Optional<IdentityMapping> mapping =
         mappingService.findByIssuerAndSubject(claims.issuer(), claims.subject());
     if (mapping.isEmpty()) {
-      fail("unmapped_subject", claims.subject());
-      return OidcLoginResult.failure("identity not mapped");
+      if (!properties.isJitProvisionEnabled()) {
+        fail("unmapped_subject", claims.subject());
+        return OidcLoginResult.failure("identity not mapped");
+      }
+      mapping = tryJitProvision(claims);
+      if (mapping.isEmpty()) {
+        return OidcLoginResult.failure("identity not mapped");
+      }
     }
     String username = mapping.get().getUsername();
     if (!userService.isEnabledUser(username)) {
@@ -141,11 +178,59 @@ public class OidcAuthService {
       return OidcLoginResult.failure("auth audit failed");
     }
     WebSession session = sessionService.create(username);
+    teamIdsCache.put(session.getSessionId(), claims.groups());
     return OidcLoginResult.success(session, username);
   }
 
   /**
-   * 映射表为空或未命中时不写角色。命中则 setRoles；写库或审计失败则拒绝建 session。不调用 AuthorizationService。
+   * JIT（#502）：flag 关 → 空；开则按 preferred_username / email 建用户并 upsert mapping。缺可用用户名 claim →
+   * fail-closed（不把裸 sub 当 username）。
+   */
+  private Optional<IdentityMapping> tryJitProvision(OidcIdTokenClaims claims) {
+    Optional<String> username = resolveJitUsername(claims);
+    if (username.isEmpty()) {
+      fail("jit_username_unavailable", claims.subject());
+      return Optional.empty();
+    }
+    try {
+      userService.ensureOidcProvisioned(username.get());
+      IdentityMapping saved =
+          mappingService.upsert(claims.issuer(), claims.subject(), username.get(), claims.email());
+      return Optional.of(saved);
+    } catch (RuntimeException ex) {
+      LOG.warn("OIDC JIT 失败：{}", sanitize(ex.toString()));
+      fail("jit_provision_failed", username.get());
+      return Optional.empty();
+    }
+  }
+
+  /** preferred_username → email local-part；均非法则空。不用裸 sub。 */
+  static Optional<String> resolveJitUsername(OidcIdTokenClaims claims) {
+    Optional<String> fromPreferred = sanitizeJitUsername(claims.preferredUsername());
+    if (fromPreferred.isPresent()) {
+      return fromPreferred;
+    }
+    String email = claims.email();
+    if (email == null || email.isBlank() || email.indexOf(EMAIL_LOCAL_SEPARATOR) < 0) {
+      return Optional.empty();
+    }
+    return sanitizeJitUsername(email.substring(0, email.indexOf(EMAIL_LOCAL_SEPARATOR)));
+  }
+
+  private static Optional<String> sanitizeJitUsername(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return Optional.empty();
+    }
+    String trimmed = raw.strip();
+    if (trimmed.length() > MAX_JIT_USERNAME_LENGTH
+        || trimmed.chars().anyMatch(Character::isWhitespace)) {
+      return Optional.empty();
+    }
+    return Optional.of(trimmed);
+  }
+
+  /**
+   * 映射表为空时不写角色。命中或 revoke 写入则审计；写库或审计失败则拒绝建 session。不调用 AuthorizationService。
    *
    * @return false 表示登录应失败
    */

@@ -1117,6 +1117,8 @@ public class OryxOsRuntime {
       ToolInvocationAuditor auditor,
       AgentRunEventPublisher agentRunEventPublisher,
       io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.policy.AuthorizationService>
+          authorizationService,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
       io.oryxos.core.metrics.SpanRecorder spanRecorder) {
     // 31 节：mcp_servers 白名单在此接线。mcpToolOwners() 是活视图，与 tools bean 一样不能在构造时 copyOf。
@@ -1124,6 +1126,10 @@ public class OryxOsRuntime {
         new ToolExecutor(
             tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor, agentRunEventPublisher);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
+    // 039/#527：web 装配注入同一 decide；纯 CLI 无 Bean 时 ALLOW_ALL
+    executor.setAuthorizationService(
+        authorizationService.getIfAvailable(
+            () -> io.oryxos.core.policy.AuthorizationService.ALLOW_ALL));
     executor.setMetricsRecorder(metricsRecorder); // 023：工具调用/策略拦截指标
     executor.setSpanRecorder(spanRecorder); // 039：工具 span（未配 otel.endpoint 时为 NOOP）
     return executor;
@@ -1272,7 +1278,13 @@ public class OryxOsRuntime {
       AgentExecutionService agentExecutionService,
       io.oryxos.core.channel.MessageDeduplicator messageDeduplicator,
       InterruptManager interruptManager,
-      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
+      io.oryxos.core.policy.AssetGovernanceStore assetGovernanceStore,
+      @org.springframework.beans.factory.annotation.Value("${oryxos.web.rbac.enabled:false}")
+          boolean rbacEnabled,
+      @org.springframework.beans.factory.annotation.Value(
+              "${oryxos.web.asset-governance.enabled:false}")
+          boolean assetGovernanceEnabled) {
     return new io.oryxos.core.channel.InboundMessageService(
         agentService,
         sessionManager,
@@ -1282,7 +1294,9 @@ public class OryxOsRuntime {
         new io.oryxos.core.channel.DefaultInboundMediaEnricher(
             io.oryxos.cli.WhisperHttpTranscriber.fromEnv(), metricsRecorder),
         java.time.Duration.ofSeconds(15), // 「处理中」提示延迟（Edge Case：先行告知）
-        interruptManager);
+        interruptManager,
+        io.oryxos.core.policy.InboundAssetGovernanceGate.of(
+            assetGovernanceStore, rbacEnabled, assetGovernanceEnabled));
   }
 
   /** 渠道出站守卫：渠道自建 HTTP 不被沙箱自动拦截，经此显式复用 http 域名白名单（宪法 VI / 017 R7）。 */

@@ -1,15 +1,22 @@
 package io.oryxos.web.controller;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import io.oryxos.core.auth.Principal;
 import io.oryxos.core.channel.ChannelAdminService;
+import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.policy.Action;
+import io.oryxos.core.policy.AssetGovernance;
+import io.oryxos.core.policy.AssetGovernanceStore;
 import io.oryxos.core.policy.AuthorizationService;
 import io.oryxos.core.policy.ResourceRef;
+import io.oryxos.storage.AssetGovernanceEventRecorder;
 import io.oryxos.web.common.ApiResponse;
+import io.oryxos.web.controller.dto.AssetGovernanceView;
 import io.oryxos.web.controller.dto.ChannelStatusView;
 import io.oryxos.web.controller.dto.ChannelView;
 import io.oryxos.web.error.ResourceNotFoundException;
 import io.oryxos.web.security.AssetBindGuard;
+import io.oryxos.web.security.PrincipalHolder;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 冲突 / 定义非法 → 400；不存在 → 404；统一 {@code ApiResponse} 信封。
  *
  * <p>041：写路径在落盘前多一次 {@code decide(MANAGE_CHANNELS, channel(name))}。Filter 仍映射 {@code
- * channel(null)}，URL 不变。入站 webhook 不走本控制器。
+ * channel(null)}，URL 不变。入站 webhook 不走本控制器。治理块走 {@code GET/PUT .../governance}，只改 channels.yaml，不断连。
  */
 @SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
@@ -45,6 +52,9 @@ public class ChannelApiController {
   /** 写渠道前的唯一额外裁决点。默认全允，保证未装配 / flag 关时不额外拒绝；容器 setter 覆盖为真实 {@link AuthorizationService}。 */
   private AssetBindGuard assetBindGuard = new AssetBindGuard(AuthorizationService.ALLOW_ALL);
 
+  /** 治理变更审计；未装配时跳过（与 AssetGovernanceController 一致）。 */
+  private AssetGovernanceEventRecorder governanceRecorder;
+
   public ChannelApiController(ChannelAdminService admin) {
     this.admin = admin;
   }
@@ -56,14 +66,48 @@ public class ChannelApiController {
     }
   }
 
+  @Autowired(required = false)
+  public void setGovernanceRecorder(AssetGovernanceEventRecorder governanceRecorder) {
+    this.governanceRecorder = governanceRecorder;
+  }
+
   @GetMapping
-  public ApiResponse<List<ChannelView>> list() {
-    return ApiResponse.ok(admin.listRaw().stream().map(ChannelView::from).toList());
+  public ApiResponse<List<ChannelView>> list(HttpServletRequest request) {
+    return ApiResponse.ok(
+        admin.listRaw().stream()
+            .filter(c -> assetBindGuard.isVisible(request, ResourceRef.channel(c.name())))
+            .map(ChannelView::from)
+            .toList());
   }
 
   @GetMapping("/status")
   public ApiResponse<List<ChannelStatusView>> status() {
     return ApiResponse.ok(admin.status().stream().map(ChannelStatusView::from).toList());
+  }
+
+  @GetMapping("/{name}/governance")
+  public ApiResponse<AssetGovernanceView> getGovernance(@PathVariable String name) {
+    ChannelConfig config = requireConfig(name);
+    AssetGovernance block =
+        config.governance() == null ? AssetGovernance.empty() : config.governance();
+    return ApiResponse.ok(AssetGovernanceView.from(block));
+  }
+
+  @PutMapping("/{name}/governance")
+  public ApiResponse<AssetGovernanceView> putGovernance(
+      HttpServletRequest request,
+      @PathVariable String name,
+      @RequestBody(required = false) AssetGovernanceView body) {
+    requireExists(name);
+    requireChannelManage(request, name);
+    AssetGovernance model = body == null ? AssetGovernance.empty() : body.toModel();
+    AssetGovernance saved = admin.updateGovernance(name, model);
+    if (governanceRecorder != null) {
+      Principal actor = PrincipalHolder.get(request);
+      governanceRecorder.record(
+          actor.describe(), ResourceRef.TYPE_CHANNEL, name, AssetGovernanceStore.summarize(saved));
+    }
+    return ApiResponse.ok(AssetGovernanceView.from(saved));
   }
 
   @PostMapping
@@ -100,8 +144,13 @@ public class ChannelApiController {
   }
 
   private void requireExists(String name) {
-    if (admin.listRaw().stream().noneMatch(c -> c.name().equals(name))) {
-      throw new ResourceNotFoundException("渠道不存在: " + name); // → 404
-    }
+    requireConfig(name);
+  }
+
+  private ChannelConfig requireConfig(String name) {
+    return admin.listRaw().stream()
+        .filter(c -> c.name().equals(name))
+        .findFirst()
+        .orElseThrow(() -> new ResourceNotFoundException("渠道不存在: " + name)); // → 404
   }
 }

@@ -1,9 +1,14 @@
 package io.oryxos.web.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.core.skill.SkillCatalog;
 import io.oryxos.core.skill.SkillCatalogEntry;
 import io.oryxos.core.skill.SkillLoader;
@@ -11,6 +16,7 @@ import io.oryxos.core.skill.SkillRegistry;
 import io.oryxos.core.skill.SkillService;
 import io.oryxos.core.skill.SkillStore;
 import io.oryxos.web.GlobalExceptionHandler;
+import io.oryxos.web.security.AssetBindGuard;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -39,7 +45,7 @@ class SkillCatalogApiTest {
                 .filter(entry -> visibility == null || entry.visibility() == visibility)
                 .filter(entry -> query == null || query.isBlank() || entry.name().contains(query))
                 .toList();
-    MockMvc mvc = mvc(catalog);
+    MockMvc mvc = mvc(catalog, null);
 
     mvc.perform(get("/api/v1/skills/catalog").param("visibility", "public"))
         .andExpect(status().isOk())
@@ -54,16 +60,40 @@ class SkillCatalogApiTest {
 
   @Test
   void missingCatalogFailsClosedWith503() throws Exception {
-    mvc(null)
+    mvc(null, null)
         .perform(get("/api/v1/skills/catalog"))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.code").value(503));
   }
 
-  private MockMvc mvc(SkillCatalog catalog) {
+  @Test
+  void installedRowsHiddenWhenGovernanceDenies() throws Exception {
+    SkillCatalog catalog =
+        (query, visibility) ->
+            List.of(
+                new SkillCatalogEntry(
+                    "secret-skill", "秘", SkillCatalogEntry.Visibility.PUBLIC, "local", true),
+                new SkillCatalogEntry(
+                    "ext-only", "外", SkillCatalogEntry.Visibility.PUBLIC, "remote", false));
+    AssetBindGuard guard = mock(AssetBindGuard.class);
+    when(guard.isVisible(any(), eq(ResourceRef.skill("secret-skill")))).thenReturn(false);
+    when(guard.isVisible(any(), eq(ResourceRef.skill("ext-only")))).thenReturn(true);
+
+    MockMvc mvc = mvc(catalog, guard);
+    mvc.perform(get("/api/v1/skills/catalog"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.length()").value(1))
+        .andExpect(jsonPath("$.data[0].name").value("ext-only"));
+  }
+
+  private MockMvc mvc(SkillCatalog catalog, AssetBindGuard guard) {
     SkillLoader loader = new SkillLoader(root.resolve("skills"));
     SkillService service = new SkillService(new SkillStore(root), new SkillRegistry(), loader);
-    return MockMvcBuilders.standaloneSetup(new SkillApiController(service, catalog, null))
+    SkillApiController controller = new SkillApiController(service, catalog, null);
+    if (guard != null) {
+      controller.setAssetBindGuard(guard);
+    }
+    return MockMvcBuilders.standaloneSetup(controller)
         .setControllerAdvice(new GlobalExceptionHandler())
         .build();
   }

@@ -222,6 +222,74 @@ class ToolExecutorTest {
   }
 
   @Test
+  @DisplayName("527：无 PrincipalContext 时不裁决（CLI 零变化）")
+  void noPrincipalContextSkipsAuthzDecide() {
+    io.oryxos.core.auth.PrincipalContext.clear();
+    executor.setAuthorizationService(
+        (principal, action, resource) -> {
+          throw new AssertionError("无上下文不得调用 decide");
+        });
+    when(httpGet.execute(any())).thenReturn(ToolResult.ok("ok"));
+
+    ToolResult result = executor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+
+    assertTrue(result.success());
+    verify(httpGet, times(1)).execute(any());
+  }
+
+  @Test
+  @DisplayName("527：有 PrincipalContext 且 decide 拒绝 → 失败 ToolResult + blocked_by=authz")
+  void principalContextDeniedBlocksTool() {
+    io.oryxos.core.auth.Principal alice =
+        io.oryxos.core.auth.Principal.user("alice", "Alice", java.util.Set.of());
+    io.oryxos.core.auth.PrincipalContext.set(alice);
+    try {
+      executor.setAuthorizationService(
+          (principal, action, resource) ->
+              io.oryxos.core.policy.AuthorizationService.Decision.denied("VIEWER 不能跑 Agent"));
+      ToolResult result = executor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+
+      assertFalse(result.success());
+      assertTrue(result.errorMessage().contains("被授权策略拒绝"));
+      assertTrue(result.errorMessage().contains("VIEWER"));
+      verify(httpGet, times(0)).execute(any());
+      verify(auditor)
+          .record(
+              eq("s-1"),
+              eq("agent-x"),
+              eq("http_get"),
+              anyString(),
+              isNull(),
+              eq(false),
+              contains("被授权策略拒绝"),
+              eq("authz"),
+              anyLong());
+    } finally {
+      io.oryxos.core.auth.PrincipalContext.clear();
+    }
+  }
+
+  @Test
+  @DisplayName("527：有 PrincipalContext 且 decide 放行 → 工具照常执行")
+  void principalContextAllowedRunsTool() {
+    io.oryxos.core.auth.Principal alice =
+        io.oryxos.core.auth.Principal.user(
+            "alice", "Alice", java.util.Set.of(io.oryxos.core.auth.Role.EDITOR));
+    io.oryxos.core.auth.PrincipalContext.set(alice);
+    try {
+      executor.setAuthorizationService(io.oryxos.core.policy.AuthorizationService.ALLOW_ALL);
+      when(httpGet.execute(any())).thenReturn(ToolResult.ok("ok"));
+
+      ToolResult result = executor.execute("s-1", "agent-x", new ToolCallRequest("http_get", "{}"));
+
+      assertTrue(result.success());
+      verify(httpGet, times(1)).execute(any());
+    } finally {
+      io.oryxos.core.auth.PrincipalContext.clear();
+    }
+  }
+
+  @Test
   @DisplayName("工具完成事件对输入输出中的密钥脱敏")
   void finishedEventPayloadsAreRedacted() {
     MemoryEventStore store = new MemoryEventStore();

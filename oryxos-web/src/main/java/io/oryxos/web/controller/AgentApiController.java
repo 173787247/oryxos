@@ -13,6 +13,7 @@ import io.oryxos.core.auth.Principal;
 import io.oryxos.core.auth.PrincipalContext;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.memory.MemoryService;
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
@@ -239,12 +240,19 @@ public class AgentApiController {
 
   /** 创建：只需 name + description，后台按模板脚手架出完整目录 + 派生注册（失败回滚）。 */
   @PostMapping
-  public ApiResponse<AgentView> create(@RequestBody CreateAgentRequest req) {
+  public ApiResponse<AgentView> create(
+      @RequestBody CreateAgentRequest req, HttpServletRequest request) {
     if (req == null || req.name() == null || req.name().isBlank()) {
       throw new IllegalArgumentException("Agent 名为空");
     }
     if (!req.knowledgeBindings().isEmpty()) {
       requireKnowledgeBindings().validateTargets(req.knowledgeBindings());
+      requireKnowledgeBinds(request, req.knowledgeBindings());
+      requireKnowledgeVisible(request, req.knowledgeBindings());
+    }
+    if (!req.skillBindings().isEmpty()) {
+      requireSkillBinds(request, req.skillBindings());
+      validateCatalog(request, req.skillBindings());
     }
     io.oryxos.core.profile.Profile created =
         lifecycle.create(
@@ -257,8 +265,12 @@ public class AgentApiController {
   }
 
   @GetMapping
-  public ApiResponse<List<AgentView>> list() {
-    return ApiResponse.ok(lifecycle.listCurrent().stream().map(this::view).toList());
+  public ApiResponse<List<AgentView>> list(HttpServletRequest request) {
+    return ApiResponse.ok(
+        lifecycle.listCurrent().stream()
+            .filter(p -> isCatalogVisible(request, ResourceRef.agent(p.name())))
+            .map(this::view)
+            .toList());
   }
 
   @GetMapping("/{name}")
@@ -461,7 +473,9 @@ public class AgentApiController {
   /** 用大模型按一句话生成 AGENT.md 草稿（只生成、不落盘、不注册；非法定义 → 400）。 */
   @PostMapping("/{name}/generate-files")
   public ApiResponse<GeneratedFilesView> generateFiles(
-      @PathVariable String name, @RequestBody GenerateFilesRequest req) {
+      @PathVariable String name,
+      @RequestBody GenerateFilesRequest req,
+      HttpServletRequest request) {
     String description = req == null ? null : req.description();
     String notifyChannel = req == null ? null : req.notifyChannel();
     List<String> skills = req == null ? List.of() : req.requiredSkills();
@@ -469,22 +483,40 @@ public class AgentApiController {
     String model = req == null ? null : req.model();
     return ApiResponse.ok(
         GeneratedFilesView.from(
-            lifecycle.generateDraft(name, description, notifyChannel, skills, provider, model)));
+            lifecycle.generateDraft(
+                name,
+                description,
+                notifyChannel,
+                skills,
+                provider,
+                model,
+                skill -> isCatalogVisible(request, ResourceRef.skill(skill)),
+                kb -> isCatalogVisible(request, ResourceRef.knowledge(kb)))));
   }
 
   /** 保存（可能被改过的）一组 Agent 文件，写入即生效（AGENT.md 非法 → 400，不写坏目录）。 */
   @PostMapping("/{name}/files")
   public ApiResponse<AgentView> saveFiles(
-      @PathVariable String name, @RequestBody SaveFilesRequest req) {
-    if (req != null && req.knowledgeBindings() != null) {
-      requireKnowledgeBindings().validateTargets(req.knowledgeBindings());
+      @PathVariable String name, @RequestBody SaveFilesRequest req, HttpServletRequest request) {
+    List<String> skillBindings = req == null ? null : req.skillBindings();
+    if (skillBindings != null) {
+      requireSkillBinds(request, skillBindings);
+    }
+    List<String> knowledgeBindings = req == null ? null : req.knowledgeBindings();
+    if (knowledgeBindings != null) {
+      requireKnowledgeBindings().validateTargets(knowledgeBindings);
+      requireKnowledgeBinds(request, knowledgeBindings);
+      requireKnowledgeVisible(request, knowledgeBindings);
     }
     io.oryxos.core.profile.Profile saved =
         lifecycle.saveFiles(
-            name, req == null ? null : req.files(), req == null ? null : req.skillBindings());
+            name,
+            req == null ? null : req.files(),
+            skillBindings,
+            skill -> isCatalogVisible(request, ResourceRef.skill(skill)));
     // 014 FR-018：生成/编辑保存时同步知识库绑定（null = 不改动）
-    if (req != null && req.knowledgeBindings() != null) {
-      requireKnowledgeBindings().replaceBindings(name, req.knowledgeBindings());
+    if (knowledgeBindings != null) {
+      requireKnowledgeBindings().replaceBindings(name, knowledgeBindings);
     }
     return ApiResponse.ok(view(saved));
   }
@@ -550,6 +582,7 @@ public class AgentApiController {
       @PathVariable String name, @PathVariable String kb, HttpServletRequest request) {
     requireAgent(name);
     requireKnowledgeBind(request, kb);
+    requireKnowledgeVisible(request, List.of(kb));
     requireKnowledgeBindings().bind(name, kb);
     return knowledge(name);
   }
@@ -570,6 +603,7 @@ public class AgentApiController {
     requireAgent(name);
     List<String> desired = body == null ? List.of() : body.knowledge();
     requireKnowledgeBinds(request, desired);
+    requireKnowledgeVisible(request, desired);
     return ApiResponse.ok(
         AgentKnowledgeBindingsView.from(requireKnowledgeBindings().replaceBindings(name, desired)));
   }
@@ -586,7 +620,7 @@ public class AgentApiController {
     requireAgent(name);
     requireSkillBind(request, skill);
     requireSkillsExist(List.of(skill));
-    validateCatalog(List.of(skill));
+    validateCatalog(request, List.of(skill));
     requireBindings().bind(name, skill);
     return skills(name);
   }
@@ -608,7 +642,7 @@ public class AgentApiController {
     List<String> desired = body == null ? List.of() : body.skills();
     requireSkillBinds(request, desired);
     requireSkillsExist(desired);
-    validateCatalog(desired);
+    validateCatalog(request, desired);
     return ApiResponse.ok(
         AgentSkillBindingsView.from(requireBindings().replaceBindings(name, desired)));
   }
@@ -632,6 +666,11 @@ public class AgentApiController {
       assetBindGuard.requireAgentRun(request, name);
       PrincipalContext.set(PrincipalHolder.get(request));
     }
+  }
+
+  /** 列表过滤：未装配守卫时不过滤（单测 / 早期装配）。 */
+  private boolean isCatalogVisible(HttpServletRequest request, ResourceRef resource) {
+    return assetBindGuard == null || assetBindGuard.isVisible(request, resource);
   }
 
   private void bindPrincipal(HttpServletRequest request) {
@@ -690,6 +729,21 @@ public class AgentApiController {
     }
   }
 
+  /** 列表门禁：不可见知识库不得进入作者绑定/生成候选（与 Skill {@code validateCatalog} 同口径；未装配守卫时放行）。 */
+  private void requireKnowledgeVisible(HttpServletRequest request, List<String> knowledge) {
+    if (knowledge == null) {
+      return;
+    }
+    for (String kb : knowledge) {
+      if (kb == null || kb.isBlank()) {
+        continue;
+      }
+      if (!isCatalogVisible(request, ResourceRef.knowledge(kb))) {
+        throw new IllegalArgumentException("Knowledge 不在可访问目录中: " + kb);
+      }
+    }
+  }
+
   private void requireAgent(String name) {
     if (profileRegistry.get(name).isEmpty()) {
       throw new ResourceNotFoundException("Agent 不存在: " + name);
@@ -722,7 +776,7 @@ public class AgentApiController {
     }
   }
 
-  private void validateCatalog(List<String> names) {
+  private void validateCatalog(HttpServletRequest request, List<String> names) {
     if (names == null || names.isEmpty()) {
       return;
     }
@@ -731,6 +785,9 @@ public class AgentApiController {
     }
     Map<String, SkillCatalogEntry> candidates = new LinkedHashMap<>();
     for (SkillCatalogEntry entry : skillCatalog.query("", null)) {
+      if (!isCatalogVisible(request, ResourceRef.skill(entry.name()))) {
+        continue;
+      }
       if (candidates.putIfAbsent(entry.name(), entry) != null) {
         throw new IllegalArgumentException("Skill catalog 存在同名公共/私有冲突: " + entry.name());
       }

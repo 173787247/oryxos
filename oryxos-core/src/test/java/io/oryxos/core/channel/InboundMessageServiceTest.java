@@ -20,6 +20,9 @@ import static org.mockito.Mockito.when;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.agent.InterruptManager;
+import io.oryxos.core.policy.AssetGovernance;
+import io.oryxos.core.policy.AssetGovernanceStore;
+import io.oryxos.core.policy.InboundAssetGovernanceGate;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Session;
@@ -506,5 +509,33 @@ class InboundMessageServiceTest {
     assertTrue(
         adapter.sent().stream().anyMatch(s -> InboundMessageService.STOP_REPLY.equals(s.text())));
     release.countDown();
+  }
+
+  @Test
+  @DisplayName("渠道OFFLINE_不进推理并回复下线")
+  void channelOffline_skipsInference() {
+    AssetGovernanceStore store = mock(AssetGovernanceStore.class);
+    when(store.loadChannel("stub-chan"))
+        .thenReturn(new AssetGovernance(null, null, null, null, AssetGovernance.Health.OFFLINE));
+    when(store.loadAgent(AGENT)).thenReturn(AssetGovernance.empty());
+    service =
+        new InboundMessageService(
+            agentService,
+            sessionManager,
+            profileRegistry,
+            executionService,
+            new InMemoryMessageDeduplicator(),
+            null,
+            Duration.ofMillis(120),
+            interruptManager,
+            new InboundAssetGovernanceGate(store, true));
+
+    service.onMessage(p2p("m-off", "你好"), adapter);
+
+    verify(executionService, never()).triggerAsync(anyString(), anyString(), any(), any());
+    verifyNoInteractions(agentService);
+    assertTrue(
+        adapter.sent().stream()
+            .anyMatch(s -> InboundMessageService.ASSET_OFFLINE_REPLY.equals(s.text())));
   }
 }

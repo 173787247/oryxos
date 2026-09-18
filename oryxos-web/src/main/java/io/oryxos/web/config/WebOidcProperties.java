@@ -46,9 +46,21 @@ public class WebOidcProperties {
 
   /**
    * IdP 组名 → 角色名（VIEWER/EDITOR/ADMIN）。默认空 = 登录不改 {@code web_users.roles}。非空时命中才
-   * setRoles，未命中保留原角色。不引入第二套授权路径。
+   * setRoles；未命中默认保留原角色，除非 {@link #revokeUnmatchedRoles} 为 true。
    */
   private Map<String, String> groupRoles = new LinkedHashMap<>();
+
+  /**
+   * 未映射 subject 时是否按 IdP claim 自动建 {@code web_users} 并 upsert mapping（#502）。默认关——关时仍 {@code
+   * unmapped_subject}。
+   */
+  private boolean jitProvisionEnabled = false;
+
+  /**
+   * {@link #groupRoles} 已配置但本轮零命中时是否清空本地角色（#502）。默认关——关时保留原角色（防一次缺 claim 锁死管理员）。仅当 group-roles
+   * 非空时生效。
+   */
+  private boolean revokeUnmatchedRoles = false;
 
   public boolean isEnabled() {
     return enabled;
@@ -137,5 +149,21 @@ public class WebOidcProperties {
 
   public void setGroupRoles(Map<String, String> groupRoles) {
     this.groupRoles = groupRoles == null ? new LinkedHashMap<>() : new LinkedHashMap<>(groupRoles);
+  }
+
+  public boolean isJitProvisionEnabled() {
+    return jitProvisionEnabled;
+  }
+
+  public void setJitProvisionEnabled(boolean jitProvisionEnabled) {
+    this.jitProvisionEnabled = jitProvisionEnabled;
+  }
+
+  public boolean isRevokeUnmatchedRoles() {
+    return revokeUnmatchedRoles;
+  }
+
+  public void setRevokeUnmatchedRoles(boolean revokeUnmatchedRoles) {
+    this.revokeUnmatchedRoles = revokeUnmatchedRoles;
   }
 }

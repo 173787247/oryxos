@@ -12,6 +12,7 @@ import io.oryxos.web.controller.dto.AuthMeView;
 import io.oryxos.web.controller.dto.LoginRequest;
 import io.oryxos.web.security.ClientIp;
 import io.oryxos.web.security.LoginAttemptService;
+import io.oryxos.web.security.SessionTeamIdsCache;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -59,18 +60,21 @@ public class AuthApiController {
   private final WebAuthProperties properties;
   private final LoginAttemptService loginAttemptService;
   private final AuthEventRecorder authEventRecorder;
+  private final SessionTeamIdsCache teamIdsCache;
 
   public AuthApiController(
       WebUserService userService,
       WebSessionService sessionService,
       WebAuthProperties properties,
       LoginAttemptService loginAttemptService,
-      AuthEventRecorder authEventRecorder) {
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache) {
     this.userService = userService;
     this.sessionService = sessionService;
     this.properties = properties;
     this.loginAttemptService = loginAttemptService;
     this.authEventRecorder = authEventRecorder;
+    this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
   }
 
   /**
@@ -103,8 +107,15 @@ public class AuthApiController {
     }
     loginAttemptService.onSuccess(attemptKey);
     // 重新登录废掉旧 session：旧 id 不能继续用，也不在库里堆孤儿行等自然过期。
-    findSessionId(request).ifPresent(sessionService::delete);
+    findSessionId(request)
+        .ifPresent(
+            oldSid -> {
+              sessionService.delete(oldSid);
+              teamIdsCache.remove(oldSid);
+            });
     WebSession session = sessionService.create(loginRequest.username());
+    // 041：配置声明的本地用户团队挂到 session（OIDC 路径仍写 groups；缺配置则空）。
+    teamIdsCache.put(session.getSessionId(), properties.teamIdsFor(loginRequest.username()));
     response.addHeader(
         HttpHeaders.SET_COOKIE, buildCookie(session.getSessionId(), -1, request.isSecure()));
     return ApiResponse.ok(meView(properties.isEnabled(), loginRequest.username()));
@@ -116,7 +127,11 @@ public class AuthApiController {
     Optional<String> sessionId = findSessionId(request);
     String username =
         sessionId.flatMap(sessionService::findValid).map(WebSession::getUsername).orElse(null);
-    sessionId.ifPresent(sessionService::delete);
+    sessionId.ifPresent(
+        sid -> {
+          sessionService.delete(sid);
+          teamIdsCache.remove(sid);
+        });
     response.addHeader(HttpHeaders.SET_COOKIE, buildCookie("", 0, request.isSecure()));
     if (username != null) {
       authEventRecorder.recordBestEffort(AuthEventType.LOGOUT, username, "session logout");

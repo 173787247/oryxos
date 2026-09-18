@@ -171,6 +171,10 @@ oryxos:
   #   auth:
   #     enabled: true
   #     realm: OryxOS
+  #     # 可选：本地用户 → 团队 id（密码登录写入 session Principal.teamIds；默认空）
+  #     # user-team-ids:
+  #     #   alice: [eng, platform]
+  #     #   bob: [eng]
   # REST API Key 认证（018-rest-api-key）。默认关=现状不变；
   # 开启后 /api/v1/** 需请求头带 Key（`Authorization: Bearer <key>` 或 `X-API-Key: <key>`），
   # 豁免 /api/v1/health（探活）、/api/v1/auth/*（管理台登录）与 OPTIONS 预检；/admin/** 不受影响。
@@ -217,9 +221,12 @@ oryxos:
   #     # jwks-uri:
   # 资产治理（041 / #463）。默认关=零行为变化。开启后叠加 OFFLINE/PRIVATE 门禁，且必须同时
   # 打开 rbac.enabled（无主体则跳过资产门禁）。仍只走 AuthorizationService.decide。
+  # workspace-team-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 teamOwner 的资产
+  # 要求 Principal.teamIds 含该 id（OIDC groups 或密码登录 user-team-ids 经 session 缓存注入）；无 teamOwner 仍不另拒。
   # web:
   #   asset-governance:
   #     enabled: true
+  #     workspace-team-acl-enabled: true
   # SSE 流式响应（019-sse-streaming）。消息端点带 Accept: text/event-stream 即流式返回，
   # 无需开关；heartbeat-seconds 为静默期心跳间隔（SSE 注释行，防代理空闲断连），默认 15。
   # web:
