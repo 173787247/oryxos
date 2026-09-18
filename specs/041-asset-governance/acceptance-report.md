@@ -12,12 +12,11 @@
 - [x] GET/PUT governance APIs + V11 `asset_governance_events`
 - [x] Unit tests: flag off passthrough, OFFLINE/PRIVATE, store roundtrip, guard
 - [x] Inbound OFFLINE gate (`InboundAssetGovernanceGate` in `InboundMessageService`; challenges stay in adapters)
-- [x] Admin UI: Agent detail「治理」panel → `GET/PUT /api/v1/agents/{name}/governance`
+- [x] Admin UI: Agent / Skill / Knowledge detail「治理」panels → `GET/PUT /api/v1/{agents|skills|knowledge}/{name}/governance`
 
 ## Honest gaps
 
 - No inbound channel governance admin UI (channels.yaml `governance:`)
-- No Skill/Knowledge governance panels yet
 - No JIT teams / org ownership
 - No full version history
 - Catalog visibility still label-only (no list filtering)
