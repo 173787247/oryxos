@@ -230,7 +230,7 @@ oryxos:
   #   asset-governance:
   #     enabled: true
   #     workspace-team-acl-enabled: true
-  #     # 治理 PUT 追加全文快照（#537）。默认关；开后 GET .../governance/revisions 可读。
+  #     # 治理 PUT 追加全文快照；POST .../revisions/{id}/restore 写回（#537/#541）。默认关。
   #     # version-history-enabled: true
   # SSE 流式响应（019-sse-streaming）。消息端点带 Accept: text/event-stream 即流式返回，
   # 无需开关；heartbeat-seconds 为静默期心跳间隔（SSE 注释行，防代理空闲断连），默认 15。

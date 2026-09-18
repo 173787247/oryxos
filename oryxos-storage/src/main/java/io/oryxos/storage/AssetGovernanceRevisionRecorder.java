@@ -1,6 +1,7 @@
 package io.oryxos.storage;
 
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,6 +64,14 @@ public class AssetGovernanceRevisionRecorder {
     }
     return repository.findByResourceTypeAndResourceIdOrderByCreatedAtDescIdDesc(
         resourceType.strip(), resourceId.strip());
+  }
+
+  /** 按主键查快照；不存在返回 empty。 */
+  public Optional<AssetGovernanceRevision> find(long id) {
+    if (id <= 0) {
+      return Optional.empty();
+    }
+    return repository.findById(id);
   }
 
   private static String truncate(String value, int max) {
