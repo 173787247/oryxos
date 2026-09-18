@@ -3,17 +3,26 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   TeamsApiDisabledError,
   addUserTeam,
+  createOrg,
   createTeam,
+  deleteOrg,
   deleteTeam,
+  listOrgs,
   listTeams,
   listUserTeams,
   removeUserTeam,
+  renameOrg,
   renameTeam,
+  setTeamOrg,
 } from './teams-api.js'
 
 const catalog = ref({ loading: true, error: null, disabled: false, data: [] })
+const orgs = ref({ loading: true, error: null, disabled: false, data: [] })
 const createForm = reactive({ teamId: '', displayName: '', busy: false, error: '' })
 const renameForm = reactive({ teamId: '', displayName: '', busy: false, error: '' })
+const setOrgForm = reactive({ teamId: '', orgId: '', busy: false, error: '' })
+const orgCreate = reactive({ orgId: '', displayName: '', busy: false, error: '' })
+const orgRename = reactive({ orgId: '', displayName: '', busy: false, error: '' })
 const member = reactive({
   username: '',
   loadedFor: '',
@@ -27,26 +36,104 @@ const member = reactive({
 
 const canCreate = computed(() => createForm.teamId.trim().length > 0 && !createForm.busy)
 const canRename = computed(() => renameForm.displayName.trim().length > 0 && !renameForm.busy)
+const canSetOrg = computed(() => !!setOrgForm.teamId && !setOrgForm.busy)
+const canCreateOrg = computed(() => orgCreate.orgId.trim().length > 0 && !orgCreate.busy)
+const canRenameOrg = computed(() => orgRename.displayName.trim().length > 0 && !orgRename.busy)
 const canLoadMembers = computed(() => member.username.trim().length > 0 && !member.loading)
 const canAddMember = computed(
   () => member.loadedFor && member.addTeamId.trim().length > 0 && !member.busy,
 )
 
-function applyCatalogError(e) {
+function applyDisabled(e) {
   if (e instanceof TeamsApiDisabledError) {
     catalog.value = { loading: false, error: null, disabled: true, data: [] }
-    return
+    orgs.value = { loading: false, error: null, disabled: true, data: [] }
+    return true
   }
-  catalog.value = { loading: false, error: e.message, disabled: false, data: [] }
+  return false
 }
 
-async function load() {
+async function loadOrgs() {
+  orgs.value = { loading: true, error: null, disabled: false, data: orgs.value.data || [] }
+  try {
+    const data = await listOrgs()
+    orgs.value = { loading: false, error: null, disabled: false, data: data || [] }
+  } catch (e) {
+    if (applyDisabled(e)) return
+    orgs.value = { loading: false, error: e.message, disabled: false, data: [] }
+  }
+}
+
+async function loadTeams() {
   catalog.value = { loading: true, error: null, disabled: false, data: catalog.value.data || [] }
   try {
     const data = await listTeams()
     catalog.value = { loading: false, error: null, disabled: false, data: data || [] }
   } catch (e) {
-    applyCatalogError(e)
+    if (applyDisabled(e)) return
+    catalog.value = { loading: false, error: e.message, disabled: false, data: [] }
+  }
+}
+
+async function load() {
+  await Promise.all([loadOrgs(), loadTeams()])
+}
+
+async function onCreateOrg() {
+  if (!canCreateOrg.value) return
+  orgCreate.busy = true
+  orgCreate.error = ''
+  try {
+    await createOrg(orgCreate.orgId.trim(), orgCreate.displayName.trim())
+    orgCreate.orgId = ''
+    orgCreate.displayName = ''
+    await loadOrgs()
+  } catch (e) {
+    if (applyDisabled(e)) return
+    orgCreate.error = e.message
+  } finally {
+    orgCreate.busy = false
+  }
+}
+
+function startRenameOrg(row) {
+  orgRename.orgId = row.orgId
+  orgRename.displayName = row.displayName || ''
+  orgRename.error = ''
+}
+
+function cancelRenameOrg() {
+  orgRename.orgId = ''
+  orgRename.displayName = ''
+  orgRename.error = ''
+  orgRename.busy = false
+}
+
+async function onRenameOrg() {
+  if (!canRenameOrg.value || !orgRename.orgId) return
+  orgRename.busy = true
+  orgRename.error = ''
+  try {
+    await renameOrg(orgRename.orgId, orgRename.displayName.trim())
+    cancelRenameOrg()
+    await loadOrgs()
+  } catch (e) {
+    orgRename.error = e.message
+  } finally {
+    orgRename.busy = false
+  }
+}
+
+async function onDeleteOrg(row) {
+  if (!row?.orgId) return
+  if (!confirm(`删除组织目录「${row.orgId}」？已绑定团队的 org_id 将按服务端规则清空。`)) return
+  try {
+    await deleteOrg(row.orgId)
+    if (orgRename.orgId === row.orgId) cancelRenameOrg()
+    await Promise.all([loadOrgs(), loadTeams()])
+  } catch (e) {
+    if (applyDisabled(e)) return
+    orgs.value = { ...orgs.value, error: e.message }
   }
 }
 
@@ -58,13 +145,10 @@ async function onCreate() {
     await createTeam(createForm.teamId.trim(), createForm.displayName.trim())
     createForm.teamId = ''
     createForm.displayName = ''
-    await load()
+    await loadTeams()
   } catch (e) {
-    if (e instanceof TeamsApiDisabledError) {
-      catalog.value = { loading: false, error: null, disabled: true, data: [] }
-    } else {
-      createForm.error = e.message
-    }
+    if (applyDisabled(e)) return
+    createForm.error = e.message
   } finally {
     createForm.busy = false
   }
@@ -90,11 +174,52 @@ async function onRename() {
   try {
     await renameTeam(renameForm.teamId, renameForm.displayName.trim())
     cancelRename()
-    await load()
+    await loadTeams()
   } catch (e) {
     renameForm.error = e.message
   } finally {
     renameForm.busy = false
+  }
+}
+
+function startSetOrg(row) {
+  setOrgForm.teamId = row.teamId
+  setOrgForm.orgId = row.orgId || ''
+  setOrgForm.error = ''
+}
+
+function cancelSetOrg() {
+  setOrgForm.teamId = ''
+  setOrgForm.orgId = ''
+  setOrgForm.error = ''
+  setOrgForm.busy = false
+}
+
+async function onSetOrg() {
+  if (!canSetOrg.value) return
+  setOrgForm.busy = true
+  setOrgForm.error = ''
+  try {
+    await setTeamOrg(setOrgForm.teamId, setOrgForm.orgId)
+    cancelSetOrg()
+    await loadTeams()
+  } catch (e) {
+    setOrgForm.error = e.message
+  } finally {
+    setOrgForm.busy = false
+  }
+}
+
+async function onClearOrg(row) {
+  if (!row?.teamId) return
+  if (!confirm(`清空团队「${row.teamId}」的 org_id？`)) return
+  try {
+    await setTeamOrg(row.teamId, null)
+    if (setOrgForm.teamId === row.teamId) cancelSetOrg()
+    await loadTeams()
+  } catch (e) {
+    if (applyDisabled(e)) return
+    catalog.value = { ...catalog.value, error: e.message }
   }
 }
 
@@ -104,7 +229,8 @@ async function onDelete(row) {
   try {
     await deleteTeam(row.teamId)
     if (renameForm.teamId === row.teamId) cancelRename()
-    await load()
+    if (setOrgForm.teamId === row.teamId) cancelSetOrg()
+    await loadTeams()
   } catch (e) {
     catalog.value = {
       ...catalog.value,
@@ -177,18 +303,61 @@ defineExpose({ load })
 <template>
   <div class="teams">
     <p class="lede">
-      管理团队目录与用户成员关系。依赖 <span class="mono">oryxos.web.teams-api.enabled</span>（默认关 →
-      API 404）。需 ADMIN / <span class="mono">MANAGE_MEMBERS</span>。无 orgs / JIT。
+      管理组织目录、团队目录与用户成员关系。依赖
+      <span class="mono">oryxos.web.teams-api.enabled</span>（默认关 → API 404）。需 ADMIN /
+      <span class="mono">MANAGE_MEMBERS</span>。无 org→decide / 多级组织 / OIDC→org JIT。
     </p>
 
-    <p v-if="catalog.disabled" class="error">
-      团队 API 未启用：请在配置中打开 <span class="mono">oryxos.web.teams-api.enabled=true</span> 后刷新。
+    <p v-if="catalog.disabled || orgs.disabled" class="error">
+      团队/组织 API 未启用：请在配置中打开
+      <span class="mono">oryxos.web.teams-api.enabled=true</span> 后刷新。
     </p>
-    <p v-else-if="catalog.loading" class="empty">加载中…</p>
-    <p v-else-if="catalog.error" class="error">出错：{{ catalog.error }}</p>
+    <p v-else-if="catalog.loading && orgs.loading" class="empty">加载中…</p>
+    <p v-else-if="catalog.error || orgs.error" class="error">
+      出错：{{ catalog.error || orgs.error }}
+    </p>
 
-    <template v-if="!catalog.disabled">
-      <h3 class="sec">团队目录</h3>
+    <template v-if="!catalog.disabled && !orgs.disabled">
+      <h3 class="sec">组织目录</h3>
+      <div class="toolbar create-row">
+        <input v-model="orgCreate.orgId" class="gen-input mono" placeholder="orgId（必填）" />
+        <input v-model="orgCreate.displayName" class="gen-input" placeholder="displayName（可选）" />
+        <button class="btn btn-primary" :disabled="!canCreateOrg" @click="onCreateOrg">创建</button>
+      </div>
+      <p v-if="orgCreate.error" class="error">{{ orgCreate.error }}</p>
+
+      <div v-if="orgRename.orgId" class="toolbar create-row">
+        <span class="mono">重命名 {{ orgRename.orgId }}</span>
+        <input v-model="orgRename.displayName" class="gen-input" placeholder="新 displayName" />
+        <button class="btn btn-primary" :disabled="!canRenameOrg" @click="onRenameOrg">保存</button>
+        <button class="btn" :disabled="orgRename.busy" @click="cancelRenameOrg">取消</button>
+      </div>
+      <p v-if="orgRename.error" class="error">{{ orgRename.error }}</p>
+
+      <table v-if="!orgs.loading">
+        <thead>
+          <tr>
+            <th>orgId</th>
+            <th>displayName</th>
+            <th style="width:160px">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!orgs.data.length">
+            <td colspan="3" class="empty">（暂无组织目录）</td>
+          </tr>
+          <tr v-for="o in orgs.data" :key="o.orgId">
+            <td class="mono">{{ o.orgId }}</td>
+            <td>{{ o.displayName || '—' }}</td>
+            <td class="ops">
+              <button class="btn" @click="startRenameOrg(o)">重命名</button>
+              <button class="btn" @click="onDeleteOrg(o)">删除</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 class="sec" style="margin-top:24px">团队目录</h3>
       <div class="toolbar create-row">
         <input v-model="createForm.teamId" class="gen-input mono" placeholder="teamId（必填）" />
         <input v-model="createForm.displayName" class="gen-input" placeholder="displayName（可选）" />
@@ -204,23 +373,43 @@ defineExpose({ load })
       </div>
       <p v-if="renameForm.error" class="error">{{ renameForm.error }}</p>
 
+      <div v-if="setOrgForm.teamId" class="toolbar create-row">
+        <span class="mono">绑定组织 {{ setOrgForm.teamId }}</span>
+        <input
+          v-model="setOrgForm.orgId"
+          class="gen-input mono"
+          list="org-id-options"
+          placeholder="orgId（空=清空）"
+        />
+        <datalist id="org-id-options">
+          <option v-for="o in orgs.data" :key="o.orgId" :value="o.orgId" />
+        </datalist>
+        <button class="btn btn-primary" :disabled="!canSetOrg" @click="onSetOrg">保存</button>
+        <button class="btn" :disabled="setOrgForm.busy" @click="cancelSetOrg">取消</button>
+      </div>
+      <p v-if="setOrgForm.error" class="error">{{ setOrgForm.error }}</p>
+
       <table v-if="!catalog.loading">
         <thead>
           <tr>
             <th>teamId</th>
             <th>displayName</th>
-            <th style="width:160px">操作</th>
+            <th>orgId</th>
+            <th style="width:240px">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!catalog.data.length">
-            <td colspan="3" class="empty">（暂无团队目录）</td>
+            <td colspan="4" class="empty">（暂无团队目录）</td>
           </tr>
           <tr v-for="t in catalog.data" :key="t.teamId">
             <td class="mono">{{ t.teamId }}</td>
             <td>{{ t.displayName || '—' }}</td>
+            <td class="mono">{{ t.orgId || '—' }}</td>
             <td class="ops">
               <button class="btn" @click="startRename(t)">重命名</button>
+              <button class="btn" @click="startSetOrg(t)">设组织</button>
+              <button v-if="t.orgId" class="btn" @click="onClearOrg(t)">清组织</button>
               <button class="btn" @click="onDelete(t)">删除</button>
             </td>
           </tr>
@@ -275,7 +464,7 @@ defineExpose({ load })
 </template>
 
 <style scoped>
-.teams { max-width: 920px; }
+.teams { max-width: 960px; }
 .lede {
   margin: 0 0 14px;
   color: var(--text-2);

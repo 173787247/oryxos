@@ -22,10 +22,11 @@
 - [x] Password login optional `oryxos.web.auth.user-team-ids` → `SessionTeamIdsCache` (default empty)
 
 - [x] Admin teams page (#548) behind same `teams-api.enabled` (list/create/rename/delete + user membership add/remove)
+- [x] Admin organizations page (#556) on same teams Admin surface (org list/create/rename/delete + team set-org/clear) behind same `teams-api.enabled`
 - [x] Admin revision history UI (#550): Agent / Skill / Knowledge / Channel governance panels → list / diff / restore (`version-history-enabled`)
 
 ## Honest gaps
 
-- Organizations catalog + nullable `teams.org_id` done (#554 V15 + CLI/HTTP under `teams-api.enabled`); Admin org UI / multilevel / org-in-decide still deferred
+- Organizations catalog + nullable `teams.org_id` done (#554); Admin org UI + team set-org done (#556); multilevel / org-in-decide still deferred
 - OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); still no auto `team_memberships` rows
 - Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups)

@@ -79,7 +79,7 @@ const RUNTIME_NAV = [
   { key: 'tools', label: 'Tool 列表', path: '/api/v1/tools' },
   { key: 'notify-channels', label: 'Notify 渠道' },
   { key: 'inbound-channels', label: '入站渠道' },
-  { key: 'teams', label: '团队管理' },
+  { key: 'teams', label: '团队与组织' },
   { key: 'whitelist', label: 'SandBox 列表' },
   { key: 'tool-policy', label: '工具策略' },
   { key: 'exec-backend', label: '执行后端' },
