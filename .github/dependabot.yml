@@ -31,7 +31,29 @@ updates:
     commit-message:
       prefix: "ci(deps)"
     groups:
-      # Action updates are normally compatible and easier to review as one CI-only PR.
-      github-actions:
+      # Routine Action upgrades share one PR; major upgrades stay separate for migration review.
+      github-actions-minor-and-patch:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(website)"
+    groups:
+      # Keep the deployed documentation site current without mixing major migrations.
+      npm-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
