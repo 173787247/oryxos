@@ -38,6 +38,7 @@
 - WORKSPACE 团队门禁：`teamOwner` 字段 + `oryxos.web.asset-governance.workspace-team-acl-enabled`（默认关）；OIDC groups 经 session 缓存注入 `Principal.teamIds`
 - 密码登录可选 `oryxos.web.auth.user-team-ids` → 同 session 缓存（默认空=不声明团队）
 - 持久化成员（#535）：V12 `team_memberships` + `oryxos team member-*`；`oryxos.web.rbac.durable-team-memberships-enabled`（默认关）开时与 session 团队取并集
+- 版本快照（#537）：V13 `asset_governance_revisions`；`oryxos.web.asset-governance.version-history-enabled`（默认关）开时 PUT 追加全文，GET `.../governance/revisions`
 - `/skills/catalog`：已安装行叠加 GOVERNANCE 列表门禁；012 PUBLIC/PRIVATE 标签仍只管候选过滤，外部未安装行不变
 - Agent 作者路径：`validateCatalog` / `generate-files` / `saveFiles(skillBindings)` 经 `isVisible` 谓词过滤可用 Skill（CLI 无谓词时行为不变）
 - Knowledge 作者路径：创建 / bind / replace / `saveFiles(knowledgeBindings)` / `generate-files` 经 `isVisible` 过滤（CLI 无谓词时行为不变）
@@ -45,4 +46,4 @@
 ## Out of scope (honest gaps)
 
 - teams 目录表 / orgs 层级 / JIT 建队 / Admin 管队 UI（#535 仅落地 username↔team_id 成员表 + CLI）
-- 完整版本历史
+- 完整 diff / 回滚 UI（#537 仅追加全文快照 + list API）

@@ -246,6 +246,11 @@ public final class AssetGovernanceStore {
     AtomicFiles.writeString(file, render(governance));
   }
 
+  /** 渲染侧车 YAML（块风格，字段名稳定）。与 channels.yaml 治理块共用 {@link #toBlock}。公开供 #537 版本快照落库。 */
+  public static String snapshotYaml(AssetGovernance governance) {
+    return render(governance == null ? AssetGovernance.empty() : governance);
+  }
+
   /** 渲染侧车 YAML（块风格，字段名稳定）。与 channels.yaml 治理块共用 {@link #toBlock}。 */
   static String render(AssetGovernance governance) {
     Map<String, String> body = toBlock(governance);
