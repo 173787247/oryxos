@@ -13,7 +13,7 @@
 
 ## Honest gaps
 
-- JIT user provision / revoke-unmatched / group-roles / JIT team catalog are default-off flags (#502/#552); no Admin org hierarchy UI
+- JIT user provision / revoke-unmatched / group-roles / JIT team catalog are default-off flags (#502/#552); orgs table + `teams.org_id` done (#554); Admin org UI still deferred
 - No mapping admin UI (CLI `oryxos user oidc-map` only)
 - Thin spec (not full 九件套)
 - Single IdP configuration only

@@ -91,6 +91,8 @@ public final class RequestActionResolver {
 
   private static final String PATH_TEAMS = "/api/v1/teams";
 
+  private static final String PATH_ORGS = "/api/v1/orgs";
+
   private static final String PATH_USERS = "/api/v1/users";
 
   private static final String SEGMENT_TEAMS = "/teams";
@@ -186,8 +188,8 @@ public final class RequestActionResolver {
       }
       return null;
     }
-    // teams / user team memberships：ADMIN-only（MANAGE_MEMBERS）；含 GET
-    if (isUnder(p, PATH_TEAMS) || isUserTeamsPath(p)) {
+    // teams / orgs / user team memberships：ADMIN-only（MANAGE_MEMBERS）；含 GET
+    if (isUnder(p, PATH_TEAMS) || isUnder(p, PATH_ORGS) || isUserTeamsPath(p)) {
       return Resolution.of(Action.MANAGE_MEMBERS, ResourceRef.member(null));
     }
     // 未登记：fail-closed

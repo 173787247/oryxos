@@ -1,13 +1,19 @@
 package io.oryxos.web.controller;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import io.oryxos.storage.Organization;
+import io.oryxos.storage.OrganizationCatalogService;
 import io.oryxos.storage.Team;
 import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.storage.TeamMembershipService;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.config.WebTeamsApiProperties;
+import io.oryxos.web.controller.dto.CreateOrganizationRequest;
 import io.oryxos.web.controller.dto.CreateTeamRequest;
+import io.oryxos.web.controller.dto.OrganizationView;
+import io.oryxos.web.controller.dto.PatchOrganizationRequest;
 import io.oryxos.web.controller.dto.PatchTeamRequest;
+import io.oryxos.web.controller.dto.SetTeamOrgRequest;
 import io.oryxos.web.controller.dto.TeamView;
 import io.oryxos.web.controller.dto.UserTeamsView;
 import io.oryxos.web.error.ResourceNotFoundException;
@@ -23,16 +29,16 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 团队目录与成员 HTTP API（#546）：镜像 CLI {@code oryxos team *} → {@link TeamCatalogService} / {@link
- * TeamMembershipService}。
+ * 团队/组织目录与成员 HTTP API（#546 / #554）：镜像 CLI {@code oryxos team *} / {@code oryxos org *} → {@link
+ * TeamCatalogService} / {@link OrganizationCatalogService} / {@link TeamMembershipService}。
  *
- * <p>flag {@code oryxos.web.teams-api.enabled} 默认关 → 404。授权走 {@code RequestActionResolver} 的 {@code
- * MANAGE_MEMBERS}（ADMIN），不另开权限路径。
+ * <p>flag {@code oryxos.web.teams-api.enabled} 默认关 → 404（含 /api/v1/orgs）。授权走 {@code
+ * RequestActionResolver} 的 {@code MANAGE_MEMBERS}（ADMIN），不另开权限路径。
  */
 @SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
     justification =
-        "teams API 是有意暴露的 Spring Controller（#546）；catalog/memberships/properties 为 Spring"
+        "teams/orgs API 是有意暴露的 Spring Controller（#546/#554）；catalog/memberships/properties 为 Spring"
             + " 注入共享单例，构造注入存同一引用正是意图（镜像既有 Controller 的 SuppressFBWarnings 模式）。")
 @RestController
 public class TeamsApiController {
@@ -41,18 +47,23 @@ public class TeamsApiController {
 
   private static final String MSG_TEAM_NOT_FOUND_PREFIX = "team not found: ";
 
+  private static final String MSG_ORG_NOT_FOUND_PREFIX = "org not found: ";
+
   private static final String MSG_CATALOG_MISSING_PREFIX = "team not in catalog: ";
 
   private final WebTeamsApiProperties properties;
   private final TeamCatalogService catalog;
+  private final OrganizationCatalogService organizations;
   private final TeamMembershipService memberships;
 
   public TeamsApiController(
       WebTeamsApiProperties properties,
       TeamCatalogService catalog,
+      OrganizationCatalogService organizations,
       TeamMembershipService memberships) {
     this.properties = properties;
     this.catalog = catalog;
+    this.organizations = organizations;
     this.memberships = memberships;
   }
 
@@ -92,10 +103,61 @@ public class TeamsApiController {
     return ApiResponse.ok(TeamView.from(catalog.rename(teamId, displayName)));
   }
 
+  @PutMapping("/api/v1/teams/{teamId}/org")
+  public ApiResponse<TeamView> setTeamOrg(
+      @PathVariable String teamId, @RequestBody(required = false) SetTeamOrgRequest body) {
+    requireEnabled();
+    String orgId = body == null ? null : body.orgId();
+    return ApiResponse.ok(TeamView.from(catalog.setOrg(teamId, orgId)));
+  }
+
   @DeleteMapping("/api/v1/teams/{teamId}")
   public ApiResponse<Void> deleteTeam(@PathVariable String teamId) {
     requireEnabled();
     catalog.delete(teamId);
+    return ApiResponse.ok(null);
+  }
+
+  @GetMapping("/api/v1/orgs")
+  public ApiResponse<List<OrganizationView>> listOrgs() {
+    requireEnabled();
+    List<OrganizationView> views = new ArrayList<>();
+    for (Organization org : organizations.list()) {
+      views.add(OrganizationView.from(org));
+    }
+    return ApiResponse.ok(List.copyOf(views));
+  }
+
+  @PostMapping("/api/v1/orgs")
+  public ApiResponse<OrganizationView> createOrg(@RequestBody CreateOrganizationRequest body) {
+    requireEnabled();
+    String orgId = body == null ? null : body.orgId();
+    String displayName = body == null ? null : body.displayName();
+    return ApiResponse.ok(OrganizationView.from(organizations.create(orgId, displayName)));
+  }
+
+  @GetMapping("/api/v1/orgs/{orgId}")
+  public ApiResponse<OrganizationView> getOrg(@PathVariable String orgId) {
+    requireEnabled();
+    Organization org =
+        organizations
+            .find(orgId)
+            .orElseThrow(() -> new ResourceNotFoundException(MSG_ORG_NOT_FOUND_PREFIX + orgId));
+    return ApiResponse.ok(OrganizationView.from(org));
+  }
+
+  @PatchMapping("/api/v1/orgs/{orgId}")
+  public ApiResponse<OrganizationView> patchOrg(
+      @PathVariable String orgId, @RequestBody PatchOrganizationRequest body) {
+    requireEnabled();
+    String displayName = body == null ? null : body.displayName();
+    return ApiResponse.ok(OrganizationView.from(organizations.rename(orgId, displayName)));
+  }
+
+  @DeleteMapping("/api/v1/orgs/{orgId}")
+  public ApiResponse<Void> deleteOrg(@PathVariable String orgId) {
+    requireEnabled();
+    organizations.delete(orgId);
     return ApiResponse.ok(null);
   }
 

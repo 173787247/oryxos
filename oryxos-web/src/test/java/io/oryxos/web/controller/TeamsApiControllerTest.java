@@ -13,6 +13,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.oryxos.storage.Organization;
+import io.oryxos.storage.OrganizationCatalogService;
 import io.oryxos.storage.Team;
 import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.storage.TeamMembershipService;
@@ -28,21 +30,24 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-/** Teams HTTP API（#546）：flag 关 404；开时 list/create/member 走 catalog + memberships。 */
+/** Teams/Orgs HTTP API（#546/#554）：flag 关 404；开时 list/create/member/set-org 走 catalog。 */
 class TeamsApiControllerTest {
 
   private MockMvc mvc;
   private WebTeamsApiProperties properties;
   private TeamCatalogService catalog;
+  private OrganizationCatalogService organizations;
   private TeamMembershipService memberships;
 
   @BeforeEach
   void setUp() {
     properties = new WebTeamsApiProperties();
     catalog = mock(TeamCatalogService.class);
+    organizations = mock(OrganizationCatalogService.class);
     memberships = mock(TeamMembershipService.class);
     mvc =
-        MockMvcBuilders.standaloneSetup(new TeamsApiController(properties, catalog, memberships))
+        MockMvcBuilders.standaloneSetup(
+                new TeamsApiController(properties, catalog, organizations, memberships))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
   }
@@ -56,17 +61,27 @@ class TeamsApiControllerTest {
   }
 
   @Test
-  @DisplayName("flag开_list_返回目录")
+  @DisplayName("flag关_orgs_返回404")
+  void flagOff_orgs_404() throws Exception {
+    properties.setEnabled(false);
+    mvc.perform(get("/api/v1/orgs")).andExpect(status().isNotFound());
+    verify(organizations, never()).list();
+  }
+
+  @Test
+  @DisplayName("flag开_list_返回目录含orgId")
   void flagOn_list() throws Exception {
     properties.setEnabled(true);
     Team t = new Team();
     t.setTeamId("eng");
     t.setDisplayName("Engineering");
+    t.setOrgId("acme");
     when(catalog.list()).thenReturn(List.of(t));
     mvc.perform(get("/api/v1/teams"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data[0].teamId").value("eng"))
-        .andExpect(jsonPath("$.data[0].displayName").value("Engineering"));
+        .andExpect(jsonPath("$.data[0].displayName").value("Engineering"))
+        .andExpect(jsonPath("$.data[0].orgId").value("acme"));
   }
 
   @Test
@@ -108,6 +123,67 @@ class TeamsApiControllerTest {
                 .content("{\"displayName\":\"Eng2\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.displayName").value("Eng2"));
+  }
+
+  @Test
+  @DisplayName("flag开_setOrg_赋值")
+  void flagOn_setOrg() throws Exception {
+    properties.setEnabled(true);
+    Team t = new Team();
+    t.setTeamId("eng");
+    t.setDisplayName("Engineering");
+    t.setOrgId("acme");
+    when(catalog.setOrg(eq("eng"), eq("acme"))).thenReturn(t);
+    mvc.perform(
+            put("/api/v1/teams/eng/org")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"orgId\":\"acme\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.orgId").value("acme"));
+    verify(catalog).setOrg("eng", "acme");
+  }
+
+  @Test
+  @DisplayName("flag开_setOrg_清空")
+  void flagOn_setOrg_clear() throws Exception {
+    properties.setEnabled(true);
+    Team t = new Team();
+    t.setTeamId("eng");
+    t.setDisplayName("Engineering");
+    when(catalog.setOrg(eq("eng"), eq(null))).thenReturn(t);
+    mvc.perform(put("/api/v1/teams/eng/org").contentType(MediaType.APPLICATION_JSON).content("{}"))
+        .andExpect(status().isOk());
+    verify(catalog).setOrg("eng", null);
+  }
+
+  @Test
+  @DisplayName("flag开_orgs_list")
+  void flagOn_orgsList() throws Exception {
+    properties.setEnabled(true);
+    Organization o = new Organization();
+    o.setOrgId("acme");
+    o.setDisplayName("Acme");
+    when(organizations.list()).thenReturn(List.of(o));
+    mvc.perform(get("/api/v1/orgs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].orgId").value("acme"))
+        .andExpect(jsonPath("$.data[0].displayName").value("Acme"));
+  }
+
+  @Test
+  @DisplayName("flag开_orgs_create")
+  void flagOn_orgsCreate() throws Exception {
+    properties.setEnabled(true);
+    Organization o = new Organization();
+    o.setOrgId("acme");
+    o.setDisplayName("Acme");
+    when(organizations.create(eq("acme"), eq("Acme"))).thenReturn(o);
+    mvc.perform(
+            post("/api/v1/orgs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"orgId\":\"acme\",\"displayName\":\"Acme\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.orgId").value("acme"));
   }
 
   @Test

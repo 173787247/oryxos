@@ -1200,11 +1200,20 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.TeamMembershipService(repository, userRepository);
   }
 
-  /** #539：团队目录（展示名）；与成员表解耦，catalog 行可选。 */
+  /** #539 / #554：团队目录（展示名 + 可选 org_id）；与成员表解耦，catalog 行可选。 */
   @Bean
   io.oryxos.storage.TeamCatalogService teamCatalogService(
-      io.oryxos.storage.TeamRepository repository) {
-    return new io.oryxos.storage.TeamCatalogService(repository);
+      io.oryxos.storage.TeamRepository repository,
+      io.oryxos.storage.OrganizationRepository organizationRepository) {
+    return new io.oryxos.storage.TeamCatalogService(repository, organizationRepository);
+  }
+
+  /** #554：组织目录（展示名）；不驱动 AuthorizationService.decide。 */
+  @Bean
+  io.oryxos.storage.OrganizationCatalogService organizationCatalogService(
+      io.oryxos.storage.OrganizationRepository repository,
+      io.oryxos.storage.TeamRepository teamRepository) {
+    return new io.oryxos.storage.OrganizationCatalogService(repository, teamRepository);
   }
 
   /**
