@@ -13,7 +13,8 @@ public record McpServerView(
     String command,
     Map<String, String> env,
     String url,
-    Map<String, String> headers) {
+    Map<String, String> headers,
+    Integer requestTimeoutSeconds) {
 
   public McpServerView {
     env = env == null ? Map.of() : Map.copyOf(env);
@@ -27,10 +28,15 @@ public record McpServerView(
         c.command(),
         CredentialMasks.maskSensitiveValues(c.env()),
         c.url(),
-        CredentialMasks.maskSensitiveValues(c.headers()));
+        CredentialMasks.maskSensitiveValues(c.headers()),
+        c.requestTimeoutSeconds());
   }
 
   public McpServerConfig toConfig() {
-    return new McpServerConfig(name, transport, command, env, url, headers);
+    int timeout =
+        requestTimeoutSeconds == null
+            ? McpServerConfig.DEFAULT_REQUEST_TIMEOUT_SECONDS
+            : requestTimeoutSeconds;
+    return new McpServerConfig(name, transport, command, env, url, headers, timeout);
   }
 }

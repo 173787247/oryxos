@@ -6,6 +6,7 @@ import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
 import io.modelcontextprotocol.json.McpJsonDefaults;
+import io.modelcontextprotocol.spec.McpSchema;
 import io.oryxos.core.mcp.McpServerConfig;
 import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.tool.ToolRegistry;
@@ -15,6 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +35,8 @@ public class McpClientService {
 
   private static final Logger LOG = LoggerFactory.getLogger(McpClientService.class);
 
-  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
+  /** 连接探测在启动和管理 API 写路径同步执行，不能继承最长一小时的业务调用超时，否则故障 server 会阻塞整个控制面。 */
+  private static final Duration MAX_CONNECT_PROBE_TIMEOUT = Duration.ofSeconds(60);
 
   private static final Set<String> SUPPORTED_TRANSPORTS =
       Set.of(McpServerConfig.TRANSPORT_STDIO, McpServerConfig.TRANSPORT_HTTP);
@@ -78,7 +84,7 @@ public class McpClientService {
     try {
       client = clientFactory.apply(config);
       client.initialize();
-      for (var tool : client.listTools().tools()) {
+      for (var tool : listToolsForConnect(client, config).tools()) {
         registry.registerMcpTool(config.name(), new McpToolAdapter(client, tool));
         toolNames.add(tool.name());
       }
@@ -130,6 +136,37 @@ public class McpClientService {
     return new McpServerStatus(serverName, false, lastErrors.get(serverName), List.of());
   }
 
+  static Duration connectProbeTimeout(McpServerConfig config) {
+    Duration configured = config.requestTimeout();
+    return configured.compareTo(MAX_CONNECT_PROBE_TIMEOUT) > 0
+        ? MAX_CONNECT_PROBE_TIMEOUT
+        : configured;
+  }
+
+  private static McpSchema.ListToolsResult listToolsForConnect(
+      McpSyncClient client, McpServerConfig config) {
+    Duration timeout = connectProbeTimeout(config);
+    FutureTask<McpSchema.ListToolsResult> probe = new FutureTask<>(client::listTools);
+    Thread.ofVirtual().name("oryxos-mcp-tools-list-probe").start(probe);
+    try {
+      return probe.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    } catch (TimeoutException e) {
+      probe.cancel(true);
+      throw new IllegalStateException(
+          "MCP server " + config.name() + " tools/list 探测超过 " + timeout.toSeconds() + " 秒", e);
+    } catch (InterruptedException e) {
+      probe.cancel(true);
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("MCP server " + config.name() + " tools/list 探测被中断", e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+      throw new IllegalStateException("MCP server " + config.name() + " tools/list 探测失败", cause);
+    }
+  }
+
   private static McpSyncClient connectDefault(McpServerConfig config) {
     return McpServerConfig.TRANSPORT_HTTP.equals(config.transport())
         ? connectHttp(config)
@@ -144,7 +181,7 @@ public class McpClientService {
             .env(config.env())
             .build();
     return McpClient.sync(new StdioClientTransport(params, McpJsonDefaults.getMapper()))
-        .requestTimeout(REQUEST_TIMEOUT)
+        .requestTimeout(config.requestTimeout())
         .build();
   }
 
@@ -156,7 +193,7 @@ public class McpClientService {
       transport.httpRequestCustomizer(
           (request, method, uri, body, context) -> config.headers().forEach(request::header));
     }
-    return McpClient.sync(transport.build()).requestTimeout(REQUEST_TIMEOUT).build();
+    return McpClient.sync(transport.build()).requestTimeout(config.requestTimeout()).build();
   }
 
   private static String s(String value) {

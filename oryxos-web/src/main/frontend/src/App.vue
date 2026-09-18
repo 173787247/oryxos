@@ -7,6 +7,7 @@ import LoginView from './views/LoginView.vue'
 import RunManagementView from './features/runs/RunManagementView.vue'
 import { isNearBottom } from './chat-scroll.js'
 import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
+import { DEFAULT_MCP_REQUEST_TIMEOUT_SECONDS, normalizeMcpRequestTimeout } from './mcp-timeout.js'
 import { filterSkills, hiddenSelectedCount, selectAllVisible, clearVisible, renderSet } from './skill-filter.js'
 import {
   blankGov,
@@ -1343,7 +1344,8 @@ function textToMap(text) {
 // 新建/编辑表单：editing 存被编辑 server 的 name（此时 name 只读），null 表示新建
 const mcpForm = reactive({
   open: false, editing: null, name: '', transport: 'stdio',
-  command: '', url: '', envText: '', headersText: '', busy: false, error: null,
+  command: '', url: '', requestTimeoutSeconds: DEFAULT_MCP_REQUEST_TIMEOUT_SECONDS,
+  envText: '', headersText: '', busy: false, error: null,
 })
 
 function editMcp(row) {
@@ -1352,6 +1354,7 @@ function editMcp(row) {
   mcpForm.transport = row.transport || 'stdio'
   mcpForm.command = row.command || ''
   mcpForm.url = row.url || ''
+  mcpForm.requestTimeoutSeconds = row.requestTimeoutSeconds ?? DEFAULT_MCP_REQUEST_TIMEOUT_SECONDS
   mcpForm.envText = mapToText(row.env)
   mcpForm.headersText = mapToText(row.headers)
   mcpForm.error = null
@@ -1360,12 +1363,14 @@ function editMcp(row) {
 
 function cancelMcp() {
   mcpForm.open = false; mcpForm.editing = null; mcpForm.name = ''; mcpForm.transport = 'stdio'
-  mcpForm.command = ''; mcpForm.url = ''; mcpForm.envText = ''; mcpForm.headersText = ''; mcpForm.error = null
+  mcpForm.command = ''; mcpForm.url = ''; mcpForm.requestTimeoutSeconds = DEFAULT_MCP_REQUEST_TIMEOUT_SECONDS
+  mcpForm.envText = ''; mcpForm.headersText = ''; mcpForm.error = null
 }
 
 async function saveMcp() {
   mcpForm.busy = true; mcpForm.error = null
   try {
+    const requestTimeoutSeconds = normalizeMcpRequestTimeout(mcpForm.requestTimeoutSeconds)
     const url = mcpForm.editing
       ? `/api/v1/mcp-servers/${encodeURIComponent(mcpForm.editing)}`
       : '/api/v1/mcp-servers'
@@ -1373,6 +1378,7 @@ async function saveMcp() {
       name: mcpForm.name, transport: mcpForm.transport,
       command: mcpForm.transport === 'stdio' ? mcpForm.command : null,
       url: mcpForm.transport === 'http' ? mcpForm.url : null,
+      requestTimeoutSeconds,
       env: textToMap(mcpForm.envText), headers: textToMap(mcpForm.headersText),
     }
     const res = await fetch(url, {
@@ -3968,6 +3974,8 @@ const outputRows = computed(() =>
                   </select>
                   <input v-if="mcpForm.transport === 'stdio'" v-model="mcpForm.command" class="gen-input" placeholder="command，如 npx -y @modelcontextprotocol/server-github" />
                   <input v-else v-model="mcpForm.url" class="gen-input" placeholder="url，如 https://api.githubcopilot.com/mcp/" />
+                  <label class="empty" style="display:block">请求超时（秒，1–3600；连接初始化仍由 SDK 的 20 秒上限约束）</label>
+                  <input v-model.number="mcpForm.requestTimeoutSeconds" class="gen-input" type="number" min="1" max="3600" step="1" />
                   <label class="empty" style="display:block">env（每行一条 KEY=VALUE，支持 ${ENV_VAR} 占位）</label>
                   <textarea v-model="mcpForm.envText" class="gen-draft mono" rows="3" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}"></textarea>
                   <label class="empty" style="display:block">headers（每行一条 KEY=VALUE；当前 http 传输暂不支持自定义请求头，仅作记录）</label>
@@ -3983,13 +3991,14 @@ const outputRows = computed(() =>
             <p v-if="mcp.loading" class="empty">加载中…</p>
             <p v-else-if="mcp.error" class="error">出错：{{ mcp.error }}</p>
             <table v-else>
-              <thead><tr><th>name</th><th>transport</th><th>command / url</th><th>状态</th><th>工具</th><th>操作</th></tr></thead>
+              <thead><tr><th>name</th><th>transport</th><th>command / url</th><th>timeout</th><th>状态</th><th>工具</th><th>操作</th></tr></thead>
               <tbody>
-                <tr v-if="!mcp.data.length"><td colspan="6" class="empty">（暂无 MCP server · 上面选个内置目录一键启用，或点「手动添加」）</td></tr>
+                <tr v-if="!mcp.data.length"><td colspan="7" class="empty">（暂无 MCP server · 上面选个内置目录一键启用，或点「手动添加」）</td></tr>
                 <tr v-for="m in mcp.data" :key="m.name">
                   <td class="mono">{{ m.name }}</td>
                   <td>{{ m.transport }}</td>
                   <td class="mono">{{ m.transport === 'stdio' ? m.command : m.url }}</td>
+                  <td class="mono">{{ m.requestTimeoutSeconds }}s</td>
                   <td>
                     <span v-if="mcpStatusByName[m.name]?.connected" class="ok">已连接</span>
                     <span v-else class="off" :title="mcpStatusByName[m.name]?.error || ''">未连接</span>
