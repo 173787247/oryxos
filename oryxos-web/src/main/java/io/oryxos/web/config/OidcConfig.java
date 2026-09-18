@@ -40,7 +40,10 @@ public class OidcConfig {
       WebSessionService sessionService,
       AuthEventRecorder authEventRecorder,
       io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache,
-      TeamCatalogService teamCatalogService) {
+      TeamCatalogService teamCatalogService,
+      io.oryxos.web.security.SessionOrgIdsCache sessionOrgIdsCache,
+      WebRbacProperties rbacProperties,
+      io.oryxos.core.policy.TeamOrgLookup teamOrgLookup) {
     return new OidcAuthService(
         properties,
         tokenClient,
@@ -50,6 +53,9 @@ public class OidcConfig {
         sessionService,
         authEventRecorder,
         sessionTeamIdsCache,
-        teamCatalogService);
+        teamCatalogService,
+        sessionOrgIdsCache,
+        rbacProperties,
+        teamOrgLookup);
   }
 }

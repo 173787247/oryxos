@@ -1,6 +1,7 @@
 package io.oryxos.web.oidc;
 
 import io.oryxos.core.auth.Role;
+import io.oryxos.core.policy.TeamOrgLookup;
 import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
@@ -10,6 +11,9 @@ import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.config.WebOidcProperties;
+import io.oryxos.web.config.WebRbacProperties;
+import io.oryxos.web.security.SessionOrgIdsCache;
+import io.oryxos.web.security.SessionOrgIdsFromTeams;
 import io.oryxos.web.security.SessionTeamIdsCache;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -53,6 +57,9 @@ public class OidcAuthService {
   private final OidcGroupRoleSync groupRoleSync;
   private final SessionTeamIdsCache teamIdsCache;
   private final TeamCatalogService teamCatalogService;
+  private final SessionOrgIdsCache orgIdsCache;
+  private final WebRbacProperties rbacProperties;
+  private final TeamOrgLookup teamOrgLookup;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -73,6 +80,9 @@ public class OidcAuthService {
         userService,
         sessionService,
         authEventRecorder,
+        null,
+        null,
+        null,
         null,
         null);
   }
@@ -98,6 +108,9 @@ public class OidcAuthService {
         sessionService,
         authEventRecorder,
         teamIdsCache,
+        null,
+        null,
+        null,
         null);
   }
 
@@ -114,6 +127,37 @@ public class OidcAuthService {
       AuthEventRecorder authEventRecorder,
       SessionTeamIdsCache teamIdsCache,
       TeamCatalogService teamCatalogService) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        teamCatalogService,
+        null,
+        null,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService,
+      SessionOrgIdsCache orgIdsCache,
+      WebRbacProperties rbacProperties,
+      TeamOrgLookup teamOrgLookup) {
     this.properties = properties;
     this.tokenClient = tokenClient;
     this.pendingStore = pendingStore;
@@ -124,6 +168,9 @@ public class OidcAuthService {
     this.groupRoleSync = new OidcGroupRoleSync(userService);
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
     this.teamCatalogService = teamCatalogService;
+    this.orgIdsCache = orgIdsCache == null ? new SessionOrgIdsCache() : orgIdsCache;
+    this.rbacProperties = rbacProperties;
+    this.teamOrgLookup = teamOrgLookup;
   }
 
   public boolean isEnabled() {
@@ -211,7 +258,25 @@ public class OidcAuthService {
     }
     WebSession session = sessionService.create(username);
     teamIdsCache.put(session.getSessionId(), claims.groups());
+    cacheOrgIdsFromTeams(session.getSessionId(), claims.groups());
     return OidcLoginResult.success(session, username);
+  }
+
+  /** #560：flag 开时由 groups/teamIds 派生 orgIds 写入 session 缓存；关则清掉。 */
+  private void cacheOrgIdsFromTeams(String sessionId, java.util.Collection<String> teamIds) {
+    if (rbacProperties == null || !rbacProperties.isOrgIdsFromTeamOrgEnabled()) {
+      orgIdsCache.remove(sessionId);
+      return;
+    }
+    LinkedHashSet<String> teams = new LinkedHashSet<>();
+    if (teamIds != null) {
+      for (String t : teamIds) {
+        if (t != null && !t.isBlank()) {
+          teams.add(t.strip());
+        }
+      }
+    }
+    orgIdsCache.put(sessionId, SessionOrgIdsFromTeams.resolve(teams, teamOrgLookup));
   }
 
   /**

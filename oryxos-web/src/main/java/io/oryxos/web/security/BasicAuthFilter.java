@@ -3,10 +3,12 @@ package io.oryxos.web.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.auth.Principal;
 import io.oryxos.core.auth.Role;
+import io.oryxos.core.policy.TeamOrgLookup;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.config.WebAuthProperties;
+import io.oryxos.web.config.WebRbacProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -117,6 +119,10 @@ public class BasicAuthFilter extends OncePerRequestFilter {
   private final ObjectMapper objectMapper;
   private final LoginAttemptService loginAttemptService;
   private final PrincipalTeamIdsMerger teamIdsMerger;
+  private final SessionTeamIdsCache teamIdsCache;
+  private final SessionOrgIdsCache orgIdsCache;
+  private final WebRbacProperties rbacProperties;
+  private final TeamOrgLookup teamOrgLookup;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = {"EI_EXPOSE_REP2", "PZLA_PREFER_ZERO_LENGTH_ARRAYS"},
@@ -143,12 +149,43 @@ public class BasicAuthFilter extends OncePerRequestFilter {
       ObjectMapper objectMapper,
       LoginAttemptService loginAttemptService,
       PrincipalTeamIdsMerger teamIdsMerger) {
+    this(
+        userService,
+        sessionService,
+        properties,
+        objectMapper,
+        loginAttemptService,
+        teamIdsMerger,
+        null,
+        null,
+        null,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = {"EI_EXPOSE_REP2", "PZLA_PREFER_ZERO_LENGTH_ARRAYS"},
+      justification = "team/org caches 与 lookup 为 Spring 注入共享单例；decode 返 null 语义同上。")
+  public BasicAuthFilter(
+      WebUserService userService,
+      WebSessionService sessionService,
+      WebAuthProperties properties,
+      ObjectMapper objectMapper,
+      LoginAttemptService loginAttemptService,
+      PrincipalTeamIdsMerger teamIdsMerger,
+      SessionTeamIdsCache teamIdsCache,
+      SessionOrgIdsCache orgIdsCache,
+      WebRbacProperties rbacProperties,
+      TeamOrgLookup teamOrgLookup) {
     this.userService = userService;
     this.sessionService = sessionService;
     this.properties = properties;
     this.objectMapper = objectMapper;
     this.loginAttemptService = loginAttemptService;
     this.teamIdsMerger = teamIdsMerger;
+    this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
+    this.orgIdsCache = orgIdsCache == null ? new SessionOrgIdsCache() : orgIdsCache;
+    this.rbacProperties = rbacProperties;
+    this.teamOrgLookup = teamOrgLookup;
   }
 
   @Override
@@ -165,16 +202,17 @@ public class BasicAuthFilter extends OncePerRequestFilter {
       return;
     }
     // (1) session cookie 路径
-    Optional<String> sessionUser = sessionUsername(request);
-    if (sessionUser.isPresent()) {
-      attachUserPrincipal(request, sessionUser.get());
+    Optional<SessionIdentity> sessionIdentity = sessionIdentity(request);
+    if (sessionIdentity.isPresent()) {
+      SessionIdentity sid = sessionIdentity.get();
+      attachUserPrincipal(request, sid.username(), sid.sessionId());
       filterChain.doFilter(request, response);
       return;
     }
     // (2) Basic Auth 路径（含暴力破解锁定）
     BasicAuthAttempt basic = authenticateByBasic(request);
     if (basic.outcome() == BasicOutcome.OK) {
-      attachUserPrincipal(request, basic.username());
+      attachUserPrincipal(request, basic.username(), null);
       filterChain.doFilter(request, response);
       return;
     }
@@ -194,7 +232,7 @@ public class BasicAuthFilter extends OncePerRequestFilter {
     return uri != null && uri.startsWith(ASSETS_PATH);
   }
 
-  private Optional<String> sessionUsername(HttpServletRequest request) {
+  private Optional<SessionIdentity> sessionIdentity(HttpServletRequest request) {
     Cookie[] cookies = request.getCookies();
     if (cookies == null) {
       return Optional.empty();
@@ -205,8 +243,10 @@ public class BasicAuthFilter extends OncePerRequestFilter {
         .filter(v -> v != null && !v.isBlank())
         .findFirst()
         .flatMap(sessionService::findValid)
-        .map(io.oryxos.storage.WebSession::getUsername);
+        .map(s -> new SessionIdentity(s.getUsername(), s.getSessionId()));
   }
+
+  private record SessionIdentity(String username, String sessionId) {}
 
   private BasicAuthAttempt authenticateByBasic(HttpServletRequest request) {
     String header = request.getHeader(HttpHeaders.AUTHORIZATION);
@@ -229,14 +269,34 @@ public class BasicAuthFilter extends OncePerRequestFilter {
     return BasicAuthAttempt.bad();
   }
 
-  /** 置主体，不裁决。角色每请求重解析，与 ApiKeyAuthFilter session 分支同源；团队可选并入持久化成员。 */
-  private void attachUserPrincipal(HttpServletRequest request, String username) {
+  /** 置主体，不裁决。角色每请求重解析；团队/组织来自 session 缓存（#504/#560），可选并入持久化成员。 */
+  private void attachUserPrincipal(HttpServletRequest request, String username, String sessionId) {
     if (username == null || username.isBlank()) {
       return;
     }
     Set<Role> roles = userService.rolesOf(username);
-    Set<String> teams = teamIdsMerger == null ? Set.of() : teamIdsMerger.merge(username, Set.of());
-    PrincipalHolder.set(request, Principal.user(username, username, roles, teams));
+    Set<String> sessionTeams = teamIdsCache.get(sessionId);
+    Set<String> teams =
+        teamIdsMerger == null ? sessionTeams : teamIdsMerger.merge(username, sessionTeams);
+    Set<String> orgs = resolveAndCacheOrgIds(sessionId, teams);
+    PrincipalHolder.set(request, Principal.user(username, username, roles, teams, orgs));
+  }
+
+  /** #560：flag 开时优先读 session org 缓存；空则由 teamIds 派生并回填缓存（BasicAuth 路径补齐）。关则空集。 */
+  private Set<String> resolveAndCacheOrgIds(String sessionId, Set<String> teams) {
+    if (rbacProperties == null || !rbacProperties.isOrgIdsFromTeamOrgEnabled()) {
+      return Set.of();
+    }
+    if (sessionId != null && !sessionId.isBlank()) {
+      Set<String> cached = orgIdsCache.get(sessionId);
+      if (!cached.isEmpty()) {
+        return cached;
+      }
+      Set<String> derived = SessionOrgIdsFromTeams.resolve(teams, teamOrgLookup);
+      orgIdsCache.put(sessionId, derived);
+      return derived;
+    }
+    return SessionOrgIdsFromTeams.resolve(teams, teamOrgLookup);
   }
 
   private void reject(HttpServletRequest request, HttpServletResponse response) throws IOException {

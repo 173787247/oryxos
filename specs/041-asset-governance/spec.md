@@ -36,7 +36,7 @@
 - Admin：入站渠道列表 + `channels.yaml` `governance:` 面板（`GET/PUT /api/v1/channels/{name}/governance`）
 - 列表过滤：`GET` agents/skills/knowledge/channels 在 rbac+asset-governance 开启时按具名 `decide(READ_WORKSPACE)` 剔除 OFFLINE / PRIVATE 他属主条目
 - WORKSPACE 团队门禁：`teamOwner` 字段 + `oryxos.web.asset-governance.workspace-team-acl-enabled`（默认关）；OIDC groups 经 session 缓存注入 `Principal.teamIds`
-- WORKSPACE 组织门禁：`orgOwner` 字段 + `oryxos.web.asset-governance.workspace-org-acl-enabled`（默认关）；`Principal.teamIds` × `teams.org_id` 查找（#558）
+- WORKSPACE 组织门禁：`orgOwner` 字段 + `oryxos.web.asset-governance.workspace-org-acl-enabled`（默认关）；`Principal.teamIds` × `teams.org_id` 查找（#558）；可选 session `Principal.orgIds` 缓存（#560，`oryxos.web.rbac.org-ids-from-team-org-enabled`，默认关；有 orgIds 时门禁优先用）
 - 密码登录可选 `oryxos.web.auth.user-team-ids` → 同 session 缓存（默认空=不声明团队）
 - 持久化成员（#535）：V12 `team_memberships` + `oryxos team member-*`；`oryxos.web.rbac.durable-team-memberships-enabled`（默认关）开时与 session 团队取并集
 - 团队目录（#539）：V14 `teams(team_id, display_name)` + `oryxos team create|rename|list|delete`（与成员表解耦，catalog 可选）
@@ -54,5 +54,5 @@
 
 ## Out of scope (honest gaps)
 
-- dept·project 多级 / `parent_team_id` / OIDC group→org JIT / auto memberships（#554 organizations + `teams.org_id`；#548/#556 Admin；#558 WORKSPACE `orgOwner` 门禁已落地；相关 API/UI 仍默认关）
+- dept·project 多级 / `parent_team_id` / OIDC group→org JIT / auto memberships（#554 organizations + `teams.org_id`；#548/#556 Admin；#558 WORKSPACE `orgOwner`；#560 session `orgIds` 缓存 opt-in；相关 API/UI 仍默认关）
 - OIDC JIT 目录行已落地：`oryxos.web.oidc.jit-team-catalog-enabled`（#552，默认关）；仍不自动写 `team_memberships`

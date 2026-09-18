@@ -12,6 +12,7 @@ import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.security.RbacEnforcer;
 import io.oryxos.web.security.RuntimeAgentGuard;
+import io.oryxos.web.security.SessionOrgIdsCache;
 import io.oryxos.web.security.SessionTeamIdsCache;
 import java.util.LinkedHashSet;
 import java.util.Optional;
@@ -52,6 +53,12 @@ public class AuthorizationConfig {
   @Bean
   SessionTeamIdsCache sessionTeamIdsCache() {
     return new SessionTeamIdsCache();
+  }
+
+  /** #560：session 组织声明（由 teamIds × teams.org_id 派生）。 */
+  @Bean
+  SessionOrgIdsCache sessionOrgIdsCache() {
+    return new SessionOrgIdsCache();
   }
 
   /** #535：session 团队 ∪（可选）持久化 team_memberships。 */
@@ -98,7 +105,7 @@ public class AuthorizationConfig {
       LOG.warn("资产治理已启用但未装配 AssetGovernanceStore，跳过资产门禁");
       return roleBased;
     }
-    TeamOrgLookup orgLookup = teamOrgLookup(teamCatalog);
+    TeamOrgLookup orgLookup = teamOrgLookupBean(teamCatalog);
     return new AssetAwareAuthorizationServiceImpl(
         roleBased,
         store,
@@ -108,8 +115,13 @@ public class AuthorizationConfig {
         orgLookup);
   }
 
-  /** #558：把 Principal.teamIds 映射到 teams.org_id；目录 Bean 缺失时恒 empty。 */
-  private static TeamOrgLookup teamOrgLookup(ObjectProvider<TeamCatalogService> teamCatalog) {
+  /** #558 / #560：把 teamId 映射到 teams.org_id；目录 Bean 缺失时恒 empty。 */
+  @Bean
+  TeamOrgLookup teamOrgLookup(ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamOrgLookupBean(teamCatalog);
+  }
+
+  private static TeamOrgLookup teamOrgLookupBean(ObjectProvider<TeamCatalogService> teamCatalog) {
     return teamId -> {
       if (teamId == null || teamId.isBlank()) {
         return Optional.empty();

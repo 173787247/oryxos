@@ -198,6 +198,8 @@ oryxos:
   #     # 持久化团队成员并入 Principal.teamIds（#535）。默认关；开后与 session 缓存取并集。
   #     # CLI: oryxos team create|rename|list|delete + member-add|member-remove|member-list
   #     # durable-team-memberships-enabled: true
+  #     # 由 session teamIds × teams.org_id 派生并缓存 Principal.orgIds（#560）。默认关。
+  #     # org-ids-from-team-org-enabled: true
   # 团队 HTTP API（#546）+ Admin「团队管理」页（#548）。默认关=404。开启后 GET/POST/PATCH/DELETE /api/v1/teams
   # 与用户成员 PUT/DELETE /api/v1/users/{u}/teams/{teamId}；RBAC 下映射 MANAGE_MEMBERS（ADMIN）。
   # web:
@@ -233,7 +235,7 @@ oryxos:
   # workspace-team-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 teamOwner 的资产
   # 要求 Principal.teamIds 含该 id（OIDC groups 或密码登录 user-team-ids 经 session 缓存注入）；无 teamOwner 仍不另拒。
   # workspace-org-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 orgOwner 的资产
-  # 要求 Principal.teamIds 中某队的 teams.org_id 等于 orgOwner（或 ADMIN）；无 orgOwner 仍不另拒。
+  # 要求同组织（或 ADMIN）；优先 Principal.orgIds（#560 flag），否则 teamIds × teams.org_id（#558）；无 orgOwner 仍不另拒。
   # web:
   #   asset-governance:
   #     enabled: true

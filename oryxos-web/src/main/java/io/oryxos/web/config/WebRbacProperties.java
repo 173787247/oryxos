@@ -30,6 +30,12 @@ public class WebRbacProperties {
    */
   private boolean durableTeamMembershipsEnabled = false;
 
+  /**
+   * 是否由 session {@code teamIds} 经 {@code teams.org_id} 派生并缓存 {@code Principal.orgIds}（#560）。默认关：主体无
+   * orgIds；orgOwner 门禁仍可走即时 team×lookup。
+   */
+  private boolean orgIdsFromTeamOrgEnabled = false;
+
   public boolean isEnabled() {
     return enabled;
   }
@@ -52,5 +58,13 @@ public class WebRbacProperties {
 
   public void setDurableTeamMembershipsEnabled(boolean durableTeamMembershipsEnabled) {
     this.durableTeamMembershipsEnabled = durableTeamMembershipsEnabled;
+  }
+
+  public boolean isOrgIdsFromTeamOrgEnabled() {
+    return orgIdsFromTeamOrgEnabled;
+  }
+
+  public void setOrgIdsFromTeamOrgEnabled(boolean orgIdsFromTeamOrgEnabled) {
+    this.orgIdsFromTeamOrgEnabled = orgIdsFromTeamOrgEnabled;
   }
 }

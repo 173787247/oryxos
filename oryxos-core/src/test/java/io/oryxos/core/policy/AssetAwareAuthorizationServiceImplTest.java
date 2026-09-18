@@ -290,6 +290,57 @@ class AssetAwareAuthorizationServiceImplTest {
   }
 
   @Test
+  void workspaceOrgAclPrefersPrincipalOrgIdsWhenPresent() throws Exception {
+    writeAgent(workspaceWithOrg("acme"));
+    // lookup 故意说 ops→other-org；若走 lookup 会拒。orgIds 含 acme 时应放行。
+    TeamOrgLookup hostileLookup = teamId -> Optional.of("other-org");
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            hostileLookup);
+
+    assertThat(
+            service
+                .decide(
+                    Principal.user(
+                        OWNER, OWNER, Set.of(Role.EDITOR), Set.of("ops"), Set.of("acme")),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+    Decision wrongOrg =
+        service.decide(
+            Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of("ops"), Set.of("other-org")),
+            Action.READ_WORKSPACE,
+            ResourceRef.agent(AGENT));
+    assertThat(wrongOrg.allowed()).isFalse();
+    assertThat(wrongOrg.reason())
+        .isEqualTo(AssetAwareAuthorizationServiceImpl.REASON_WORKSPACE_ORG);
+  }
+
+  @Test
+  void workspaceOrgAclFallsBackToTeamLookupWhenOrgIdsEmpty() throws Exception {
+    writeAgent(workspaceWithOrg("acme"));
+    TeamOrgLookup lookup = teamId -> "ops".equals(teamId) ? Optional.of("acme") : Optional.empty();
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(), new AssetGovernanceStore(root), true, false, true, lookup);
+
+    assertThat(
+            service
+                .decide(
+                    Principal.user(OWNER, OWNER, Set.of(Role.EDITOR), Set.of("ops"), Set.of()),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+  }
+
+  @Test
   void workspaceWithoutOrgOwnerStillAllowsWhenOrgAclOn() throws Exception {
     writeAgent(
         new AssetGovernance(
