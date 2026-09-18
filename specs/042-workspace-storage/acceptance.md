@@ -111,3 +111,9 @@ Docker 验收 UI：`http://localhost:18042/admin/`，副本 B：`http://localhos
 - 专用工作区停写备份并恢复到新卷：16 个普通文件 SHA-256 与 1 个相对软链接目标一致，tar 摘要也一致。
 - 独立第二个停写窗口，对专用数据库重新 dump 并实际 restore 到全新 `oryxos042_restore_check`；31 张 public 表行数及 7 条 Flyway 迁移记录一致。两次维护窗口均恢复 a/b healthy；未启动恢复副本应用，不宣称跨资源原子快照。
 - 私有证据 `/tmp/oryxos-042-evidence/local-restore-20260918T070921Z/evidence.json` 与 `database-restore-evidence.json`；备份/清单只保存在私有本机目录，不提交数据库内容或密钥。
+
+### 最终交付状态（2026-09-18）
+
+- 最终应用代码提交 `027e4d0`，本地验收镜像 `oryxos:042-acceptance`，镜像 ID `sha256:1ca49ed4c8203025b07a1eee8f8b3a04e863d0e195b3370b00a4af5ccd04be0e`。后续文档提交不改变运行二进制。
+- 最终安装产物再扫描通过：171 个对象、0 条未排除发现、121 条已审查排除记录；日志 `/tmp/oryxos-042-owasp-final-artifact.log`。Spring 未修补组件及排除适用条件见 [风险记录](security-triage.md)，不宣称无漏洞。
+- 本地交付文档与 PR 草稿已准备。远程推送被自动审批拒绝，理由为尚未明确授权将源码和验收文档发布到公开仓库；未进行推送或创建 PR。T017 仍待明确发布授权及实际远程 CI 结果。

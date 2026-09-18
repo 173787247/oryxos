@@ -6,7 +6,7 @@ Upgraded the vulnerable Office/archive dependencies and frontend packages; remov
 
 **The Spring platform is not fully patched.** Framework 6.2.19, Security crypto 6.5.11, Data JPA 3.5.13 and the required Spring AI 1.1.8 modules remain. Their reviewed CVEs are excluded only for the current application architecture and use of the affected APIs; these are deployment-specific risk assessments, not assertions of zero risk or CPE false positives. Official same-generation fixes require enterprise access; community fixes require a separately tested platform migration. No severity threshold was lowered. New exclusions and the corrected XSLT exclusion expire **2027-01-01 UTC**, requiring maintainer reassessment.
 
-An isolated clean build/current-artifact Dependency-Check rescan is owned by the main delivery controller. Its final result must be attached to acceptance before claiming the current Java dependency scan is clear; this document does not turn the old report into new evidence.
+The final installed-artifact Dependency-Check scan completed successfully: 171 objects, 0 unsuppressed findings and 121 reasoned exclusion records. See the [acceptance record](acceptance.md) and final scan note below. This does not remove the unpatched Spring residual risks described here.
 
 ## Input and actual dependency selection
 
@@ -90,7 +90,7 @@ Commands/results:
 - Frontend `npm test`, `npm run build`: exit 0; 9 test files passed; `/tmp/oryxos-security-npm-test.log`, `/tmp/oryxos-security-npm-build.log`.
 - `python3 scripts/test-security-assumptions.py`: 6 tests pass, including root POM and example configuration coverage.
 - `python3 scripts/check-security-assumptions.py --dependency-tree /tmp/oryxos-security-tree-after.txt`: exit 0 on merged sources and current dependency graph.
-- Suppression XML parses successfully. Final Dependency-Check schema/matching validation is part of the controller's isolated clean-artifact rescan, not assumed from XML parsing.
+- Suppression XML parses successfully. The final installed-artifact Dependency-Check scan also validated the suppression schema and matching; its result is recorded below.
 
 No production database, external service, boot jar, or running container was modified by these checks. There is no claim of completed deployment or clean remote vulnerability scan in this scoped report.
 
@@ -101,6 +101,6 @@ The controller's first isolated scan (`/tmp/oryxos-042-delivery/target/dependenc
 - Framework, all exactly 6.2.19: spring-aop, spring-aspects, spring-beans, spring-context, spring-context-support, spring-core, spring-expression, spring-jcl, spring-jdbc, spring-messaging, spring-orm, spring-tx, spring-web, spring-webflux, spring-webmvc.
 - OpenTelemetry Java, all exactly 1.44.1: opentelemetry-api, opentelemetry-context, opentelemetry-exporter-common, opentelemetry-exporter-otlp, opentelemetry-exporter-otlp-common, opentelemetry-exporter-sender-okhttp, opentelemetry-sdk, opentelemetry-sdk-common, opentelemetry-sdk-extension-autoconfigure-spi, opentelemetry-sdk-logs, opentelemetry-sdk-metrics, opentelemetry-sdk-trace; the preexisting exact 1.44.1-alpha API-incubator entry remains. Only CVE-2026-54285 (the JS implementation finding) is covered by this Java API/SDK selector.
 
-This changes artifact matching only, not the assessed CVE lists or risk acceptance conditions. XML parsing and regex matching against the isolated report confirmed that the two new representative purls match. No JS filename/hash suppression was added: the controller will install the newly built internal modules and rescan so stale Maven-local frontend jars are replaced. A final clear-scan claim still requires that rescan result.
+This changes artifact matching only, not the assessed CVE lists or risk acceptance conditions. XML parsing and regex matching against the isolated report confirmed that the two new representative purls match. No JS filename/hash suppression was added. The controller installed the newly built internal modules and rescanned; the final result below confirms that stale Maven-local frontend jars were replaced.
 
 Central installed-artifact scan on 2026-09-18: 171 objects, 0 unsuppressed findings, 121 suppressed advisory records; `/tmp/oryxos-042-owasp-final.log` exits 0. Old frontend bundles are absent. This is a processed-finding result, not a claim that the unpatched Spring platform has no residual risk.

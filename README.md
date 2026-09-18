@@ -60,7 +60,7 @@ OryxOS is the third column — and it ships the second one for every agent it ru
 An Agent is a directory: `.oryxos/agents/<name>/AGENT.md` — YAML frontmatter plus task instructions. Its optional `skills/` directory contains relative symlinks to shared Skill entities. Every prompt receives only each bound Skill's name, description, and local path; bodies and resources load on demand. Multiple agents co-exist on one instance.
 
 **⚡ Dynamic Agent Management**
-Create an agent via REST, generate a draft `AGENT.md` from one sentence with an LLM, or just drop a directory into the workspace — a `WorkspaceWatcher` picks it up and the agent goes live with no restart.
+Create an agent via REST, generate a draft `AGENT.md` from one sentence with an LLM, or update its workspace directory during a maintenance window. Single-node mode uses `WorkspaceWatcher`; cluster mode uses version polling and periodic reconciliation to reload definitions without restarting.
 
 **📦 One Binary, Zero Ceremony**
 A single executable artifact with a self-implemented, fully inspectable ReAct loop and synchronous execution on virtual threads. `bin/oryx-server start` and you're live — REST API, web console, scheduler, and sandbox in one process. No extra runtimes, no sidecars.
@@ -170,7 +170,7 @@ java -jar $JAR chat --profile default      # interactive multi-turn chat
 java -jar $JAR serve --port 8080           # REST API + Web Manager (same as start.sh)
 ```
 
-The workspace defaults to `.oryxos/` but is configurable — set `ORYXOS_ROOT` (or `-Doryxos.root=`, or `oryxos.root` in `application.yml`) to point OryxOS at a custom workspace directory. The configured root is auto-added to the file sandbox whitelist.
+The workspace defaults to `.oryxos/` but is configurable — set `ORYXOS_ROOT` (or `-Doryxos.root=`, or `oryxos.root` in `application.yml`) to point OryxOS at a custom workspace directory. The selected workspace root and its checked native execution view are auto-added to the file sandbox whitelist. Shared deployments use the `shared-posix` provider with a pre-provisioned `.workspace-id`; see the [shared workspace guide](docs/SharedVolumeGuide.md) for plugin requirements, conflict handling, output isolation and recovery.
 
 ### Docker alternative
 
@@ -183,7 +183,7 @@ curl http://localhost:8080/api/v1/health      # → {"code":0,…}
 
 The container boots keyless (configure providers in the web console afterwards) and keeps **all state** — `config/`, the `.oryxos/` workspace, `oryxos.db`, logs — in the `/data` volume, so upgrading means pulling a new tag and recreating the container. The image runs as a non-root user and carries a built-in healthcheck against `/api/v1/health`; see `docker-compose.yml` at the repo root for a ready-to-use compose stack. To build the image locally from source: `make docker` (after `make build`).
 
-> Note: storage is single-node SQLite — run **one** container. Horizontal scaling requires the distributed storage track (roadmap A).
+> The example above uses default SQLite — run **one** container. Multi-replica deployments require shared PostgreSQL and a shared workspace. See the [K8s deployment guide](docs/K8sDeployGuide.md) and [shared-volume requirements](docs/SharedVolumeGuide.md). Local kind validation does not establish cross-host storage HA; the [042 acceptance record](specs/042-workspace-storage/acceptance.md) keeps that verification pending.
 
 ### Web Service & Web Manager
 
@@ -250,11 +250,11 @@ settings:
 You are a professional DevOps assistant. When triggered, ... (task instructions)
 ```
 
-Drop this directory into the workspace and the `WorkspaceWatcher` registers the agent live — no restart. Agents can also be created via `POST /api/v1/agents` or drafted from one sentence via the admin console.
+In single-node mode, `WorkspaceWatcher` registers workspace changes without restarting. In cluster mode, use the management API; direct file changes require a stopped-writer maintenance window and are picked up by periodic reconciliation. Agents can also be created via `POST /api/v1/agents` or drafted from one sentence via the admin console.
 
 ## REST API
 
-All endpoints are prefixed with `/api/v1` and every response is wrapped in a unified envelope: `{ "code": 0, "message": "success", "data": <payload>, "timestamp": ... }` (non-zero `code` on error). No auth in the core phase — assumes an internal network.
+All endpoints are prefixed with `/api/v1` and every response is wrapped in a unified envelope: `{ "code": 0, "message": "success", "data": <payload>, "timestamp": ... }` (non-zero `code` on error). Authentication is configurable and disabled by default; configure web authentication, API keys and authorization for your deployment before exposing protected operations.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -282,7 +282,7 @@ All endpoints are prefixed with `/api/v1` and every response is wrapped in a uni
 - **One directory = one Agent** — `AGENT.md` + Agent-local Skill symlinks + optional scripts, not code
 - **Open standards** — MCP for tools, A2A for collaboration, open formats for skills
 - **Stateless instances** — state externalized from the start; the prerequisite for scaling to distributed
-- **Security as foundation** — controlled tool sources, least privilege, mandatory sandbox, credentials never persisted, full audit trail from day one
+- **Security as foundation** — controlled tool sources, least privilege, mandatory sandbox, encrypted storage for managed secrets, audit trails
 - **Phased and disciplined** — build the minimal complete runtime kernel first; every architecture upgrade is proven by real usage data
 
 ## Tech Stack
@@ -294,7 +294,7 @@ All endpoints are prefixed with `/api/v1` and every response is wrapped in a uni
 | LLM Integration | Spring AI (OpenAI-compatible protocol translation + `@Tool` schema only) |
 | CLI | Picocli |
 | Config | SnakeYAML |
-| Persistence | SQLite + Spring Data JPA |
+| Persistence | SQLite (default) / PostgreSQL (cluster), Spring Data JPA; pluggable local/shared POSIX workspace |
 | Logging | Logback + SLF4J (structured JSON) |
 | Build | Maven multi-module |
 
