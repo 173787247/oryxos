@@ -36,10 +36,11 @@
 - Admin：入站渠道列表 + `channels.yaml` `governance:` 面板（`GET/PUT /api/v1/channels/{name}/governance`）
 - 列表过滤：`GET` agents/skills/knowledge/channels 在 rbac+asset-governance 开启时按具名 `decide(READ_WORKSPACE)` 剔除 OFFLINE / PRIVATE 他属主条目
 - WORKSPACE 团队门禁：`teamOwner` 字段 + `oryxos.web.asset-governance.workspace-team-acl-enabled`（默认关）；OIDC groups 经 session 缓存注入 `Principal.teamIds`
+- `/skills/catalog`：已安装行叠加 GOVERNANCE 列表门禁；012 PUBLIC/PRIVATE 标签仍只管候选过滤，外部未安装行不变
 
 ## Out of scope (honest gaps)
 
 - 持久化 teams/orgs/members 表、JIT 建队、Admin 管队
 - Basic Auth session 的团队声明（仅 OIDC groups→session 缓存）
 - 完整版本历史
-- `/skills/catalog` 的 012 作者可见性与 GOVERNANCE visibility 合成（本刀只过滤已安装库列表）
+- Agent 侧 available-catalog / validate 未带 Principal 的作者路径
