@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.IdentityMappingService;
 import io.oryxos.storage.TeamCatalogService;
+import io.oryxos.storage.TeamMembershipService;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.oidc.HttpOidcTokenClient;
@@ -43,7 +44,8 @@ public class OidcConfig {
       TeamCatalogService teamCatalogService,
       io.oryxos.web.security.SessionOrgIdsCache sessionOrgIdsCache,
       WebRbacProperties rbacProperties,
-      io.oryxos.core.policy.TeamOrgLookup teamOrgLookup) {
+      io.oryxos.core.policy.TeamOrgLookup teamOrgLookup,
+      TeamMembershipService teamMembershipService) {
     return new OidcAuthService(
         properties,
         tokenClient,
@@ -56,6 +58,7 @@ public class OidcConfig {
         teamCatalogService,
         sessionOrgIdsCache,
         rbacProperties,
-        teamOrgLookup);
+        teamOrgLookup,
+        teamMembershipService);
   }
 }

@@ -28,6 +28,6 @@
 
 ## Honest gaps
 
-- Organizations catalog + nullable `teams.org_id` done (#554); Admin org UI + team set-org done (#556); WORKSPACE orgOwner gate done (#558); multilevel / OIDC→org JIT / auto memberships still deferred
-- OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); still no auto `team_memberships` rows
-- Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups)
+- Organizations catalog + nullable `teams.org_id` done (#554); Admin org UI + team set-org done (#556); WORKSPACE orgOwner gate done (#558); multilevel / OIDC→org JIT / membership revoke-on-login still deferred
+- OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); OIDC JIT durable `team_memberships` add done behind `oryxos.web.oidc.jit-team-memberships-enabled` (#562, default off; skip if no catalog row; no revoke)
+- Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups; JIT memberships flag skips when catalog row missing)

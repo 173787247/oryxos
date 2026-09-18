@@ -64,9 +64,16 @@ public class WebOidcProperties {
 
   /**
    * 登录后是否按 IdP groups 幂等确保 {@code teams} 目录行（#552）。默认关——关时不写 catalog；开时 display_name 回落为 group
-   * id。不写 {@code team_memberships}。
+   * id。不写 {@code team_memberships}（见 {@link #jitTeamMembershipsEnabled}）。
    */
   private boolean jitTeamCatalogEnabled = false;
+
+  /**
+   * 登录后是否按 IdP groups 幂等写 {@code team_memberships}（#562）。默认关——关时不写库。开时对每组调用 {@code
+   * TeamMembershipService.add}；无 catalog 行则跳过并打日志（可先开 {@link #jitTeamCatalogEnabled}）。本 cut
+   * 不撤销未匹配成员。
+   */
+  private boolean jitTeamMembershipsEnabled = false;
 
   public boolean isEnabled() {
     return enabled;
@@ -179,5 +186,13 @@ public class WebOidcProperties {
 
   public void setJitTeamCatalogEnabled(boolean jitTeamCatalogEnabled) {
     this.jitTeamCatalogEnabled = jitTeamCatalogEnabled;
+  }
+
+  public boolean isJitTeamMembershipsEnabled() {
+    return jitTeamMembershipsEnabled;
+  }
+
+  public void setJitTeamMembershipsEnabled(boolean jitTeamMembershipsEnabled) {
+    this.jitTeamMembershipsEnabled = jitTeamMembershipsEnabled;
   }
 }
