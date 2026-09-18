@@ -9,6 +9,8 @@ import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.agent.AgentValidation;
 import io.oryxos.core.agent.TraceContext;
+import io.oryxos.core.auth.Principal;
+import io.oryxos.core.auth.PrincipalContext;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.memory.MemoryService;
 import io.oryxos.core.profile.ProfileRegistry;
@@ -41,6 +43,8 @@ import io.oryxos.web.controller.dto.UpdateAgentRequest;
 import io.oryxos.web.controller.dto.UpdatePersonaRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
 import io.oryxos.web.security.AssetBindGuard;
+import io.oryxos.web.security.PrincipalHolder;
+import io.oryxos.web.security.RuntimeAgentGuard;
 import io.oryxos.web.sse.SseStreamSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -107,9 +111,22 @@ public class AgentApiController {
   /** 041：绑定/调用的资产门禁。可空以便单测直构——空时不额外 decide（与 flag 关时 ALLOW_ALL 同向：不改变绑定行为）。 */
   private AssetBindGuard assetBindGuard;
 
+  /** 503：开跑前 decide + PrincipalContext。可空时退化为只 requireAgentRun（无 ThreadLocal）。 */
+  private RuntimeAgentGuard runtimeAgentGuard;
+
   @Autowired(required = false)
   public void setAssetBindGuard(AssetBindGuard assetBindGuard) {
     this.assetBindGuard = assetBindGuard;
+    if (assetBindGuard != null && this.runtimeAgentGuard == null) {
+      this.runtimeAgentGuard = new RuntimeAgentGuard(assetBindGuard);
+    }
+  }
+
+  @Autowired(required = false)
+  public void setRuntimeAgentGuard(RuntimeAgentGuard runtimeAgentGuard) {
+    if (runtimeAgentGuard != null) {
+      this.runtimeAgentGuard = runtimeAgentGuard;
+    }
   }
 
   public AgentApiController(
@@ -324,14 +341,19 @@ public class AgentApiController {
     requireAgentRun(request, name);
     // 021：controller 先 open 拿 ID 回传调用方；AgentService 兜底 openIfAbsent 复用同一 ID
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
-      if (SseStreamSupport.wantsEventStream(request)) {
-        String content = req.content();
-        sseStreamSupport.stream(
-            response, listener -> agentService.processStateless(name, content, listener));
-        return null; // 响应已由 SSE 流写出并提交（trace 事件由 SseStreamSupport 发出）
+      bindPrincipal(request);
+      try {
+        if (SseStreamSupport.wantsEventStream(request)) {
+          String content = req.content();
+          sseStreamSupport.stream(
+              response, listener -> agentService.processStateless(name, content, listener));
+          return null; // 响应已由 SSE 流写出并提交（trace 事件由 SseStreamSupport 发出）
+        }
+        String reply = agentService.processStateless(name, req.content());
+        return ApiResponse.ok(new MessageResponse(reply, traceScope.traceId()));
+      } finally {
+        RuntimeAgentGuard.clear();
       }
-      String reply = agentService.processStateless(name, req.content());
-      return ApiResponse.ok(new MessageResponse(reply, traceScope.traceId()));
     }
   }
 
@@ -368,17 +390,24 @@ public class AgentApiController {
       throw new IllegalArgumentException("消息超过 32KB 上限"); // → 400
     }
     requireAgent(name);
+    requireAgentRun(request, name);
     Session session = sessionManager.getOrCreate(CONSOLE_CHANNEL, CONSOLE_USER, name);
     // 021：同 invoke——先 open 回传，流式路径由 SseStreamSupport 发 trace 事件
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
-      if (SseStreamSupport.wantsEventStream(request)) {
-        String content = req.content();
-        sseStreamSupport.stream(
-            response, listener -> agentService.process(session, content, listener));
-        return null; // 响应已由 SSE 流写出并提交
+      bindPrincipal(request);
+      try {
+        if (SseStreamSupport.wantsEventStream(request)) {
+          String content = req.content();
+          sseStreamSupport.stream(
+              response, listener -> agentService.process(session, content, listener));
+          return null; // 响应已由 SSE 流写出并提交
+        }
+        return ApiResponse.ok(
+            new MessageResponse(
+                agentService.process(session, req.content()), traceScope.traceId()));
+      } finally {
+        RuntimeAgentGuard.clear();
       }
-      return ApiResponse.ok(
-          new MessageResponse(agentService.process(session, req.content()), traceScope.traceId()));
     }
   }
 
@@ -388,7 +417,9 @@ public class AgentApiController {
    */
   @PostMapping("/{name}/trigger")
   public ApiResponse<TriggerResponse> trigger(
-      @PathVariable String name, @RequestBody(required = false) MessageRequest req) {
+      @PathVariable String name,
+      @RequestBody(required = false) MessageRequest req,
+      HttpServletRequest request) {
     requireAgent(name);
     String message =
         req == null || req.content() == null || req.content().isBlank()
@@ -397,6 +428,7 @@ public class AgentApiController {
     if (message.length() > MAX_MESSAGE_LENGTH) {
       throw new IllegalArgumentException("消息超过 32KB 上限"); // → 400
     }
+    Principal actor = authorizeCapture(request, name);
     Session session = sessionManager.getOrCreate(CONSOLE_CHANNEL, CONSOLE_USER, name);
     long executionId =
         executionService.triggerAsync(
@@ -404,7 +436,12 @@ public class AgentApiController {
             TRIGGER_SOURCE_MANUAL,
             session.sessionId(),
             message,
-            () -> agentService.process(session, message));
+            () ->
+                runWithPrincipal(
+                    actor,
+                    () -> {
+                      agentService.process(session, message);
+                    }));
     return ApiResponse.ok(new TriggerResponse(executionId, "RUNNING"));
   }
 
@@ -581,8 +618,39 @@ public class AgentApiController {
   }
 
   private void requireAgentRun(HttpServletRequest request, String name) {
+    if (runtimeAgentGuard != null) {
+      runtimeAgentGuard.bindForRun(request, name);
+      return;
+    }
     if (assetBindGuard != null) {
       assetBindGuard.requireAgentRun(request, name);
+      PrincipalContext.set(PrincipalHolder.get(request));
+    }
+  }
+
+  private void bindPrincipal(HttpServletRequest request) {
+    if (PrincipalContext.current() == null) {
+      PrincipalContext.set(PrincipalHolder.get(request));
+    }
+  }
+
+  private Principal authorizeCapture(HttpServletRequest request, String name) {
+    if (runtimeAgentGuard != null) {
+      return runtimeAgentGuard.authorizeAndCapture(request, name);
+    }
+    // 异步路径：只 decide，不装 ThreadLocal（request 线程与后台线程分离）
+    if (assetBindGuard != null) {
+      assetBindGuard.requireAgentRun(request, name);
+    }
+    return PrincipalHolder.get(request);
+  }
+
+  private static void runWithPrincipal(Principal principal, Runnable work) {
+    RuntimeAgentGuard.install(principal);
+    try {
+      work.run();
+    } finally {
+      RuntimeAgentGuard.clear();
     }
   }
 

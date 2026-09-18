@@ -13,10 +13,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.oryxos.core.agent.AgentService;
+import io.oryxos.core.policy.AuthorizationService;
 import io.oryxos.core.session.Session;
 import io.oryxos.core.session.SessionManager;
 import io.oryxos.core.session.SessionSummary;
 import io.oryxos.web.GlobalExceptionHandler;
+import io.oryxos.web.security.AssetBindGuard;
+import io.oryxos.web.security.RuntimeAgentGuard;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -90,6 +93,30 @@ class SessionApiControllerTest {
         .andExpect(jsonPath("$.data.reply").value("晴，适合穿短袖"));
 
     verify(agentService).process(eq(session), eq("今天天气")); // 恰一次；Controller 不夹带私货
+  }
+
+  @Test
+  @DisplayName("开跑门禁拒绝_不触发编排")
+  void runtimeGuardDeny_skipsProcess() throws Exception {
+    Session session = new Session("web:default:ops", "ops");
+    when(sessionManager.get("web:default:ops")).thenReturn(Optional.of(session));
+    AuthorizationService authorization = mock(AuthorizationService.class);
+    when(authorization.decide(any(), any(), any()))
+        .thenReturn(AuthorizationService.Decision.denied("OFFLINE"));
+    SessionApiController controller = new SessionApiController(agentService, sessionManager);
+    controller.setRuntimeAgentGuard(new RuntimeAgentGuard(new AssetBindGuard(authorization)));
+    MockMvc guarded =
+        MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+
+    guarded
+        .perform(
+            post("/api/v1/sessions/web:default:ops/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"今天天气\"}"))
+        .andExpect(status().isForbidden());
+    verify(agentService, never()).process(any(), any());
   }
 
   @Test
