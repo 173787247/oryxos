@@ -97,6 +97,18 @@ class AgentLifecycleSkillBindingTest {
   }
 
   @Test
+  void generateDraftHonorsSkillVisiblePredicate() {
+    AgentLifecycleService service = service(bindings, new InstalledSkillCatalog(skillRegistry));
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                service.generateDraft(
+                    "hidden", "生成报告", null, List.of("required"), null, null, name -> false));
+    assertTrue(ex.getMessage().contains("catalog"));
+  }
+
+  @Test
   void catalogRejectsUninstalledAndCreateRollsBackBindingFailure() {
     SkillCatalog uninstalled =
         (q, visibility) ->

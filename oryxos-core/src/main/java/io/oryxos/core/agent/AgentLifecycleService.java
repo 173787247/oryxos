@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.DumperOptions.FlowStyle;
@@ -724,6 +725,20 @@ public class AgentLifecycleService {
       List<String> requiredSkills,
       String provider,
       String model) {
+    return generateDraft(name, description, notifyChannel, requiredSkills, provider, model, null);
+  }
+
+  /**
+   * 生成草稿；{@code skillVisible} 非空时只把通过可见性谓词的已安装 Skill 注入提示词与 required 校验（Web 侧接 GOVERNANCE 列表门禁）。
+   */
+  public GeneratedAgentDraft generateDraft(
+      String name,
+      String description,
+      String notifyChannel,
+      List<String> requiredSkills,
+      String provider,
+      String model,
+      Predicate<String> skillVisible) {
     String genProvider =
         authorProvider == null || authorProvider.isBlank()
             ? (defaultProvider == null || defaultProvider.isBlank() ? "deepseek" : defaultProvider)
@@ -738,7 +753,7 @@ public class AgentLifecycleService {
       throw new IllegalArgumentException("通知渠道不存在: " + channel);
     }
     // 用户显式指定的 Skill（"启用哪个 Skill"也是人的决定）：校验确实存在于全局库
-    List<SkillCatalogEntry> candidates = availableCatalogCandidates();
+    List<SkillCatalogEntry> candidates = availableCatalogCandidates(skillVisible);
     Set<String> candidateNames =
         candidates.stream().map(SkillCatalogEntry::name).collect(Collectors.toSet());
     List<String> required = normalizedSkills(requiredSkills);
@@ -870,13 +885,23 @@ public class AgentLifecycleService {
   }
 
   public Profile saveFiles(String name, Map<String, String> files, List<String> bindingSkills) {
+    return saveFiles(name, files, bindingSkills, null);
+  }
+
+  /** 保存 Agent 文件；{@code skillVisible} 非空时绑定名单只允许可见的已安装 catalog 项（与 Web GOVERNANCE 列表门禁对齐）。 */
+  public Profile saveFiles(
+      String name,
+      Map<String, String> files,
+      List<String> bindingSkills,
+      Predicate<String> skillVisible) {
     String agentMarkdown = files == null ? null : files.get("AGENT.md");
     if (agentMarkdown == null || agentMarkdown.isBlank()) {
       throw new IllegalArgumentException("缺少 AGENT.md 内容");
     }
     rejectLegacySkills(agentMarkdown);
     agentLoader.parse(agentMarkdown, name); // 先校验再落盘：非法定义不写进目录
-    List<String> validated = bindingSkills == null ? null : validateBindable(bindingSkills);
+    List<String> validated =
+        bindingSkills == null ? null : validateBindable(bindingSkills, skillVisible);
     Profile old = profileRegistry.get(name).orElse(null);
     if (validated != null && skillBindings == null) {
       throw new IllegalStateException("Agent Skill 绑定服务未装配");
@@ -1021,12 +1046,19 @@ public class AgentLifecycleService {
   }
 
   private List<SkillCatalogEntry> availableCatalogCandidates() {
+    return availableCatalogCandidates(null);
+  }
+
+  private List<SkillCatalogEntry> availableCatalogCandidates(Predicate<String> skillVisible) {
     if (skillCatalog == null || skillRegistry == null) {
       return List.of();
     }
     List<SkillCatalogEntry> entries = skillCatalog.query("", null);
     Map<String, SkillCatalogEntry> unique = new LinkedHashMap<>();
     for (SkillCatalogEntry entry : entries) {
+      if (skillVisible != null && !skillVisible.test(entry.name())) {
+        continue;
+      }
       if (unique.putIfAbsent(entry.name(), entry) != null) {
         throw new IllegalStateException("Skill catalog 存在同名公共/私有冲突: " + entry.name());
       }
@@ -1038,9 +1070,13 @@ public class AgentLifecycleService {
   }
 
   private List<String> validateBindable(List<String> names) {
+    return validateBindable(names, null);
+  }
+
+  private List<String> validateBindable(List<String> names, Predicate<String> skillVisible) {
     List<String> normalized = normalizedSkills(names);
     Set<String> available =
-        availableCatalogCandidates().stream()
+        availableCatalogCandidates(skillVisible).stream()
             .map(SkillCatalogEntry::name)
             .collect(Collectors.toSet());
     for (String name : normalized) {
