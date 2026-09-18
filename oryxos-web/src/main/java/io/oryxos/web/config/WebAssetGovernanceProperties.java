@@ -21,6 +21,12 @@ public class WebAssetGovernanceProperties {
   /** 是否叠加 WORKSPACE+teamOwner 门禁。默认关。仅在 {@link #enabled} 为 true 且 RBAC 已开时由装配层传入装饰器。 */
   private boolean workspaceTeamAclEnabled = false;
 
+  /**
+   * 是否在治理 PUT 时追加全文快照到 {@code asset_governance_revisions}（#537）。默认关：仅 V11 change_summary
+   * 事件，行为与引入版本历史前一致。
+   */
+  private boolean versionHistoryEnabled = false;
+
   public boolean isEnabled() {
     return enabled;
   }
@@ -35,5 +41,13 @@ public class WebAssetGovernanceProperties {
 
   public void setWorkspaceTeamAclEnabled(boolean workspaceTeamAclEnabled) {
     this.workspaceTeamAclEnabled = workspaceTeamAclEnabled;
+  }
+
+  public boolean isVersionHistoryEnabled() {
+    return versionHistoryEnabled;
+  }
+
+  public void setVersionHistoryEnabled(boolean versionHistoryEnabled) {
+    this.versionHistoryEnabled = versionHistoryEnabled;
   }
 }

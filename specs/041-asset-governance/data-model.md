@@ -46,6 +46,13 @@ Append-only audit of governance PUT:
 
 - id, actor, resource_type, resource_id, change_summary, created_at
 
+## asset_governance_revisions (V13 / #537)
+
+Append-only full-text snapshots when `version-history-enabled`:
+
+- id, resource_type, resource_id, version_label, snapshot_text, actor, created_at
+- GET `.../governance/revisions` lists newest-first; no diff/rollback in this cut
+
 ## Runtime wiring
 
 - `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`

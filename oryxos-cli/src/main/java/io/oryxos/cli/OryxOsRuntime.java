@@ -1177,6 +1177,13 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.AssetGovernanceEventRecorder(repository);
   }
 
+  /** #537：治理全文快照（写失败不回滚侧车）。 */
+  @Bean
+  io.oryxos.storage.AssetGovernanceRevisionRecorder assetGovernanceRevisionRecorder(
+      io.oryxos.storage.AssetGovernanceRevisionRepository repository) {
+    return new io.oryxos.storage.AssetGovernanceRevisionRecorder(repository);
+  }
+
   /** 040：OIDC issuer/sub → 本地 username 映射。 */
   @Bean
   IdentityMappingService identityMappingService(

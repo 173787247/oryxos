@@ -25,4 +25,4 @@
 
 - No teams catalog / orgs hierarchy / JIT team provisioning / Admin team UI (#535 adds `team_memberships` + CLI only)
 - Team ids remain session-scoped (process cache; restart clears)
-- No full version history
+- No diff/rollback UI (#537 adds append-only revision snapshots + list API)
