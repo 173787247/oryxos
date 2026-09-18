@@ -121,6 +121,7 @@ oryxos:
       # group-roles 为空则不改角色。非空时命中才 setRoles；未命中默认不撤权。
       # revoke-unmatched-roles: false   # true 时 group-roles 已配但零命中 → 清空 roles
       # jit-provision-enabled: false    # true 时未映射 subject 按 preferred_username/email 建用户+mapping
+      # jit-team-catalog-enabled: false # true 时登录按 groups 幂等写 teams 目录行（display_name=id）
       # group-claim: groups
       # group-roles: {}
 

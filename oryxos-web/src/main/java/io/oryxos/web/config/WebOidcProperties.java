@@ -62,6 +62,12 @@ public class WebOidcProperties {
    */
   private boolean revokeUnmatchedRoles = false;
 
+  /**
+   * 登录后是否按 IdP groups 幂等确保 {@code teams} 目录行（#552）。默认关——关时不写 catalog；开时 display_name 回落为 group
+   * id。不写 {@code team_memberships}。
+   */
+  private boolean jitTeamCatalogEnabled = false;
+
   public boolean isEnabled() {
     return enabled;
   }
@@ -165,5 +171,13 @@ public class WebOidcProperties {
 
   public void setRevokeUnmatchedRoles(boolean revokeUnmatchedRoles) {
     this.revokeUnmatchedRoles = revokeUnmatchedRoles;
+  }
+
+  public boolean isJitTeamCatalogEnabled() {
+    return jitTeamCatalogEnabled;
+  }
+
+  public void setJitTeamCatalogEnabled(boolean jitTeamCatalogEnabled) {
+    this.jitTeamCatalogEnabled = jitTeamCatalogEnabled;
   }
 }

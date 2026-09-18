@@ -8,7 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** TeamCatalogService 契约：create/rename/list/delete。 */
+/** TeamCatalogService 契约：create/ensure/rename/list/delete。 */
 @org.springframework.transaction.annotation.Transactional
 abstract class TeamCatalogServiceContractTest {
 
@@ -50,5 +50,17 @@ abstract class TeamCatalogServiceContractTest {
   void create_blankDisplay_fallsBackToId() {
     Team t = service().create("platform", "  ");
     assertEquals("platform", t.getDisplayName());
+  }
+
+  @Test
+  @DisplayName("ensure_缺失则创建_已存在则跳过")
+  void ensure_createsMissing_skipsExisting() {
+    TeamCatalogService svc = service();
+    Team first = svc.ensure("eng");
+    assertEquals("eng", first.getTeamId());
+    assertEquals("eng", first.getDisplayName());
+    svc.ensure("eng", "ignored-rename");
+    assertEquals(1, svc.list().size());
+    assertEquals("eng", svc.find("eng").orElseThrow().getDisplayName());
   }
 }

@@ -21,8 +21,7 @@ Default-off OIDC authorization-code + PKCE login for the admin console. Maps IdP
 
 ## Out of scope (honest gaps)
 
-- JIT / auto-provision local users from IdP claims
-- Groups → roles is config-only (`oryxos.web.oidc.group-roles`). Empty map does not touch roles. Unmatched login does not revoke. No admin UI for the map. No JIT.
+- Default-off flags only: JIT user (`jit-provision-enabled`), group-roles / revoke-unmatched, JIT team catalog (`jit-team-catalog-enabled` / #552). No orgs hierarchy / orgId FK / Admin org UI; no auto `team_memberships`.
 - Admin UI for mapping
 - Multi-IdP / discovery UI
 - Full 九件套 research/plan/tasks/contracts

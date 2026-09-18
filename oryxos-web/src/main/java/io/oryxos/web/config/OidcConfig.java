@@ -3,6 +3,7 @@ package io.oryxos.web.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.IdentityMappingService;
+import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.oidc.HttpOidcTokenClient;
@@ -38,7 +39,8 @@ public class OidcConfig {
       WebUserService userService,
       WebSessionService sessionService,
       AuthEventRecorder authEventRecorder,
-      io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache) {
+      io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache,
+      TeamCatalogService teamCatalogService) {
     return new OidcAuthService(
         properties,
         tokenClient,
@@ -47,6 +49,7 @@ public class OidcConfig {
         userService,
         sessionService,
         authEventRecorder,
-        sessionTeamIdsCache);
+        sessionTeamIdsCache,
+        teamCatalogService);
   }
 }

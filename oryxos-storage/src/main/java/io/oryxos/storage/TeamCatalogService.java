@@ -34,6 +34,26 @@ public class TeamCatalogService {
     return repository.findByTeamId(teamId.strip());
   }
 
+  /** 幂等确保目录行存在（OIDC JIT / #552）。已存在则原样返回；不存在则创建，displayName 空则回落为 teamId。 */
+  @Transactional(rollbackFor = Exception.class)
+  public Team ensure(String teamId) {
+    return ensure(teamId, null);
+  }
+
+  /** 同 {@link #ensure(String)}；可传入展示名（空则回落 teamId）。已存在不改名。 */
+  @Transactional(rollbackFor = Exception.class)
+  public Team ensure(String teamId, String displayName) {
+    String cleanId = requireTeamId(teamId);
+    Optional<Team> existing = repository.findByTeamId(cleanId);
+    if (existing.isPresent()) {
+      return existing.get();
+    }
+    Team row = new Team();
+    row.setTeamId(cleanId);
+    row.setDisplayName(resolveDisplayName(displayName, cleanId));
+    return repository.save(row);
+  }
+
   /** 创建目录行；已存在则抛 IllegalArgumentException。displayName 空则回落为 teamId。 */
   @Transactional(rollbackFor = Exception.class)
   public Team create(String teamId, String displayName) {
