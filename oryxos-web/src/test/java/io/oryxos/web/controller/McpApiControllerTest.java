@@ -51,11 +51,13 @@ class McpApiControllerTest {
                     null,
                     Map.of(),
                     "https://api.githubcopilot.com/mcp/",
-                    Map.of("Authorization", "Bearer ghp_secret123456"))));
+                    Map.of("Authorization", "Bearer ghp_secret123456"),
+                    120)));
 
     mvc.perform(get("/api/v1/mcp-servers"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data[0].headers.Authorization").value("****3456"));
+        .andExpect(jsonPath("$.data[0].headers.Authorization").value("****3456"))
+        .andExpect(jsonPath("$.data[0].requestTimeoutSeconds").value(120));
   }
 
   @Test
@@ -68,7 +70,8 @@ class McpApiControllerTest {
             "npx -y server",
             Map.of("GITHUB_TOKEN", "ghp_token1234"),
             null,
-            Map.of());
+            Map.of(),
+            180);
     when(admin.list()).thenReturn(List.of(existing));
     when(admin.update(eq("gh"), any())).thenAnswer(invocation -> invocation.getArgument(1));
 
@@ -84,6 +87,7 @@ class McpApiControllerTest {
     verify(admin).update(eq("gh"), captor.capture());
     Assertions.assertEquals(
         "ghp_token1234", captor.getValue().env().get("GITHUB_TOKEN"), "掩码回填不得覆盖真实 token");
+    Assertions.assertEquals(180, captor.getValue().requestTimeoutSeconds(), "省略 timeout 时保留原值");
   }
 
   @Test
@@ -105,12 +109,32 @@ class McpApiControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"transport\":\"stdio\",\"command\":\"npx -y server\","
-                        + "\"env\":{\"GITHUB_TOKEN\":\"ghp_newtoken99\"},\"headers\":{}}"))
+                        + "\"env\":{\"GITHUB_TOKEN\":\"ghp_newtoken99\"},\"headers\":{},"
+                        + "\"requestTimeoutSeconds\":240}"))
         .andExpect(status().isOk());
 
     ArgumentCaptor<McpServerConfig> captor = ArgumentCaptor.forClass(McpServerConfig.class);
     verify(admin).update(eq("gh"), captor.capture());
     Assertions.assertEquals("ghp_newtoken99", captor.getValue().env().get("GITHUB_TOKEN"));
+    Assertions.assertEquals(240, captor.getValue().requestTimeoutSeconds());
+  }
+
+  @Test
+  @DisplayName("update requestTimeoutSeconds 越界_返回400")
+  void update_invalidTimeout_returns400() throws Exception {
+    when(admin.list())
+        .thenReturn(
+            List.of(new McpServerConfig("gh", "stdio", "npx -y server", Map.of(), null, Map.of())));
+
+    mvc.perform(
+            put("/api/v1/mcp-servers/gh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"transport\":\"stdio\",\"command\":\"npx -y server\","
+                        + "\"env\":{},\"headers\":{},\"requestTimeoutSeconds\":0}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message").value(org.hamcrest.Matchers.containsString("request_timeout")));
   }
 
   @Test

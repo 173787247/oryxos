@@ -13,21 +13,21 @@
 # SCHEMA (exactly what McpConfigLoader parses — do not add other fields)
 #   servers:
 #     - name:      <string>   # unique id for this server
-#       transport: stdio      # ONLY "stdio" is supported in the core phase.
-#                             # http/sse entries are skipped at startup with a WARN.
+#       transport: stdio      # "stdio" (command/env) or "http" (url/headers)
 #       command:   <string>   # ONE line. It is split on whitespace: the first
 #                             # token is the executable, the rest are its args.
 #                             # There is NO separate `args:` field.
+#       request_timeout: 30   # optional integer seconds, 1..3600; default 30
 #       env:                  # process environment for the subprocess (a map)
 #         KEY: value          # values MAY use ${ENV_VAR} placeholders (resolved
 #                             # from OryxOS's own environment at load time)
 #
 # CREDENTIALS — read this before configuring a database
-#   * ${ENV_VAR} placeholders are resolved ONLY inside `env:` values.
-#     They are NOT expanded inside `command:`. So never put a secret (token,
-#     password, DB connection URL with credentials) in `command:` — it would
-#     be a literal hardcoded secret. Put secrets in `env:` via ${ENV_VAR} and
-#     prefer MCP servers that read their credentials from environment variables.
+#   * ${ENV_VAR} placeholders are resolved ONLY inside `env:` / `headers:`
+#     values. They are NOT expanded inside `command:` / `url:`. So never put a
+#     secret (token, password, DB connection URL with credentials) in those
+#     fields — it would be a literal hardcoded secret. Put secrets in `env:` or
+#     `headers:` via ${ENV_VAR}.
 #   * Missing env vars are left as the literal "${VAR}" and logged as a WARN;
 #     the server simply fails to authenticate rather than crashing OryxOS.
 #
@@ -64,7 +64,8 @@ servers:
   # Archived reference server (still installable). Reads its token from env.
   # Official replacement: github/github-mcp-server (Go binary /
   # ghcr.io/github/github-mcp-server Docker image, and a hosted remote server).
-  # The remote server is HTTP-based, so it is NOT usable in the core phase yet.
+  # The hosted server requires Streamable HTTP; OryxOS's current `http`
+  # transport is legacy SSE, so the hosted variant is not usable yet.
   # - name: github
   #   transport: stdio
   #   command: npx -y @modelcontextprotocol/server-github
@@ -193,11 +194,11 @@ servers:
   # Sentry — inspect issues and error events
   # ---------------------------------------------------------------------------
   # Sentry's official offering is now a REMOTE (HTTP) server at
-  # https://mcp.sentry.dev — NOT usable in the core phase (stdio only).
+  # https://mcp.sentry.dev — requires Streamable HTTP, which is not supported yet.
   # The archived stdio server (Python) takes the auth token as a command
   # argument, which ${ENV} does NOT expand, so it cannot receive the secret
   # safely through this file. Left here for reference only; prefer the remote
-  # server once OryxOS gains http/sse transport support:
+  # server once OryxOS gains Streamable HTTP transport support:
   # - name: sentry
   #   transport: stdio
   #   command: uvx mcp-server-sentry --auth-token PUT_TOKEN_ON_HOST_NOT_HERE

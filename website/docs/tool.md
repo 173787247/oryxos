@@ -101,21 +101,23 @@ MCP server configuration in `mcp_servers.yaml`:
 ```yaml
 servers:
   - name: github-mcp
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
+    transport: stdio
+    command: npx -y @modelcontextprotocol/server-github
+    request_timeout: 120
     env:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
 
   - name: my-internal-api
-    command: python3
-    args: ["/opt/tools/my_mcp_server.py"]
-    env:
-      API_BASE: ${INTERNAL_API_BASE}
+    transport: http
+    url: https://mcp.internal.example.com
+    request_timeout: 300
+    headers:
+      Authorization: Bearer ${INTERNAL_API_TOKEN}
 ```
 
-OryxOS starts each MCP server as a subprocess at startup and communicates over JSON-RPC via stdio. Tools exposed by the server are registered in `ToolRegistry` under their declared names.
+OryxOS connects each MCP server at startup: `stdio` launches a local subprocess, while `http` connects to a remote server. Tools exposed by the server are registered in `ToolRegistry` under their declared names.
 
-> **Config schema.** `McpConfigLoader` parses a top-level `servers:` list where each entry has four fields: `name`, `transport` (only `stdio` in the core phase — `http`/`sse` entries are skipped at startup with a WARN), `command` (a single string, split on whitespace into executable + args — there is no separate `args:` field), and `env` (a map). `${ENV_VAR}` placeholders are resolved **only inside `env:` values**, not inside `command:` — so secrets belong in `env:`, never inline in `command:`.
+> **Config schema.** `McpConfigLoader` parses a top-level `servers:` list. Each entry has `name` and `transport`, plus `command`/`env` for `stdio` or `url`/`headers` for `http`. `command` is a single whitespace-split string; there is **no separate `args:` field**. Optional `request_timeout` is an integer number of seconds from 1 to 3600 and defaults to 30; raise it per server for slower ETL or deployment tools. `${ENV_VAR}` placeholders are resolved only in `env` and `headers` values, so secrets must not be embedded in `command` or `url`.
 
 ## Recommended MCP servers
 

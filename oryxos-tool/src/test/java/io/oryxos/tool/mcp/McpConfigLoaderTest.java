@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.mcp.McpServerConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -138,5 +139,55 @@ class McpConfigLoaderTest {
     List<io.oryxos.core.mcp.McpServerConfig> ok = new McpConfigLoader(configFile()).loadRaw();
     assertEquals(1, ok.size());
     assertEquals("yes", ok.get(0).name());
+  }
+
+  @Test
+  @DisplayName("request_timeout 缺省 30 秒，自定义整数可加载并往返持久化")
+  void requestTimeout_defaultsAndRoundTrips() throws Exception {
+    write(
+        """
+        servers:
+          - name: default-timeout
+            transport: stdio
+            command: echo
+          - name: long-task
+            transport: stdio
+            command: echo
+            request_timeout: 300
+        """);
+    McpConfigLoader loader = new McpConfigLoader(configFile());
+
+    List<McpServerConfig> configs = loader.loadRaw();
+
+    assertEquals(
+        McpServerConfig.DEFAULT_REQUEST_TIMEOUT_SECONDS, configs.get(0).requestTimeoutSeconds());
+    assertEquals(300, configs.get(1).requestTimeoutSeconds());
+
+    loader.save(configs);
+    String saved = Files.readString(configFile());
+    assertTrue(saved.contains("request_timeout: 300"));
+    assertEquals(300, loader.loadRaw().get(1).requestTimeoutSeconds());
+  }
+
+  @Test
+  @DisplayName("request_timeout 非整数或超出 1..3600 秒时 fail-loud")
+  void requestTimeout_rejectsInvalidValues() throws Exception {
+    for (String invalid : List.of("0", "3601", "1.5", "\"60\"")) {
+      write(
+          """
+          servers:
+            - name: bad-timeout
+              transport: stdio
+              command: echo
+              request_timeout: %s
+          """
+              .formatted(invalid));
+
+      IllegalArgumentException ex =
+          assertThrows(
+              IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+
+      assertTrue(ex.getMessage().contains("request_timeout"), ex::getMessage);
+    }
   }
 }

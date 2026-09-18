@@ -94,8 +94,13 @@ public class McpApiController {
     // 视图回显的是掩码值；提交掩码 = 未修改，保留原凭证——否则打码值会覆盖真实 token（Provider 同款口径）
     Map<String, String> env = CredentialMasks.mergeUnchanged(existing.env(), req.env());
     Map<String, String> headers = CredentialMasks.mergeUnchanged(existing.headers(), req.headers());
+    int requestTimeoutSeconds =
+        req.requestTimeoutSeconds() == null
+            ? existing.requestTimeoutSeconds()
+            : req.requestTimeoutSeconds();
     McpServerConfig config =
-        new McpServerConfig(name, req.transport(), req.command(), env, req.url(), headers);
+        new McpServerConfig(
+            name, req.transport(), req.command(), env, req.url(), headers, requestTimeoutSeconds);
     return ApiResponse.ok(McpServerView.from(admin.update(name, config)));
   }
 

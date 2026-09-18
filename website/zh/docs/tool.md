@@ -101,21 +101,23 @@ Agent 在其 **`AGENT.md` 正文**里用自然语言按名引用渠道——例�
 ```yaml
 servers:
   - name: github-mcp
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
+    transport: stdio
+    command: npx -y @modelcontextprotocol/server-github
+    request_timeout: 120
     env:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
 
   - name: my-internal-api
-    command: python3
-    args: ["/opt/tools/my_mcp_server.py"]
-    env:
-      API_BASE: ${INTERNAL_API_BASE}
+    transport: http
+    url: https://mcp.internal.example.com
+    request_timeout: 300
+    headers:
+      Authorization: Bearer ${INTERNAL_API_TOKEN}
 ```
 
-OryxOS 在启动时将每个 MCP server 作为子进程启动，通过 stdio 上的 JSON-RPC 通信。server 暴露的工具以其声明的名称注册到 `ToolRegistry` 中。
+OryxOS 在启动时连接每个 MCP server：`stdio` 启动本地子进程，`http` 连接远程 server。server 暴露的工具以其声明的名称注册到 `ToolRegistry` 中。
 
-> **配置 Schema。** `McpConfigLoader` 解析顶层的 `servers:` 列表，每个条目有四个字段：`name`、`transport`（核心阶段只支持 `stdio`——`http`/`sse` 条目在启动时被跳过并 WARN）、`command`（单个字符串，按空白切分成可执行文件 + 参数，**没有独立的 `args:` 字段**）、`env`（映射）。`${ENV_VAR}` 占位符**只在 `env:` 的值里解析**，不在 `command:` 里解析——因此密钥应放在 `env:`，绝不能内联写进 `command:`。
+> **配置 Schema。** `McpConfigLoader` 解析顶层的 `servers:` 列表。每个条目包含 `name`、`transport`，并按传输类型使用 `command`/`env`（`stdio`）或 `url`/`headers`（`http`）。`command` 是按空白切分的单个字符串，**没有独立的 `args:` 字段**。可选的 `request_timeout` 是 1–3600 之间的整数秒数，缺省保持 30 秒；适合为 ETL、部署等较慢 server 单独放宽。`${ENV_VAR}` 占位符只在 `env` 和 `headers` 的值里解析，密钥不得内联写进 `command` 或 `url`。
 
 ## 推荐 MCP 服务器
 

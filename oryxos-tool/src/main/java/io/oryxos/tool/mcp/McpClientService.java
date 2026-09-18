@@ -9,7 +9,6 @@ import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.oryxos.core.mcp.McpServerConfig;
 import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.tool.ToolRegistry;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,8 +28,6 @@ import org.slf4j.LoggerFactory;
 public class McpClientService {
 
   private static final Logger LOG = LoggerFactory.getLogger(McpClientService.class);
-
-  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
   private static final Set<String> SUPPORTED_TRANSPORTS =
       Set.of(McpServerConfig.TRANSPORT_STDIO, McpServerConfig.TRANSPORT_HTTP);
@@ -144,7 +141,7 @@ public class McpClientService {
             .env(config.env())
             .build();
     return McpClient.sync(new StdioClientTransport(params, McpJsonDefaults.getMapper()))
-        .requestTimeout(REQUEST_TIMEOUT)
+        .requestTimeout(config.requestTimeout())
         .build();
   }
 
@@ -156,7 +153,7 @@ public class McpClientService {
       transport.httpRequestCustomizer(
           (request, method, uri, body, context) -> config.headers().forEach(request::header));
     }
-    return McpClient.sync(transport.build()).requestTimeout(REQUEST_TIMEOUT).build();
+    return McpClient.sync(transport.build()).requestTimeout(config.requestTimeout()).build();
   }
 
   private static String s(String value) {

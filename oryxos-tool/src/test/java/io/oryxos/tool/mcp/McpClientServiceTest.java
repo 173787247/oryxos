@@ -1,6 +1,7 @@
 package io.oryxos.tool.mcp;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -20,6 +21,7 @@ import io.oryxos.tool.ToolRegistry;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.function.Function;
 import org.junit.jupiter.api.DisplayName;
@@ -119,6 +121,28 @@ class McpClientServiceTest {
     assertTrue(configs.get(0).command().startsWith("npx"));
     assertTrue(configs.get(0).env().get("TOKEN").contains("${ORYX_TEST_UNSET_ENV}"), "缺失占位保留原样");
     assertTrue(new McpConfigLoader(dir.resolve("nope.yaml")).load().isEmpty());
+  }
+
+  @Test
+  @DisplayName("每个 server 的 request_timeout 转换为客户端使用的 Duration")
+  void requestTimeout_isResolvedPerServer() throws IOException {
+    McpConfigLoader loader =
+        loaderWith(
+            """
+            servers:
+              - name: default-timeout
+                transport: stdio
+                command: echo
+              - name: long-task
+                transport: http
+                url: https://example.com/mcp
+                request_timeout: 240
+            """);
+
+    List<McpServerConfig> configs = loader.load();
+
+    assertEquals(Duration.ofSeconds(30), configs.get(0).requestTimeout());
+    assertEquals(Duration.ofSeconds(240), configs.get(1).requestTimeout());
   }
 
   @Test
