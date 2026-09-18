@@ -75,6 +75,7 @@ const RUNTIME_NAV = [
   { key: 'mcp', label: 'MCP 管理' },
   { key: 'tools', label: 'Tool 列表', path: '/api/v1/tools' },
   { key: 'notify-channels', label: 'Notify 渠道' },
+  { key: 'inbound-channels', label: '入站渠道' },
   { key: 'whitelist', label: 'SandBox 列表' },
   { key: 'tool-policy', label: '工具策略' },
   { key: 'exec-backend', label: '执行后端' },
@@ -212,6 +213,7 @@ function select(key, options = {}) {
   if (key === 'agents') { agentDetail.value = null; fileView.value = null; loadAgents() }
   if (key === 'personas') { cancelPersonaForm(); loadPersonaPresets() }
   if (key === 'notify-channels') { cancelNc(); loadNotifyChannels() }
+  if (key === 'inbound-channels') { closeInboundChannelDetail(); loadInboundChannels() }
   if (key === 'providers') { cancelPv(); loadProviders() }
   if (key === 'whitelist') { cancelWl(); loadWhitelist() }
   if (key === 'tool-policy') { cancelTp(); loadToolPolicy() }
@@ -232,6 +234,10 @@ function refresh() {
   if (key === 'agents') { loadAgents(); return }
   if (key === 'personas') { loadPersonaPresets(); return }
   if (key === 'notify-channels') { loadNotifyChannels(); return }
+  if (key === 'inbound-channels') {
+    inboundChannelDetail.value ? openInboundChannelDetail(inboundChannelDetail.value.name) : loadInboundChannels()
+    return
+  }
   if (key === 'providers') { loadProviders(); return }
   if (key === 'whitelist') { loadWhitelist(); return }
   if (key === 'exec-backend') { loadExecBackend(); return }
@@ -1876,6 +1882,118 @@ function cancelEditKbGovernance() {
 }
 function saveKbGovernance() {
   return persistGovernance(kbGovernance, 'knowledge', kbDetail.value?.name)
+}
+
+// —— 041 / #504：入站渠道列表 + channels.yaml governance 面板 ——
+const inboundChannels = ref({ loading: false, error: null, data: [] })
+const inboundChannelDetail = ref(null) // { name, type, agent, enabled, loading, error }
+const channelGovernance = reactive({
+  open: false,
+  loading: false,
+  saving: false,
+  error: '',
+  owner: '',
+  version: '',
+  visibility: '',
+  riskLevel: '',
+  health: '',
+  loaded: false,
+})
+async function loadInboundChannels() {
+  inboundChannels.value = { loading: true, error: null, data: [] }
+  try {
+    const res = await fetch('/api/v1/channels')
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '加载失败')
+    inboundChannels.value = { loading: false, error: null, data: body.data || [] }
+  } catch (e) {
+    inboundChannels.value = { loading: false, error: e.message, data: [] }
+  }
+}
+function closeInboundChannelDetail() {
+  inboundChannelDetail.value = null
+  channelGovernance.open = false
+  channelGovernance.loaded = false
+}
+async function openInboundChannelDetail(nameOrRow) {
+  const name = typeof nameOrRow === 'string' ? nameOrRow : nameOrRow?.name
+  if (!name) return
+  const row = inboundChannels.value.data.find((c) => c.name === name) || nameOrRow
+  inboundChannelDetail.value = {
+    name,
+    type: row?.type || '—',
+    agent: row?.agent || '—',
+    enabled: row?.enabled !== false,
+    loading: false,
+    error: null,
+  }
+  await loadChannelGovernance(name)
+}
+async function loadChannelGovernance(name) {
+  channelGovernance.loading = true
+  channelGovernance.error = ''
+  channelGovernance.open = false
+  channelGovernance.loaded = false
+  try {
+    const res = await fetch(`/api/v1/channels/${encodeURIComponent(name)}/governance`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '治理加载失败')
+    const g = body.data || {}
+    channelGovernance.owner = g.owner || ''
+    channelGovernance.version = g.version || ''
+    channelGovernance.visibility = g.visibility || ''
+    channelGovernance.riskLevel = g.riskLevel || ''
+    channelGovernance.health = g.health || ''
+    channelGovernance.loaded = true
+  } catch (e) {
+    channelGovernance.error = e.message
+  } finally {
+    channelGovernance.loading = false
+  }
+}
+function startEditChannelGovernance() {
+  channelGovernance.open = true
+  channelGovernance.error = ''
+  channelGovernance.saving = false
+}
+async function cancelEditChannelGovernance() {
+  channelGovernance.open = false
+  if (inboundChannelDetail.value?.name) await loadChannelGovernance(inboundChannelDetail.value.name)
+}
+async function saveChannelGovernance() {
+  if (!inboundChannelDetail.value) return
+  channelGovernance.saving = true
+  channelGovernance.error = ''
+  try {
+    const res = await fetch(
+      `/api/v1/channels/${encodeURIComponent(inboundChannelDetail.value.name)}/governance`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: channelGovernance.owner.trim() || null,
+          version: channelGovernance.version.trim() || null,
+          visibility: channelGovernance.visibility.trim() || null,
+          riskLevel: channelGovernance.riskLevel.trim() || null,
+          health: channelGovernance.health.trim() || null,
+        }),
+      },
+    )
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存失败')
+    const g = body.data || {}
+    channelGovernance.owner = g.owner || ''
+    channelGovernance.version = g.version || ''
+    channelGovernance.visibility = g.visibility || ''
+    channelGovernance.riskLevel = g.riskLevel || ''
+    channelGovernance.health = g.health || ''
+    channelGovernance.open = false
+    channelGovernance.loaded = true
+  } catch (e) {
+    channelGovernance.error = e.message
+  } finally {
+    channelGovernance.saving = false
+  }
 }
 
 // —— 执行历史 tab：该 Agent 每次触发的起止时间 / 状态 / 时长（手动 + 定时）——
@@ -3615,6 +3733,81 @@ const outputRows = computed(() =>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- 入站渠道（017/041）：列表 + 治理块（channels.yaml governance:）；CRUD 仍走 API/配置文件 -->
+          <div v-else-if="active === 'inbound-channels'">
+            <template v-if="!inboundChannelDetail">
+              <p class="empty">入站 IM 渠道来自 .oryxos/channels.yaml。本页只读列表并编辑治理块（OFFLINE/PRIVATE 等）；增删改渠道定义仍用 API 或改配置。</p>
+              <p v-if="inboundChannels.loading" class="empty">加载中…</p>
+              <p v-else-if="inboundChannels.error" class="error">出错：{{ inboundChannels.error }}</p>
+              <table v-else>
+                <thead><tr><th>name</th><th>type</th><th>agent</th><th>enabled</th><th style="width:90px">操作</th></tr></thead>
+                <tbody>
+                  <tr v-if="!inboundChannels.data.length"><td colspan="5" class="empty">（暂无入站渠道）</td></tr>
+                  <tr v-for="c in inboundChannels.data" :key="c.name">
+                    <td class="mono">{{ c.name }}</td>
+                    <td class="mono">{{ c.type }}</td>
+                    <td class="mono">{{ c.agent }}</td>
+                    <td>{{ c.enabled === false ? '否' : '是' }}</td>
+                    <td class="ops"><button class="btn" @click="openInboundChannelDetail(c)">治理</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+            <div v-else>
+              <button class="btn back" @click="closeInboundChannelDetail">← 返回入站渠道列表</button>
+              <div class="sess-meta"><span>入站渠道</span><span class="mono">{{ inboundChannelDetail.name }}</span></div>
+              <div class="info-grid" style="margin:8px 0">
+                <div class="info-row"><span class="k">type</span><span class="mono">{{ inboundChannelDetail.type }}</span></div>
+                <div class="info-row"><span class="k">agent</span><span class="mono">{{ inboundChannelDetail.agent }}</span></div>
+                <div class="info-row"><span class="k">enabled</span><span>{{ inboundChannelDetail.enabled ? '是' : '否' }}</span></div>
+              </div>
+              <div style="margin-top:14px">
+                <div class="sess-meta"><span>治理</span>
+                  <button v-if="!channelGovernance.open && channelGovernance.loaded" class="btn" @click="startEditChannelGovernance">编辑治理</button>
+                </div>
+                <p v-if="channelGovernance.loading" class="empty">加载治理…</p>
+                <p v-else-if="channelGovernance.error && !channelGovernance.open" class="error">{{ channelGovernance.error }}</p>
+                <template v-else-if="channelGovernance.open">
+                  <div class="gen-box">
+                    <div class="info-row edit"><label class="k">health</label>
+                      <select v-model="channelGovernance.health" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="DEPRECATED">DEPRECATED</option>
+                        <option value="OFFLINE">OFFLINE</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">owner</label><input v-model="channelGovernance.owner" class="gen-input" placeholder="属主用户名（可选）" /></div>
+                    <div class="info-row edit"><label class="k">visibility</label>
+                      <select v-model="channelGovernance.visibility" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="PRIVATE">PRIVATE</option>
+                        <option value="WORKSPACE">WORKSPACE</option>
+                        <option value="PUBLIC">PUBLIC</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">version</label><input v-model="channelGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
+                    <div class="info-row edit"><label class="k">riskLevel</label><input v-model="channelGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-actions">
+                      <button class="btn btn-primary" :disabled="channelGovernance.saving" @click="saveChannelGovernance">保存</button>
+                      <button class="btn" :disabled="channelGovernance.saving" @click="cancelEditChannelGovernance">取消</button>
+                      <span v-if="channelGovernance.saving" class="empty">保存中…</span>
+                      <span v-if="channelGovernance.error" class="error">{{ channelGovernance.error }}</span>
+                    </div>
+                    <p class="empty">写入 channels.yaml 的 governance 块（非 GOVERNANCE.yml）。OFFLINE 时（需开启 rbac + asset-governance）入站消息被拒；PRIVATE 仅属主/ADMIN 可管。空值表示未设治理。</p>
+                  </div>
+                </template>
+                <div v-else-if="channelGovernance.loaded" class="info-grid">
+                  <div class="info-row"><span class="k">health</span><span class="mono">{{ blankGov(channelGovernance.health) }}</span></div>
+                  <div class="info-row"><span class="k">owner</span><span>{{ blankGov(channelGovernance.owner) }}</span></div>
+                  <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(channelGovernance.visibility) }}</span></div>
+                  <div class="info-row"><span class="k">version</span><span>{{ blankGov(channelGovernance.version) }}</span></div>
+                  <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(channelGovernance.riskLevel) }}</span></div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Provider：命名模型 Provider 的 CRUD（新建/编辑/删除），apiKey 明文展示 -->
