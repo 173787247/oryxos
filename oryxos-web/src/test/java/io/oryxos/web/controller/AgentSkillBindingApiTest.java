@@ -1,5 +1,6 @@
 package io.oryxos.web.controller;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -15,6 +16,9 @@ import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentLifecycleService;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.memory.MemoryService;
+import io.oryxos.core.policy.Action;
+import io.oryxos.core.policy.AuthorizationService;
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.SessionManager;
@@ -23,6 +27,7 @@ import io.oryxos.core.skill.SkillCatalogEntry;
 import io.oryxos.core.skill.SkillMetadataReader;
 import io.oryxos.core.testing.SymlinkAssumptions;
 import io.oryxos.web.GlobalExceptionHandler;
+import io.oryxos.web.security.AssetBindGuard;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -53,7 +58,11 @@ class AgentSkillBindingApiTest {
     ProfileRegistry profiles = new ProfileRegistry(Map.of("ops", profile));
     lifecycle = mock(AgentLifecycleService.class);
     when(lifecycle.list()).thenReturn(List.of(profile));
-    when(lifecycle.saveFiles(eq("ops"), org.mockito.ArgumentMatchers.any(), eq(List.of("web"))))
+    when(lifecycle.saveFiles(
+            eq("ops"),
+            org.mockito.ArgumentMatchers.any(),
+            eq(List.of("web")),
+            org.mockito.ArgumentMatchers.any()))
         .thenReturn(profile);
     mvc =
         MockMvcBuilders.standaloneSetup(
@@ -110,7 +119,10 @@ class AgentSkillBindingApiTest {
 
     verify(lifecycle)
         .saveFiles(
-            eq("ops"), eq(Map.of("AGENT.md", "---\nname: ops\n---\nbody")), eq(List.of("web")));
+            eq("ops"),
+            eq(Map.of("AGENT.md", "---\nname: ops\n---\nbody")),
+            eq(List.of("web")),
+            org.mockito.ArgumentMatchers.any());
   }
 
   @Test
@@ -125,6 +137,44 @@ class AgentSkillBindingApiTest {
                 .content("{\"skills\":[\"missing\"]}"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value(404));
+  }
+
+  @Test
+  void bindRejectsWhenGovernanceHidesInstalledCatalogRow() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
+    AuthorizationService authorization = mock(AuthorizationService.class);
+    when(authorization.decide(any(), eq(Action.MANAGE_SKILLS), any()))
+        .thenReturn(AuthorizationService.Decision.ALLOWED);
+    when(authorization.decide(any(), eq(Action.READ_WORKSPACE), eq(ResourceRef.skill("web"))))
+        .thenReturn(AuthorizationService.Decision.denied("私有资产仅属主或管理员可访问"));
+    when(authorization.decide(any(), eq(Action.READ_WORKSPACE), eq(ResourceRef.skill("report"))))
+        .thenReturn(AuthorizationService.Decision.ALLOWED);
+
+    AgentApiController controller =
+        new AgentApiController(
+            lifecycle,
+            mock(AgentService.class),
+            mock(SessionManager.class),
+            new ProfileRegistry(Map.of("ops", profile())),
+            mock(MemoryService.class),
+            mock(AgentExecutionService.class),
+            new AgentSkillBindingService(root, new SkillMetadataReader()),
+            (q, visibility) ->
+                List.of(
+                    new SkillCatalogEntry(
+                        "report", "报告", SkillCatalogEntry.Visibility.PUBLIC, "test", true),
+                    new SkillCatalogEntry(
+                        "web", "调研", SkillCatalogEntry.Visibility.PRIVATE, "test", true)));
+    controller.setAssetBindGuard(new AssetBindGuard(authorization));
+    MockMvc gated =
+        MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+
+    gated
+        .perform(put("/api/v1/agents/ops/skills/web"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("catalog")));
   }
 
   private void skill(String name, String description) throws Exception {
