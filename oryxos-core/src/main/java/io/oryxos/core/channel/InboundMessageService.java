@@ -4,6 +4,7 @@ import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.agent.InterruptManager;
 import io.oryxos.core.agent.ReActLoop;
+import io.oryxos.core.policy.InboundAssetGovernanceGate;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
@@ -37,6 +38,7 @@ public class InboundMessageService {
 
   static final String UNSUPPORTED_TYPE_REPLY = "当前仅支持文本、图片、文件、语音或视频，请用文字描述或发送图片/文件/语音/视频。";
   static final String AGENT_UNAVAILABLE_REPLY = "Agent 暂不可用（未找到绑定的 Agent），请联系管理员。";
+  static final String ASSET_OFFLINE_REPLY = "该渠道或 Agent 已安全下线，暂不可用。";
   static final String FAILURE_REPLY = "抱歉，这次处理失败了，请稍后重试或联系管理员。";
 
   /** 026：同会话跨副本排队等待超限（前一条消息处理超长）的专门反馈。 */
@@ -62,6 +64,7 @@ public class InboundMessageService {
   private final InboundMediaEnricher mediaEnricher;
   private final Duration processingNoticeDelay;
   private final InterruptManager interruptManager;
+  private final InboundAssetGovernanceGate assetGovernanceGate;
   private final ActiveRunRegistry activeRuns = new ActiveRunRegistry();
   private final Map<String, Long> recentNewSessionAckMs = new ConcurrentHashMap<>();
   private final Map<String, Long> recentProcessingNoticeMs = new ConcurrentHashMap<>();
@@ -82,7 +85,29 @@ public class InboundMessageService {
         deduplicator,
         mediaEnricher,
         processingNoticeDelay,
-        null);
+        null,
+        InboundAssetGovernanceGate.NOOP);
+  }
+
+  public InboundMessageService(
+      AgentService agentService,
+      SessionManager sessionManager,
+      ProfileRegistry profileRegistry,
+      AgentExecutionService executionService,
+      MessageDeduplicator deduplicator,
+      InboundMediaEnricher mediaEnricher,
+      Duration processingNoticeDelay,
+      InterruptManager interruptManager) {
+    this(
+        agentService,
+        sessionManager,
+        profileRegistry,
+        executionService,
+        deduplicator,
+        mediaEnricher,
+        processingNoticeDelay,
+        interruptManager,
+        InboundAssetGovernanceGate.NOOP);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -96,7 +121,8 @@ public class InboundMessageService {
       MessageDeduplicator deduplicator,
       InboundMediaEnricher mediaEnricher,
       Duration processingNoticeDelay,
-      InterruptManager interruptManager) {
+      InterruptManager interruptManager,
+      InboundAssetGovernanceGate assetGovernanceGate) {
     this.agentService = agentService;
     this.sessionManager = sessionManager;
     this.profileRegistry = profileRegistry;
@@ -105,6 +131,8 @@ public class InboundMessageService {
     this.mediaEnricher = mediaEnricher == null ? new DefaultInboundMediaEnricher() : mediaEnricher;
     this.processingNoticeDelay = processingNoticeDelay;
     this.interruptManager = interruptManager;
+    this.assetGovernanceGate =
+        assetGovernanceGate == null ? InboundAssetGovernanceGate.NOOP : assetGovernanceGate;
   }
 
   /** 在昂贵预处理（飞书入站图下载等）前占用 message_id。返回 false 表示重复事件，调用方应直接丢弃且勿再下载。 */
@@ -235,6 +263,18 @@ public class InboundMessageService {
             throw new IllegalStateException(
                 "渠道 " + msg.channelName() + " 绑定的 Agent " + agent + " 不存在");
           });
+      return true;
+    }
+    // #504：渠道或 Agent OFFLINE 时不进推理（平台挑战不经过本路径）
+    java.util.Optional<String> offline = assetGovernanceGate.denyReason(msg.channelName(), agent);
+    if (offline.isPresent()) {
+      release(preprocessingDone);
+      LOG.info(
+          "入站已拦截 OFFLINE：channel={} agent={} reason={}",
+          sanitize(msg.channelName()),
+          sanitize(agent),
+          sanitize(offline.get()));
+      safeReply(replyVia, msg.chatId(), ASSET_OFFLINE_REPLY, replyTo);
       return true;
     }
     // 私聊 /new：清空固定三元组会话历史（飞书等 IM 无独立「新会话」键）

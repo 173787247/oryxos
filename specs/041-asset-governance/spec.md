@@ -31,11 +31,11 @@
 - 渠道增/改/删额外 `decide(MANAGE_CHANNELS, channel(name))`
 - `GET/PUT .../governance`（agents / skills / knowledge）
 - V11 `asset_governance_events` 审计
+- 入站消息 OFFLINE 门禁（`InboundMessageService` + `InboundAssetGovernanceGate`；平台挑战握手仍在适配器层，不经本闸）
 
 ## Out of scope (honest gaps)
 
 - 渠道治理管理台 UI
-- 入站 webhook 按治理门禁
 - Team ACL / JIT teams / 组织归属
 - 完整版本历史
 - Catalog 可见性仍只是标签，不驱动列表过滤
