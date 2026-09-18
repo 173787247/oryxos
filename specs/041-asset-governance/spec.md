@@ -40,7 +40,7 @@
 - 持久化成员（#535）：V12 `team_memberships` + `oryxos team member-*`；`oryxos.web.rbac.durable-team-memberships-enabled`（默认关）开时与 session 团队取并集
 - 团队目录（#539）：V14 `teams(team_id, display_name)` + `oryxos team create|rename|list|delete`（与成员表解耦，catalog 可选）
 - 团队 HTTP API（#546）：`oryxos.web.teams-api.enabled`（默认关→404）；`/api/v1/teams` + `/api/v1/users/{u}/teams`；RBAC 映射 `MANAGE_MEMBERS`
-- Admin 管队 UI（#548）：管理台「团队管理」页（list/create/rename/delete + 按用户增删成员）；同 `teams-api.enabled`；无 orgs/JIT
+- Admin 管队 UI（#548）：管理台「团队管理」页（list/create/rename/delete + 按用户增删成员）；同 `teams-api.enabled`；无 orgs 层级
 - 版本快照（#537）：V13 `asset_governance_revisions`；`oryxos.web.asset-governance.version-history-enabled`（默认关）开时 PUT 追加全文，GET `.../governance/revisions`
 - 版本回滚（#541）：`POST .../governance/revisions/{id}/restore`（agents/skills/knowledge/channels）；同 flag；写回现网并追加新快照
 - 版本 diff（#544）：`GET .../governance/revisions/{id}/diff?against={otherId}` 返回统一 diff 文本
@@ -51,4 +51,5 @@
 
 ## Out of scope (honest gaps)
 
-- orgs 层级 / JIT 建队（#535+#539+#546+#548：成员表 + 目录表 + CLI + teams HTTP API + Admin 管队 UI，默认关；无 orgs/JIT）
+- orgs 层级 / orgId FK / Admin org UI（#535+#539+#546+#548：成员表 + 目录表 + CLI + teams HTTP API + Admin 管队 UI，默认关）
+- OIDC JIT 目录行已落地：`oryxos.web.oidc.jit-team-catalog-enabled`（#552，默认关）；仍不自动写 `team_memberships`

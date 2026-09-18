@@ -20,6 +20,7 @@ import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
 import io.oryxos.storage.IdentityMappingService;
+import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
@@ -48,6 +49,7 @@ class OidcAuthServiceTest {
   private WebUserService userService;
   private WebSessionService sessionService;
   private AuthEventRecorder authEventRecorder;
+  private TeamCatalogService teamCatalogService;
   private AuthorizationService authorizationService;
   private OidcAuthService service;
   private MockMvc mvc;
@@ -66,6 +68,7 @@ class OidcAuthServiceTest {
     userService = mock(WebUserService.class);
     sessionService = mock(WebSessionService.class);
     authEventRecorder = mock(AuthEventRecorder.class);
+    teamCatalogService = mock(TeamCatalogService.class);
     authorizationService = mock(AuthorizationService.class);
     service =
         new OidcAuthService(
@@ -75,7 +78,9 @@ class OidcAuthServiceTest {
             mappingService,
             userService,
             sessionService,
-            authEventRecorder);
+            authEventRecorder,
+            null,
+            teamCatalogService);
     mvc =
         MockMvcBuilders.standaloneSetup(new OidcAuthController(service))
             .setControllerAdvice(new GlobalExceptionHandler())
@@ -253,5 +258,52 @@ class OidcAuthServiceTest {
     verify(userService).setRoles("alice", Set.of());
     verify(authEventRecorder)
         .recordOrThrow(eq(AuthEventType.GROUP_ROLE_SYNC), eq("alice"), eq("roles=[]"));
+  }
+
+  @Test
+  @DisplayName("JIT team catalog关_不调用ensure")
+  void callback_jitTeamCatalogOff_noCatalogCalls() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamCatalogEnabled(false);
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng", "ops")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamCatalogService, never()).ensure(anyString());
+    verify(teamCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT team catalog开_对缺失组ensure_已有跳过由服务幂等")
+  void callback_jitTeamCatalogOn_ensuresGroups() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamCatalogEnabled(true);
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, List.of("eng", "ops", "eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamCatalogService).ensure("eng");
+    verify(teamCatalogService).ensure("ops");
   }
 }

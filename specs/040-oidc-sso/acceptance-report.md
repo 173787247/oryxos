@@ -13,8 +13,7 @@
 
 ## Honest gaps
 
-- No JIT user creation from IdP
-- No groups→roles bridge
+- JIT user provision / revoke-unmatched / group-roles / JIT team catalog are default-off flags (#502/#552); no Admin org hierarchy UI
 - No mapping admin UI (CLI `oryxos user oidc-map` only)
 - Thin spec (not full 九件套)
 - Single IdP configuration only

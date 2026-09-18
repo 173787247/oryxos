@@ -5,6 +5,7 @@ import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
 import io.oryxos.storage.IdentityMappingService;
+import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
@@ -16,6 +17,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -49,6 +52,7 @@ public class OidcAuthService {
   private final AuthEventRecorder authEventRecorder;
   private final OidcGroupRoleSync groupRoleSync;
   private final SessionTeamIdsCache teamIdsCache;
+  private final TeamCatalogService teamCatalogService;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -69,6 +73,7 @@ public class OidcAuthService {
         userService,
         sessionService,
         authEventRecorder,
+        null,
         null);
   }
 
@@ -84,6 +89,31 @@ public class OidcAuthService {
       WebSessionService sessionService,
       AuthEventRecorder authEventRecorder,
       SessionTeamIdsCache teamIdsCache) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService) {
     this.properties = properties;
     this.tokenClient = tokenClient;
     this.pendingStore = pendingStore;
@@ -93,6 +123,7 @@ public class OidcAuthService {
     this.authEventRecorder = authEventRecorder;
     this.groupRoleSync = new OidcGroupRoleSync(userService);
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
+    this.teamCatalogService = teamCatalogService;
   }
 
   public boolean isEnabled() {
@@ -169,6 +200,7 @@ public class OidcAuthService {
     if (!syncGroupRoles(username, claims)) {
       return OidcLoginResult.failure("group role sync failed");
     }
+    ensureTeamCatalogRows(claims.groups());
     try {
       authEventRecorder.recordOrThrow(
           AuthEventType.LOGIN_SUCCESS, username, "oidc issuer=" + claims.issuer());
@@ -227,6 +259,29 @@ public class OidcAuthService {
       return Optional.empty();
     }
     return Optional.of(trimmed);
+  }
+
+  /** Flag 开时对 IdP groups 幂等写 {@code teams} 目录行（#552）。失败只打日志，不阻断登录（catalog 为可选元数据）。 */
+  private void ensureTeamCatalogRows(List<String> groups) {
+    if (!properties.isJitTeamCatalogEnabled() || teamCatalogService == null) {
+      return;
+    }
+    if (groups == null || groups.isEmpty()) {
+      return;
+    }
+    for (String group : new LinkedHashSet<>(groups)) {
+      if (group == null || group.isBlank()) {
+        continue;
+      }
+      try {
+        teamCatalogService.ensure(group);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT team catalog ensure 失败 group={}：{}",
+            sanitize(group),
+            sanitize(ex.toString()));
+      }
+    }
   }
 
   /**
