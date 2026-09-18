@@ -6,6 +6,7 @@ import logoUrl from './assets/logo.svg'
 import LoginView from './views/LoginView.vue'
 import RunManagementView from './features/runs/RunManagementView.vue'
 import TeamsManagementView from './features/teams/TeamsManagementView.vue'
+import GovernanceRevisionHistory from './features/governance/GovernanceRevisionHistory.vue'
 import { isNearBottom } from './chat-scroll.js'
 import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
 import { DEFAULT_MCP_REQUEST_TIMEOUT_SECONDS, normalizeMcpRequestTimeout } from './mcp-timeout.js'
@@ -1858,6 +1859,10 @@ async function savePersona() {
 const governanceEdit = reactive(createGovernanceEdit())
 const skillGovernance = reactive(createGovernanceEdit())
 const kbGovernance = reactive(createGovernanceEdit())
+const agentGovRevRef = ref(null)
+const skillGovRevRef = ref(null)
+const kbGovRevRef = ref(null)
+const channelGovRevRef = ref(null)
 function loadAgentGovernance(name) {
   return loadGovernance(governanceEdit, 'agents', name)
 }
@@ -1867,8 +1872,9 @@ function startEditGovernance() {
 function cancelEditGovernance() {
   return abortGovEdit(governanceEdit, 'agents', agentDetail.value?.name)
 }
-function saveGovernance() {
-  return persistGovernance(governanceEdit, 'agents', agentDetail.value?.name)
+async function saveGovernance() {
+  await persistGovernance(governanceEdit, 'agents', agentDetail.value?.name)
+  if (!governanceEdit.open) agentGovRevRef.value?.load()
 }
 function loadSkillGovernance(name) {
   return loadGovernance(skillGovernance, 'skills', name)
@@ -1879,8 +1885,9 @@ function startEditSkillGovernance() {
 function cancelEditSkillGovernance() {
   return abortGovEdit(skillGovernance, 'skills', skillDetail.value?.name)
 }
-function saveSkillGovernance() {
-  return persistGovernance(skillGovernance, 'skills', skillDetail.value?.name)
+async function saveSkillGovernance() {
+  await persistGovernance(skillGovernance, 'skills', skillDetail.value?.name)
+  if (!skillGovernance.open) skillGovRevRef.value?.load()
 }
 function loadKbGovernance(name) {
   return loadGovernance(kbGovernance, 'knowledge', name)
@@ -1891,8 +1898,21 @@ function startEditKbGovernance() {
 function cancelEditKbGovernance() {
   return abortGovEdit(kbGovernance, 'knowledge', kbDetail.value?.name)
 }
-function saveKbGovernance() {
-  return persistGovernance(kbGovernance, 'knowledge', kbDetail.value?.name)
+async function saveKbGovernance() {
+  await persistGovernance(kbGovernance, 'knowledge', kbDetail.value?.name)
+  if (!kbGovernance.open) kbGovRevRef.value?.load()
+}
+function onAgentGovRestored() {
+  if (agentDetail.value?.name) loadAgentGovernance(agentDetail.value.name)
+}
+function onSkillGovRestored() {
+  if (skillDetail.value?.name) loadSkillGovernance(skillDetail.value.name)
+}
+function onKbGovRestored() {
+  if (kbDetail.value?.name) loadKbGovernance(kbDetail.value.name)
+}
+function onChannelGovRestored() {
+  if (inboundChannelDetail.value?.name) loadChannelGovernance(inboundChannelDetail.value.name)
 }
 
 // —— 041 / #504：入站渠道列表 + channels.yaml governance 面板 ——
@@ -2004,6 +2024,7 @@ async function saveChannelGovernance() {
     channelGovernance.teamOwner = g.teamOwner || ''
     channelGovernance.open = false
     channelGovernance.loaded = true
+    channelGovRevRef.value?.load()
   } catch (e) {
     channelGovernance.error = e.message
   } finally {
@@ -2644,6 +2665,13 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(skillGovernance.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(skillGovernance.teamOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="skillDetail.name"
+                  ref="skillGovRevRef"
+                  api-kind="skills"
+                  :name="skillDetail.name"
+                  @restored="onSkillGovRestored"
+                />
               </div>
               <p v-if="skillDetail.loading" class="empty">加载中…</p>
               <p v-else-if="skillDetail.error" class="error">出错：{{ skillDetail.error }}</p>
@@ -2777,6 +2805,13 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(kbGovernance.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(kbGovernance.teamOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="kbDetail.name"
+                  ref="kbGovRevRef"
+                  api-kind="knowledge"
+                  :name="kbDetail.name"
+                  @restored="onKbGovRestored"
+                />
               </div>
               <p v-if="kbDetail.loading" class="empty">加载中…</p>
               <template v-else>
@@ -3340,6 +3375,13 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(governanceEdit.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(governanceEdit.teamOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="agentDetail.name"
+                  ref="agentGovRevRef"
+                  api-kind="agents"
+                  :name="agentDetail.name"
+                  @restored="onAgentGovRestored"
+                />
               </div>
 
               <!-- Tab 3：文件浏览器（可编辑） -->
@@ -3833,6 +3875,13 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(channelGovernance.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(channelGovernance.teamOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="inboundChannelDetail.name"
+                  ref="channelGovRevRef"
+                  api-kind="channels"
+                  :name="inboundChannelDetail.name"
+                  @restored="onChannelGovRestored"
+                />
               </div>
             </div>
           </div>
