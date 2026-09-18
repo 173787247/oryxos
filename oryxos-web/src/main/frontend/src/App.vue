@@ -1635,6 +1635,7 @@ async function openAgent(agent) {
   fileView.value = null
   resetChat()
   resetAgentMemory()
+  loadAgentGovernance(agent.name)
   try {
     const [treeRes, bindingRes, kbRes] = await Promise.all([
       fetch('/api/v1/workspace/tree'),
@@ -1824,6 +1825,89 @@ async function savePersona() {
     personaEdit.open = false
     await reloadAgent()
   } catch (e) { personaEdit.error = e.message } finally { personaEdit.saving = false }
+}
+
+// —— 041 / #504：Agent GOVERNANCE.yml 治理面板（GET/PUT /agents/{name}/governance）——
+const governanceEdit = reactive({
+  open: false,
+  loading: false,
+  saving: false,
+  error: '',
+  owner: '',
+  version: '',
+  visibility: '',
+  riskLevel: '',
+  health: '',
+  loaded: false,
+})
+function blankGov(v) {
+  return v == null || v === '' ? '—' : v
+}
+async function loadAgentGovernance(name) {
+  governanceEdit.loading = true
+  governanceEdit.error = ''
+  governanceEdit.open = false
+  governanceEdit.loaded = false
+  try {
+    const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}/governance`)
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '治理加载失败')
+    const g = body.data || {}
+    governanceEdit.owner = g.owner || ''
+    governanceEdit.version = g.version || ''
+    governanceEdit.visibility = g.visibility || ''
+    governanceEdit.riskLevel = g.riskLevel || ''
+    governanceEdit.health = g.health || ''
+    governanceEdit.loaded = true
+  } catch (e) {
+    governanceEdit.error = e.message
+  } finally {
+    governanceEdit.loading = false
+  }
+}
+function startEditGovernance() {
+  governanceEdit.open = true
+  governanceEdit.error = ''
+  governanceEdit.saving = false
+}
+async function cancelEditGovernance() {
+  governanceEdit.open = false
+  if (agentDetail.value?.name) await loadAgentGovernance(agentDetail.value.name)
+}
+async function saveGovernance() {
+  if (!agentDetail.value) return
+  governanceEdit.saving = true
+  governanceEdit.error = ''
+  try {
+    const res = await fetch(
+      `/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/governance`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: governanceEdit.owner.trim() || null,
+          version: governanceEdit.version.trim() || null,
+          visibility: governanceEdit.visibility.trim() || null,
+          riskLevel: governanceEdit.riskLevel.trim() || null,
+          health: governanceEdit.health.trim() || null,
+        }),
+      },
+    )
+    const body = await res.json()
+    if (body.code !== 0) throw new Error(body.message || '保存失败')
+    const g = body.data || {}
+    governanceEdit.owner = g.owner || ''
+    governanceEdit.version = g.version || ''
+    governanceEdit.visibility = g.visibility || ''
+    governanceEdit.riskLevel = g.riskLevel || ''
+    governanceEdit.health = g.health || ''
+    governanceEdit.open = false
+    governanceEdit.loaded = true
+  } catch (e) {
+    governanceEdit.error = e.message
+  } finally {
+    governanceEdit.saving = false
+  }
 }
 
 // —— 执行历史 tab：该 Agent 每次触发的起止时间 / 状态 / 时长（手动 + 定时）——
@@ -3008,6 +3092,52 @@ const outputRows = computed(() =>
                     <div class="info-row"><span class="k">sampleStyle</span><span>{{ agentDetail.agent.persona.sampleStyle || '—' }}</span></div>
                   </template>
                   <p v-else class="empty" style="padding:12px">未设置人格。点右上「设置人格」按 7 字段定义；或到「新建 Agent → 从人格库导入」从 12 个默认人格预设导入。</p>
+                </div>
+              </div>
+
+              <!-- 041 / #504：GOVERNANCE.yml — health/owner/visibility（GET/PUT /agents/{name}/governance） -->
+              <div v-if="agentDetail.tab === 'info'" style="margin-top:14px">
+                <div class="sess-meta"><span>治理</span>
+                  <button v-if="!governanceEdit.open && governanceEdit.loaded" class="btn" @click="startEditGovernance">编辑治理</button>
+                </div>
+                <p v-if="governanceEdit.loading" class="empty">加载治理…</p>
+                <p v-else-if="governanceEdit.error && !governanceEdit.open" class="error">{{ governanceEdit.error }}</p>
+                <template v-else-if="governanceEdit.open">
+                  <div class="gen-box">
+                    <div class="info-row edit"><label class="k">health</label>
+                      <select v-model="governanceEdit.health" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="DEPRECATED">DEPRECATED</option>
+                        <option value="OFFLINE">OFFLINE</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">owner</label><input v-model="governanceEdit.owner" class="gen-input" placeholder="属主用户名（可选）" /></div>
+                    <div class="info-row edit"><label class="k">visibility</label>
+                      <select v-model="governanceEdit.visibility" class="gen-input">
+                        <option value="">（未设）</option>
+                        <option value="PRIVATE">PRIVATE</option>
+                        <option value="WORKSPACE">WORKSPACE</option>
+                        <option value="PUBLIC">PUBLIC</option>
+                      </select>
+                    </div>
+                    <div class="info-row edit"><label class="k">version</label><input v-model="governanceEdit.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
+                    <div class="info-row edit"><label class="k">riskLevel</label><input v-model="governanceEdit.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-actions">
+                      <button class="btn btn-primary" :disabled="governanceEdit.saving" @click="saveGovernance">保存</button>
+                      <button class="btn" :disabled="governanceEdit.saving" @click="cancelEditGovernance">取消</button>
+                      <span v-if="governanceEdit.saving" class="empty">保存中…</span>
+                      <span v-if="governanceEdit.error" class="error">{{ governanceEdit.error }}</span>
+                    </div>
+                    <p class="empty">写入 Agent 目录 GOVERNANCE.yml。OFFLINE 时（需开启 rbac + asset-governance）不可调用；PRIVATE 仅属主/ADMIN 可管。空值表示未设治理。</p>
+                  </div>
+                </template>
+                <div v-else-if="governanceEdit.loaded" class="info-grid">
+                  <div class="info-row"><span class="k">health</span><span class="mono">{{ blankGov(governanceEdit.health) }}</span></div>
+                  <div class="info-row"><span class="k">owner</span><span>{{ blankGov(governanceEdit.owner) }}</span></div>
+                  <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(governanceEdit.visibility) }}</span></div>
+                  <div class="info-row"><span class="k">version</span><span>{{ blankGov(governanceEdit.version) }}</span></div>
+                  <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(governanceEdit.riskLevel) }}</span></div>
                 </div>
               </div>
 
