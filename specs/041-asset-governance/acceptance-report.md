@@ -11,10 +11,11 @@
 - [x] Bind/invoke extra decide via `AssetBindGuard`
 - [x] GET/PUT governance APIs + V11 `asset_governance_events`
 - [x] Unit tests: flag off passthrough, OFFLINE/PRIVATE, store roundtrip, guard
+- [x] Inbound OFFLINE gate (`InboundAssetGovernanceGate` in `InboundMessageService`; challenges stay in adapters)
 
 ## Honest gaps
 
-- No channel governance write/UI
+- No channel governance admin UI
 - No JIT teams / org ownership
 - No full version history
 - Catalog visibility still label-only (no list filtering)

@@ -1261,7 +1261,13 @@ public class OryxOsRuntime {
       AgentExecutionService agentExecutionService,
       io.oryxos.core.channel.MessageDeduplicator messageDeduplicator,
       InterruptManager interruptManager,
-      io.oryxos.core.metrics.MetricsRecorder metricsRecorder) {
+      io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
+      io.oryxos.core.policy.AssetGovernanceStore assetGovernanceStore,
+      @org.springframework.beans.factory.annotation.Value("${oryxos.web.rbac.enabled:false}")
+          boolean rbacEnabled,
+      @org.springframework.beans.factory.annotation.Value(
+              "${oryxos.web.asset-governance.enabled:false}")
+          boolean assetGovernanceEnabled) {
     return new io.oryxos.core.channel.InboundMessageService(
         agentService,
         sessionManager,
@@ -1271,7 +1277,9 @@ public class OryxOsRuntime {
         new io.oryxos.core.channel.DefaultInboundMediaEnricher(
             io.oryxos.cli.WhisperHttpTranscriber.fromEnv(), metricsRecorder),
         java.time.Duration.ofSeconds(15), // 「处理中」提示延迟（Edge Case：先行告知）
-        interruptManager);
+        interruptManager,
+        io.oryxos.core.policy.InboundAssetGovernanceGate.of(
+            assetGovernanceStore, rbacEnabled, assetGovernanceEnabled));
   }
 
   /** 渠道出站守卫：渠道自建 HTTP 不被沙箱自动拦截，经此显式复用 http 域名白名单（宪法 VI / 017 R7）。 */
