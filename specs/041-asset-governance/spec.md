@@ -41,7 +41,8 @@
 - 团队目录（#539）：V14 `teams(team_id, display_name)` + `oryxos team create|rename|list|delete`（与成员表解耦，catalog 可选）
 - 组织目录（#554）：V15 `organizations` + nullable `teams.org_id`；`oryxos org create|list|rename|delete` + `team set-org`；HTTP `/api/v1/orgs` + `PUT /api/v1/teams/{id}/org` 同 `teams-api.enabled`
 - 团队 HTTP API（#546）：`oryxos.web.teams-api.enabled`（默认关→404）；`/api/v1/teams` + `/api/v1/users/{u}/teams`；RBAC 映射 `MANAGE_MEMBERS`
-- Admin 管队 UI（#548）：管理台「团队管理」页（list/create/rename/delete + 按用户增删成员）；同 `teams-api.enabled`；无 Admin org UI
+- Admin 管队 UI（#548）：管理台「团队管理」页（list/create/rename/delete + 按用户增删成员）；同 `teams-api.enabled`
+- Admin 组织 UI（#556）：同页组织目录 list/create/rename/delete + 团队 set-org/清 org_id；复用 `/api/v1/orgs` 与 `PUT /api/v1/teams/{id}/org`；同 `teams-api.enabled`
 - 版本快照（#537）：V13 `asset_governance_revisions`；`oryxos.web.asset-governance.version-history-enabled`（默认关）开时 PUT 追加全文，GET `.../governance/revisions`
 - 版本回滚（#541）：`POST .../governance/revisions/{id}/restore`（agents/skills/knowledge/channels）；同 flag；写回现网并追加新快照
 - 版本 diff（#544）：`GET .../governance/revisions/{id}/diff?against={otherId}` 返回统一 diff 文本
@@ -52,5 +53,5 @@
 
 ## Out of scope (honest gaps)
 
-- Admin org UI / dept·project 多级 / org 进 `AuthorizationService.decide` / `parent_team_id` / OIDC group→org JIT / auto memberships（#554 已落地 organizations 表 + nullable `teams.org_id` + CLI/HTTP；成员表 + 团队目录 + teams HTTP + Admin 管队 UI 仍默认关）
+- dept·project 多级 / org 进 `AuthorizationService.decide` / `parent_team_id` / OIDC group→org JIT / auto memberships（#554 organizations + `teams.org_id` CLI/HTTP；#548 Admin 管队；#556 Admin org UI + team set-org 已落地；相关 API/UI 仍默认关）
 - OIDC JIT 目录行已落地：`oryxos.web.oidc.jit-team-catalog-enabled`（#552，默认关）；仍不自动写 `team_memberships`
