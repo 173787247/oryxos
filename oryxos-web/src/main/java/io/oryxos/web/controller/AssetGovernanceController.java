@@ -7,6 +7,7 @@ import io.oryxos.storage.AssetGovernanceEventRecorder;
 import io.oryxos.storage.AssetGovernanceRevisionRecorder;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.config.WebAssetGovernanceProperties;
+import io.oryxos.web.controller.dto.AssetGovernanceRevisionDiffView;
 import io.oryxos.web.controller.dto.AssetGovernanceRevisionView;
 import io.oryxos.web.controller.dto.AssetGovernanceView;
 import io.oryxos.web.security.AssetBindGuard;
@@ -17,10 +18,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 资产治理侧车读写（041 / #537 / #541）。路径落在既有 agents / skills / knowledge 前缀下，由 {@code
+ * 资产治理侧车读写（041 / #537 / #541 / #544）。路径落在既有 agents / skills / knowledge 前缀下，由 {@code
  * RequestActionResolver} 的 MANAGE_* 覆盖；PUT/restore 再对具体资源 {@code decide}，以便 PRIVATE/OFFLINE 侧车生效。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -61,6 +63,15 @@ public class AssetGovernanceController {
   public ApiResponse<List<AssetGovernanceRevisionView>> listAgentRevisions(
       @PathVariable String name) {
     return AssetGovernanceApiSupport.listRevisions(properties, revisions, ResourceRef.agent(name));
+  }
+
+  @GetMapping("/api/v1/agents/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffAgent(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    return AssetGovernanceApiSupport.diff(
+        properties, revisions, ResourceRef.agent(name), against, revisionId);
   }
 
   @PostMapping("/api/v1/agents/{name}/governance/revisions/{revisionId}/restore")
@@ -108,6 +119,15 @@ public class AssetGovernanceController {
     return AssetGovernanceApiSupport.listRevisions(properties, revisions, ResourceRef.skill(name));
   }
 
+  @GetMapping("/api/v1/skills/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffSkill(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    return AssetGovernanceApiSupport.diff(
+        properties, revisions, ResourceRef.skill(name), against, revisionId);
+  }
+
   @PostMapping("/api/v1/skills/{name}/governance/revisions/{revisionId}/restore")
   public ApiResponse<AssetGovernanceView> restoreSkill(
       @PathVariable String name, @PathVariable long revisionId, HttpServletRequest request) {
@@ -152,6 +172,15 @@ public class AssetGovernanceController {
       @PathVariable String name) {
     return AssetGovernanceApiSupport.listRevisions(
         properties, revisions, ResourceRef.knowledge(name));
+  }
+
+  @GetMapping("/api/v1/knowledge/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffKnowledge(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    return AssetGovernanceApiSupport.diff(
+        properties, revisions, ResourceRef.knowledge(name), against, revisionId);
   }
 
   @PostMapping("/api/v1/knowledge/{name}/governance/revisions/{revisionId}/restore")

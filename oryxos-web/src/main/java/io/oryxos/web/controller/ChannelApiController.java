@@ -13,6 +13,7 @@ import io.oryxos.storage.AssetGovernanceEventRecorder;
 import io.oryxos.storage.AssetGovernanceRevisionRecorder;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.config.WebAssetGovernanceProperties;
+import io.oryxos.web.controller.dto.AssetGovernanceRevisionDiffView;
 import io.oryxos.web.controller.dto.AssetGovernanceRevisionView;
 import io.oryxos.web.controller.dto.AssetGovernanceView;
 import io.oryxos.web.controller.dto.ChannelStatusView;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -117,6 +119,20 @@ public class ChannelApiController {
     requireExists(name);
     return AssetGovernanceApiSupport.listRevisions(
         assetGovernanceProperties, governanceRevisions, ResourceRef.channel(name));
+  }
+
+  @GetMapping("/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffGovernance(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    requireExists(name);
+    return AssetGovernanceApiSupport.diff(
+        assetGovernanceProperties,
+        governanceRevisions,
+        ResourceRef.channel(name),
+        against,
+        revisionId);
   }
 
   @PostMapping("/{name}/governance/revisions/{revisionId}/restore")

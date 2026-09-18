@@ -25,4 +25,4 @@
 
 - No orgs hierarchy / JIT team provisioning / Admin team UI (#535+#539: memberships + catalog CLI only)
 - Team memberships may reference ids without a catalog row (catalog is optional metadata)
-- No diff/rollback Admin UI (#537+#541: revision list + restore API only)
+- No diff/rollback Admin UI (#537+#541+#544: revision list + restore + unified-diff API only)

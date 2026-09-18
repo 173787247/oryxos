@@ -170,4 +170,31 @@ class AssetGovernanceApiSupportTest {
         .record(eq("USER:bob"), eq(ResourceRef.TYPE_AGENT), eq("bot"), eq("1.0"), anyString());
     verify(events).record(eq("USER:bob"), eq(ResourceRef.TYPE_AGENT), eq("bot"), anyString());
   }
+
+  @Test
+  @DisplayName("diff_两版快照含统一diff")
+  void diff_returnsUnified() {
+    WebAssetGovernanceProperties props = new WebAssetGovernanceProperties();
+    props.setVersionHistoryEnabled(true);
+    AssetGovernanceRevisionRecorder revisions = mock(AssetGovernanceRevisionRecorder.class);
+    AssetGovernanceRevision from = new AssetGovernanceRevision();
+    from.setResourceType(ResourceRef.TYPE_AGENT);
+    from.setResourceId("bot");
+    from.setVersionLabel("1.0");
+    from.setSnapshotText("owner: alice\n");
+    AssetGovernanceRevision to = new AssetGovernanceRevision();
+    to.setResourceType(ResourceRef.TYPE_AGENT);
+    to.setResourceId("bot");
+    to.setVersionLabel("2.0");
+    to.setSnapshotText("owner: bob\n");
+    when(revisions.find(1L)).thenReturn(Optional.of(from));
+    when(revisions.find(2L)).thenReturn(Optional.of(to));
+
+    var view =
+        AssetGovernanceApiSupport.diff(props, revisions, ResourceRef.agent("bot"), 1L, 2L)
+            .getData();
+    assertThat(view.fromId()).isEqualTo(1L);
+    assertThat(view.toId()).isEqualTo(2L);
+    assertThat(view.unifiedDiff()).contains("-owner: alice").contains("+owner: bob");
+  }
 }
