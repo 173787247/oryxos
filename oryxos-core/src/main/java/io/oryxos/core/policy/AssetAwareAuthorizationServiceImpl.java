@@ -2,14 +2,15 @@ package io.oryxos.core.policy;
 
 import io.oryxos.core.auth.Principal;
 import io.oryxos.core.auth.Role;
+import java.util.Optional;
 
 /**
  * 资产治理装饰器（041 / #463）：先走既有 {@link AuthorizationService#decide}，再在开关打开且角色已允许时 叠加 OFFLINE / PRIVATE
- * （及可选 WORKSPACE team）门禁。
+ * （及可选 WORKSPACE team / org）门禁。
  *
  * <p>唯一权限路径仍是本接口——本类是装饰器，不是第二条授权通道。flag 关或委托已拒绝时原样返回，保证默认关零变化。 缺侧车（空治理）不加额外拒绝。
  *
- * <p>API_KEY：本刀只挡 OFFLINE，不做 owner / team 匹配（Key 名称不是账号归属模型）。
+ * <p>API_KEY：本刀只挡 OFFLINE，不做 owner / team / org 匹配（Key 名称不是账号归属模型）。
  */
 public final class AssetAwareAuthorizationServiceImpl implements AuthorizationService {
 
@@ -21,6 +22,9 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
   /** WORKSPACE+teamOwner 拒绝理由（固定文案，进审计）。 */
   public static final String REASON_WORKSPACE_TEAM = "工作区资产仅同队成员或管理员可访问";
 
+  /** WORKSPACE+orgOwner 拒绝理由（固定文案，进审计）。 */
+  public static final String REASON_WORKSPACE_ORG = "工作区资产仅同组织成员或管理员可访问";
+
   private final AuthorizationService delegate;
 
   private final AssetGovernanceStore store;
@@ -29,12 +33,16 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   private final boolean workspaceTeamAclEnabled;
 
+  private final boolean workspaceOrgAclEnabled;
+
+  private final TeamOrgLookup teamOrgLookup;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "delegate/store 为注入共享单例，存同一引用正是意图。")
   public AssetAwareAuthorizationServiceImpl(
       AuthorizationService delegate, AssetGovernanceStore store, boolean enabled) {
-    this(delegate, store, enabled, false);
+    this(delegate, store, enabled, false, false, null);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -45,6 +53,19 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       AssetGovernanceStore store,
       boolean enabled,
       boolean workspaceTeamAclEnabled) {
+    this(delegate, store, enabled, workspaceTeamAclEnabled, false, null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "delegate/store/lookup 为注入共享单例，存同一引用正是意图。")
+  public AssetAwareAuthorizationServiceImpl(
+      AuthorizationService delegate,
+      AssetGovernanceStore store,
+      boolean enabled,
+      boolean workspaceTeamAclEnabled,
+      boolean workspaceOrgAclEnabled,
+      TeamOrgLookup teamOrgLookup) {
     this.delegate = delegate == null ? AuthorizationService.ALLOW_ALL : delegate;
     if (store == null) {
       throw new IllegalArgumentException("store 不能为空");
@@ -52,6 +73,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
     this.store = store;
     this.enabled = enabled;
     this.workspaceTeamAclEnabled = workspaceTeamAclEnabled;
+    this.workspaceOrgAclEnabled = workspaceOrgAclEnabled;
+    this.teamOrgLookup = teamOrgLookup;
   }
 
   @Override
@@ -74,7 +97,11 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
     if (!privateDecision.allowed()) {
       return privateDecision;
     }
-    return workspaceTeamGate(principal, governance);
+    Decision teamDecision = workspaceTeamGate(principal, governance);
+    if (!teamDecision.allowed()) {
+      return teamDecision;
+    }
+    return workspaceOrgGate(principal, governance);
   }
 
   /** PRIVATE：仅 USER 且 owner 存在且不匹配、又非 ADMIN 时拒绝。API_KEY / 匿名 / 无 owner 本刀不在这里拒绝。 */
@@ -125,5 +152,46 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       return Decision.ALLOWED;
     }
     return Decision.denied(REASON_WORKSPACE_TEAM);
+  }
+
+  /**
+   * WORKSPACE + orgOwner：仅 {@code workspaceOrgAclEnabled} 时生效。无 orgOwner 不另拒。API_KEY / 匿名跳过；USER 须持有
+   * 至少一个 teamId，且该队在目录中的 {@code org_id} 等于 orgOwner（或 ADMIN）。
+   */
+  private Decision workspaceOrgGate(Principal principal, AssetGovernance governance) {
+    if (!workspaceOrgAclEnabled) {
+      return Decision.ALLOWED;
+    }
+    if (governance.visibility() != AssetGovernance.Visibility.WORKSPACE) {
+      return Decision.ALLOWED;
+    }
+    String orgOwner = governance.orgOwner();
+    if (orgOwner == null || orgOwner.isBlank()) {
+      return Decision.ALLOWED;
+    }
+    Principal subject = principal == null ? Principal.anonymous() : principal;
+    if (subject.kind() != Principal.Kind.USER) {
+      return Decision.ALLOWED;
+    }
+    if (subject.hasRole(Role.ADMIN)) {
+      return Decision.ALLOWED;
+    }
+    if (belongsToOrg(subject, orgOwner.strip())) {
+      return Decision.ALLOWED;
+    }
+    return Decision.denied(REASON_WORKSPACE_ORG);
+  }
+
+  private boolean belongsToOrg(Principal subject, String orgOwner) {
+    if (teamOrgLookup == null) {
+      return false;
+    }
+    for (String teamId : subject.teamIds()) {
+      Optional<String> orgId = teamOrgLookup.findOrgId(teamId);
+      if (orgId.isPresent() && orgOwner.equals(orgId.get())) {
+        return true;
+      }
+    }
+    return false;
   }
 }

@@ -18,6 +18,7 @@ Fields:
 | riskLevel | string | 标签，本刀不驱动裁决 |
 | health | ACTIVE / DEPRECATED / OFFLINE | OFFLINE → deny「资产已安全下线」 |
 | teamOwner | string | 团队 id；仅 `workspace-team-acl-enabled` 开且 visibility=WORKSPACE 时裁决；缺省不另拒 |
+| orgOwner | string | 组织 id；仅 `workspace-org-acl-enabled` 开且 visibility=WORKSPACE 时裁决；与 `teams.org_id` 对齐；缺省不另拒 |
 
 Missing file → empty governance → no extra deny when flag on.
 

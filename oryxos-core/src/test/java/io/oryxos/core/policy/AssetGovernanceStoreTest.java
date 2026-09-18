@@ -53,6 +53,26 @@ class AssetGovernanceStoreTest {
   }
 
   @Test
+  void roundtripIncludesTeamAndOrgOwner() {
+    AssetGovernanceStore store = new AssetGovernanceStore(root);
+    AssetGovernance expected =
+        new AssetGovernance(
+            "alice",
+            "3",
+            AssetGovernance.Visibility.WORKSPACE,
+            "medium",
+            AssetGovernance.Health.ACTIVE,
+            "ops",
+            "acme");
+
+    store.saveSkill(NAME, expected);
+    AssetGovernance loaded = store.loadSkill(NAME);
+
+    assertThat(loaded.teamOwner()).isEqualTo("ops");
+    assertThat(loaded.orgOwner()).isEqualTo("acme");
+  }
+
+  @Test
   void loadChannelOfflinePrivateAndMissing() {
     AssetGovernanceStore store = new AssetGovernanceStore(root);
     assertThat(store.load(ResourceRef.TYPE_CHANNEL, "offline-chan").isPresent()).isFalse();

@@ -16,6 +16,7 @@
 - [x] Admin UI: 入站渠道 list + governance panel → `GET/PUT /api/v1/channels/{name}/governance`
 - [x] Catalog list filter via `AssetBindGuard.isVisible` → `decide(READ_WORKSPACE, named resource)` on agents/skills/knowledge/channels lists
 - [x] WORKSPACE `teamOwner` gate behind `workspace-team-acl-enabled` (default off); OIDC groups → session `Principal.teamIds`
+- [x] WORKSPACE `orgOwner` gate behind `workspace-org-acl-enabled` (default off); teamIds × teams.org_id (#558)
 - [x] `/skills/catalog` installed rows also filtered via `AssetBindGuard.isVisible` (012 tags unchanged for external candidates)
 - [x] Agent author paths (`validateCatalog` / `generate-files` / `saveFiles` skill bindings) honor `isVisible` predicate
 - [x] Knowledge author paths (create/bind/replace/saveFiles/generate-files) honor `isVisible` predicate
@@ -27,6 +28,6 @@
 
 ## Honest gaps
 
-- Organizations catalog + nullable `teams.org_id` done (#554); Admin org UI + team set-org done (#556); multilevel / org-in-decide still deferred
+- Organizations catalog + nullable `teams.org_id` done (#554); Admin org UI + team set-org done (#556); WORKSPACE orgOwner gate done (#558); multilevel / OIDC→org JIT / auto memberships still deferred
 - OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); still no auto `team_memberships` rows
 - Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups)
