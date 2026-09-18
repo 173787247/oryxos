@@ -51,6 +51,8 @@ public final class AssetGovernanceStore {
 
   private static final String KEY_HEALTH = "health";
 
+  private static final String KEY_TEAM_OWNER = "teamOwner";
+
   /** 渠道配置文件名（与运行时 {@code oryxosRoot/channels.yaml} 同一路径）。 */
   static final String CHANNELS_FILE = "channels.yaml";
 
@@ -209,6 +211,7 @@ public final class AssetGovernanceStore {
     if (governance.health() != null) {
       body.put(KEY_HEALTH, governance.health().name());
     }
+    putText(body, KEY_TEAM_OWNER, governance.teamOwner());
     return body;
   }
 
@@ -224,7 +227,8 @@ public final class AssetGovernanceStore {
         text(raw.get(KEY_VERSION)),
         AssetGovernance.parseVisibility(text(raw.get(KEY_VISIBILITY))),
         text(raw.get(KEY_RISK)),
-        AssetGovernance.parseHealth(text(raw.get(KEY_HEALTH))));
+        AssetGovernance.parseHealth(text(raw.get(KEY_HEALTH))),
+        text(raw.get(KEY_TEAM_OWNER)));
   }
 
   private static String text(Object value) {
@@ -268,7 +272,9 @@ public final class AssetGovernanceStore {
         + " visibility="
         + visibility
         + " health="
-        + health;
+        + health
+        + " team="
+        + nullToEmpty(governance.teamOwner());
   }
 
   private static String nullToEmpty(String value) {

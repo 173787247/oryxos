@@ -8,6 +8,7 @@ import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
 import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.security.RbacEnforcer;
 import io.oryxos.web.security.RuntimeAgentGuard;
+import io.oryxos.web.security.SessionTeamIdsCache;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -40,6 +41,11 @@ public class AuthorizationConfig {
 
   private static final String LOG_ROLE_BASED =
       "RBAC 已启用：授权决策点注入角色矩阵实现（userRoles={}, apiKeyRoles={}, denyAnonymous={}）";
+
+  @Bean
+  SessionTeamIdsCache sessionTeamIdsCache() {
+    return new SessionTeamIdsCache();
+  }
 
   /**
    * 授权决策点。
@@ -75,7 +81,8 @@ public class AuthorizationConfig {
       LOG.warn("资产治理已启用但未装配 AssetGovernanceStore，跳过资产门禁");
       return roleBased;
     }
-    return new AssetAwareAuthorizationServiceImpl(roleBased, store, true);
+    return new AssetAwareAuthorizationServiceImpl(
+        roleBased, store, true, assetGovernance.isWorkspaceTeamAclEnabled());
   }
 
   /** 绑定/调用点的薄封装：内部仍只调 {@link AuthorizationService#decide}。 */

@@ -37,7 +37,8 @@ public class OidcConfig {
       IdentityMappingService mappingService,
       WebUserService userService,
       WebSessionService sessionService,
-      AuthEventRecorder authEventRecorder) {
+      AuthEventRecorder authEventRecorder,
+      io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache) {
     return new OidcAuthService(
         properties,
         tokenClient,
@@ -45,6 +46,7 @@ public class OidcConfig {
         mappingService,
         userService,
         sessionService,
-        authEventRecorder);
+        authEventRecorder,
+        sessionTeamIdsCache);
   }
 }

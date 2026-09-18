@@ -93,6 +93,9 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
   /** RBAC 强制点（039）：{@code null} = 未启用授权切面（四参/五参构造的既有路径）。 */
   private final RbacEnforcer rbacEnforcer;
 
+  /** Session→OIDC groups（041）；缺省空缓存，Basic/无 OIDC 登录时 teamIds 为空。 */
+  private final SessionTeamIdsCache teamIdsCache;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification =
@@ -103,7 +106,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebSessionService sessionService,
       WebApiKeyProperties properties,
       ObjectMapper objectMapper) {
-    this(apiKeyService, sessionService, null, properties, objectMapper, null);
+    this(apiKeyService, sessionService, null, properties, objectMapper, null, null);
   }
 
   /** 带 RBAC 强制点的构造（039 第一刀兼容路径：无 WebUserService 时 session 主体角色为空，回落配置默认档）。 */
@@ -116,7 +119,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebApiKeyProperties properties,
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer) {
-    this(apiKeyService, sessionService, null, properties, objectMapper, rbacEnforcer);
+    this(apiKeyService, sessionService, null, properties, objectMapper, rbacEnforcer, null);
   }
 
   /** 完整构造（039 第二刀）：session 分支经 {@code userService.rolesOf} 解析库内角色。 */
@@ -130,12 +133,28 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebApiKeyProperties properties,
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer) {
+    this(apiKeyService, sessionService, userService, properties, objectMapper, rbacEnforcer, null);
+  }
+
+  /** 完整构造 + session 团队缓存（041 / #504）。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "teamIdsCache 为 Spring 注入共享单例，存同一引用正是意图。")
+  public ApiKeyAuthFilter(
+      ApiKeyService apiKeyService,
+      WebSessionService sessionService,
+      io.oryxos.storage.WebUserService userService,
+      WebApiKeyProperties properties,
+      ObjectMapper objectMapper,
+      RbacEnforcer rbacEnforcer,
+      SessionTeamIdsCache teamIdsCache) {
     this.apiKeyService = apiKeyService;
     this.sessionService = sessionService;
     this.userService = userService;
     this.properties = properties;
     this.objectMapper = objectMapper;
     this.rbacEnforcer = rbacEnforcer;
+    this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
   }
 
   @Override
@@ -160,10 +179,11 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       return;
     }
     // (2) 管理台 session 互认（FR-011：session 即凭据）
-    Optional<String> sessionUser = sessionUsername(request);
-    if (sessionUser.isPresent()) {
-      String username = sessionUser.get();
-      if (!prepareAndAuthorize(request, response, () -> userPrincipal(username))) {
+    Optional<io.oryxos.storage.WebSession> session = validSession(request);
+    if (session.isPresent()) {
+      io.oryxos.storage.WebSession s = session.get();
+      if (!prepareAndAuthorize(
+          request, response, () -> userPrincipal(s.getUsername(), s.getSessionId()))) {
         return;
       }
       filterChain.doFilter(request, response);
@@ -203,10 +223,10 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     return Principal.apiKey(id, id, noRoles);
   }
 
-  /** session 主体：角色来自 web_users.roles（每请求重解析）；无 userService 时角色空 → 回落配置默认档。 */
-  private Principal userPrincipal(String username) {
+  /** session 主体：角色来自 web_users.roles；团队来自 OIDC 登录时写入的 session 缓存。 */
+  private Principal userPrincipal(String username, String sessionId) {
     Set<Role> roles = userService == null ? Set.of() : userService.rolesOf(username);
-    return Principal.user(username, username, roles);
+    return Principal.user(username, username, roles, teamIdsCache.get(sessionId));
   }
 
   private static boolean isExempt(HttpServletRequest request) {
@@ -234,12 +254,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     return header == null || header.isBlank() ? null : header.strip();
   }
 
-  /**
-   * 管理台 session 互认（FR-011）：返回有效 session 的账号名，无效/无 cookie 返 {@link Optional#empty()}。
-   *
-   * <p>018 只关心「session 是否有效」（布尔），039 需要主体标识（是谁），因此把塌缩掉的用户名还原出来。 判定条件与 018 完全一致，只是不再丢弃账号名。
-   */
-  private Optional<String> sessionUsername(HttpServletRequest request) {
+  /** 管理台 session 互认（FR-011）：返回有效 session，无效/无 cookie 返 {@link Optional#empty()}。 */
+  private Optional<io.oryxos.storage.WebSession> validSession(HttpServletRequest request) {
     Cookie[] cookies = request.getCookies();
     if (cookies == null) {
       return Optional.empty();
@@ -249,8 +265,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
         .map(Cookie::getValue)
         .filter(v -> v != null && !v.isBlank())
         .findFirst()
-        .flatMap(sessionService::findValid)
-        .map(session -> session.getUsername());
+        .flatMap(sessionService::findValid);
   }
 
   /** 统一 401：所有失败原因同一响应（防探测，FR-004）。 */
