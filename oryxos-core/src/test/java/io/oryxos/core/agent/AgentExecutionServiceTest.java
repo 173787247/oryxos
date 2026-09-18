@@ -224,6 +224,54 @@ class AgentExecutionServiceTest {
   }
 
   @Test
+  @DisplayName("529：提交线程 PrincipalContext 传到后台 work，结束后清除")
+  void triggerAsyncPropagatesPrincipalContext() throws InterruptedException {
+    FakeStore store = new FakeStore();
+    ExecutorService ex = Executors.newSingleThreadExecutor();
+    AgentExecutionService svc = new AgentExecutionService(store, ex, Clock.systemUTC());
+    io.oryxos.core.auth.Principal key =
+        io.oryxos.core.auth.Principal.apiKey("inbound-key", "inbound-key");
+    CountDownLatch seen = new CountDownLatch(1);
+    AtomicBoolean matched = new AtomicBoolean(false);
+    AtomicBoolean clearedAfter = new AtomicBoolean(false);
+
+    io.oryxos.core.auth.PrincipalContext.set(key);
+    try {
+      svc.triggerAsync(
+          "demo",
+          "feishu",
+          "sess-p",
+          () -> {
+            matched.set(io.oryxos.core.auth.PrincipalContext.current() == key);
+            seen.countDown();
+          });
+    } finally {
+      io.oryxos.core.auth.PrincipalContext.clear();
+    }
+    assertTrue(seen.await(5, TimeUnit.SECONDS));
+    await(ex);
+    assertTrue(matched.get(), "后台线程应看到提交时的 Principal");
+    // 后台 finally 清除后，当前（测试）线程本就无上下文；再派一次无主体任务确认不泄漏到下一任务
+    CountDownLatch empty = new CountDownLatch(1);
+    AtomicBoolean stillNull = new AtomicBoolean(false);
+    ExecutorService ex2 = Executors.newSingleThreadExecutor();
+    AgentExecutionService svc2 = new AgentExecutionService(store, ex2, Clock.systemUTC());
+    svc2.triggerAsync(
+        "demo",
+        "feishu",
+        "sess-p2",
+        () -> {
+          stillNull.set(io.oryxos.core.auth.PrincipalContext.current() == null);
+          empty.countDown();
+        });
+    assertTrue(empty.await(5, TimeUnit.SECONDS));
+    await(ex2);
+    assertTrue(stillNull.get());
+    clearedAfter.set(true);
+    assertTrue(clearedAfter.get());
+  }
+
+  @Test
   @DisplayName("Clock 注入不为空（构造可用）")
   void clockUsable() {
     AgentExecutionService svc =

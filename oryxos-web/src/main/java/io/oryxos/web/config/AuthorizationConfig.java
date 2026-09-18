@@ -1,5 +1,6 @@
 package io.oryxos.web.config;
 
+import io.oryxos.core.auth.Principal;
 import io.oryxos.core.auth.Role;
 import io.oryxos.core.policy.AssetAwareAuthorizationServiceImpl;
 import io.oryxos.core.policy.AssetGovernanceStore;
@@ -13,6 +14,8 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -95,6 +98,24 @@ public class AuthorizationConfig {
   @Bean
   RuntimeAgentGuard runtimeAgentGuard(AssetBindGuard assetBindGuard) {
     return new RuntimeAgentGuard(assetBindGuard);
+  }
+
+  /**
+   * 039 / #531：把钟推 AgentScheduler 的运行时主体设为 API Key 档，角色取 {@code default-api-key-roles} （默认空；RBAC 关时
+   * ToolExecutor 仍走 ALLOW_ALL）。
+   */
+  @Bean
+  InitializingBean wireSchedulerRunPrincipal(
+      ObjectProvider<io.oryxos.core.agent.AgentScheduler> agentScheduler,
+      RoleMappingProperties roleProperties) {
+    return () ->
+        agentScheduler.ifAvailable(
+            scheduler ->
+                scheduler.setRunPrincipal(
+                    Principal.apiKey(
+                        "scheduler",
+                        "scheduler",
+                        parseRoles(roleProperties.getDefaultApiKeyRoles()))));
   }
 
   /**

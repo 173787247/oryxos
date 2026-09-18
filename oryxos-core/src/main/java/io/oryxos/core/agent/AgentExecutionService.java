@@ -61,7 +61,9 @@ public class AgentExecutionService {
       String agentName, String source, String sessionId, String inputPreview, Runnable work) {
     // 021 唯一跨线程传递点（R4）：主线程生成 trace → 落执行记录（store 自读上下文）→ 显式传入后台虚拟线程。
     // ThreadLocal 不跨线程，靠闭包捕获的 traceId 在后台线程重新置入，work 内 AgentService 兜底 openIfAbsent 复用同值。
+    // 039 / #529：同样捕获 PrincipalContext（入站 webhook 在提交前 set；web 开跑路径可另走 RuntimeAgentGuard）。
     final String traceId;
+    final io.oryxos.core.auth.Principal actor = io.oryxos.core.auth.PrincipalContext.current();
     final long id;
     try (TraceContext.Scope scope = TraceContext.openIfAbsent()) {
       traceId = scope.traceId();
@@ -70,7 +72,16 @@ public class AgentExecutionService {
     executor.execute(
         () -> {
           try (TraceContext.Scope scope = TraceContext.open(traceId)) {
-            runInContext(id, agentName, source, sessionId, work);
+            if (actor != null) {
+              io.oryxos.core.auth.PrincipalContext.set(actor);
+            }
+            try {
+              runInContext(id, agentName, source, sessionId, work);
+            } finally {
+              if (actor != null) {
+                io.oryxos.core.auth.PrincipalContext.clear();
+              }
+            }
           }
         });
     return id;

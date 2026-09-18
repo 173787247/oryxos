@@ -1,12 +1,14 @@
 package io.oryxos.web.controller;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import io.oryxos.core.auth.PrincipalContext;
 import io.oryxos.core.channel.InboundChannelAdapter;
 import io.oryxos.core.channel.InboundChannelRegistry;
 import io.oryxos.core.channel.InboundWebhookHandler;
 import io.oryxos.core.channel.WebhookRequest;
 import io.oryxos.core.channel.WebhookResponse;
 import io.oryxos.web.error.ResourceNotFoundException;
+import io.oryxos.web.security.PrincipalHolder;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
@@ -27,6 +29,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 入站 IM 共享 Webhook 面（026 P0）：按渠道名查找运行中适配器；仅 {@link InboundWebhookHandler} 受理，否则 404。
  *
  * <p>响应体按适配器原样回写（挑战握手 / 验签回执），不套 {@code ApiResponse} 信封。
+ *
+ * <p>039 / #529：已认证请求把 {@link PrincipalHolder} 主体装入 {@link PrincipalContext}，供 {@code
+ * AgentExecutionService.triggerAsync} 传到后台推理线程（Filter 仍只认证、不 decide）。
  */
 @SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
@@ -91,9 +96,20 @@ public class ChannelInboundWebhookController {
     }
     WebhookRequest webhookRequest =
         new WebhookRequest(request.getMethod(), params, headerMap(request), bodyText(raw));
-    WebhookResponse response = handler.onWebhook(webhookRequest);
-    MediaType mediaType = MediaType.parseMediaType(response.contentType());
-    return ResponseEntity.status(response.status()).contentType(mediaType).body(response.body());
+    boolean installed = false;
+    if (PrincipalHolder.isAuthenticated(request)) {
+      PrincipalContext.set(PrincipalHolder.get(request));
+      installed = true;
+    }
+    try {
+      WebhookResponse response = handler.onWebhook(webhookRequest);
+      MediaType mediaType = MediaType.parseMediaType(response.contentType());
+      return ResponseEntity.status(response.status()).contentType(mediaType).body(response.body());
+    } finally {
+      if (installed) {
+        PrincipalContext.clear();
+      }
+    }
   }
 
   private static String bodyText(byte[] rawBody) {
