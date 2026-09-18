@@ -1,5 +1,6 @@
 package io.oryxos.web.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -9,6 +10,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.oryxos.core.auth.Principal;
+import io.oryxos.core.auth.PrincipalContext;
+import io.oryxos.core.auth.Role;
 import io.oryxos.core.channel.ChannelStatus;
 import io.oryxos.core.channel.InboundChannelAdapter;
 import io.oryxos.core.channel.InboundChannelRegistry;
@@ -17,6 +21,9 @@ import io.oryxos.core.channel.WebhookRequest;
 import io.oryxos.core.channel.WebhookResponse;
 import io.oryxos.web.GlobalExceptionHandler;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,11 +39,17 @@ class ChannelInboundWebhookControllerTest {
 
   @BeforeEach
   void setUp() {
+    PrincipalContext.clear();
     registry = mock(InboundChannelRegistry.class);
     mvc =
         MockMvcBuilders.standaloneSetup(new ChannelInboundWebhookController(registry))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+  }
+
+  @AfterEach
+  void tearDown() {
+    PrincipalContext.clear();
   }
 
   @Test
@@ -75,6 +88,54 @@ class ChannelInboundWebhookControllerTest {
         .andExpect(status().isOk())
         .andExpect(content().string("challenge-token"));
     verify(adapter).onWebhook(any(WebhookRequest.class));
+  }
+
+  @Test
+  @DisplayName("529：已认证请求在 onWebhook 期间装入 PrincipalContext，返回后清除")
+  void authenticatedRequestInstallsPrincipalContextDuringWebhook() throws Exception {
+    Principal key = Principal.apiKey("bot", "bot", Set.of(Role.EDITOR));
+    AtomicReference<Principal> seen = new AtomicReference<>();
+    WebhookChannel adapter = mock(WebhookChannel.class);
+    when(adapter.onWebhook(any(WebhookRequest.class)))
+        .thenAnswer(
+            inv -> {
+              seen.set(PrincipalContext.current());
+              return WebhookResponse.text(200, "ok");
+            });
+    when(registry.get("ops-wa")).thenReturn(Optional.of(adapter));
+
+    mvc.perform(
+            post("/api/v1/channels/inbound/ops-wa")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}")
+                .requestAttr("io.oryxos.web.principal", key))
+        .andExpect(status().isOk())
+        .andExpect(content().string("ok"));
+
+    assertThat(seen.get()).isSameAs(key);
+    assertThat(PrincipalContext.current()).isNull();
+  }
+
+  @Test
+  @DisplayName("529：未认证请求不装 PrincipalContext")
+  void unauthenticatedRequestLeavesPrincipalContextEmpty() throws Exception {
+    AtomicReference<Principal> seen = new AtomicReference<>();
+    WebhookChannel adapter = mock(WebhookChannel.class);
+    when(adapter.onWebhook(any(WebhookRequest.class)))
+        .thenAnswer(
+            inv -> {
+              seen.set(PrincipalContext.current());
+              return WebhookResponse.text(200, "ok");
+            });
+    when(registry.get("ops-wa")).thenReturn(Optional.of(adapter));
+
+    mvc.perform(
+            post("/api/v1/channels/inbound/ops-wa")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isOk());
+
+    assertThat(seen.get()).isNull();
   }
 
   /** 测试双接口桩：入站适配器 + webhook。 */
