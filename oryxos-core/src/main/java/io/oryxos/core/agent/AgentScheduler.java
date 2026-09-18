@@ -1,5 +1,7 @@
 package io.oryxos.core.agent;
 
+import io.oryxos.core.auth.Principal;
+import io.oryxos.core.auth.PrincipalContext;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.Profile.ScheduleConfig;
 import io.oryxos.core.profile.ProfileRegistry;
@@ -9,6 +11,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledFuture;
@@ -24,6 +27,9 @@ import org.springframework.scheduling.support.SimpleTriggerContext;
  * Delivers a configured scheduler message through the same AgentService entry point as interactive
  * callers. Runtime identity is always the globally unique scheduleId; the profile key only locates
  * the current configuration definition.
+ *
+ * <p>039 / #531：每次触发在 {@link PrincipalContext} 装入系统 API Key 主体（默认 id={@code scheduler}），供 {@code
+ * ToolExecutor.decide(RUN_AGENT)}；角色由装配方注入（默认同 API Key 空默认档）。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
@@ -33,6 +39,10 @@ public class AgentScheduler {
   private static final Logger LOG = LoggerFactory.getLogger(AgentScheduler.class);
   private static final String SCHEDULER_CHANNEL = "scheduler";
   private static final String SCHEDULER_USER = "scheduler";
+
+  /** 钟推运行时主体（#531）；未装配时用空角色 API Key，RBAC 关仍 ALLOW_ALL。 */
+  private static final Principal DEFAULT_RUN_PRINCIPAL =
+      Principal.apiKey(SCHEDULER_USER, SCHEDULER_USER, Set.of());
 
   private final TaskScheduler taskScheduler;
   private final ProfileRegistry profileRegistry;
@@ -50,6 +60,8 @@ public class AgentScheduler {
 
   /** scheduleId => configuration generation captured by each cron callback. */
   private final ConcurrentMap<String, Long> scheduleGenerations = new ConcurrentHashMap<>();
+
+  private volatile Principal runPrincipal = DEFAULT_RUN_PRINCIPAL;
 
   public AgentScheduler(
       TaskScheduler taskScheduler,
@@ -92,6 +104,11 @@ public class AgentScheduler {
     this.taskStore = taskStore;
     this.agentExecutionStore = agentExecutionStore;
     this.agentExecutionService = agentExecutionService;
+  }
+
+  /** 装配期注入钟推主体（#531）：通常用 {@code default-api-key-roles} 解析结果。{@code null} 回落空角色默认档。 */
+  public void setRunPrincipal(Principal runPrincipal) {
+    this.runPrincipal = runPrincipal == null ? DEFAULT_RUN_PRINCIPAL : runPrincipal;
   }
 
   /** 026 到点认领（可选注入；未注入 = 单机档现状零协调写）。 */
@@ -348,7 +365,12 @@ public class AgentScheduler {
       Session session =
           sessionManager.getOrCreate(SCHEDULER_CHANNEL, SCHEDULER_USER, profile.name());
       sessionId = session.sessionId();
-      agentService.process(session, schedule.message());
+      PrincipalContext.set(runPrincipal);
+      try {
+        agentService.process(session, schedule.message());
+      } finally {
+        PrincipalContext.clear();
+      }
       success = true;
     } catch (RunCancelledException exception) {
       error = exception.getMessage();
