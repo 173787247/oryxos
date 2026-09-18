@@ -116,6 +116,7 @@ public class BasicAuthFilter extends OncePerRequestFilter {
   private final WebAuthProperties properties;
   private final ObjectMapper objectMapper;
   private final LoginAttemptService loginAttemptService;
+  private final PrincipalTeamIdsMerger teamIdsMerger;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = {"EI_EXPOSE_REP2", "PZLA_PREFER_ZERO_LENGTH_ARRAYS"},
@@ -129,11 +130,25 @@ public class BasicAuthFilter extends OncePerRequestFilter {
       WebAuthProperties properties,
       ObjectMapper objectMapper,
       LoginAttemptService loginAttemptService) {
+    this(userService, sessionService, properties, objectMapper, loginAttemptService, null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = {"EI_EXPOSE_REP2", "PZLA_PREFER_ZERO_LENGTH_ARRAYS"},
+      justification = "teamIdsMerger 为 Spring 注入共享单例；decode 返 null 语义同上。")
+  public BasicAuthFilter(
+      WebUserService userService,
+      WebSessionService sessionService,
+      WebAuthProperties properties,
+      ObjectMapper objectMapper,
+      LoginAttemptService loginAttemptService,
+      PrincipalTeamIdsMerger teamIdsMerger) {
     this.userService = userService;
     this.sessionService = sessionService;
     this.properties = properties;
     this.objectMapper = objectMapper;
     this.loginAttemptService = loginAttemptService;
+    this.teamIdsMerger = teamIdsMerger;
   }
 
   @Override
@@ -214,13 +229,14 @@ public class BasicAuthFilter extends OncePerRequestFilter {
     return BasicAuthAttempt.bad();
   }
 
-  /** 置主体，不裁决。角色每请求重解析，与 ApiKeyAuthFilter session 分支同源。 */
+  /** 置主体，不裁决。角色每请求重解析，与 ApiKeyAuthFilter session 分支同源；团队可选并入持久化成员。 */
   private void attachUserPrincipal(HttpServletRequest request, String username) {
     if (username == null || username.isBlank()) {
       return;
     }
     Set<Role> roles = userService.rolesOf(username);
-    PrincipalHolder.set(request, Principal.user(username, username, roles));
+    Set<String> teams = teamIdsMerger == null ? Set.of() : teamIdsMerger.merge(username, Set.of());
+    PrincipalHolder.set(request, Principal.user(username, username, roles, teams));
   }
 
   private void reject(HttpServletRequest request, HttpServletResponse response) throws IOException {

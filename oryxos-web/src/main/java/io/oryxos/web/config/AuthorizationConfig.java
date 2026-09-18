@@ -50,6 +50,15 @@ public class AuthorizationConfig {
     return new SessionTeamIdsCache();
   }
 
+  /** #535：session 团队 ∪（可选）持久化 team_memberships。 */
+  @Bean
+  io.oryxos.web.security.PrincipalTeamIdsMerger principalTeamIdsMerger(
+      WebRbacProperties properties,
+      ObjectProvider<io.oryxos.storage.TeamMembershipService> memberships) {
+    return new io.oryxos.web.security.PrincipalTeamIdsMerger(
+        properties, memberships.getIfAvailable());
+  }
+
   /**
    * 授权决策点。
    *

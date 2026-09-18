@@ -96,6 +96,9 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
   /** Session→团队声明（041）；OIDC groups 或密码登录 user-team-ids；缺省空。 */
   private final SessionTeamIdsCache teamIdsCache;
 
+  /** #535：可选合并持久化 team_memberships；null = 仅 session 缓存。 */
+  private final PrincipalTeamIdsMerger teamIdsMerger;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification =
@@ -106,7 +109,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebSessionService sessionService,
       WebApiKeyProperties properties,
       ObjectMapper objectMapper) {
-    this(apiKeyService, sessionService, null, properties, objectMapper, null, null);
+    this(apiKeyService, sessionService, null, properties, objectMapper, null, null, null);
   }
 
   /** 带 RBAC 强制点的构造（039 第一刀兼容路径：无 WebUserService 时 session 主体角色为空，回落配置默认档）。 */
@@ -119,7 +122,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebApiKeyProperties properties,
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer) {
-    this(apiKeyService, sessionService, null, properties, objectMapper, rbacEnforcer, null);
+    this(apiKeyService, sessionService, null, properties, objectMapper, rbacEnforcer, null, null);
   }
 
   /** 完整构造（039 第二刀）：session 分支经 {@code userService.rolesOf} 解析库内角色。 */
@@ -133,7 +136,15 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       WebApiKeyProperties properties,
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer) {
-    this(apiKeyService, sessionService, userService, properties, objectMapper, rbacEnforcer, null);
+    this(
+        apiKeyService,
+        sessionService,
+        userService,
+        properties,
+        objectMapper,
+        rbacEnforcer,
+        null,
+        null);
   }
 
   /** 完整构造 + session 团队缓存（041 / #504）。 */
@@ -148,6 +159,30 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer,
       SessionTeamIdsCache teamIdsCache) {
+    this(
+        apiKeyService,
+        sessionService,
+        userService,
+        properties,
+        objectMapper,
+        rbacEnforcer,
+        teamIdsCache,
+        null);
+  }
+
+  /** 完整构造 + session 团队缓存 + 持久化成员合并（#535）。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "teamIdsCache/teamIdsMerger 为 Spring 注入共享单例，存同一引用正是意图。")
+  public ApiKeyAuthFilter(
+      ApiKeyService apiKeyService,
+      WebSessionService sessionService,
+      io.oryxos.storage.WebUserService userService,
+      WebApiKeyProperties properties,
+      ObjectMapper objectMapper,
+      RbacEnforcer rbacEnforcer,
+      SessionTeamIdsCache teamIdsCache,
+      PrincipalTeamIdsMerger teamIdsMerger) {
     this.apiKeyService = apiKeyService;
     this.sessionService = sessionService;
     this.userService = userService;
@@ -155,6 +190,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     this.objectMapper = objectMapper;
     this.rbacEnforcer = rbacEnforcer;
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
+    this.teamIdsMerger = teamIdsMerger;
   }
 
   @Override
@@ -223,10 +259,13 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     return Principal.apiKey(id, id, noRoles);
   }
 
-  /** session 主体：角色来自 web_users.roles；团队来自 OIDC 登录时写入的 session 缓存。 */
+  /** session 主体：角色来自 web_users.roles；团队 = session 缓存 ∪（可选）持久化成员。 */
   private Principal userPrincipal(String username, String sessionId) {
     Set<Role> roles = userService == null ? Set.of() : userService.rolesOf(username);
-    return Principal.user(username, username, roles, teamIdsCache.get(sessionId));
+    Set<String> sessionTeams = teamIdsCache.get(sessionId);
+    Set<String> teams =
+        teamIdsMerger == null ? sessionTeams : teamIdsMerger.merge(username, sessionTeams);
+    return Principal.user(username, username, roles, teams);
   }
 
   private static boolean isExempt(HttpServletRequest request) {

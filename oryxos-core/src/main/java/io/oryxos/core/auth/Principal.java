@@ -25,7 +25,8 @@ import java.util.Set;
  * <p>为什么用不可变 record：主体在一条请求的处理链路上会被 Filter、Controller、授权决策点多方读取，
  * 可变对象会带来「谁在什么时机改了角色」的排查成本。角色集合在构造时去重并冻结。
  *
- * <p>{@code teamIds}（041 / #504）：请求期团队声明，供 WORKSPACE+{@code teamOwner} 门禁；不持久化、不进角色矩阵。空 = 未声明。
+ * <p>{@code teamIds}（041 / #504 / #535）：请求期团队声明，供 WORKSPACE+{@code teamOwner} 门禁；可来自 session
+ * 缓存与（可选）持久化 {@code team_memberships}；不进角色矩阵。空 = 未声明。
  *
  * <p>线程/请求边界：主体<b>不放在全局静态变量</b>里。servlet 容器会复用工作线程，Web 侧务必用请求属性 携带（见 oryxos-web 的请求属性承载），工具执行链路继续沿用
  * {@link io.oryxos.core.agent.ToolExecutionContext} 既有的 ThreadLocal 纪律。

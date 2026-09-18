@@ -27,11 +27,19 @@ public class AuthFilterConfig {
       WebSessionService sessionService,
       WebAuthProperties properties,
       ObjectMapper objectMapper,
-      LoginAttemptService loginAttemptService) {
+      LoginAttemptService loginAttemptService,
+      org.springframework.beans.factory.ObjectProvider<
+              io.oryxos.web.security.PrincipalTeamIdsMerger>
+          teamIdsMerger) {
     FilterRegistrationBean<BasicAuthFilter> registration = new FilterRegistrationBean<>();
     registration.setFilter(
         new BasicAuthFilter(
-            userService, sessionService, properties, objectMapper, loginAttemptService));
+            userService,
+            sessionService,
+            properties,
+            objectMapper,
+            loginAttemptService,
+            teamIdsMerger.getIfAvailable()));
     registration.addUrlPatterns("/admin/*");
     registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
     return registration;

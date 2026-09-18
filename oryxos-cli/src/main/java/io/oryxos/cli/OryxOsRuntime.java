@@ -1186,6 +1186,13 @@ public class OryxOsRuntime {
     return new IdentityMappingService(repository, userRepository, authEventRecorder);
   }
 
+  /** #535：持久化团队成员（CLI + Principal 合并）；注入 Principal 由 web 侧 flag 控制。 */
+  @Bean
+  io.oryxos.storage.TeamMembershipService teamMembershipService(
+      io.oryxos.storage.TeamMembershipRepository repository, WebUserRepository userRepository) {
+    return new io.oryxos.storage.TeamMembershipService(repository, userRepository);
+  }
+
   /**
    * 012-web-auth US3：浏览器登录 session 管理（create/findValid 惰性清过期/delete）。ttl 走 @Value 读字面量，避免 cli 引
    * oryxos-web 的 WebAuthProperties 类。
