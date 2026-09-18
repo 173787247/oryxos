@@ -232,10 +232,13 @@ oryxos:
   # 打开 rbac.enabled（无主体则跳过资产门禁）。仍只走 AuthorizationService.decide。
   # workspace-team-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 teamOwner 的资产
   # 要求 Principal.teamIds 含该 id（OIDC groups 或密码登录 user-team-ids 经 session 缓存注入）；无 teamOwner 仍不另拒。
+  # workspace-org-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 orgOwner 的资产
+  # 要求 Principal.teamIds 中某队的 teams.org_id 等于 orgOwner（或 ADMIN）；无 orgOwner 仍不另拒。
   # web:
   #   asset-governance:
   #     enabled: true
   #     workspace-team-acl-enabled: true
+  #     workspace-org-acl-enabled: true
   #     # 治理 PUT 追加全文快照；POST .../revisions/{id}/restore 写回；
   #     # GET .../revisions/{id}/diff?against= 统一 diff（#537/#541/#544）。默认关。
   #     # version-history-enabled: true

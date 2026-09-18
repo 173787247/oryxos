@@ -21,7 +21,7 @@ Default-off OIDC authorization-code + PKCE login for the admin console. Maps IdP
 
 ## Out of scope (honest gaps)
 
-- Default-off flags only: JIT user (`jit-provision-enabled`), group-roles / revoke-unmatched, JIT team catalog (`jit-team-catalog-enabled` / #552). Organizations catalog + nullable `teams.org_id` landed (#554); Admin org UI + team set-org landed (#556). Still deferred: multilevel dept/project, OIDC group→org JIT, auto `team_memberships`, org in `AuthorizationService.decide`.
+- Default-off flags only: JIT user (`jit-provision-enabled`), group-roles / revoke-unmatched, JIT team catalog (`jit-team-catalog-enabled` / #552). Organizations catalog + nullable `teams.org_id` landed (#554); Admin org UI + team set-org landed (#556). Still deferred: multilevel dept/project, OIDC group→org JIT, auto `team_memberships`, multilevel org decide (WORKSPACE orgOwner gate is #558).
 - Admin UI for mapping
 - Multi-IdP / discovery UI
 - Full 九件套 research/plan/tasks/contracts

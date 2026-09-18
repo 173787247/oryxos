@@ -6,11 +6,15 @@ import io.oryxos.core.policy.AssetAwareAuthorizationServiceImpl;
 import io.oryxos.core.policy.AssetGovernanceStore;
 import io.oryxos.core.policy.AuthorizationService;
 import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
+import io.oryxos.core.policy.TeamOrgLookup;
+import io.oryxos.storage.Team;
+import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.security.RbacEnforcer;
 import io.oryxos.web.security.RuntimeAgentGuard;
 import io.oryxos.web.security.SessionTeamIdsCache;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,7 +79,8 @@ public class AuthorizationConfig {
       WebRbacProperties properties,
       RoleMappingProperties roleProperties,
       WebAssetGovernanceProperties assetGovernance,
-      org.springframework.beans.factory.ObjectProvider<AssetGovernanceStore> governanceStore) {
+      org.springframework.beans.factory.ObjectProvider<AssetGovernanceStore> governanceStore,
+      ObjectProvider<TeamCatalogService> teamCatalog) {
     if (!properties.isEnabled()) {
       LOG.info(LOG_ALLOW_ALL);
       return AuthorizationService.ALLOW_ALL;
@@ -93,8 +98,36 @@ public class AuthorizationConfig {
       LOG.warn("资产治理已启用但未装配 AssetGovernanceStore，跳过资产门禁");
       return roleBased;
     }
+    TeamOrgLookup orgLookup = teamOrgLookup(teamCatalog);
     return new AssetAwareAuthorizationServiceImpl(
-        roleBased, store, true, assetGovernance.isWorkspaceTeamAclEnabled());
+        roleBased,
+        store,
+        true,
+        assetGovernance.isWorkspaceTeamAclEnabled(),
+        assetGovernance.isWorkspaceOrgAclEnabled(),
+        orgLookup);
+  }
+
+  /** #558：把 Principal.teamIds 映射到 teams.org_id；目录 Bean 缺失时恒 empty。 */
+  private static TeamOrgLookup teamOrgLookup(ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamId -> {
+      if (teamId == null || teamId.isBlank()) {
+        return Optional.empty();
+      }
+      TeamCatalogService catalog = teamCatalog.getIfAvailable();
+      if (catalog == null) {
+        return Optional.empty();
+      }
+      Optional<Team> row = catalog.find(teamId.strip());
+      if (row.isEmpty()) {
+        return Optional.empty();
+      }
+      String orgId = row.get().getOrgId();
+      if (orgId == null || orgId.isBlank()) {
+        return Optional.empty();
+      }
+      return Optional.of(orgId.strip());
+    };
   }
 
   /** 绑定/调用点的薄封装：内部仍只调 {@link AuthorizationService#decide}。 */

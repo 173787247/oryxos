@@ -10,6 +10,7 @@ import io.oryxos.core.policy.AuthorizationService.Decision;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -229,6 +230,84 @@ class AssetAwareAuthorizationServiceImplTest {
         .isTrue();
   }
 
+  @Test
+  void workspaceOrgAclOffDoesNotExtraDeny() throws Exception {
+    writeAgent(workspaceWithOrg("acme"));
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            false,
+            teamId -> Optional.of("acme"));
+
+    assertThat(
+            service
+                .decide(
+                    Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of("other")),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+  }
+
+  @Test
+  void workspaceOrgAclMatchingOrgAllowedWrongDeniedAdminAllowed() throws Exception {
+    writeAgent(workspaceWithOrg("acme"));
+    TeamOrgLookup lookup =
+        teamId -> {
+          if ("ops".equals(teamId)) {
+            return Optional.of("acme");
+          }
+          if ("other".equals(teamId)) {
+            return Optional.of("other-org");
+          }
+          return Optional.empty();
+        };
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(), new AssetGovernanceStore(root), true, false, true, lookup);
+
+    assertThat(
+            service
+                .decide(
+                    Principal.user(OWNER, OWNER, Set.of(Role.EDITOR), Set.of("ops")),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+    Decision other =
+        service.decide(
+            Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of("other")),
+            Action.READ_WORKSPACE,
+            ResourceRef.agent(AGENT));
+    assertThat(other.allowed()).isFalse();
+    assertThat(other.reason()).isEqualTo(AssetAwareAuthorizationServiceImpl.REASON_WORKSPACE_ORG);
+    assertThat(
+            service.decide(admin(OTHER), Action.READ_WORKSPACE, ResourceRef.agent(AGENT)).allowed())
+        .isTrue();
+  }
+
+  @Test
+  void workspaceWithoutOrgOwnerStillAllowsWhenOrgAclOn() throws Exception {
+    writeAgent(
+        new AssetGovernance(
+            OWNER, "1", AssetGovernance.Visibility.WORKSPACE, null, AssetGovernance.Health.ACTIVE));
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            teamId -> Optional.of("acme"));
+
+    assertThat(
+            service.decide(user(OTHER), Action.READ_WORKSPACE, ResourceRef.agent(AGENT)).allowed())
+        .isTrue();
+  }
+
   private static AssetGovernance workspaceWithTeam(String team) {
     return new AssetGovernance(
         OWNER,
@@ -237,6 +316,17 @@ class AssetAwareAuthorizationServiceImplTest {
         null,
         AssetGovernance.Health.ACTIVE,
         team);
+  }
+
+  private static AssetGovernance workspaceWithOrg(String org) {
+    return new AssetGovernance(
+        OWNER,
+        "1",
+        AssetGovernance.Visibility.WORKSPACE,
+        null,
+        AssetGovernance.Health.ACTIVE,
+        null,
+        org);
   }
 
   private static final String CHANNEL = "ops-feishu";

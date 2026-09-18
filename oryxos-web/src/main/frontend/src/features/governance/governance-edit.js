@@ -18,6 +18,7 @@ export function createGovernanceEdit() {
     riskLevel: '',
     health: '',
     teamOwner: '',
+    orgOwner: '',
     loaded: false,
   }
 }
@@ -30,6 +31,7 @@ function applyData(state, g) {
   state.riskLevel = data.riskLevel || ''
   state.health = data.health || ''
   state.teamOwner = data.teamOwner || ''
+  state.orgOwner = data.orgOwner || ''
   state.loaded = true
 }
 
@@ -75,6 +77,7 @@ export async function saveGovernance(state, apiKind, name) {
         riskLevel: state.riskLevel.trim() || null,
         health: state.health.trim() || null,
         teamOwner: state.teamOwner.trim() || null,
+        orgOwner: state.orgOwner.trim() || null,
       }),
     })
     const body = await res.json()
