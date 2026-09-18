@@ -4,7 +4,18 @@ import io.oryxos.core.policy.AssetGovernance;
 
 /** 治理侧车的读写视图（041）。字段可空：空值表示未设，不表示拒绝。 */
 public record AssetGovernanceView(
-    String owner, String version, String visibility, String riskLevel, String health) {
+    String owner,
+    String version,
+    String visibility,
+    String riskLevel,
+    String health,
+    String teamOwner) {
+
+  /** 无 teamOwner 的便捷构造——既有 5 参 JSON/测试保持兼容。 */
+  public AssetGovernanceView(
+      String owner, String version, String visibility, String riskLevel, String health) {
+    this(owner, version, visibility, riskLevel, health, null);
+  }
 
   public static AssetGovernanceView from(AssetGovernance governance) {
     AssetGovernance source = governance == null ? AssetGovernance.empty() : governance;
@@ -13,7 +24,8 @@ public record AssetGovernanceView(
         source.version(),
         source.visibility() == null ? null : source.visibility().name(),
         source.riskLevel(),
-        source.health() == null ? null : source.health().name());
+        source.health() == null ? null : source.health().name(),
+        source.teamOwner());
   }
 
   public AssetGovernance toModel() {
@@ -22,7 +34,8 @@ public record AssetGovernanceView(
         blankToNull(version),
         AssetGovernance.parseVisibility(visibility),
         blankToNull(riskLevel),
-        AssetGovernance.parseHealth(health));
+        AssetGovernance.parseHealth(health),
+        blankToNull(teamOwner));
   }
 
   private static String blankToNull(String value) {

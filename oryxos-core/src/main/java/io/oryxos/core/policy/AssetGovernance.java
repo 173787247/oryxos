@@ -8,11 +8,19 @@ import java.util.Objects;
  * {@code governance:} 块。字段相同，不承载凭证。
  *
  * <p>缺文件或字段全空视为「未设治理」——装饰器不得额外拒绝（存量兼容）。{@code riskLevel} 与 {@code version} 本刀只承载展示/审计，不参与裁决。
+ *
+ * <p>{@code teamOwner}：WORKSPACE 可见性的团队 id（与 OIDC groups / {@code Principal.teamIds} 对齐）。仅在 {@code
+ * workspace-team-acl} 开启且本字段非空时参与裁决；缺省不另拒。
  */
 public record AssetGovernance(
-    String owner, String version, Visibility visibility, String riskLevel, Health health) {
+    String owner,
+    String version,
+    Visibility visibility,
+    String riskLevel,
+    Health health,
+    String teamOwner) {
 
-  /** 可见范围：PRIVATE 仅 owner/ADMIN；WORKSPACE/PUBLIC 本刀不另加拒绝（角色矩阵已判）。 */
+  /** 可见范围：PRIVATE 仅 owner/ADMIN；WORKSPACE 在 team-acl 关或无 teamOwner 时不另拒；PUBLIC 不另拒。 */
   public enum Visibility {
     PRIVATE,
     WORKSPACE,
@@ -26,18 +34,25 @@ public record AssetGovernance(
     OFFLINE
   }
 
-  /** 空元数据：无 GOVERNANCE.yml 或解析后无有效字段。 */
-  public static AssetGovernance empty() {
-    return new AssetGovernance(null, null, null, null, null);
+  /** 无团队归属的便捷构造——既有 5 参调用点保持编译。 */
+  public AssetGovernance(
+      String owner, String version, Visibility visibility, String riskLevel, Health health) {
+    this(owner, version, visibility, riskLevel, health, null);
   }
 
-  /** 是否携带任何可裁决字段（缺文件时为 false）。 */
+  /** 空元数据：无 GOVERNANCE.yml 或解析后无有效字段。 */
+  public static AssetGovernance empty() {
+    return new AssetGovernance(null, null, null, null, null, null);
+  }
+
+  /** 是否携带任何可裁决/展示字段（缺文件时为 false）。 */
   public boolean isPresent() {
     return (owner != null && !owner.isBlank())
         || (version != null && !version.isBlank())
         || visibility != null
         || (riskLevel != null && !riskLevel.isBlank())
-        || health != null;
+        || health != null
+        || (teamOwner != null && !teamOwner.isBlank());
   }
 
   /** 解析可见性；未知 token 返回 null（不因脏数据误拒）。 */
@@ -69,6 +84,8 @@ public record AssetGovernance(
         + visibility
         + ", health="
         + health
+        + ", teamOwner="
+        + Objects.toString(teamOwner, "")
         + "}";
   }
 }

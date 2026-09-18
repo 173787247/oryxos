@@ -17,6 +17,7 @@ export function createGovernanceEdit() {
     visibility: '',
     riskLevel: '',
     health: '',
+    teamOwner: '',
     loaded: false,
   }
 }
@@ -28,6 +29,7 @@ function applyData(state, g) {
   state.visibility = data.visibility || ''
   state.riskLevel = data.riskLevel || ''
   state.health = data.health || ''
+  state.teamOwner = data.teamOwner || ''
   state.loaded = true
 }
 
@@ -72,6 +74,7 @@ export async function saveGovernance(state, apiKind, name) {
         visibility: state.visibility.trim() || null,
         riskLevel: state.riskLevel.trim() || null,
         health: state.health.trim() || null,
+        teamOwner: state.teamOwner.trim() || null,
       }),
     })
     const body = await res.json()

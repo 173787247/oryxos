@@ -1897,6 +1897,7 @@ const channelGovernance = reactive({
   visibility: '',
   riskLevel: '',
   health: '',
+  teamOwner: '',
   loaded: false,
 })
 async function loadInboundChannels() {
@@ -1944,6 +1945,7 @@ async function loadChannelGovernance(name) {
     channelGovernance.visibility = g.visibility || ''
     channelGovernance.riskLevel = g.riskLevel || ''
     channelGovernance.health = g.health || ''
+    channelGovernance.teamOwner = g.teamOwner || ''
     channelGovernance.loaded = true
   } catch (e) {
     channelGovernance.error = e.message
@@ -1976,6 +1978,7 @@ async function saveChannelGovernance() {
           visibility: channelGovernance.visibility.trim() || null,
           riskLevel: channelGovernance.riskLevel.trim() || null,
           health: channelGovernance.health.trim() || null,
+          teamOwner: channelGovernance.teamOwner.trim() || null,
         }),
       },
     )
@@ -1987,6 +1990,7 @@ async function saveChannelGovernance() {
     channelGovernance.visibility = g.visibility || ''
     channelGovernance.riskLevel = g.riskLevel || ''
     channelGovernance.health = g.health || ''
+    channelGovernance.teamOwner = g.teamOwner || ''
     channelGovernance.open = false
     channelGovernance.loaded = true
   } catch (e) {
@@ -2607,6 +2611,7 @@ const outputRows = computed(() =>
                     </div>
                     <div class="info-row edit"><label class="k">version</label><input v-model="skillGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="skillGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-row edit"><label class="k">teamOwner</label><input v-model="skillGovernance.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="skillGovernance.saving" @click="saveSkillGovernance">保存</button>
                       <button class="btn" :disabled="skillGovernance.saving" @click="cancelEditSkillGovernance">取消</button>
@@ -2622,6 +2627,7 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(skillGovernance.visibility) }}</span></div>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(skillGovernance.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(skillGovernance.riskLevel) }}</span></div>
+                  <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(skillGovernance.teamOwner) }}</span></div>
                 </div>
               </div>
               <p v-if="skillDetail.loading" class="empty">加载中…</p>
@@ -2738,6 +2744,7 @@ const outputRows = computed(() =>
                     </div>
                     <div class="info-row edit"><label class="k">version</label><input v-model="kbGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="kbGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-row edit"><label class="k">teamOwner</label><input v-model="kbGovernance.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="kbGovernance.saving" @click="saveKbGovernance">保存</button>
                       <button class="btn" :disabled="kbGovernance.saving" @click="cancelEditKbGovernance">取消</button>
@@ -2753,6 +2760,7 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(kbGovernance.visibility) }}</span></div>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(kbGovernance.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(kbGovernance.riskLevel) }}</span></div>
+                  <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(kbGovernance.teamOwner) }}</span></div>
                 </div>
               </div>
               <p v-if="kbDetail.loading" class="empty">加载中…</p>
@@ -3299,6 +3307,7 @@ const outputRows = computed(() =>
                     </div>
                     <div class="info-row edit"><label class="k">version</label><input v-model="governanceEdit.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="governanceEdit.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-row edit"><label class="k">teamOwner</label><input v-model="governanceEdit.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="governanceEdit.saving" @click="saveGovernance">保存</button>
                       <button class="btn" :disabled="governanceEdit.saving" @click="cancelEditGovernance">取消</button>
@@ -3314,6 +3323,7 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(governanceEdit.visibility) }}</span></div>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(governanceEdit.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(governanceEdit.riskLevel) }}</span></div>
+                  <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(governanceEdit.teamOwner) }}</span></div>
                 </div>
               </div>
 
@@ -3790,6 +3800,7 @@ const outputRows = computed(() =>
                     </div>
                     <div class="info-row edit"><label class="k">version</label><input v-model="channelGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="channelGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
+                    <div class="info-row edit"><label class="k">teamOwner</label><input v-model="channelGovernance.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="channelGovernance.saving" @click="saveChannelGovernance">保存</button>
                       <button class="btn" :disabled="channelGovernance.saving" @click="cancelEditChannelGovernance">取消</button>
@@ -3805,6 +3816,7 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">visibility</span><span class="mono">{{ blankGov(channelGovernance.visibility) }}</span></div>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(channelGovernance.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(channelGovernance.riskLevel) }}</span></div>
+                  <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(channelGovernance.teamOwner) }}</span></div>
                 </div>
               </div>
             </div>

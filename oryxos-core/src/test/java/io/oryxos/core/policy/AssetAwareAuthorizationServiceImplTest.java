@@ -176,6 +176,69 @@ class AssetAwareAuthorizationServiceImplTest {
     assertThat(decision.allowed()).isTrue();
   }
 
+  @Test
+  void workspaceTeamAclOffDoesNotExtraDeny() throws Exception {
+    writeAgent(workspaceWithTeam("ops"));
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(), new AssetGovernanceStore(root), true, false);
+
+    assertThat(
+            service.decide(user(OTHER), Action.READ_WORKSPACE, ResourceRef.agent(AGENT)).allowed())
+        .isTrue();
+  }
+
+  @Test
+  void workspaceTeamAclSameTeamAllowedOtherDeniedAdminAllowed() throws Exception {
+    writeAgent(workspaceWithTeam("ops"));
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(), new AssetGovernanceStore(root), true, true);
+
+    assertThat(
+            service
+                .decide(
+                    Principal.user(OWNER, OWNER, Set.of(Role.EDITOR), Set.of("ops")),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+    Decision other =
+        service.decide(
+            Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of("other")),
+            Action.READ_WORKSPACE,
+            ResourceRef.agent(AGENT));
+    assertThat(other.allowed()).isFalse();
+    assertThat(other.reason()).isEqualTo(AssetAwareAuthorizationServiceImpl.REASON_WORKSPACE_TEAM);
+    assertThat(
+            service.decide(admin(OTHER), Action.READ_WORKSPACE, ResourceRef.agent(AGENT)).allowed())
+        .isTrue();
+  }
+
+  @Test
+  void workspaceWithoutTeamOwnerStillAllowsWhenAclOn() throws Exception {
+    writeAgent(
+        new AssetGovernance(
+            OWNER, "1", AssetGovernance.Visibility.WORKSPACE, null, AssetGovernance.Health.ACTIVE));
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(), new AssetGovernanceStore(root), true, true);
+
+    assertThat(
+            service.decide(user(OTHER), Action.READ_WORKSPACE, ResourceRef.agent(AGENT)).allowed())
+        .isTrue();
+  }
+
+  private static AssetGovernance workspaceWithTeam(String team) {
+    return new AssetGovernance(
+        OWNER,
+        "1",
+        AssetGovernance.Visibility.WORKSPACE,
+        null,
+        AssetGovernance.Health.ACTIVE,
+        team);
+  }
+
   private static final String CHANNEL = "ops-feishu";
 
   private void writeChannel(AssetGovernance governance) {

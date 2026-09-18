@@ -8,6 +8,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p>{@code oryxos.web.asset-governance.enabled} 默认 {@code false}——关闭时 {@link
  * io.oryxos.core.policy.AssetAwareAuthorizationServiceImpl} 不叠加任何拒绝，行为与无侧车时代一致。开启后仍要求 {@code
  * oryxos.web.rbac.enabled=true}：没有角色主体，资产归属门禁没有对象可判。
+ *
+ * <p>{@code workspace-team-acl-enabled} 默认 {@code false}——关时 WORKSPACE 与 PUBLIC 同档不另拒；开时对带 {@code
+ * teamOwner} 的 WORKSPACE 资产要求同队或 ADMIN。
  */
 @ConfigurationProperties(prefix = "oryxos.web.asset-governance")
 public class WebAssetGovernanceProperties {
@@ -15,11 +18,22 @@ public class WebAssetGovernanceProperties {
   /** 是否叠加 OFFLINE / PRIVATE 资产门禁。默认关。 */
   private boolean enabled = false;
 
+  /** 是否叠加 WORKSPACE+teamOwner 门禁。默认关。仅在 {@link #enabled} 为 true 且 RBAC 已开时由装配层传入装饰器。 */
+  private boolean workspaceTeamAclEnabled = false;
+
   public boolean isEnabled() {
     return enabled;
   }
 
   public void setEnabled(boolean enabled) {
     this.enabled = enabled;
+  }
+
+  public boolean isWorkspaceTeamAclEnabled() {
+    return workspaceTeamAclEnabled;
+  }
+
+  public void setWorkspaceTeamAclEnabled(boolean workspaceTeamAclEnabled) {
+    this.workspaceTeamAclEnabled = workspaceTeamAclEnabled;
   }
 }

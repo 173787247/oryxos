@@ -9,6 +9,7 @@ import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.config.WebOidcProperties;
+import io.oryxos.web.security.SessionTeamIdsCache;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -47,6 +48,7 @@ public class OidcAuthService {
   private final WebSessionService sessionService;
   private final AuthEventRecorder authEventRecorder;
   private final OidcGroupRoleSync groupRoleSync;
+  private final SessionTeamIdsCache teamIdsCache;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -59,6 +61,29 @@ public class OidcAuthService {
       WebUserService userService,
       WebSessionService sessionService,
       AuthEventRecorder authEventRecorder) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache) {
     this.properties = properties;
     this.tokenClient = tokenClient;
     this.pendingStore = pendingStore;
@@ -67,6 +92,7 @@ public class OidcAuthService {
     this.sessionService = sessionService;
     this.authEventRecorder = authEventRecorder;
     this.groupRoleSync = new OidcGroupRoleSync(userService);
+    this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
   }
 
   public boolean isEnabled() {
@@ -152,6 +178,7 @@ public class OidcAuthService {
       return OidcLoginResult.failure("auth audit failed");
     }
     WebSession session = sessionService.create(username);
+    teamIdsCache.put(session.getSessionId(), claims.groups());
     return OidcLoginResult.success(session, username);
   }
 
