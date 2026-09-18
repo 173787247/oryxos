@@ -1200,6 +1200,13 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.TeamMembershipService(repository, userRepository);
   }
 
+  /** #539：团队目录（展示名）；与成员表解耦，catalog 行可选。 */
+  @Bean
+  io.oryxos.storage.TeamCatalogService teamCatalogService(
+      io.oryxos.storage.TeamRepository repository) {
+    return new io.oryxos.storage.TeamCatalogService(repository);
+  }
+
   /**
    * 012-web-auth US3：浏览器登录 session 管理（create/findValid 惰性清过期/delete）。ttl 走 @Value 读字面量，避免 cli 引
    * oryxos-web 的 WebAuthProperties 类。

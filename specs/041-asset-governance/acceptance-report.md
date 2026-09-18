@@ -23,6 +23,6 @@
 
 ## Honest gaps
 
-- No teams catalog / orgs hierarchy / JIT team provisioning / Admin team UI (#535 adds `team_memberships` + CLI only)
-- Team ids remain session-scoped (process cache; restart clears)
+- No orgs hierarchy / JIT team provisioning / Admin team UI (#535+#539: memberships + catalog CLI only)
+- Team memberships may reference ids without a catalog row (catalog is optional metadata)
 - No diff/rollback UI (#537 adds append-only revision snapshots + list API)
