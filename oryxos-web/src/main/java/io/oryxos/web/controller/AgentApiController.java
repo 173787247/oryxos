@@ -13,6 +13,7 @@ import io.oryxos.core.auth.Principal;
 import io.oryxos.core.auth.PrincipalContext;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.memory.MemoryService;
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Message;
 import io.oryxos.core.session.Session;
@@ -254,8 +255,12 @@ public class AgentApiController {
   }
 
   @GetMapping
-  public ApiResponse<List<AgentView>> list() {
-    return ApiResponse.ok(lifecycle.list().stream().map(this::view).toList());
+  public ApiResponse<List<AgentView>> list(HttpServletRequest request) {
+    return ApiResponse.ok(
+        lifecycle.list().stream()
+            .filter(p -> isCatalogVisible(request, ResourceRef.agent(p.name())))
+            .map(this::view)
+            .toList());
   }
 
   @GetMapping("/{name}")
@@ -626,6 +631,11 @@ public class AgentApiController {
       assetBindGuard.requireAgentRun(request, name);
       PrincipalContext.set(PrincipalHolder.get(request));
     }
+  }
+
+  /** 列表过滤：未装配守卫时不过滤（单测 / 早期装配）。 */
+  private boolean isCatalogVisible(HttpServletRequest request, ResourceRef resource) {
+    return assetBindGuard == null || assetBindGuard.isVisible(request, resource);
   }
 
   private void bindPrincipal(HttpServletRequest request) {

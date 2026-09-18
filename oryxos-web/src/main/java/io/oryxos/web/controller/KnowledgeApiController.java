@@ -10,6 +10,7 @@ import io.oryxos.core.knowledge.KnowledgeManifest;
 import io.oryxos.core.knowledge.KnowledgeService;
 import io.oryxos.core.knowledge.model.KnowledgeBaseInfo;
 import io.oryxos.core.knowledge.model.KnowledgeCapabilities;
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.CreateKnowledgeBaseRequest;
 import io.oryxos.web.controller.dto.KnowledgeBaseDetailView;
@@ -17,6 +18,8 @@ import io.oryxos.web.controller.dto.KnowledgeBaseView;
 import io.oryxos.web.controller.dto.KnowledgeDocumentView;
 import io.oryxos.web.controller.dto.UpdateKnowledgeBaseRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
+import io.oryxos.web.security.AssetBindGuard;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -57,6 +60,8 @@ public class KnowledgeApiController {
   private final io.oryxos.web.knowledge.KnowledgeMetricsService metricsService;
   private final Path knowledgeRoot;
 
+  private AssetBindGuard assetBindGuard;
+
   public KnowledgeApiController(
       KnowledgeService knowledgeService,
       KnowledgeBackendRegistry backendRegistry,
@@ -77,6 +82,11 @@ public class KnowledgeApiController {
     this.bindingService = bindingService;
     this.metricsService = metricsService;
     this.knowledgeRoot = Path.of(oryxosRoot).resolve("knowledge").toAbsolutePath().normalize();
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  public void setAssetBindGuard(AssetBindGuard assetBindGuard) {
+    this.assetBindGuard = assetBindGuard;
   }
 
   /** 使用看板（FR-023）：只聚合审计数据；时间窗缺省最近 30 天。 */
@@ -110,8 +120,15 @@ public class KnowledgeApiController {
   }
 
   @GetMapping
-  public ApiResponse<List<KnowledgeBaseView>> list() {
-    return ApiResponse.ok(knowledgeService.listBases().stream().map(this::view).toList());
+  public ApiResponse<List<KnowledgeBaseView>> list(HttpServletRequest request) {
+    return ApiResponse.ok(
+        knowledgeService.listBases().stream()
+            .filter(
+                b ->
+                    assetBindGuard == null
+                        || assetBindGuard.isVisible(request, ResourceRef.knowledge(b.name())))
+            .map(this::view)
+            .toList());
   }
 
   @PostMapping

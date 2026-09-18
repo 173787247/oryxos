@@ -44,6 +44,15 @@ public class AssetBindGuard {
     require(request, action, resource);
   }
 
+  /**
+   * 列表可见性（041 / #504）：对具名资产做 {@code decide(READ_WORKSPACE, resource)}。 flag 关或装饰器未启用时恒 true；OFFLINE
+   * / PRIVATE 他属主时 false（不抛异常，只从列表剔除）。
+   */
+  public boolean isVisible(HttpServletRequest request, ResourceRef resource) {
+    Principal principal = PrincipalHolder.get(request);
+    return authorizationService.decide(principal, Action.READ_WORKSPACE, resource).allowed();
+  }
+
   private void require(HttpServletRequest request, Action action, ResourceRef resource) {
     Principal principal = PrincipalHolder.get(request);
     AuthorizationService.Decision decision =

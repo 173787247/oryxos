@@ -1,5 +1,6 @@
 package io.oryxos.web.controller;
 
+import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.core.skill.AgentSkillBindingService;
 import io.oryxos.core.skill.SkillCatalog;
 import io.oryxos.core.skill.SkillCatalogEntry;
@@ -13,7 +14,9 @@ import io.oryxos.web.controller.dto.SkillCatalogView;
 import io.oryxos.web.controller.dto.SkillView;
 import io.oryxos.web.controller.dto.UpdateSkillRequest;
 import io.oryxos.web.error.ResourceNotFoundException;
+import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.skill.GithubFolderFetcher;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -84,6 +87,8 @@ public class SkillApiController {
   private final SkillCatalog catalog;
   private final AgentSkillBindingService bindings;
 
+  private AssetBindGuard assetBindGuard;
+
   public SkillApiController(SkillService skills) {
     this(skills, null, null);
   }
@@ -96,9 +101,21 @@ public class SkillApiController {
     this.bindings = bindings;
   }
 
+  @Autowired(required = false)
+  public void setAssetBindGuard(AssetBindGuard assetBindGuard) {
+    this.assetBindGuard = assetBindGuard;
+  }
+
   @GetMapping
-  public ApiResponse<List<SkillView>> list() {
-    return ApiResponse.ok(skills.list().stream().map(SkillView::from).toList());
+  public ApiResponse<List<SkillView>> list(HttpServletRequest request) {
+    return ApiResponse.ok(
+        skills.list().stream()
+            .filter(
+                s ->
+                    assetBindGuard == null
+                        || assetBindGuard.isVisible(request, ResourceRef.skill(s.name())))
+            .map(SkillView::from)
+            .toList());
   }
 
   @GetMapping("/{name}")
