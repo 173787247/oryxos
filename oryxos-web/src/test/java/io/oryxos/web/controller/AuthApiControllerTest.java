@@ -176,7 +176,8 @@ class AuthApiControllerTest {
                     sessionService,
                     properties,
                     new LoginAttemptService(),
-                    mock(AuthEventRecorder.class)))
+                    mock(AuthEventRecorder.class),
+                    teamIdsCache))
             .addFilters(new org.springframework.web.filter.ForwardedHeaderFilter())
             .build();
 
@@ -284,7 +285,8 @@ class AuthApiControllerTest {
                     sessionService,
                     properties,
                     attempts,
-                    mock(AuthEventRecorder.class)))
+                    mock(AuthEventRecorder.class),
+                    teamIdsCache))
             .addFilters(new org.springframework.web.filter.ForwardedHeaderFilter())
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();

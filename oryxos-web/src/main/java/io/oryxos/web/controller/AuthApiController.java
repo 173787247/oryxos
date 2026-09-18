@@ -62,22 +62,6 @@ public class AuthApiController {
   private final AuthEventRecorder authEventRecorder;
   private final SessionTeamIdsCache teamIdsCache;
 
-  /** 兼容旧 5 参测试构造：团队缓存用空实现。 */
-  public AuthApiController(
-      WebUserService userService,
-      WebSessionService sessionService,
-      WebAuthProperties properties,
-      LoginAttemptService loginAttemptService,
-      AuthEventRecorder authEventRecorder) {
-    this(
-        userService,
-        sessionService,
-        properties,
-        loginAttemptService,
-        authEventRecorder,
-        new SessionTeamIdsCache());
-  }
-
   public AuthApiController(
       WebUserService userService,
       WebSessionService sessionService,
