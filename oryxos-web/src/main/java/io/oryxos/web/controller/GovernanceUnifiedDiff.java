@@ -7,6 +7,9 @@ import java.util.List;
 /** 行级统一 diff（#544）。快照通常很短，用 LCS DP 即可；无第三方依赖。 */
 final class GovernanceUnifiedDiff {
 
+  private static final String NEWLINE = "\n";
+  private static final String CRLF = "\r\n";
+
   private GovernanceUnifiedDiff() {}
 
   static String unified(long fromId, long toId, String fromText, String toText) {
@@ -23,11 +26,11 @@ final class GovernanceUnifiedDiff {
     int i = a.size();
     int j = b.size();
     while (i > 0 || j > 0) {
-      if (i > 0 && j > 0 && a.get(i - 1).equals(b.get(j - 1))) {
+      if (equalAt(a, b, i, j)) {
         ops.add(" " + a.get(i - 1));
         i--;
         j--;
-      } else if (j > 0 && (i == 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
+      } else if (preferInsert(i, j, lcs)) {
         ops.add("+" + b.get(j - 1));
         j--;
       } else {
@@ -66,18 +69,33 @@ final class GovernanceUnifiedDiff {
     return out.toString();
   }
 
+  private static boolean equalAt(List<String> a, List<String> b, int i, int j) {
+    return i > 0 && j > 0 && a.get(i - 1).equals(b.get(j - 1));
+  }
+
+  /** LCS 回溯：优先走插入边（与标准 diff 习惯一致）。 */
+  private static boolean preferInsert(int i, int j, int[][] lcs) {
+    if (j <= 0) {
+      return false;
+    }
+    if (i == 0) {
+      return true;
+    }
+    return lcs[i][j - 1] >= lcs[i - 1][j];
+  }
+
   private static List<String> lines(String text) {
     if (text == null || text.isEmpty()) {
       return List.of();
     }
-    String normalized = text.replace("\r\n", "\n").replace('\r', '\n');
-    if (normalized.endsWith("\n")) {
+    String normalized = text.replace(CRLF, NEWLINE).replace('\r', '\n');
+    if (normalized.endsWith(NEWLINE)) {
       normalized = normalized.substring(0, normalized.length() - 1);
     }
     if (normalized.isEmpty()) {
       return List.of();
     }
-    return Arrays.asList(normalized.split("\n", -1));
+    return Arrays.asList(normalized.split(NEWLINE, -1));
   }
 
   private static int[][] lcsTable(List<String> a, List<String> b) {
