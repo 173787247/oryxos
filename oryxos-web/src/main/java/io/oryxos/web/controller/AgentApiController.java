@@ -240,15 +240,22 @@ public class AgentApiController {
 
   /** 创建：只需 name + description，后台按模板脚手架出完整目录 + 派生注册（失败回滚）。 */
   @PostMapping
-  public ApiResponse<AgentView> create(@RequestBody CreateAgentRequest req) {
+  public ApiResponse<AgentView> create(
+      @RequestBody CreateAgentRequest req, HttpServletRequest request) {
     if (req == null || req.name() == null || req.name().isBlank()) {
       throw new IllegalArgumentException("Agent 名为空");
+    }
+    if (!req.skillBindings().isEmpty()) {
+      requireSkillBinds(request, req.skillBindings());
+      validateCatalog(request, req.skillBindings());
     }
     io.oryxos.core.profile.Profile created =
         lifecycle.create(
             req.name(), req.description(), req.provider(), req.model(), req.skillBindings());
     // 014 FR-018：新建表单的知识库多选在此落软连接（绑定仅管理面动作；失败时 Agent 已建、错误可读可重试）
     if (!req.knowledgeBindings().isEmpty()) {
+      requireKnowledgeBinds(request, req.knowledgeBindings());
+      requireKnowledgeVisible(request, req.knowledgeBindings());
       requireKnowledgeBindings().replaceBindings(req.name(), req.knowledgeBindings());
     }
     return ApiResponse.ok(view(created));
@@ -480,7 +487,8 @@ public class AgentApiController {
                 skills,
                 provider,
                 model,
-                skill -> isCatalogVisible(request, ResourceRef.skill(skill)))));
+                skill -> isCatalogVisible(request, ResourceRef.skill(skill)),
+                kb -> isCatalogVisible(request, ResourceRef.knowledge(kb)))));
   }
 
   /** 保存（可能被改过的）一组 Agent 文件，写入即生效（AGENT.md 非法 → 400，不写坏目录）。 */
@@ -500,6 +508,7 @@ public class AgentApiController {
     // 014 FR-018：生成/编辑保存时同步知识库绑定（null = 不改动）
     if (req != null && req.knowledgeBindings() != null) {
       requireKnowledgeBinds(request, req.knowledgeBindings());
+      requireKnowledgeVisible(request, req.knowledgeBindings());
       requireKnowledgeBindings().replaceBindings(name, req.knowledgeBindings());
     }
     return ApiResponse.ok(view(saved));
@@ -566,6 +575,7 @@ public class AgentApiController {
       @PathVariable String name, @PathVariable String kb, HttpServletRequest request) {
     requireAgent(name);
     requireKnowledgeBind(request, kb);
+    requireKnowledgeVisible(request, List.of(kb));
     requireKnowledgeBindings().bind(name, kb);
     return knowledge(name);
   }
@@ -586,6 +596,7 @@ public class AgentApiController {
     requireAgent(name);
     List<String> desired = body == null ? List.of() : body.knowledge();
     requireKnowledgeBinds(request, desired);
+    requireKnowledgeVisible(request, desired);
     return ApiResponse.ok(
         AgentKnowledgeBindingsView.from(requireKnowledgeBindings().replaceBindings(name, desired)));
   }
@@ -708,6 +719,21 @@ public class AgentApiController {
     }
     for (String kb : knowledge) {
       requireKnowledgeBind(request, kb);
+    }
+  }
+
+  /** 列表门禁：不可见知识库不得进入作者绑定/生成候选（与 Skill {@code validateCatalog} 同口径；未装配守卫时放行）。 */
+  private void requireKnowledgeVisible(HttpServletRequest request, List<String> knowledge) {
+    if (knowledge == null) {
+      return;
+    }
+    for (String kb : knowledge) {
+      if (kb == null || kb.isBlank()) {
+        continue;
+      }
+      if (!isCatalogVisible(request, ResourceRef.knowledge(kb))) {
+        throw new IllegalArgumentException("Knowledge 不在可访问目录中: " + kb);
+      }
     }
   }
 
