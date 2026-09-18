@@ -60,3 +60,15 @@ Append-only full-text snapshots when `version-history-enabled`:
 
 - `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`
 - Channel writes: extra `decide(MANAGE_CHANNELS, channel(name))` so the decorator can see the named block. Filter still uses `channel(null)`.
+
+
+## organizations + teams.org_id (V15 / #554)
+
+Optional org catalog metadata (not used by `AuthorizationService.decide`):
+
+- `organizations(org_id, display_name, created_at, updated_at)`
+- `teams.org_id` nullable FK (PG `ON DELETE SET NULL`; SQLite clears on org delete in service)
+
+CLI: `oryxos org create|list|rename|delete`, `oryxos team set-org`.
+HTTP under same `oryxos.web.teams-api.enabled` (default off → 404): `/api/v1/orgs`, `PUT /api/v1/teams/{teamId}/org`.
+Admin org UI deferred.

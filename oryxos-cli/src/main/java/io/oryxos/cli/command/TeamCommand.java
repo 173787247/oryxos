@@ -27,6 +27,7 @@ import picocli.CommandLine.Parameters;
       TeamCommand.RenameCommand.class,
       TeamCommand.ListCommand.class,
       TeamCommand.DeleteCommand.class,
+      TeamCommand.SetOrgCommand.class,
       TeamCommand.MemberAddCommand.class,
       TeamCommand.MemberRemoveCommand.class,
       TeamCommand.MemberListCommand.class
@@ -108,9 +109,10 @@ public class TeamCommand implements Runnable {
               System.out.println("No teams. Run 'oryxos team create <id>' to add one.");
               return;
             }
-            System.out.printf("%-24s %s%n", "TEAM_ID", "DISPLAY_NAME");
+            System.out.printf("%-24s %-24s %s%n", "TEAM_ID", "ORG_ID", "DISPLAY_NAME");
             for (Team t : teams) {
-              System.out.printf("%-24s %s%n", t.getTeamId(), t.getDisplayName());
+              String org = t.getOrgId() == null ? "-" : t.getOrgId();
+              System.out.printf("%-24s %-24s %s%n", t.getTeamId(), org, t.getDisplayName());
             }
           });
     }
@@ -127,6 +129,28 @@ public class TeamCommand implements Runnable {
           service -> {
             service.delete(teamId);
             System.out.println("Deleted team catalog entry '" + teamId + "'");
+          });
+    }
+  }
+
+  @Command(
+      name = "set-org",
+      description = "设置团队所属组织（缺省 orgId 则清空）",
+      mixinStandardHelpOptions = true)
+  static class SetOrgCommand implements Runnable {
+    @Parameters(index = "0", description = "团队 id")
+    String teamId;
+
+    @Parameters(index = "1", arity = "0..1", description = "组织 id（省略则清空）")
+    String orgId;
+
+    @Override
+    public void run() {
+      withCatalog(
+          service -> {
+            Team t = service.setOrg(teamId, orgId);
+            String org = t.getOrgId() == null ? "(none)" : t.getOrgId();
+            System.out.println("Set team '" + t.getTeamId() + "' org -> " + org);
           });
     }
   }

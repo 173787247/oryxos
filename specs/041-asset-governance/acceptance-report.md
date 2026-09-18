@@ -26,6 +26,6 @@
 
 ## Honest gaps
 
-- No orgs hierarchy / orgId FK / Admin org UI (#535+#539+#546+#548: memberships + catalog CLI + teams HTTP API + Admin teams page; flag-off default)
+- Organizations catalog + nullable `teams.org_id` done (#554 V15 + CLI/HTTP under `teams-api.enabled`); Admin org UI / multilevel / org-in-decide still deferred
 - OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); still no auto `team_memberships` rows
 - Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups)

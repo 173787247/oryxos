@@ -9,25 +9,20 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 团队目录行（#539 / #554）。表结构以 db/migration V14+V15 为唯一权威。
+ * 组织目录行（#554）。表结构以 db/migration V15 为唯一权威。
  *
- * <p>{@code team_id} 与 OIDC groups / {@code teamOwner} / {@code team_memberships} 同一字符串空间；本表只存展示名
- * 与可选 {@code org_id}。
+ * <p>本表只存展示元数据；不参与 {@code AuthorizationService.decide}。
  */
 @Entity
-@Table(name = "teams")
-public class Team {
+@Table(name = "organizations")
+public class Organization {
 
   @Id
-  @Column(name = "team_id", nullable = false, length = 128)
-  private String teamId;
+  @Column(name = "org_id", nullable = false, length = 128)
+  private String orgId;
 
   @Column(name = "display_name", nullable = false, length = 255)
   private String displayName;
-
-  /** 可选所属组织；空=未挂组织。不参与授权裁决。 */
-  @Column(name = "org_id", length = 128)
-  private String orgId;
 
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
@@ -51,12 +46,12 @@ public class Team {
     updatedAt = Instant.now();
   }
 
-  public String getTeamId() {
-    return teamId;
+  public String getOrgId() {
+    return orgId;
   }
 
-  public void setTeamId(String teamId) {
-    this.teamId = teamId;
+  public void setOrgId(String orgId) {
+    this.orgId = orgId;
   }
 
   public String getDisplayName() {
@@ -65,14 +60,6 @@ public class Team {
 
   public void setDisplayName(String displayName) {
     this.displayName = displayName;
-  }
-
-  public String getOrgId() {
-    return orgId;
-  }
-
-  public void setOrgId(String orgId) {
-    this.orgId = orgId;
   }
 
   public Instant getCreatedAt() {

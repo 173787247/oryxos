@@ -4,6 +4,7 @@ import io.oryxos.cli.command.AgentCommand;
 import io.oryxos.cli.command.ChatCommand;
 import io.oryxos.cli.command.GatewayCommand;
 import io.oryxos.cli.command.InitCommand;
+import io.oryxos.cli.command.OrgCommand;
 import io.oryxos.cli.command.ProfileCommand;
 import io.oryxos.cli.command.ProviderListCommand;
 import io.oryxos.cli.command.ServeCommand;
@@ -39,6 +40,7 @@ import picocli.CommandLine.IVersionProvider;
       SessionListCommand.class,
       io.oryxos.cli.command.KnowledgeCommand.class,
       UserCommand.class,
+      OrgCommand.class,
       TeamCommand.class,
       io.oryxos.cli.command.ApiKeyCommand.class,
       AgentCommand.class

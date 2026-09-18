@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 团队目录管理（#539）：create / rename / list / delete。不强制成员关系引用本表——catalog 是可选展示元数据。 */
+/** 团队目录管理（#539 / #554）：create / rename / list / delete / setOrg。不强制成员关系引用本表——catalog 是可选展示元数据。 */
 public class TeamCatalogService {
 
   private static final int MAX_TEAM_ID = 128;
@@ -13,12 +13,15 @@ public class TeamCatalogService {
   private static final char SPACE = ' ';
 
   private final TeamRepository repository;
+  private final OrganizationRepository organizationRepository;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "repository 为 Spring 注入共享单例，构造注入存同一引用正是意图。")
-  public TeamCatalogService(TeamRepository repository) {
+  public TeamCatalogService(
+      TeamRepository repository, OrganizationRepository organizationRepository) {
     this.repository = repository;
+    this.organizationRepository = organizationRepository;
   }
 
   @Transactional(readOnly = true)
@@ -79,6 +82,27 @@ public class TeamCatalogService {
       throw new IllegalArgumentException("displayName must not be empty");
     }
     row.setDisplayName(truncate(displayName.strip(), MAX_DISPLAY));
+    row.setUpdatedAt(Instant.now());
+    return repository.save(row);
+  }
+
+  /** 设置所属组织；{@code orgId} 空/空白则清空。非空时组织必须已在目录中。不改 ACL / decide。 */
+  @Transactional(rollbackFor = Exception.class)
+  public Team setOrg(String teamId, String orgId) {
+    String cleanId = requireTeamId(teamId);
+    Team row =
+        repository
+            .findByTeamId(cleanId)
+            .orElseThrow(() -> new IllegalArgumentException("team '" + cleanId + "' not found"));
+    if (orgId == null || orgId.isBlank()) {
+      row.setOrgId(null);
+    } else {
+      String cleanOrg = orgId.strip();
+      if (!organizationRepository.existsByOrgId(cleanOrg)) {
+        throw new IllegalArgumentException("org '" + cleanOrg + "' not found");
+      }
+      row.setOrgId(cleanOrg);
+    }
     row.setUpdatedAt(Instant.now());
     return repository.save(row);
   }
