@@ -1045,10 +1045,6 @@ public class AgentLifecycleService {
         .collect(Collectors.joining("\n"));
   }
 
-  private List<SkillCatalogEntry> availableCatalogCandidates() {
-    return availableCatalogCandidates(null);
-  }
-
   private List<SkillCatalogEntry> availableCatalogCandidates(Predicate<String> skillVisible) {
     if (skillCatalog == null || skillRegistry == null) {
       return List.of();
