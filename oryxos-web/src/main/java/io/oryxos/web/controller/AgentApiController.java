@@ -243,6 +243,9 @@ public class AgentApiController {
     if (req == null || req.name() == null || req.name().isBlank()) {
       throw new IllegalArgumentException("Agent 名为空");
     }
+    if (!req.knowledgeBindings().isEmpty()) {
+      requireKnowledgeBindings().validateTargets(req.knowledgeBindings());
+    }
     io.oryxos.core.profile.Profile created =
         lifecycle.create(
             req.name(), req.description(), req.provider(), req.model(), req.skillBindings());
@@ -255,14 +258,14 @@ public class AgentApiController {
 
   @GetMapping
   public ApiResponse<List<AgentView>> list() {
-    return ApiResponse.ok(lifecycle.list().stream().map(this::view).toList());
+    return ApiResponse.ok(lifecycle.listCurrent().stream().map(this::view).toList());
   }
 
   @GetMapping("/{name}")
   public ApiResponse<AgentView> get(@PathVariable String name) {
     return ApiResponse.ok(
         lifecycle
-            .get(name)
+            .getCurrent(name)
             .map(this::view)
             .orElseThrow(() -> new ResourceNotFoundException("Agent 不存在: " + name)));
   }
@@ -473,6 +476,9 @@ public class AgentApiController {
   @PostMapping("/{name}/files")
   public ApiResponse<AgentView> saveFiles(
       @PathVariable String name, @RequestBody SaveFilesRequest req) {
+    if (req != null && req.knowledgeBindings() != null) {
+      requireKnowledgeBindings().validateTargets(req.knowledgeBindings());
+    }
     io.oryxos.core.profile.Profile saved =
         lifecycle.saveFiles(
             name, req == null ? null : req.files(), req == null ? null : req.skillBindings());

@@ -1,6 +1,7 @@
 package io.oryxos.tool.sandbox;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -29,4 +30,12 @@ public interface ProcessStarter {
    * @throws IOException 启动失败（本地进程创建失败 / docker CLI 或 daemon 故障等）
    */
   Process start(List<String> command) throws IOException;
+
+  /** Explicit execution view; implementations must not silently ignore a requested cwd. */
+  default Process start(List<String> command, Path workingDirectory) throws IOException {
+    if (workingDirectory != null) {
+      throw new IOException("Execution backend does not support a workspace working directory");
+    }
+    return start(command);
+  }
 }

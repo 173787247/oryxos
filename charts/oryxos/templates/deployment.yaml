@@ -86,4 +86,4 @@ spec:
             name: {{ include "oryxos.fullname" . }}-config
         - name: workspace
           persistentVolumeClaim:
-            claimName: {{ include "oryxos.fullname" . }}-workspace
+            claimName: {{ default (printf "%s-workspace" (include "oryxos.fullname" .)) .Values.workspace.existingClaim | quote }}

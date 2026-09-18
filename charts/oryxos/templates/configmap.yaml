@@ -1,8 +1,11 @@
+{{- if and (eq .Values.workspace.provider "shared-posix") (empty .Values.workspace.identity) -}}
+{{- fail "workspace.identity is required for shared-posix; pre-provision .workspace-id on the shared volume" -}}
+{{- end -}}
 {{- /* 零明文纪律：凭证只走 Secret 环境变量，绝不出现在本 ConfigMap。
        extraConfig 与固定注入项做深合并（固定项优先——cluster.enabled 等不可被覆盖），
        避免顶层重复键（SnakeYAML 后者胜会静默吞掉集群档开关）。 */ -}}
 {{- $base := dict
-      "oryxos" (dict "cluster" (dict "enabled" true))
+      "oryxos" (dict "cluster" (dict "enabled" true) "workspace" (dict "storage" (dict "provider" .Values.workspace.provider "identity" .Values.workspace.identity)))
       "spring" (dict "lifecycle" (dict "timeout-per-shutdown-phase" .Values.shutdown.drainTimeout)) -}}
 {{- if .Values.otel.endpoint -}}
 {{- $_ := set (get $base "oryxos") "otel" (dict "endpoint" .Values.otel.endpoint "sampler-ratio" .Values.otel.samplerRatio) -}}

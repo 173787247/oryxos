@@ -1,8 +1,14 @@
 package io.oryxos.core.skill;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.testing.SymlinkAssumptions;
+import io.oryxos.core.workspace.SharedPosixWorkspaceStorageProvider;
+import io.oryxos.core.workspace.WorkspaceStorage;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.DisplayName;
@@ -30,5 +36,83 @@ class SkillLoaderTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> loader.parse("---\nname: yes\ndescription: d\n---\nbody", "yes"));
+  }
+
+  @Test
+  void deriveSkillFollowsRelativeSkillFileLinkWithinTheSkillsRoot() throws IOException {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
+    Files.writeString(
+        root.resolve(".linked-skill.md"),
+        "---\nname: linked\ndescription: linked skill\n---\nbody");
+    Path skill = Files.createDirectories(root.resolve("linked"));
+    Files.createSymbolicLink(skill.resolve("SKILL.md"), Path.of("../.linked-skill.md"));
+
+    assertTrue(new SkillLoader(root).loadAll().exists("linked"));
+  }
+
+  @Test
+  void sharedWorkspaceOutageFailsReloadInsteadOfPublishingAnEmptyRegistry() throws Exception {
+    Path shared = Files.createDirectories(root.resolve("shared"));
+    Files.writeString(shared.resolve(".workspace-id"), "skills-fixture");
+    Path skill = Files.createDirectories(shared.resolve("skills/demo"));
+    Files.writeString(
+        skill.resolve("SKILL.md"), "---\nname: demo\ndescription: demo skill\n---\nbody");
+
+    try (WorkspaceStorage storage =
+        new SharedPosixWorkspaceStorageProvider().open(shared, "skills-fixture")) {
+      SkillLoader loader = new SkillLoader(storage.root().resolve("skills"));
+      assertTrue(loader.loadAll().exists("demo"));
+
+      Files.writeString(shared.resolve(".workspace-id"), "wrong");
+
+      assertThrows(UncheckedIOException.class, loader::loadAll);
+
+      Files.writeString(shared.resolve(".workspace-id"), "skills-fixture");
+      assertTrue(loader.loadAll().exists("demo"));
+      Files.delete(shared.resolve(".workspace-id"));
+      assertThrows(UncheckedIOException.class, loader::loadAll);
+
+      Files.writeString(shared.resolve(".workspace-id"), "skills-fixture");
+      Files.delete(skill.resolve("SKILL.md"));
+      Files.delete(skill);
+      assertFalse(loader.loadAll().exists("demo"));
+    }
+  }
+
+  @Test
+  void identityLossDuringSkillDerivationIsStorageFailureRatherThanBadConfiguration()
+      throws Exception {
+    Path shared = Files.createDirectories(root.resolve("mid-derive-shared"));
+    Path marker = shared.resolve(".workspace-id");
+    Files.writeString(marker, "skills-fixture");
+    Path skill = Files.createDirectories(shared.resolve("skills/demo"));
+    Files.writeString(
+        skill.resolve("SKILL.md"), "---\nname: demo\ndescription: demo skill\n---\nbody");
+
+    try (WorkspaceStorage storage =
+        new SharedPosixWorkspaceStorageProvider().open(shared, "skills-fixture")) {
+      SkillLoader loader =
+          new SkillLoader(storage.root().resolve("skills")) {
+            @Override
+            public Skill deriveSkill(Path skillDir) {
+              try {
+                Files.delete(marker);
+              } catch (IOException failure) {
+                throw new UncheckedIOException(failure);
+              }
+              try {
+                return super.deriveSkill(skillDir);
+              } finally {
+                try {
+                  Files.writeString(marker, "skills-fixture");
+                } catch (IOException failure) {
+                  throw new UncheckedIOException(failure);
+                }
+              }
+            }
+          };
+
+      assertThrows(UncheckedIOException.class, loader::loadAll);
+    }
   }
 }

@@ -465,3 +465,13 @@ ci helm job 的 kind 安装冒烟；mock provider 可 `-Doryxos.mock.latency-ms`
 - **无状态实例，状态外置**：这是未来走向分布式架构而不需要大改设计的前提
 - **安全是地基，不是补丁**：工具来源管控、最小权限、强制沙箱白名单、凭证走环境变量、完整审计记录从第一天就写入 SQLite
 - **分阶段克制**：先构建最小完整的运行时内核；治理和分布式基础设施在真实使用数据验证后再做
+
+
+## 042 工作区存储开发约束
+
+工作区业务通过 `WorkspaceStorage.root()/resolve()` 获得的 NIO Path 访问文件，禁止转成
+字符串后用 `Path.of` 绕回默认存储。插件以 `WorkspaceStorageProvider.id()` 显式选择，
+契约在 core；本机执行视图必须调用 `nativePath`。共享模式先校验管理员预置的
+`.workspace-id`，失败不初始化/不回退本地。管理写互斥预约不自动过期；恢复前停全部写者。
+`.workspace-*` 和 `.staging` 是内部保留路径。多文件发布可恢复但不是目录原子快照。
+运行输出使用 Agent/run 隔离路径。详细配置、扩展及恢复见 `docs/SharedVolumeGuide.md`。

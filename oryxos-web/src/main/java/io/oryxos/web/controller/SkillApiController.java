@@ -98,14 +98,14 @@ public class SkillApiController {
 
   @GetMapping
   public ApiResponse<List<SkillView>> list() {
-    return ApiResponse.ok(skills.list().stream().map(SkillView::from).toList());
+    return ApiResponse.ok(skills.listCurrent().stream().map(SkillView::from).toList());
   }
 
   @GetMapping("/{name}")
   public ApiResponse<SkillView> get(@PathVariable String name) {
     return ApiResponse.ok(
         skills
-            .get(name)
+            .getCurrent(name)
             .map(SkillView::from)
             .orElseThrow(() -> new ResourceNotFoundException("Skill 不存在: " + name)));
   }

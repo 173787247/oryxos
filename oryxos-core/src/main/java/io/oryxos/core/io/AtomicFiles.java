@@ -1,6 +1,7 @@
 package io.oryxos.core.io;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,18 +21,39 @@ public final class AtomicFiles {
 
   /** 原子写字节内容：父目录不存在时先创建。 */
   public static void write(Path target, byte[] content) {
+    write(target, output -> output.write(content));
+  }
+
+  /** Streaming writer; the target is published only after the callback and close succeed. */
+  @FunctionalInterface
+  public interface ContentWriter {
+    void write(OutputStream output) throws IOException;
+  }
+
+  public static void write(Path target, ContentWriter writer) {
     Path temp = tempSibling(target);
+    boolean committed = false;
     try {
       Path parent = target.toAbsolutePath().getParent();
       if (parent == null) {
         throw new IOException("目标路径缺少父目录: " + target);
       }
       Files.createDirectories(parent);
-      Files.write(temp, content);
+      try (OutputStream output =
+          Files.newOutputStream(
+              temp,
+              java.nio.file.StandardOpenOption.CREATE_NEW,
+              java.nio.file.StandardOpenOption.WRITE)) {
+        writer.write(output);
+      }
       Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      committed = true;
     } catch (IOException e) {
-      deleteQuietly(temp);
       throw new UncheckedIOException("原子写入失败: " + target, e);
+    } finally {
+      if (!committed) {
+        deleteQuietly(temp);
+      }
     }
   }
 

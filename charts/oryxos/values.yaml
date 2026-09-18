@@ -27,6 +27,11 @@ masterKey:
 
 # ── 工作区共享卷（027 文件面；replicaCount>1 必须 RWX，见 docs/SharedVolumeGuide.md） ──
 workspace:
+  # 已有 RWX PVC；设置后 chart 不创建/接管该 PVC
+  existingClaim: ""
+  # 新部署建议 shared-posix；须先在卷根预置 .workspace-id
+  provider: local
+  identity: ""
   storageClassName: ""
   accessMode: ReadWriteMany
   size: 5Gi

@@ -33,6 +33,23 @@ class AgentAwareProcessStarterTest {
   }
 
   @Test
+  void workingDirectoryIsForwardedThroughAgentRouting() throws Exception {
+    ProcessStarter selected = org.mockito.Mockito.mock(ProcessStarter.class);
+    var cwd = java.nio.file.Path.of("/workspace/.staging/run");
+    var command = List.of("echo", "hello");
+    for (String backend : List.of("local", "docker")) {
+      AgentAwareProcessStarter routing =
+          new AgentAwareProcessStarter(
+              new ExecutionBackendProperties(backend, "alpine:3.20", null, null, null, null),
+              name -> null,
+              selected,
+              props -> selected);
+      routing.start(command, cwd);
+    }
+    org.mockito.Mockito.verify(selected, org.mockito.Mockito.times(2)).start(command, cwd);
+  }
+
+  @Test
   @DisplayName("收敛_覆写优先_未覆写继承全局_镜像网络不可覆写")
   void resolveOverrideThenGlobal() {
     AgentAwareProcessStarter starter = starter(name -> new Profile.Sandbox("local", "1g", null));

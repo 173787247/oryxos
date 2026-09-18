@@ -29,6 +29,85 @@ import org.junit.jupiter.api.Test;
 class ShellToolsTest {
 
   @Test
+  void lazyCleanupFailureDoesNotMaskShellExitAndStderr(
+      @org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
+    var storage = new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, null);
+    ShellTools tools =
+        new ShellTools(
+            new PermissiveSandbox(), new io.oryxos.tool.sandbox.LocalProcessStarter(), storage);
+    try (var scope = io.oryxos.core.agent.RunOutputContext.open("writer");
+        var files =
+            org.mockito.Mockito.mockStatic(
+                java.nio.file.Files.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      files
+          .when(
+              () ->
+                  java.nio.file.Files.walk(
+                      org.mockito.ArgumentMatchers.any(java.nio.file.Path.class)))
+          .thenAnswer(
+              invocation ->
+                  java.util.stream.Stream.of((java.nio.file.Path) invocation.getArgument(0))
+                      .peek(
+                          path -> {
+                            throw new java.io.UncheckedIOException(
+                                new IOException("cleanup traversal unavailable"));
+                          }));
+      IllegalStateException failure =
+          assertThrows(
+              IllegalStateException.class,
+              () -> tools.shell("sh", List.of("-c", "echo original-failure >&2; exit 7")));
+      assertTrue(failure.getMessage().contains("7"));
+      assertTrue(failure.getMessage().contains("original-failure"));
+    }
+  }
+
+  @Test
+  void shellPublishesSuccessfulRunScopedArtifactsAndCleansFailure(
+      @org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
+    var storage = new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, null);
+    ShellTools tools =
+        new ShellTools(
+            new PermissiveSandbox(), new io.oryxos.tool.sandbox.LocalProcessStarter(), storage);
+    java.util.List<String> runs = new java.util.ArrayList<>();
+    for (int i = 0; i < 2; i++) {
+      try (var scope = io.oryxos.core.agent.RunOutputContext.open("writer")) {
+        String run =
+            io.oryxos.core.agent.RunOutputContext.current().orElseThrow().relativeDirectory();
+        runs.add(run);
+        String result = tools.shell("sh", List.of("-c", "printf complete > report.txt"));
+        assertTrue(result.contains("Shell 产物已发布"));
+        try (var files = java.nio.file.Files.walk(root.resolve(run))) {
+          var reports = files.filter(p -> p.getFileName().toString().equals("report.txt")).toList();
+          assertEquals(1, reports.size());
+          assertEquals("complete", java.nio.file.Files.readString(reports.getFirst()));
+        }
+      }
+    }
+    org.junit.jupiter.api.Assertions.assertNotEquals(runs.get(0), runs.get(1));
+    try (var scope = io.oryxos.core.agent.RunOutputContext.open("writer")) {
+      String run =
+          io.oryxos.core.agent.RunOutputContext.current().orElseThrow().relativeDirectory();
+      assertThrows(
+          IllegalStateException.class,
+          () -> tools.shell("sh", List.of("-c", "printf partial > report.txt; exit 2")));
+      assertTrue(java.nio.file.Files.notExists(root.resolve(run)));
+      try (var files = java.nio.file.Files.walk(root.resolve(".staging"))) {
+        assertEquals(0, files.filter(java.nio.file.Files::isRegularFile).count());
+      }
+    }
+  }
+
+  @Test
+  void managedShellRefusesMissingTurnInsteadOfUsingDefaultCwd(
+      @org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
+    var storage = new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, null);
+    ShellTools tools =
+        new ShellTools(
+            new PermissiveSandbox(), new io.oryxos.tool.sandbox.LocalProcessStarter(), storage);
+    assertThrows(IllegalStateException.class, () -> tools.shell("echo", List.of("hello")));
+  }
+
+  @Test
   @DisplayName("shell 将可执行文件与参数原样作为 argv 传给进程")
   void shellPassesExecutableAndLiteralArgumentsToProcess() {
     AtomicReference<List<String>> startedCommand = new AtomicReference<>();

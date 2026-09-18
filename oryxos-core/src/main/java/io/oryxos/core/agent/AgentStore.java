@@ -3,20 +3,15 @@ package io.oryxos.core.agent;
 import io.oryxos.core.fs.RealPathBoundary;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Clock;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -84,54 +79,20 @@ public class AgentStore {
   public synchronized Path writeAll(String name, Map<String, String> files) {
     Path dir = agentsDir.resolve(safe(name)).normalize();
     requireSafe(dir);
-    boolean existed = Files.exists(dir, LinkOption.NOFOLLOW_LINKS);
-    List<StagedWrite> staged = new ArrayList<>();
     try {
       Files.createDirectories(dir);
-      Set<Path> uniqueTargets = new HashSet<>();
+      Map<Path, byte[]> contents = new LinkedHashMap<>();
       for (Map.Entry<String, String> entry : files.entrySet()) {
         Path target = writableTarget(dir, entry.getKey());
-        if (!uniqueTargets.add(target)) {
+        if (contents.putIfAbsent(
+                target, entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8))
+            != null) {
           throw new IllegalArgumentException("重复文件路径: " + entry.getKey());
         }
-        Path parent = target.getParent();
-        if (parent != null) {
-          Files.createDirectories(parent);
-        }
-        Path temporary =
-            target.resolveSibling("." + target.getFileName() + ".write-" + UUID.randomUUID());
-        Files.writeString(temporary, entry.getValue());
-        Path backup =
-            target.resolveSibling("." + target.getFileName() + ".backup-" + UUID.randomUUID());
-        staged.add(new StagedWrite(target, temporary, backup));
       }
-      for (StagedWrite write : staged) {
-        if (Files.exists(write.target, LinkOption.NOFOLLOW_LINKS)) {
-          moveAtomic(write.target, write.backup);
-          write.originalMoved = true;
-        }
-        moveAtomic(write.temporary, write.target);
-        write.committed = true;
-      }
-      for (StagedWrite write : staged) {
-        try {
-          Files.deleteIfExists(write.backup);
-        } catch (IOException ignored) {
-          // 提交已经完成；遗留隐藏备份比回滚已成功提交的用户文件更安全。
-        }
-      }
+      io.oryxos.core.workspace.RecoverableFiles.write(dir, contents);
     } catch (IOException e) {
-      rollback(staged);
-      if (!existed) {
-        delete(dir);
-      }
       throw new UncheckedIOException("写入 Agent 目录失败: " + name, e);
-    } catch (RuntimeException e) {
-      rollback(staged);
-      if (!existed) {
-        delete(dir);
-      }
-      throw e;
     }
     return dir;
   }
@@ -259,31 +220,6 @@ public class AgentStore {
         && !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS);
   }
 
-  private static void moveAtomic(Path source, Path target) throws IOException {
-    try {
-      Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-    } catch (AtomicMoveNotSupportedException e) {
-      throw new IOException("文件系统不支持原子移动: " + source, e);
-    }
-  }
-
-  private static void rollback(List<StagedWrite> staged) {
-    for (int i = staged.size() - 1; i >= 0; i--) {
-      StagedWrite write = staged.get(i);
-      try {
-        if (write.committed) {
-          Files.deleteIfExists(write.target);
-        }
-        if (write.originalMoved && Files.exists(write.backup, LinkOption.NOFOLLOW_LINKS)) {
-          moveAtomic(write.backup, write.target);
-        }
-        Files.deleteIfExists(write.temporary);
-      } catch (IOException ignored) {
-        // 原始异常优先；一致性检查和隐藏备份保留恢复线索。
-      }
-    }
-  }
-
   static final class FileSnapshot {
     private final String agentName;
     private final Map<String, byte[]> existing;
@@ -293,20 +229,6 @@ public class AgentStore {
       this.agentName = agentName;
       this.existing = Map.copyOf(existing);
       this.absent = Set.copyOf(absent);
-    }
-  }
-
-  private static final class StagedWrite {
-    private final Path target;
-    private final Path temporary;
-    private final Path backup;
-    private boolean originalMoved;
-    private boolean committed;
-
-    private StagedWrite(Path target, Path temporary, Path backup) {
-      this.target = target;
-      this.temporary = temporary;
-      this.backup = backup;
     }
   }
 

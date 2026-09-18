@@ -78,3 +78,7 @@ docs/CostAccounting.md
 docs/AuditTraceLink.md
 oryxos.db-shm
 oryxos.db-wal
+
+# Python offline workspace recovery tooling
+__pycache__/
+*.pyc

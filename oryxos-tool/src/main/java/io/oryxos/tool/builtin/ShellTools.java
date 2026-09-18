@@ -1,5 +1,7 @@
 package io.oryxos.tool.builtin;
 
+import io.oryxos.core.agent.RunOutputContext;
+import io.oryxos.core.workspace.WorkspaceStorage;
 import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.LocalProcessStarter;
 import io.oryxos.tool.sandbox.ProcessStarter;
@@ -10,10 +12,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -51,6 +57,7 @@ public class ShellTools {
   private final Duration timeout;
   private final ProcessStarter processStarter;
   private final Charset outputCharset;
+  private final WorkspaceStorage storage;
 
   public ShellTools(Sandbox sandbox) {
     this(sandbox, DEFAULT_TIMEOUT);
@@ -59,6 +66,10 @@ public class ShellTools {
   /** 装配层注入执行后端（024）：local 档传 LocalProcessStarter、docker 档传 DockerProcessStarter。 */
   public ShellTools(Sandbox sandbox, ProcessStarter processStarter) {
     this(sandbox, DEFAULT_TIMEOUT, processStarter, Charset.defaultCharset());
+  }
+
+  public ShellTools(Sandbox sandbox, ProcessStarter processStarter, WorkspaceStorage storage) {
+    this(sandbox, DEFAULT_TIMEOUT, processStarter, Charset.defaultCharset(), storage);
   }
 
   ShellTools(Sandbox sandbox, Duration timeout) {
@@ -71,6 +82,16 @@ public class ShellTools {
 
   ShellTools(
       Sandbox sandbox, Duration timeout, ProcessStarter processStarter, Charset outputCharset) {
+    this(sandbox, timeout, processStarter, outputCharset, null);
+  }
+
+  ShellTools(
+      Sandbox sandbox,
+      Duration timeout,
+      ProcessStarter processStarter,
+      Charset outputCharset,
+      WorkspaceStorage storage) {
+    this.storage = storage;
     this.sandbox = Objects.requireNonNull(sandbox, "sandbox 不能为空");
     this.timeout = Objects.requireNonNull(timeout, "timeout 不能为空");
     this.processStarter = Objects.requireNonNull(processStarter, "processStarter 不能为空");
@@ -85,40 +106,106 @@ public class ShellTools {
     List<String> command = command(commandExecutable, arguments);
     sandbox.enforce(new SandboxAction(ActionType.SHELL_COMMAND, commandExecutable));
     try {
-      Process process = processStarter.start(command);
-      // 先起并发排空再 waitFor：管道不被写满阻塞，waitFor 只在「命令真没跑完」时超时
-      Future<BoundedOutput> stdout = DRAINER.submit(() -> drainBounded(process.getInputStream()));
-      Future<BoundedOutput> stderr = DRAINER.submit(() -> drainBounded(process.getErrorStream()));
-      boolean finished;
+      ShellOutput output = prepareOutput();
       try {
-        finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        killTree(process);
-        throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
-      }
-      if (!finished) {
-        killTree(process);
-        throw new IllegalStateException(
-            "命令超时（" + timeout.toSeconds() + "s）被终止: " + commandExecutable);
-      }
-      try {
-        BoundedOutput err = stderr.get();
-        if (process.exitValue() != 0) {
-          String errText = new String(err.retained, outputCharset).trim();
-          throw new IllegalStateException(
-              "命令退出码 " + process.exitValue() + ": " + errText + truncationNote(err));
+        List<String> nativeCommand = nativeCommand(command);
+        Process process =
+            output == null
+                ? processStarter.start(nativeCommand)
+                : processStarter.start(nativeCommand, storage.nativePath(output.staging()));
+        // 先起并发排空再 waitFor：管道不被写满阻塞，waitFor 只在「命令真没跑完」时超时
+        Future<BoundedOutput> stdout = DRAINER.submit(() -> drainBounded(process.getInputStream()));
+        Future<BoundedOutput> stderr = DRAINER.submit(() -> drainBounded(process.getErrorStream()));
+        boolean finished;
+        try {
+          finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          killTree(process);
+          throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
         }
-        BoundedOutput out = stdout.get();
-        return new String(out.retained, outputCharset) + truncationNote(out);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
-      } catch (ExecutionException e) {
-        throw new IllegalStateException("命令输出读取失败: " + commandExecutable, e.getCause());
+        if (!finished) {
+          killTree(process);
+          throw new IllegalStateException(
+              "命令超时（" + timeout.toSeconds() + "s）被终止: " + commandExecutable);
+        }
+        try {
+          BoundedOutput err = stderr.get();
+          if (process.exitValue() != 0) {
+            String errText = new String(err.retained, outputCharset).trim();
+            throw new IllegalStateException(
+                "命令退出码 " + process.exitValue() + ": " + errText + truncationNote(err));
+          }
+          BoundedOutput out = stdout.get();
+          String result = new String(out.retained, outputCharset) + truncationNote(out);
+          if (output != null) {
+            storage.checkHealth();
+            Path publishedParent = output.published().getParent();
+            if (publishedParent == null) {
+              throw new IOException("Shell output publication has no parent directory");
+            }
+            Files.createDirectories(publishedParent);
+            Files.move(output.staging(), output.published(), StandardCopyOption.ATOMIC_MOVE);
+            result += "\nShell 产物已发布: " + output.published();
+          }
+          return result;
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException("命令执行被中断: " + commandExecutable, e);
+        } catch (ExecutionException e) {
+          throw new IllegalStateException("命令输出读取失败: " + commandExecutable, e.getCause());
+        }
+      } finally {
+        if (output != null) {
+          cleanStaging(output.staging());
+        }
       }
     } catch (IOException e) {
       throw new UncheckedIOException("命令启动失败: " + commandExecutable, e);
+    }
+  }
+
+  private record ShellOutput(Path staging, Path published) {}
+
+  private ShellOutput prepareOutput() throws IOException {
+    if (storage == null) {
+      return null;
+    }
+    storage.checkHealth();
+    RunOutputContext run =
+        RunOutputContext.current()
+            .orElseThrow(
+                () -> new IllegalStateException("Managed shell requires an active Agent turn"));
+    String invocation = UUID.randomUUID().toString();
+    Path staging = storage.resolve(".staging/" + run.relativeDirectory() + "/" + invocation);
+    Path published = storage.resolve(run.relativeDirectory() + "/shell/" + invocation);
+    storage.nativePath(staging);
+    Files.createDirectories(staging);
+    return new ShellOutput(staging, published);
+  }
+
+  private List<String> nativeCommand(List<String> command) throws IOException {
+    if (storage == null) {
+      return command;
+    }
+    List<String> translated = new ArrayList<>();
+    for (String argument : command) {
+      if (Path.of(argument).isAbsolute() && FileTools.isManaged(storage, argument)) {
+        translated.add(storage.nativePath(FileTools.resolvePath(storage, argument)).toString());
+      } else {
+        translated.add(argument);
+      }
+    }
+    return List.copyOf(translated);
+  }
+
+  private static void cleanStaging(Path staging) {
+    try (var paths = Files.walk(staging)) {
+      for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+        Files.deleteIfExists(path);
+      }
+    } catch (IOException | UncheckedIOException ignored) {
+      // Failed or unavailable staging remains hidden; never claim it as a published artifact.
     }
   }
 

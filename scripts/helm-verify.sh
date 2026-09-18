@@ -60,4 +60,29 @@ helm template oryxos "${CHART}" -f "${TEST_VALUES}" --set replicaCount=1 --set w
   || fail "单副本 RWO 应为合法配置"
 pass "单副本 RWO 合法"
 
+# 8. 042：已有 RWX 卷不创建 PVC，共享身份显式注入。
+helm template oryxos "${CHART}" -f "${TEST_VALUES}" \
+  --set workspace.existingClaim=existing-rwx \
+  --set workspace.provider=shared-posix --set workspace.identity=acceptance-workspace > "${OUT}.existing"
+if grep -q 'kind: PersistentVolumeClaim' "${OUT}.existing"; then
+  fail "existingClaim 模式不得创建或接管 PVC"
+fi
+grep -q 'claimName: "existing-rwx"' "${OUT}.existing" || fail "existingClaim 未挂载"
+grep -q 'provider: shared-posix' "${OUT}.existing" || fail "共享插件未注入"
+grep -q 'identity: acceptance-workspace' "${OUT}.existing" || fail "共享身份未注入"
+pass "已有 RWX 卷与共享插件配置"
+
+# 9. 共享模式缺身份拒绝渲染；已有卷同样不能绕过多副本 RWX 检查。
+if helm template oryxos "${CHART}" -f "${TEST_VALUES}" \
+  --set workspace.provider=shared-posix > /dev/null 2> "${OUT}.identity-error"; then
+  fail "shared-posix 缺 identity 必须失败"
+fi
+grep -q 'workspace.identity' "${OUT}.identity-error" || fail "缺共享身份错误指引不明确"
+if helm template oryxos "${CHART}" -f "${TEST_VALUES}" \
+  --set workspace.existingClaim=existing-rwx --set workspace.accessMode=ReadWriteOnce \
+  > /dev/null 2> "${OUT}.existing-error"; then
+  fail "existingClaim 不能绕过多副本 RWX 声明检查"
+fi
+pass "共享身份和已有卷 RWX fail-fast"
+
 echo "helm-verify 全部通过"

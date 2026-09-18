@@ -38,6 +38,30 @@ class AgentSkillBindingServiceTest {
   }
 
   @Test
+  void selectedProviderLinksSupportBindingInspectionAndDeleteProtection() throws IOException {
+    skill("report", "报告规范");
+    var storage = new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, null);
+    var selected =
+        new AgentSkillBindingService(
+            storage.root(), new SkillLoader(storage.root().resolve("skills")));
+    selected.bind("ops", "report");
+    assertTrue(selected.inspect("ops").issues().isEmpty());
+    assertEquals(1, selected.validBindings("ops").size());
+    assertEquals(1, selected.references("report").size());
+    assertThrows(
+        SkillReferencedException.class,
+        () ->
+            selected.deleteIfUnreferenced(
+                "report",
+                () -> {
+                  throw new AssertionError("must not delete");
+                }));
+    selected.unbind("ops", "report");
+    assertTrue(selected.validBindings("ops").isEmpty());
+    assertTrue(selected.references("report").isEmpty());
+  }
+
+  @Test
   @DisplayName("bind 创建固定相对链接且幂等；unbind 只删链接")
   void bindAndUnbind() throws IOException {
     SymlinkAssumptions.assumeSymlinksSupported(root);

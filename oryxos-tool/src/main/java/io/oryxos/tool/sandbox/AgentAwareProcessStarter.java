@@ -3,6 +3,7 @@ package io.oryxos.tool.sandbox;
 import io.oryxos.core.agent.ToolExecutionContext;
 import io.oryxos.core.profile.Profile;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
@@ -39,6 +40,14 @@ public final class AgentAwareProcessStarter implements ProcessStarter {
     return effective.isDocker()
         ? dockerFactory.apply(effective).start(command)
         : local.start(command);
+  }
+
+  @Override
+  public Process start(List<String> command, Path workingDirectory) throws IOException {
+    ExecutionBackendProperties effective = resolve(ToolExecutionContext.agentName());
+    return effective.isDocker()
+        ? dockerFactory.apply(effective).start(command, workingDirectory)
+        : local.start(command, workingDirectory);
   }
 
   /**

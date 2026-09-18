@@ -35,6 +35,131 @@ class FileToolsTest {
   private final FileTools tools = new FileTools(new PermissiveSandbox());
 
   @Test
+  void managedLinkToOutsideStillRejectedBySandboxForEntryOperations() throws Exception {
+    Path root = Files.createDirectories(dir.resolve("workspace"));
+    Path outside = dir.resolve("outside.txt");
+    Files.writeString(outside, "outside");
+    Path link = root.resolve("alias.txt");
+    Files.createSymbolicLink(link, outside);
+    var storage = new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, null);
+    Sandbox whitelist =
+        new WhitelistSandbox(
+            new FileSandboxProperties(List.of(root.toString())),
+            new ShellSandboxProperties(List.of()),
+            new HttpSandboxProperties(List.of()));
+    FileTools guarded = new FileTools(whitelist, storage);
+    assertThrows(SandboxViolationException.class, () -> guarded.deleteFile(link.toString()));
+    assertThrows(
+        SandboxViolationException.class,
+        () -> guarded.moveFile(link.toString(), root.resolve("moved.txt").toString()));
+    assertTrue(Files.isSymbolicLink(link));
+    assertEquals("outside", Files.readString(outside));
+  }
+
+  @Test
+  void externalFinalLinksAreDeletedAndMovedWithoutChangingManagedTargets() throws Exception {
+    Path root = Files.createDirectories(dir.resolve("workspace"));
+    Path report = root.resolve("report.txt");
+    Files.writeString(report, "published");
+    var storage = new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, null);
+    FileTools managed = new FileTools(new PermissiveSandbox(), storage);
+    Path deletedAlias = dir.resolve("delete-alias");
+    Files.createSymbolicLink(deletedAlias, report);
+    managed.deleteFile(deletedAlias.toString());
+    assertFalse(Files.exists(deletedAlias, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    assertEquals("published", Files.readString(report));
+    Path movedAlias = dir.resolve("move-alias");
+    Path destination = dir.resolve("moved-alias");
+    Files.createSymbolicLink(movedAlias, report);
+    managed.moveFile(movedAlias.toString(), destination.toString());
+    assertFalse(Files.exists(movedAlias, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    assertTrue(Files.isSymbolicLink(destination));
+    assertEquals(report, Files.readSymbolicLink(destination));
+    assertEquals("published", Files.readString(report));
+  }
+
+  @Test
+  void parentAliasKeepsManagedEntryOperationsAndRejectsLostIdentity() throws Exception {
+    Path root = Files.createDirectories(dir.resolve("workspace"));
+    Files.writeString(root.resolve(".workspace-id"), "expected");
+    var storage =
+        new io.oryxos.core.workspace.SharedPosixWorkspaceStorageProvider().open(root, "expected");
+    FileTools managed = new FileTools(new PermissiveSandbox(), storage);
+    Path alias = dir.resolve("parent-alias");
+    Files.createSymbolicLink(alias, root);
+    Files.writeString(root.resolve("one.txt"), "one");
+    managed.moveFile(alias.resolve("one.txt").toString(), alias.resolve("two.txt").toString());
+    assertEquals("one", Files.readString(root.resolve("two.txt")));
+    Files.writeString(root.resolve(".workspace-id"), "wrong");
+    assertThrows(
+        UncheckedIOException.class, () -> managed.deleteFile(alias.resolve("two.txt").toString()));
+    assertEquals("one", Files.readString(root.resolve("two.txt")));
+  }
+
+  @Test
+  void externalAliasToManagedWorkspaceCannotBypassIdentityGuard() throws Exception {
+    Path root = Files.createDirectories(dir.resolve("workspace"));
+    Files.writeString(root.resolve(".workspace-id"), "expected");
+    Files.writeString(root.resolve("report.txt"), "published");
+    var storage =
+        new io.oryxos.core.workspace.SharedPosixWorkspaceStorageProvider().open(root, "expected");
+    Path alias = dir.resolve("external-alias");
+    Files.createSymbolicLink(alias, root);
+    FileTools managed = new FileTools(new PermissiveSandbox(), storage);
+    assertEquals("published", managed.readFile(alias.resolve("report.txt").toString()));
+    Files.writeString(root.resolve(".workspace-id"), "wrong");
+    assertThrows(
+        UncheckedIOException.class,
+        () -> managed.writeFile(alias.resolve("report.txt").toString(), "bypass"));
+    assertEquals("published", Files.readString(root.resolve("report.txt")));
+  }
+
+  @Test
+  void managedReadsWritesUseSelectedStorageAndFailureCannotFallBack() throws Exception {
+    io.oryxos.core.workspace.WorkspaceStorage storage =
+        mock(io.oryxos.core.workspace.WorkspaceStorage.class);
+    org.mockito.Mockito.when(storage.root()).thenReturn(dir);
+    Path actual = dir.resolve("actual.txt");
+    org.mockito.Mockito.when(storage.resolve("requested.txt")).thenReturn(actual);
+    FileTools managed = new FileTools(new PermissiveSandbox(), storage);
+    managed.writeFile(dir.resolve("requested.txt").toString(), "through provider");
+    assertEquals("through provider", managed.readFile(dir.resolve("requested.txt").toString()));
+    assertFalse(Files.exists(dir.resolve("requested.txt")));
+    org.mockito.Mockito.verify(storage, org.mockito.Mockito.times(2)).resolve("requested.txt");
+    org.mockito.Mockito.when(storage.resolve("requested.txt"))
+        .thenThrow(new IllegalStateException("storage unavailable"));
+    assertThrows(
+        IllegalStateException.class,
+        () -> managed.writeFile(dir.resolve("requested.txt").toString(), "bad fallback"));
+    assertEquals("through provider", Files.readString(actual));
+  }
+
+  @Test
+  void injectedProviderSupportsFilesAndExplicitExternalPaths() throws Exception {
+    var storage =
+        new io.oryxos.core.workspace.LocalWorkspaceStorageProvider()
+            .open(dir.resolve("workspace"), null);
+    FileTools managed = new FileTools(new PermissiveSandbox(), storage);
+    Path file = dir.resolve("workspace/result.txt");
+    managed.writeFile(file.toString(), "report");
+    assertEquals("report", managed.readFile(file.toString()));
+    Path external = dir.resolve("explicit-external.txt");
+    managed.writeFile(external.toString(), "external");
+    assertEquals("external", Files.readString(external));
+    managed.appendFile(file.toString(), "more");
+    assertEquals("reportmore", Files.readString(file));
+    Files.writeString(dir.resolve("workspace/.workspace-id"), "shared");
+    var sharedStorage =
+        new io.oryxos.core.workspace.SharedPosixWorkspaceStorageProvider()
+            .open(dir.resolve("workspace"), "shared");
+    FileTools sharedTools = new FileTools(new PermissiveSandbox(), sharedStorage);
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> sharedTools.appendFile(file.toString(), "unsafe shared append"));
+    assertEquals("reportmore", Files.readString(file));
+  }
+
+  @Test
   @DisplayName("make_dir + append_file + delete_file 基本闭环")
   void fileManagementBasics() throws IOException {
     tools.makeDir(dir.resolve("sub").toString());

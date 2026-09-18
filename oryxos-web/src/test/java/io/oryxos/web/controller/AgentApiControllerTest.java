@@ -262,7 +262,7 @@ class AgentApiControllerTest {
   @Test
   @DisplayName("025：GET 详情含 persona 七字段投影")
   void get_returnsPersonaProjection() throws Exception {
-    when(lifecycle.get("ops")).thenReturn(Optional.of(profileWithPersona("ops")));
+    when(lifecycle.getCurrent("ops")).thenReturn(Optional.of(profileWithPersona("ops")));
 
     mvc.perform(get("/api/v1/agents/ops"))
         .andExpect(status().isOk())
@@ -274,7 +274,7 @@ class AgentApiControllerTest {
   @Test
   @DisplayName("025：无 persona 的 Agent 详情 persona 投影为 null")
   void get_noPersona_projectionNull() throws Exception {
-    when(lifecycle.get("ops")).thenReturn(Optional.of(profile("ops")));
+    when(lifecycle.getCurrent("ops")).thenReturn(Optional.of(profile("ops")));
 
     mvc.perform(get("/api/v1/agents/ops"))
         .andExpect(status().isOk())

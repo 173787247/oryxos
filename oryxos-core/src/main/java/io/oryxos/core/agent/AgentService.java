@@ -110,6 +110,7 @@ public class AgentService {
                   () ->
                       new IllegalStateException(
                           "Session 引用的 Profile 不存在: " + activeSession.profileName()));
+      RunOutputContext.Scope outputScope = RunOutputContext.open(profile.name());
       ProfileContext.set(profile); // 工具执行时靠它知道"当前是哪个 Agent"
       try {
         List<Message.MediaPart> parts = media == null ? List.of() : media;
@@ -136,6 +137,7 @@ public class AgentService {
         turnSuccess = true;
         return reply;
       } finally {
+        outputScope.close();
         ProfileContext.clear(); // 虚拟线程每请求独立，用完必须清
         spanRecorder.recordTurnSpan(
             traceScope.traceId(),
@@ -206,6 +208,7 @@ public class AgentService {
             .get(agentName)
             .orElseThrow(() -> new IllegalStateException("Agent 不存在: " + agentName));
     Session session = new Session(statelessSessionId, profile.name());
+    RunOutputContext.Scope outputScope = RunOutputContext.open(profile.name());
     ProfileContext.set(profile);
     // 021：同 process——兜底开启 trace，已开启则复用
     try (TraceContext.Scope traceScope = TraceContext.openIfAbsent()) {
@@ -235,6 +238,7 @@ public class AgentService {
             System.currentTimeMillis() - turnStartedAt);
       }
     } finally {
+      outputScope.close();
       ProfileContext.clear();
     }
   }

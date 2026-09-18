@@ -722,6 +722,50 @@ class HttpToolsTest {
   }
 
   @Test
+  void finalDownloadGuardRejectsPublicationWithoutReplacingOldFile(@TempDir Path dir)
+      throws IOException {
+    Path target = dir.resolve("existing.txt");
+    Files.writeString(target, "previous");
+    AtomicInteger checks = new AtomicInteger();
+    Sandbox sandbox =
+        new TestResolvedSandbox(
+            action -> {
+              if (action.type() == ActionType.FILE_WRITE && checks.incrementAndGet() == 3) {
+                throw new SandboxViolationException("publication revoked");
+              }
+            });
+    HttpTools guarded = new HttpTools(sandbox, RestClient.create());
+    assertThrows(
+        SandboxViolationException.class, () -> guarded.downloadFile(url(), target.toString()));
+    assertEquals(3, checks.get());
+    assertEquals("previous", Files.readString(target));
+    try (var remaining = Files.list(dir)) {
+      assertEquals(List.of(target), remaining.toList());
+    }
+  }
+
+  @Test
+  void interruptedDownloadPreservesPreviouslyPublishedFile(@TempDir Path dir) throws IOException {
+    server.createContext(
+        "/interrupted",
+        exchange -> {
+          exchange.sendResponseHeaders(200, 1000);
+          exchange.getResponseBody().write("partial".getBytes(StandardCharsets.UTF_8));
+          exchange.close();
+        });
+    Path target = dir.resolve("report.txt");
+    Files.writeString(target, "previous");
+    HttpTools downloading = new HttpTools(new PermissiveSandbox(), RestClient.create());
+    String interrupted = "http://127.0.0.1:" + server.getAddress().getPort() + "/interrupted";
+    assertThrows(
+        RuntimeException.class, () -> downloading.downloadFile(interrupted, target.toString()));
+    assertEquals("previous", Files.readString(target));
+    try (var remaining = Files.list(dir)) {
+      assertEquals(List.of(target), remaining.toList());
+    }
+  }
+
+  @Test
   @DisplayName("download_file 超过大小上限_中止并删除半成品（流式限长，不全量缓冲）")
   void downloadFileAbortsAndDeletesPartialWhenOverLimit(@TempDir Path dir) throws IOException {
     HttpServer big = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -748,6 +792,13 @@ class HttpToolsTest {
 
       assertTrue(ex.getMessage().contains("上限"));
       assertTrue(Files.notExists(target), "超限后半成品必须删除，不得留部分下载内容");
+      Files.writeString(target, "previous complete download");
+      assertThrows(
+          IllegalStateException.class, () -> limited.downloadFile(bigUrl, target.toString()));
+      assertEquals("previous complete download", Files.readString(target));
+      try (var remaining = Files.list(dir)) {
+        assertEquals(List.of(target), remaining.toList());
+      }
     } finally {
       big.stop(0);
     }

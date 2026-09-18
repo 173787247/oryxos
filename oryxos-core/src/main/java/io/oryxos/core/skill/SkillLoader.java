@@ -1,11 +1,13 @@
 package io.oryxos.core.skill;
 
 import io.oryxos.core.agent.AgentMarkdown;
-import io.oryxos.core.fs.RealPathBoundary;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -32,19 +34,22 @@ public class SkillLoader {
   /** 扫描目录并返回加载成功的 Skill 索引；单目录失败只记日志。 */
   public SkillRegistry loadAll() {
     Map<String, Skill> loaded = new LinkedHashMap<>();
-    if (!Files.isDirectory(skillsDir)) {
+    if (!existingDirectory(skillsDir, true)) {
       LOG.warn("Skill 目录不存在，跳过加载: {}", sanitize(skillsDir.toString()));
       return new SkillRegistry(loaded);
     }
     try (Stream<Path> dirs = Files.list(skillsDir)) {
-      dirs.filter(path -> Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+      dirs.filter(path -> existingDirectory(path, false))
           .sorted()
           .forEach(
               dir -> {
                 try {
                   Skill skill = deriveSkill(dir);
                   loaded.put(skill.name(), skill);
+                } catch (UncheckedIOException unavailable) {
+                  throw unavailable;
                 } catch (RuntimeException e) {
+                  existingDirectory(skillsDir, true);
                   LOG.error(
                       "跳过损坏的 Skill 目录 {}: {}",
                       sanitize(String.valueOf(dir.getFileName())),
@@ -52,18 +57,44 @@ public class SkillLoader {
                 }
               });
     } catch (IOException e) {
-      LOG.error("扫描 Skill 目录失败: {}", sanitize(e.getMessage()));
+      throw new UncheckedIOException("扫描 Skill 目录失败", e);
     }
     return new SkillRegistry(loaded);
   }
 
+  private static boolean existingDirectory(Path path, boolean followLinks) {
+    try {
+      LinkOption[] options =
+          followLinks ? new LinkOption[0] : new LinkOption[] {LinkOption.NOFOLLOW_LINKS};
+      return Files.readAttributes(path, BasicFileAttributes.class, options).isDirectory();
+    } catch (NoSuchFileException missing) {
+      return false;
+    } catch (IOException failure) {
+      throw new UncheckedIOException("读取 Skill 目录项失败: " + path, failure);
+    }
+  }
+
   /** 读 {@code <dir>/SKILL.md} 派生 Skill；缺文件、元数据不完整或 name 与目录不一致均抛异常。 */
   public Skill deriveSkill(Path skillDir) {
-    if (!RealPathBoundary.isWithin(skillsDir, skillDir)) {
-      throw new IllegalArgumentException("Skill 目录真实路径越界: " + skillDir.getFileName());
+    try {
+      if (!skillDir.toRealPath().startsWith(skillsDir.toRealPath())) {
+        throw new IllegalArgumentException("Skill 目录真实路径越界: " + skillDir.getFileName());
+      }
+    } catch (NoSuchFileException missing) {
+      throw new IllegalArgumentException("Skill 目录不存在: " + skillDir.getFileName(), missing);
+    } catch (IOException failure) {
+      throw new UncheckedIOException("解析 Skill 目录真实路径失败: " + skillDir, failure);
     }
     Path skillMd = skillDir.resolve(SKILL_FILE);
-    if (!Files.isRegularFile(skillMd)) {
+    BasicFileAttributes attributes;
+    try {
+      attributes = Files.readAttributes(skillMd, BasicFileAttributes.class);
+    } catch (NoSuchFileException missing) {
+      throw new IllegalArgumentException("Skill 目录缺少 SKILL.md: " + skillDir.getFileName());
+    } catch (IOException failure) {
+      throw new UncheckedIOException("读取 SKILL.md 属性失败: " + skillMd, failure);
+    }
+    if (!attributes.isRegularFile()) {
       throw new IllegalArgumentException("Skill 目录缺少 SKILL.md: " + skillDir.getFileName());
     }
     String dirName = String.valueOf(skillDir.getFileName());

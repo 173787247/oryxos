@@ -27,7 +27,10 @@ class AgentSkillStartupOrderTest {
     legacyAgent("good", "report-format");
     legacyAgent("bad", "missing");
     OryxOsRuntime runtime = new OryxOsRuntime();
-    ReflectionTestUtils.setField(runtime, "oryxosRootProp", root.toString());
+    ReflectionTestUtils.setField(
+        runtime,
+        "workspaceStorage",
+        new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, ""));
 
     SkillStore store = runtime.skillStore();
     SkillLoader skillLoader = runtime.skillLoader();

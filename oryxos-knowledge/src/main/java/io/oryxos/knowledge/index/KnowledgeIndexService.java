@@ -45,8 +45,8 @@ public class KnowledgeIndexService {
   private final ChunkStore store;
   private final Supplier<TextEmbedder> embedderSupplier;
   private final Executor executor;
-  private final List<DocumentParser> parsers =
-      List.of(new MarkdownParser(), new TextParser(), new PdfParser());
+  private final List<DocumentParser> parsers;
+  private final SnapshotCleanup snapshotCleanup;
   private final Chunker chunker = new Chunker();
   private final ConcurrentHashMap<String, Long> activeGenerations = new ConcurrentHashMap<>();
 
@@ -92,10 +92,36 @@ public class KnowledgeIndexService {
       ChunkStore store,
       Supplier<TextEmbedder> embedderSupplier,
       Executor executor) {
+    this(
+        knowledgeRoot,
+        store,
+        embedderSupplier,
+        executor,
+        List.of(new MarkdownParser(), new TextParser(), new PdfParser()));
+  }
+
+  KnowledgeIndexService(
+      Path knowledgeRoot,
+      ChunkStore store,
+      Supplier<TextEmbedder> embedderSupplier,
+      Executor executor,
+      List<DocumentParser> parsers) {
+    this(knowledgeRoot, store, embedderSupplier, executor, parsers, Files::deleteIfExists);
+  }
+
+  KnowledgeIndexService(
+      Path knowledgeRoot,
+      ChunkStore store,
+      Supplier<TextEmbedder> embedderSupplier,
+      Executor executor,
+      List<DocumentParser> parsers,
+      SnapshotCleanup snapshotCleanup) {
     this.knowledgeRoot = knowledgeRoot.toAbsolutePath().normalize();
     this.store = store;
     this.embedderSupplier = embedderSupplier;
     this.executor = executor;
+    this.parsers = List.copyOf(parsers);
+    this.snapshotCleanup = snapshotCleanup;
   }
 
   /**
@@ -126,9 +152,9 @@ public class KnowledgeIndexService {
    */
   public synchronized DocumentStatus importDocument(String kbName, String relPath) {
     Path file = requireDocumentFile(kbName, relPath);
-    List<ParsedUnit> units = parseValidated(file);
+    CapturedDocument captured = captureValidated(file);
     long generation = activeGeneration(kbName);
-    String sha = sha256(file);
+    String sha = captured.sha256();
     ChunkStore.DocumentRecord existing =
         store.findDocument(kbName, relPath, generation).orElse(null);
     if (existing != null
@@ -151,7 +177,8 @@ public class KnowledgeIndexService {
                 generation,
                 existing == null ? null : existing.indexedAt()));
     long documentId = pending.id();
-    executor.execute(() -> indexImported(documentId, kbName, relPath, generation, units));
+    executor.execute(
+        () -> indexImported(documentId, kbName, relPath, generation, captured.units()));
     return toStatus(pending);
   }
 
@@ -218,19 +245,20 @@ public class KnowledgeIndexService {
     try {
       for (Path file : listSupportedFiles(kbDir(kbName))) {
         String relPath = kbDir(kbName).relativize(file).toString();
+        CapturedDocument captured = captureValidated(file);
         ChunkStore.DocumentRecord record =
             store.saveDocument(
                 new ChunkStore.DocumentRecord(
                     null,
                     kbName,
                     relPath,
-                    sha256(file),
+                    captured.sha256(),
                     DocumentState.INDEXING,
                     null,
                     0,
                     newGeneration,
                     null));
-        indexNow(record, parseValidated(file));
+        indexNow(record, captured.units());
         if (cluster && !coordination.renewIndexBuild(kbName, coordinationOwner, claimTtl)) {
           metricsRecorder.recordFenceConflict("index");
           throw new IllegalStateException("重建认领已被其他副本接管，本副本中止（旧索引不受影响）");
@@ -364,8 +392,23 @@ public class KnowledgeIndexService {
     store.saveDocument(record.ready(chunkRecords.size(), Instant.now()));
   }
 
-  /** 同步校验段：类型受理、大小上限、可解析（扫描件在此拒绝）、非空。 */
-  private List<ParsedUnit> parseValidated(Path file) {
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "Case folding selects only fixed temp suffixes; it is not path validation or authorization.")
+  private static String snapshotSuffix(String extension) {
+    // Never put user-controlled path text into the local snapshot filename.
+    return switch (extension.toLowerCase(java.util.Locale.ROOT)) {
+      case ".md" -> ".md";
+      case ".markdown" -> ".markdown";
+      case ".txt" -> ".txt";
+      case ".pdf" -> ".pdf";
+      default -> ".tmp";
+    };
+  }
+
+  /** 同步校验段：一次有界读取后，同一稳定快照同时用于解析和指纹。 */
+  private CapturedDocument captureValidated(Path file) {
     String fileName = String.valueOf(file.getFileName());
     DocumentParser parser =
         parsers.stream()
@@ -375,18 +418,48 @@ public class KnowledgeIndexService {
                 () ->
                     new KnowledgeImportException(
                         "不支持的文档类型: " + fileName + "（支持 markdown / txt / 文本型 PDF）"));
-    try {
-      if (Files.size(file) > MAX_FILE_BYTES) {
+    byte[] bytes;
+    try (var input = Files.newInputStream(file)) {
+      bytes = input.readNBytes(Math.toIntExact(MAX_FILE_BYTES + 1));
+      if (bytes.length > MAX_FILE_BYTES) {
         throw new KnowledgeImportException("文档超过 10MB 上限: " + fileName);
       }
     } catch (IOException e) {
-      throw new UncheckedIOException("读取文档大小失败: " + file, e);
+      throw new UncheckedIOException("读取文档失败: " + file, e);
     }
-    List<ParsedUnit> units = parser.parse(file);
+    int extensionStart = fileName.lastIndexOf('.');
+    String extension = extensionStart < 0 ? "" : fileName.substring(extensionStart);
+    Path snapshot = null;
+    List<ParsedUnit> units;
+    Throwable primaryFailure = null;
+    try {
+      snapshot = Files.createTempFile("oryxos-knowledge-", snapshotSuffix(extension));
+      Files.write(snapshot, bytes);
+      units = parser.parse(snapshot);
+    } catch (IOException e) {
+      UncheckedIOException failure = new UncheckedIOException("创建文档解析快照失败: " + fileName, e);
+      primaryFailure = failure;
+      throw failure;
+    } catch (RuntimeException | Error failure) {
+      primaryFailure = failure;
+      throw failure;
+    } finally {
+      if (snapshot != null) {
+        try {
+          snapshotCleanup.delete(snapshot);
+        } catch (IOException e) {
+          if (primaryFailure != null) {
+            primaryFailure.addSuppressed(e);
+          } else {
+            throw new UncheckedIOException("清理文档解析快照失败: " + fileName, e);
+          }
+        }
+      }
+    }
     if (units.isEmpty()) {
       throw new KnowledgeImportException("空文档，无可索引内容: " + fileName);
     }
-    return units;
+    return new CapturedDocument(List.copyOf(units), sha256(bytes));
   }
 
   /**
@@ -478,13 +551,26 @@ public class KnowledgeIndexService {
 
   private static String sha256(Path file) {
     try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(digest.digest(Files.readAllBytes(file)));
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("JVM 缺少 SHA-256 实现", e);
+      return sha256(Files.readAllBytes(file));
     } catch (IOException e) {
       throw new UncheckedIOException("计算文档指纹失败: " + file, e);
     }
+  }
+
+  private static String sha256(byte[] bytes) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      return HexFormat.of().formatHex(digest.digest(bytes));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("JVM 缺少 SHA-256 实现", e);
+    }
+  }
+
+  private record CapturedDocument(List<ParsedUnit> units, String sha256) {}
+
+  @FunctionalInterface
+  interface SnapshotCleanup {
+    void delete(Path path) throws IOException;
   }
 
   private static String readable(RuntimeException e) {

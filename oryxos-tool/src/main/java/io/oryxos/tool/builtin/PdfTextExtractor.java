@@ -1,6 +1,8 @@
 package io.oryxos.tool.builtin;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -16,10 +18,23 @@ final class PdfTextExtractor {
   /** 单次返回字符上限，避免大 PDF 撑爆 Agent 上下文。 */
   static final int MAX_CHARS = 100_000;
 
+  /** Maximum input size, checked before and during reading. */
+  private static final int MAX_PDF_BYTES = 50 * 1024 * 1024;
+
   private PdfTextExtractor() {}
 
   static String extract(Path file) throws IOException {
-    try (PDDocument document = Loader.loadPDF(file.toFile())) {
+    if (Files.size(file) > MAX_PDF_BYTES) {
+      throw new IOException("PDF exceeds 50 MiB read limit");
+    }
+    byte[] content;
+    try (InputStream input = Files.newInputStream(file)) {
+      content = input.readNBytes(MAX_PDF_BYTES + 1);
+    }
+    if (content.length > MAX_PDF_BYTES) {
+      throw new IOException("PDF exceeds 50 MiB read limit");
+    }
+    try (PDDocument document = Loader.loadPDF(content)) {
       PDFTextStripper stripper = new PDFTextStripper();
       StringBuilder all = new StringBuilder();
       boolean hasText = false;

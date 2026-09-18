@@ -2,14 +2,15 @@ package io.oryxos.tool.builtin;
 
 import io.oryxos.core.fs.AdminConfigFileGuard;
 import io.oryxos.core.fs.WorkspaceMutationGuard;
+import io.oryxos.core.io.AtomicFiles;
 import io.oryxos.core.memory.MemoryMdGuard;
 import io.oryxos.core.session.InboundMediaExt;
+import io.oryxos.core.workspace.WorkspaceStorage;
 import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -38,9 +39,63 @@ public class FileTools {
   private static final String GLOB_RECURSIVE_PREFIX = "**/";
 
   private final Sandbox sandbox;
+  private final WorkspaceStorage storage;
 
   public FileTools(Sandbox sandbox) {
+    this(sandbox, null);
+  }
+
+  public FileTools(Sandbox sandbox, WorkspaceStorage storage) {
     this.sandbox = sandbox;
+    this.storage = storage;
+  }
+
+  /**
+   * Route managed paths through the selected provider; external paths remain sandbox-controlled.
+   */
+  static Path resolvePath(WorkspaceStorage storage, String path) {
+    if (storage == null) {
+      return Path.of(path);
+    }
+    return resolvePath(storage, path, true);
+  }
+
+  private static Path resolvePath(WorkspaceStorage storage, String path, boolean followLeaf) {
+    if (storage == null) {
+      return Path.of(path);
+    }
+    String relative = managedRelative(storage, path, followLeaf);
+    return relative == null ? Path.of(path) : storage.resolve(relative);
+  }
+
+  static boolean isManaged(WorkspaceStorage storage, String path) {
+    return managedRelative(storage, path, true) != null;
+  }
+
+  private static String managedRelative(WorkspaceStorage storage, String path, boolean followLeaf) {
+    Path logicalRoot = Path.of(storage.root().toString()).toAbsolutePath().normalize();
+    Path logicalPath = Path.of(path).toAbsolutePath().normalize();
+    if (logicalPath.startsWith(logicalRoot)) {
+      return logicalRoot.relativize(logicalPath).toString();
+    }
+    // A whitelisted external alias must not bypass the selected provider's identity guard.
+    try {
+      Path nativeRoot = storage.nativePath(storage.root());
+      Path realRoot = io.oryxos.core.fs.RealPathBoundary.project(nativeRoot).projectedReal();
+      Path realPath;
+      if (!followLeaf && logicalPath.getParent() != null) {
+        // Delete/move act on the directory entry, never on the final link's target.
+        realPath =
+            io.oryxos.core.fs.RealPathBoundary.project(logicalPath.getParent())
+                .projectedReal()
+                .resolve(logicalPath.getFileName());
+      } else {
+        realPath = io.oryxos.core.fs.RealPathBoundary.project(logicalPath).projectedReal();
+      }
+      return realPath.startsWith(realRoot) ? realRoot.relativize(realPath).toString() : null;
+    } catch (IOException e) {
+      throw new UncheckedIOException("Workspace execution view is unavailable", e);
+    }
   }
 
   /** 写路径保留文件守卫（MEMORY / AdminConfig / Skill·Knowledge / AGENT.md）。 */
@@ -56,7 +111,7 @@ public class FileTools {
     // 保留文件原文（channels.yaml/mcp_servers.yaml 凭证、oryxos.db 数据）禁止经通用读入口吐出
     AdminConfigFileGuard.rejectRead(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
-    Path file = Path.of(path);
+    Path file = resolvePath(storage, path);
     if (!Files.isRegularFile(file)) {
       throw new IllegalArgumentException("文件不存在或不是普通文件: " + path);
     }
@@ -88,7 +143,7 @@ public class FileTools {
     WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
-      Path file = Path.of(path);
+      Path file = resolvePath(storage, path);
       Path parent = file.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
@@ -96,7 +151,7 @@ public class FileTools {
       // 写前复检：与 download_file / grep 同款——防首次校验到 writeString 间路径被换成外向软链
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       rejectReservedFileWrites(path);
-      Files.writeString(file, content);
+      AtomicFiles.writeString(file, content);
       return "已写入: " + path;
     } catch (IOException e) {
       throw new UncheckedIOException("写入文件失败: " + path, e);
@@ -106,7 +161,7 @@ public class FileTools {
   @Tool(name = "list_dir", description = "列出指定目录下的文件和子目录名")
   public String listDir(@ToolParam(description = "要列出的目录路径") String path) {
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
-    Path dir = Path.of(path);
+    Path dir = resolvePath(storage, path);
     if (!Files.isDirectory(dir)) {
       throw new IllegalArgumentException("目录不存在: " + path);
     }
@@ -134,7 +189,7 @@ public class FileTools {
     WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
     WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
-    Path file = Path.of(path);
+    Path file = resolvePath(storage, path);
     if (!Files.isRegularFile(file)) {
       throw new IllegalArgumentException("文件不存在或不是普通文件: " + path);
     }
@@ -153,7 +208,7 @@ public class FileTools {
       // 写前复检：与 write_file 同款
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       rejectReservedFileWrites(path);
-      Files.writeString(file, content.replace(oldString, newString));
+      AtomicFiles.writeString(file, content.replace(oldString, newString));
       return "已编辑: " + path;
     } catch (IOException e) {
       throw new UncheckedIOException("编辑文件失败: " + path, e);
@@ -165,7 +220,7 @@ public class FileTools {
       @ToolParam(description = "要搜索的正则表达式") String pattern,
       @ToolParam(description = "搜索根路径（文件或目录）") String path) {
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
-    Path root = Path.of(path);
+    Path root = resolvePath(storage, path);
     if (!Files.exists(root)) {
       throw new IllegalArgumentException("路径不存在: " + path);
     }
@@ -205,11 +260,11 @@ public class FileTools {
       @ToolParam(description = "glob 通配模式，如 **/*.yaml") String pattern,
       @ToolParam(description = "查找根目录") String path) {
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, path));
-    Path root = Path.of(path);
+    Path root = resolvePath(storage, path);
     if (!Files.isDirectory(root)) {
       throw new IllegalArgumentException("目录不存在: " + path);
     }
-    PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+    PathMatcher matcher = root.getFileSystem().getPathMatcher("glob:" + pattern);
     List<String> hits = new ArrayList<>();
     try {
       Path walkRoot = resolveDirectorySymlink(root);
@@ -249,7 +304,8 @@ public class FileTools {
     }
     if (pattern.startsWith(GLOB_RECURSIVE_PREFIX) && relative.getNameCount() == 1) {
       PathMatcher rest =
-          FileSystems.getDefault()
+          relative
+              .getFileSystem()
               .getPathMatcher("glob:" + pattern.substring(GLOB_RECURSIVE_PREFIX.length()));
       return rest.matches(relative);
     }
@@ -284,7 +340,7 @@ public class FileTools {
     WorkspaceMutationGuard.rejectBindSlotCreate(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
-      Files.createDirectories(Path.of(path));
+      Files.createDirectories(resolvePath(storage, path));
       // 建目录后复检：与 write_file / download_file 同款——防首次校验到 createDirectories 间路径被换成外向软链
       // 或换成仍在 root 内的 MEMORY / AdminConfig / Skill·Knowledge / bind 槽
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
@@ -308,13 +364,19 @@ public class FileTools {
     WorkspaceMutationGuard.rejectAgentMdDirectWrite(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
     try {
-      Path file = Path.of(path);
+      Path file = resolvePath(storage, path);
       Path parent = file.getParent();
       if (parent != null) {
         Files.createDirectories(parent);
       }
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       rejectReservedFileWrites(path);
+      if (storage != null
+          && storage.capabilities().contains(io.oryxos.core.workspace.WorkspaceCapability.SHARED)
+          && isManaged(storage, path)) {
+        throw new UnsupportedOperationException(
+            "Managed workspace append requires coordinated publication; use a run-specific write_file instead");
+      }
       Files.writeString(file, content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
       return "已追加到: " + path;
     } catch (IOException e) {
@@ -329,7 +391,7 @@ public class FileTools {
     WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
     WorkspaceMutationGuard.rejectBindLinkDetach(path);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
-    Path file = Path.of(path);
+    Path file = resolvePath(storage, path, false);
     // NOFOLLOW_LINKS：只拦真实目录；指向目录的 symlink（如 Agent Skill 绑定）应删链接本身，不跟随目标
     if (Files.isDirectory(file, LinkOption.NOFOLLOW_LINKS)) {
       throw new IllegalArgumentException("拒绝删除目录（本工具只删文件）: " + path);
@@ -358,7 +420,7 @@ public class FileTools {
     WorkspaceMutationGuard.rejectAgentMdDirectWrite(to);
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
-    Path src = Path.of(from);
+    Path src = resolvePath(storage, from, false);
     // NOFOLLOW：只拒真实目录；指向目录的 symlink（如 Skill 绑定）可移动链接本身
     if (Files.isDirectory(src, LinkOption.NOFOLLOW_LINKS)) {
       throw new IllegalArgumentException("拒绝移动目录（本工具只移动文件）: " + from);
@@ -367,7 +429,7 @@ public class FileTools {
       throw new IllegalArgumentException("源不存在: " + from);
     }
     try {
-      Path dst = Path.of(to);
+      Path dst = resolvePath(storage, to, false);
       // 跟随链接：真实目录与 symlink→dir（Skill 绑定）都拒——REPLACE_EXISTING 会删链接假成功
       rejectDirectoryDestination(dst, to);
       Path parent = dst.getParent();
@@ -379,7 +441,7 @@ public class FileTools {
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
       rejectReservedFileWrites(from);
       rejectReservedFileWrites(to);
-      Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
+      Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
       return "已移动: " + from + " -> " + to;
     } catch (IOException e) {
       throw new UncheckedIOException("移动文件失败: " + from, e);
@@ -397,7 +459,7 @@ public class FileTools {
     WorkspaceMutationGuard.rejectAgentMdDirectWrite(to);
     sandbox.enforce(new SandboxAction(ActionType.FILE_READ, from));
     sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
-    Path src = Path.of(from);
+    Path src = resolvePath(storage, from);
     // 真实目录：拒绝（Files.copy 对目录会“成功”但只建空目录，造成假成功）
     if (Files.isDirectory(src, LinkOption.NOFOLLOW_LINKS)) {
       throw new IllegalArgumentException("拒绝复制目录（本工具只复制文件）: " + from);
@@ -407,7 +469,7 @@ public class FileTools {
       throw new IllegalArgumentException("源不存在或不是普通文件: " + from);
     }
     try {
-      Path dst = Path.of(to);
+      Path dst = resolvePath(storage, to);
       // 跟随链接：真实目录与 symlink→dir（Skill 绑定）都拒——REPLACE_EXISTING 会删链接假成功
       rejectDirectoryDestination(dst, to);
       Path parent = dst.getParent();
@@ -419,7 +481,7 @@ public class FileTools {
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, to));
       AdminConfigFileGuard.rejectRead(from);
       rejectReservedFileWrites(to);
-      Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
+      AtomicFiles.write(dst, output -> Files.copy(src, output));
       return "已复制: " + from + " -> " + to;
     } catch (IOException e) {
       throw new UncheckedIOException("复制文件失败: " + from, e);

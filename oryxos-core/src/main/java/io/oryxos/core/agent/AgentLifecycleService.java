@@ -17,6 +17,7 @@ import io.oryxos.core.skill.SkillCatalogEntry;
 import io.oryxos.core.skill.SkillRegistry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
@@ -48,6 +49,8 @@ public class AgentLifecycleService {
       org.slf4j.LoggerFactory.getLogger(AgentLifecycleService.class);
 
   private static final String PARENT_PATH_SEGMENT = "..";
+  private static final String AGENT_NAME_PATTERN = "[A-Za-z0-9_-]+";
+  private static final String AGENT_DEFINITION_FILE = "AGENT.md";
 
   /** 025：AGENT.md frontmatter 里人格段的键。 */
   private static final String PERSONA_KEY = "persona";
@@ -475,17 +478,20 @@ public class AgentLifecycleService {
   public synchronized void reconcileAll() {
     java.nio.file.Path agentsDir = agentStore.agentsDir();
     Set<String> onDisk = new java.util.LinkedHashSet<>();
-    if (java.nio.file.Files.isDirectory(agentsDir)) {
+    if (existingDirectory(agentsDir)) {
       try (java.util.stream.Stream<Path> dirs = java.nio.file.Files.list(agentsDir)) {
-        dirs.filter(dir -> java.nio.file.Files.isDirectory(dir))
-            .filter(dir -> java.nio.file.Files.isRegularFile(dir.resolve("AGENT.md")))
+        dirs.filter(AgentLifecycleService::existingDirectory)
+            .filter(dir -> existingRegularFile(dir.resolve("AGENT.md")))
             .sorted()
             .forEach(
                 dir -> {
                   onDisk.add(String.valueOf(dir.getFileName()));
                   try {
                     refresh(dir);
+                  } catch (UncheckedIOException unavailable) {
+                    throw unavailable;
                   } catch (RuntimeException e) {
+                    existingDirectory(agentsDir);
                     LOG.error(
                         "对账时跳过损坏的 Agent 目录 {}: {}",
                         sanitize(String.valueOf(dir.getFileName())),
@@ -493,14 +499,33 @@ public class AgentLifecycleService {
                   }
                 });
       } catch (IOException e) {
-        LOG.error("扫描 agents 目录失败，保留现有注册表: {}", sanitize(e.getMessage()));
-        return; // 盘不可读时不做「消失即注销」——避免共享卷抖动清空注册表（spec Edge Case）
+        throw new UncheckedIOException("扫描 agents 目录失败，保留现有注册表", e);
       }
     }
     for (Profile profile : List.copyOf(profileRegistry.all())) {
       if (!onDisk.contains(profile.name())) {
         unregisterByDir(agentsDir.resolve(profile.name()));
       }
+    }
+  }
+
+  private static boolean existingDirectory(Path path) {
+    return existingType(path, true);
+  }
+
+  private static boolean existingRegularFile(Path path) {
+    return existingType(path, false);
+  }
+
+  private static boolean existingType(Path path, boolean directory) {
+    try {
+      java.nio.file.attribute.BasicFileAttributes attributes =
+          Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class);
+      return directory ? attributes.isDirectory() : attributes.isRegularFile();
+    } catch (java.nio.file.NoSuchFileException missing) {
+      return false;
+    } catch (IOException failure) {
+      throw new UncheckedIOException("读取工作区目录项失败: " + path, failure);
     }
   }
 
@@ -512,6 +537,27 @@ public class AgentLifecycleService {
     String name = String.valueOf(agentDir.getFileName());
     profileRegistry.get(name).ifPresent(agentScheduler::unregisterProfile);
     return register(agentDir);
+  }
+
+  /** Canonical management read; does not replace the runtime registry or reschedule jobs. */
+  public Optional<Profile> getCurrent(String name) {
+    if (name == null || !name.matches(AGENT_NAME_PATTERN)) {
+      throw new IllegalArgumentException("Invalid Agent name");
+    }
+    Path directory = agentStore.agentsDir().resolve(name);
+    if (!Files.isRegularFile(directory.resolve(AGENT_DEFINITION_FILE))) {
+      return Optional.empty();
+    }
+    io.oryxos.core.fs.RealPathBoundary.requireWithin(agentStore.agentsDir(), directory);
+    try {
+      return Optional.of(agentLoader.deriveProfile(directory));
+    } catch (IOException failure) {
+      throw new java.io.UncheckedIOException("Cannot read canonical Agent definition", failure);
+    }
+  }
+
+  public Collection<Profile> listCurrent() {
+    return agentLoader.loadAll().all();
   }
 
   public Optional<Profile> get(String name) {

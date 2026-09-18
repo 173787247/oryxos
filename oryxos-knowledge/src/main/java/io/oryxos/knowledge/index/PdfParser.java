@@ -23,7 +23,10 @@ public final class PdfParser implements DocumentParser {
 
   @Override
   public List<ParsedUnit> parse(Path file) {
-    try (PDDocument document = Loader.loadPDF(file.toFile())) {
+    try (java.io.InputStream input = java.nio.file.Files.newInputStream(file);
+        org.apache.pdfbox.io.RandomAccessReadBuffer buffer =
+            new org.apache.pdfbox.io.RandomAccessReadBuffer(input);
+        PDDocument document = Loader.loadPDF(buffer)) {
       List<ParsedUnit> units = new ArrayList<>();
       PDFTextStripper stripper = new PDFTextStripper();
       boolean hasText = false;

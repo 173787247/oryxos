@@ -40,7 +40,7 @@ public class ContextLoader {
 
   /** 具备写盘能力的工具：任一在场就把该 Agent 的绝对产出目录告诉它（否则不加，省 prompt）。 */
   private static final Set<String> FILE_WRITE_TOOLS =
-      Set.of("write_file", "append_file", "edit_file", "make_dir", "download_file");
+      Set.of("write_file", "append_file", "edit_file", "make_dir", "download_file", "shell");
 
   /** 检索工具名：Profile 声明了它才注入知识库元数据（对照 FILE_WRITE_TOOLS 的按需注入模式）。 */
   private static final String RETRIEVE_KNOWLEDGE_TOOL = "retrieve_knowledge";
@@ -170,13 +170,18 @@ public class ContextLoader {
     if (!canWrite) {
       return;
     }
-    Path outputDir = oryxosRoot.resolve(OUTPUT_DIR).toAbsolutePath().normalize();
+    String relative =
+        io.oryxos.core.agent.RunOutputContext.current()
+            .map(io.oryxos.core.agent.RunOutputContext::relativeDirectory)
+            .orElse(OUTPUT_DIR + "/" + profile.name());
+    Path outputDir = oryxosRoot.resolve(relative).toAbsolutePath().normalize();
     context
-        .append("你的文件产出目录（绝对路径，必须严格使用）：")
+        .append("你的文件产出目录（文件工具使用绝对路径）：")
         .append(outputDir)
-        .append("。需要落盘的报告 / 汇总 / 导出等，一律用 write_file 写到这个目录下，文件名带上你的名字与日期，如 ")
+        .append(
+            "。调用 write_file / download_file 等文件工具时写到此目录。shell 在本轮独立暂存目录执行，脚本使用相对路径生成产物，成功后发布到此目录的 shell 子目录，返回值给出最终路径。文件名带上你的名字与日期，如 ")
         .append(profile.name())
-        .append("_report_2026-07-23.md。不要写到 output/、./output 等相对路径（会被沙箱拒绝，且管理台看不到）。\n");
+        .append("_report_2026-07-23.md。文件工具不要使用 output/、./output 等相对路径。\n");
   }
 
   private static String read(Path file) {

@@ -65,6 +65,31 @@ class AgentServiceTest {
   }
 
   @Test
+  void statefulAndStatelessTurnsIsolateOutputIdentityAndClearAfterFailure() {
+    java.util.List<String> runs = new java.util.ArrayList<>();
+    when(reActLoop.run(any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              runs.add(RunOutputContext.current().orElseThrow().relativeDirectory());
+              return "ok";
+            });
+    agentService.process(session, "hi");
+    assertTrue(RunOutputContext.current().isEmpty());
+    agentService.processStateless("ops-agent", "hi");
+    assertTrue(RunOutputContext.current().isEmpty());
+    assertNotEquals(runs.get(0), runs.get(1));
+    assertTrue(runs.get(0).startsWith("output/ops-agent/"));
+    org.mockito.Mockito.doThrow(new IllegalStateException("failed"))
+        .when(reActLoop)
+        .run(any(), any(), any());
+    assertThrows(IllegalStateException.class, () -> agentService.process(session, "hi"));
+    assertTrue(RunOutputContext.current().isEmpty());
+    assertThrows(
+        IllegalStateException.class, () -> agentService.processStateless("ops-agent", "hi"));
+    assertTrue(RunOutputContext.current().isEmpty());
+  }
+
+  @Test
   @DisplayName("处理期间 ProfileContext 可取到当前 Profile")
   void profileContextIsVisibleDuringProcessing() {
     AtomicReference<Profile> seenDuringRun = new AtomicReference<>();

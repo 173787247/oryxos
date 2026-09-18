@@ -67,6 +67,44 @@ class WorkspaceApiControllerTest {
   }
 
   @Test
+  void inFlightAtomicTemporaryCannotBeReadOrDownloadedEvenThroughAlias() throws Exception {
+    Path output = Files.createDirectories(oryxosRoot.resolve("output"));
+    Path published = output.resolve("report.txt");
+    Files.writeString(published, "previous");
+    io.oryxos.core.io.AtomicFiles.write(
+        published,
+        stream -> {
+          stream.write("partial".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+          stream.flush();
+          try (var paths = Files.list(output)) {
+            Path temporary =
+                paths
+                    .filter(p -> p.getFileName().toString().startsWith(".report.txt.write-"))
+                    .findFirst()
+                    .orElseThrow();
+            Path alias = output.resolve("alias.txt");
+            Files.createSymbolicLink(alias, temporary.getFileName());
+            for (Path target : java.util.List.of(temporary, alias)) {
+              String relative = oryxosRoot.relativize(target).toString();
+              mvc.perform(get("/api/v1/workspace/file").param("path", relative))
+                  .andExpect(status().isBadRequest());
+              mvc.perform(get("/api/v1/workspace/download").param("path", relative))
+                  .andExpect(status().isBadRequest());
+            }
+            mvc.perform(get("/api/v1/workspace/file").param("path", "output/report.txt"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value("previous"));
+            Files.delete(alias);
+          } catch (Exception failure) {
+            throw new IOException(failure);
+          }
+        });
+    mvc.perform(get("/api/v1/workspace/file").param("path", "output/report.txt"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data").value("partial"));
+  }
+
+  @Test
   @DisplayName("027 refresh：集群档递增全部 4 域版本号，不做本地重载")
   void refresh_clusterBumpsAllDomains() throws Exception {
     mvc.perform(

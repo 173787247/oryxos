@@ -8,9 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.profile.ProfileValidationException;
+import io.oryxos.core.workspace.SharedPosixWorkspaceStorageProvider;
+import io.oryxos.core.workspace.WorkspaceStorage;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
@@ -104,6 +108,36 @@ class AgentLoaderTest {
     assertTrue(reg.exists("good"), "好的仍登记");
     assertFalse(reg.exists("broken"), "坏的被跳过");
     assertEquals(1, reg.all().size(), "扫描不产生别的东西");
+  }
+
+  @Test
+  void recoveredIdentityLossDuringDerivationFailsTheWholeReload() throws Exception {
+    Path shared = Files.createDirectories(agentsDir.resolve("shared"));
+    Path marker = shared.resolve(".workspace-id");
+    Files.writeString(marker, "agents-fixture");
+    Path selectedAgents = Files.createDirectories(shared.resolve("agents"));
+    Path agent = Files.createDirectories(selectedAgents.resolve("demo"));
+    Files.writeString(
+        agent.resolve("AGENT.md"),
+        "---\nname: demo\nprovider:\n  name: deepseek\n  model: m\n---\nbody");
+
+    try (WorkspaceStorage storage =
+        new SharedPosixWorkspaceStorageProvider().open(shared, "agents-fixture")) {
+      AgentLoader selectedLoader =
+          new AgentLoader(storage.root().resolve("agents"), Set.of("deepseek")) {
+            @Override
+            Profile deriveProfile(Path agentDir) throws IOException {
+              Files.delete(marker);
+              try {
+                return super.deriveProfile(agentDir);
+              } finally {
+                Files.writeString(marker, "agents-fixture");
+              }
+            }
+          };
+
+      assertThrows(UncheckedIOException.class, selectedLoader::loadAll);
+    }
   }
 
   @Test

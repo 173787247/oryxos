@@ -1,5 +1,6 @@
 package io.oryxos.web.controller;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -114,6 +115,27 @@ class KnowledgeApiControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("不支持")));
     assertFalse(Files.exists(kbRoot.resolve("ops-manual/report.docx")), "校验失败的落盘文件必须清理");
+  }
+
+  @Test
+  void invalidReplacementRestoresPreviousSourceAndIndex() throws Exception {
+    createBase("ops-manual", "运维手册");
+    Path source = kbRoot.resolve("ops-manual/disk.md");
+    byte[] previous = "# 原有有效内容\n\n保留索引".getBytes();
+    mvc.perform(
+            multipart("/api/v1/knowledge/ops-manual/documents")
+                .file(new MockMultipartFile("file", "disk.md", null, previous)))
+        .andExpect(status().isOk());
+
+    mvc.perform(
+            multipart("/api/v1/knowledge/ops-manual/documents")
+                .file(new MockMultipartFile("file", "disk.md", null, " \n".getBytes())))
+        .andExpect(status().isBadRequest());
+
+    assertEquals(new String(previous), Files.readString(source));
+    mvc.perform(get("/api/v1/knowledge/ops-manual/status"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].state").value("READY"));
   }
 
   @Test

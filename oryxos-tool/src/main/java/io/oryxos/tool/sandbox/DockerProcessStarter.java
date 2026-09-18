@@ -48,8 +48,22 @@ public final class DockerProcessStarter implements ProcessStarter {
 
   @Override
   public Process start(List<String> command) throws IOException {
+    return start(command, null);
+  }
+
+  @Override
+  public Process start(List<String> command, Path workingDirectory) throws IOException {
+    if (workingDirectory != null && !mapper.isWorkspacePath(workingDirectory.toString())) {
+      throw new IOException("Docker execution directory is outside the mounted workspace");
+    }
     Path cidFile = newCidFile();
     List<String> argv = DockerRunSpec.build(props, mapper, cidFile, command);
+    if (workingDirectory != null) {
+      java.util.ArrayList<String> withDirectory = new java.util.ArrayList<>(argv);
+      withDirectory.add(2, "--workdir");
+      withDirectory.add(3, mapper.toContainer(workingDirectory.toString()));
+      argv = List.copyOf(withDirectory);
+    }
     Process cli;
     try {
       cli = cliStarter.start(argv);

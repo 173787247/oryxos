@@ -236,7 +236,7 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
     String desc = description == null ? "" : description.replace('\r', ' ').replace('\n', ' ');
     try {
       Files.createDirectories(dir);
-      Files.writeString(
+      io.oryxos.core.io.AtomicFiles.writeString(
           dir.resolve(KnowledgeManifest.FILE),
           "---\nname: " + name + "\ndescription: " + desc + "\nbackend: local\n---\n");
     } catch (IOException e) {
@@ -249,13 +249,9 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
     Path dir = RealPathBoundary.requireWithin(knowledgeRoot, knowledgeRoot.resolve(name));
     KnowledgeManifest.read(dir); // 校验存在且合法
     String desc = description == null ? "" : description.replace('\r', ' ').replace('\n', ' ');
-    try {
-      Files.writeString(
-          dir.resolve(KnowledgeManifest.FILE),
-          "---\nname: " + name + "\ndescription: " + desc + "\nbackend: local\n---\n");
-    } catch (IOException e) {
-      throw new UncheckedIOException("更新知识库清单失败: " + name, e);
-    }
+    io.oryxos.core.io.AtomicFiles.writeString(
+        dir.resolve(KnowledgeManifest.FILE),
+        "---\nname: " + name + "\ndescription: " + desc + "\nbackend: local\n---\n");
   }
 
   @Override

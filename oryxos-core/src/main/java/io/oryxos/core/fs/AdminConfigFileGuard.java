@@ -104,14 +104,26 @@ public final class AdminConfigFileGuard {
     }
   }
 
+  private static final java.util.regex.Pattern ATOMIC_TEMPORARY =
+      java.util.regex.Pattern.compile(
+          "\\..+\\.write-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+
   /** 任意路径段命中保留名即可：写侧防 {@code …/channels.yaml/x} 把配置名建成目录，读侧同款段扫描。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "Reserved names are ASCII; Locale.ROOT implements case-insensitive reserved-name matching.")
   private static boolean matchesReserved(String path) {
     if (path == null || path.isBlank()) {
       return false;
     }
     for (Path segment : Path.of(path)) {
       String lower = segment.toString().toLowerCase(Locale.ROOT);
-      if (RESERVED_CONFIG_LOWER.contains(lower) || isDbFamily(lower)) {
+      if (RESERVED_CONFIG_LOWER.contains(lower)
+          || isDbFamily(lower)
+          || lower.startsWith(".workspace-")
+          || ".staging".equals(lower)
+          || ATOMIC_TEMPORARY.matcher(lower).matches()) {
         return true;
       }
     }
