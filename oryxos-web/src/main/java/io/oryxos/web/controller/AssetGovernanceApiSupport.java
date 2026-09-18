@@ -10,6 +10,7 @@ import io.oryxos.storage.AssetGovernanceRevision;
 import io.oryxos.storage.AssetGovernanceRevisionRecorder;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.config.WebAssetGovernanceProperties;
+import io.oryxos.web.controller.dto.AssetGovernanceRevisionDiffView;
 import io.oryxos.web.controller.dto.AssetGovernanceRevisionView;
 import io.oryxos.web.controller.dto.AssetGovernanceView;
 import io.oryxos.web.error.ResourceNotFoundException;
@@ -21,8 +22,8 @@ import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * 三类资产共用的治理读写（041 / #537 / #541）：PUT 先 {@code decide(MANAGE_*)}，再写侧车、记变更事件，可选记全文快照； restore
- * 把历史快照写回现网。
+ * 三类资产共用的治理读写（041 / #537 / #541 / #544）：PUT 先 {@code decide(MANAGE_*)}，再写侧车、记变更事件，可选记全文快照； restore
+ * 把历史快照写回现网；diff 输出两版统一 diff。
  *
  * <p>放在 support 而不是复制三份 Controller 逻辑，是为了让「权限只有 decide 一条路径」可被单测盯住。
  */
@@ -50,6 +51,38 @@ final class AssetGovernanceApiSupport {
         revisions.list(resource.type(), resource.id()).stream()
             .map(AssetGovernanceRevisionView::from)
             .toList());
+  }
+
+  /** 两版快照统一 diff（#544）。flag 关或不存在/资源不匹配 → 404。GET 路径不做额外 MANAGE decide（与 list 同档 READ）。 */
+  static ApiResponse<AssetGovernanceRevisionDiffView> diff(
+      WebAssetGovernanceProperties properties,
+      AssetGovernanceRevisionRecorder revisions,
+      ResourceRef resource,
+      long fromId,
+      long toId) {
+    if (properties == null || !properties.isVersionHistoryEnabled() || revisions == null) {
+      throw new ResourceNotFoundException("version history disabled");
+    }
+    AssetGovernanceRevision from = requireOwnedRevision(revisions, resource, fromId);
+    AssetGovernanceRevision to = requireOwnedRevision(revisions, resource, toId);
+    String unified =
+        GovernanceUnifiedDiff.unified(fromId, toId, from.getSnapshotText(), to.getSnapshotText());
+    return ApiResponse.ok(
+        new AssetGovernanceRevisionDiffView(
+            fromId, toId, from.getVersionLabel(), to.getVersionLabel(), unified));
+  }
+
+  private static AssetGovernanceRevision requireOwnedRevision(
+      AssetGovernanceRevisionRecorder revisions, ResourceRef resource, long revisionId) {
+    AssetGovernanceRevision row =
+        revisions
+            .find(revisionId)
+            .orElseThrow(() -> new ResourceNotFoundException("revision not found: " + revisionId));
+    if (!Objects.equals(resource.type(), row.getResourceType())
+        || !Objects.equals(resource.id(), row.getResourceId())) {
+      throw new ResourceNotFoundException("revision not found: " + revisionId);
+    }
+    return row;
   }
 
   static ApiResponse<AssetGovernanceView> put(
@@ -84,14 +117,7 @@ final class AssetGovernanceApiSupport {
     if (properties == null || !properties.isVersionHistoryEnabled() || revisions == null) {
       throw new ResourceNotFoundException("version history disabled");
     }
-    AssetGovernanceRevision row =
-        revisions
-            .find(revisionId)
-            .orElseThrow(() -> new ResourceNotFoundException("revision not found: " + revisionId));
-    if (!Objects.equals(resource.type(), row.getResourceType())
-        || !Objects.equals(resource.id(), row.getResourceId())) {
-      throw new ResourceNotFoundException("revision not found: " + revisionId);
-    }
+    AssetGovernanceRevision row = requireOwnedRevision(revisions, resource, revisionId);
     AssetGovernance model = AssetGovernanceStore.parseSnapshotYaml(row.getSnapshotText());
     return writeLive(request, recorder, properties, revisions, resource, model, saver, loader);
   }
