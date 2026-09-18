@@ -34,6 +34,11 @@ public class OidcAuthService {
 
   private static final SecureRandom RANDOM = new SecureRandom();
 
+  /** 与 {@code WebUserService} 用户名长度上限对齐（JIT 推导名不得超长）。 */
+  private static final int MAX_JIT_USERNAME_LENGTH = 64;
+
+  private static final char EMAIL_LOCAL_SEPARATOR = '@';
+
   private final WebOidcProperties properties;
   private final OidcTokenClient tokenClient;
   private final OidcPendingStore pendingStore;
@@ -179,10 +184,10 @@ public class OidcAuthService {
       return fromPreferred;
     }
     String email = claims.email();
-    if (email == null || email.isBlank() || !email.contains("@")) {
+    if (email == null || email.isBlank() || email.indexOf(EMAIL_LOCAL_SEPARATOR) < 0) {
       return Optional.empty();
     }
-    return sanitizeJitUsername(email.substring(0, email.indexOf('@')));
+    return sanitizeJitUsername(email.substring(0, email.indexOf(EMAIL_LOCAL_SEPARATOR)));
   }
 
   private static Optional<String> sanitizeJitUsername(String raw) {
@@ -190,7 +195,8 @@ public class OidcAuthService {
       return Optional.empty();
     }
     String trimmed = raw.strip();
-    if (trimmed.length() > 64 || trimmed.chars().anyMatch(Character::isWhitespace)) {
+    if (trimmed.length() > MAX_JIT_USERNAME_LENGTH
+        || trimmed.chars().anyMatch(Character::isWhitespace)) {
       return Optional.empty();
     }
     return Optional.of(trimmed);
