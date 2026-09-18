@@ -251,6 +251,20 @@ public final class AssetGovernanceStore {
     return render(governance == null ? AssetGovernance.empty() : governance);
   }
 
+  /** 解析 #537 快照 YAML 回模型（#541 restore）。脏/空文本回落 empty，不因脏快照炸请求。 */
+  public static AssetGovernance parseSnapshotYaml(String text) {
+    if (text == null || text.isBlank()) {
+      return AssetGovernance.empty();
+    }
+    try {
+      Object loaded = new Yaml(new SafeConstructor(new LoaderOptions())).load(text);
+      return parseNode(loaded);
+    } catch (YAMLException ex) {
+      LOG.warn("解析治理快照 YAML 失败，按未设治理处理");
+      return AssetGovernance.empty();
+    }
+  }
+
   /** 渲染侧车 YAML（块风格，字段名稳定）。与 channels.yaml 治理块共用 {@link #toBlock}。 */
   static String render(AssetGovernance governance) {
     Map<String, String> body = toBlock(governance);

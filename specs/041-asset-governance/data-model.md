@@ -46,12 +46,13 @@ Append-only audit of governance PUT:
 
 - id, actor, resource_type, resource_id, change_summary, created_at
 
-## asset_governance_revisions (V13 / #537)
+## asset_governance_revisions (V13 / #537 / #541)
 
 Append-only full-text snapshots when `version-history-enabled`:
 
 - id, resource_type, resource_id, version_label, snapshot_text, actor, created_at
-- GET `.../governance/revisions` lists newest-first; no diff/rollback in this cut
+- GET `.../governance/revisions` lists newest-first
+- POST `.../governance/revisions/{id}/restore` writes snapshot back to live GOVERNANCE / channels.yaml and appends a new revision (no Admin UI)
 
 ## Runtime wiring
 

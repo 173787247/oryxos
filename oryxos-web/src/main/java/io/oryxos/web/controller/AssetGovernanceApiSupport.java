@@ -6,19 +6,23 @@ import io.oryxos.core.policy.AssetGovernance;
 import io.oryxos.core.policy.AssetGovernanceStore;
 import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.storage.AssetGovernanceEventRecorder;
+import io.oryxos.storage.AssetGovernanceRevision;
 import io.oryxos.storage.AssetGovernanceRevisionRecorder;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.config.WebAssetGovernanceProperties;
 import io.oryxos.web.controller.dto.AssetGovernanceRevisionView;
 import io.oryxos.web.controller.dto.AssetGovernanceView;
+import io.oryxos.web.error.ResourceNotFoundException;
 import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.security.PrincipalHolder;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * 三类资产共用的治理读写（041 / #537）：PUT 先 {@code decide(MANAGE_*)}，再写侧车、记变更事件，可选记全文快照。
+ * 三类资产共用的治理读写（041 / #537 / #541）：PUT 先 {@code decide(MANAGE_*)}，再写侧车、记变更事件，可选记全文快照； restore
+ * 把历史快照写回现网。
  *
  * <p>放在 support 而不是复制三份 Controller 逻辑，是为了让「权限只有 decide 一条路径」可被单测盯住。
  */
@@ -51,16 +55,56 @@ final class AssetGovernanceApiSupport {
   static ApiResponse<AssetGovernanceView> put(
       HttpServletRequest request,
       AssetBindGuard guard,
-      AssetGovernanceStore store,
       AssetGovernanceEventRecorder recorder,
       WebAssetGovernanceProperties properties,
       AssetGovernanceRevisionRecorder revisions,
       Action action,
       ResourceRef resource,
       AssetGovernanceView body,
-      Saver saver) {
+      Saver saver,
+      Function<String, AssetGovernance> loader) {
     guard.requireManage(request, action, resource);
     AssetGovernance model = body == null ? AssetGovernance.empty() : body.toModel();
+    return writeLive(request, recorder, properties, revisions, resource, model, saver, loader);
+  }
+
+  /** 将指定快照写回现网（#541）。flag 关或不存在/资源不匹配 → 404。成功路径与 PUT 相同（事件 + 新快照）。 */
+  static ApiResponse<AssetGovernanceView> restore(
+      HttpServletRequest request,
+      AssetBindGuard guard,
+      AssetGovernanceEventRecorder recorder,
+      WebAssetGovernanceProperties properties,
+      AssetGovernanceRevisionRecorder revisions,
+      Action action,
+      ResourceRef resource,
+      long revisionId,
+      Saver saver,
+      Function<String, AssetGovernance> loader) {
+    guard.requireManage(request, action, resource);
+    if (properties == null || !properties.isVersionHistoryEnabled() || revisions == null) {
+      throw new ResourceNotFoundException("version history disabled");
+    }
+    AssetGovernanceRevision row =
+        revisions
+            .find(revisionId)
+            .orElseThrow(() -> new ResourceNotFoundException("revision not found: " + revisionId));
+    if (!Objects.equals(resource.type(), row.getResourceType())
+        || !Objects.equals(resource.id(), row.getResourceId())) {
+      throw new ResourceNotFoundException("revision not found: " + revisionId);
+    }
+    AssetGovernance model = AssetGovernanceStore.parseSnapshotYaml(row.getSnapshotText());
+    return writeLive(request, recorder, properties, revisions, resource, model, saver, loader);
+  }
+
+  private static ApiResponse<AssetGovernanceView> writeLive(
+      HttpServletRequest request,
+      AssetGovernanceEventRecorder recorder,
+      WebAssetGovernanceProperties properties,
+      AssetGovernanceRevisionRecorder revisions,
+      ResourceRef resource,
+      AssetGovernance model,
+      Saver saver,
+      Function<String, AssetGovernance> loader) {
     saver.save(resource.id(), model);
     Principal actor = PrincipalHolder.get(request);
     if (recorder != null) {
@@ -75,7 +119,7 @@ final class AssetGovernanceApiSupport {
           model.version(),
           AssetGovernanceStore.snapshotYaml(model));
     }
-    return ApiResponse.ok(AssetGovernanceView.from(store.load(resource.type(), resource.id())));
+    return ApiResponse.ok(AssetGovernanceView.from(loader.apply(resource.id())));
   }
 
   @FunctionalInterface

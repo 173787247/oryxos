@@ -40,6 +40,7 @@
 - 持久化成员（#535）：V12 `team_memberships` + `oryxos team member-*`；`oryxos.web.rbac.durable-team-memberships-enabled`（默认关）开时与 session 团队取并集
 - 团队目录（#539）：V14 `teams(team_id, display_name)` + `oryxos team create|rename|list|delete`（与成员表解耦，catalog 可选）
 - 版本快照（#537）：V13 `asset_governance_revisions`；`oryxos.web.asset-governance.version-history-enabled`（默认关）开时 PUT 追加全文，GET `.../governance/revisions`
+- 版本回滚（#541）：`POST .../governance/revisions/{id}/restore`（agents/skills/knowledge/channels）；同 flag；写回现网并追加新快照；无 diff/Admin UI
 - `/skills/catalog`：已安装行叠加 GOVERNANCE 列表门禁；012 PUBLIC/PRIVATE 标签仍只管候选过滤，外部未安装行不变
 - Agent 作者路径：`validateCatalog` / `generate-files` / `saveFiles(skillBindings)` 经 `isVisible` 谓词过滤可用 Skill（CLI 无谓词时行为不变）
 - Knowledge 作者路径：创建 / bind / replace / `saveFiles(knowledgeBindings)` / `generate-files` 经 `isVisible` 过滤（CLI 无谓词时行为不变）
@@ -47,4 +48,4 @@
 ## Out of scope (honest gaps)
 
 - orgs 层级 / JIT 建队 / Admin 管队 UI（#535+#539 仅成员表 + 目录表 + CLI）
-- 完整 diff / 回滚 UI（#537 仅追加全文快照 + list API）
+- 完整 diff / 回滚 Admin UI（#537+#541 仅快照 list + restore API）

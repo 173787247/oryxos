@@ -119,6 +119,26 @@ public class ChannelApiController {
         assetGovernanceProperties, governanceRevisions, ResourceRef.channel(name));
   }
 
+  @PostMapping("/{name}/governance/revisions/{revisionId}/restore")
+  public ApiResponse<AssetGovernanceView> restoreGovernance(
+      HttpServletRequest request, @PathVariable String name, @PathVariable long revisionId) {
+    requireExists(name);
+    return AssetGovernanceApiSupport.restore(
+        request,
+        assetBindGuard,
+        governanceRecorder,
+        assetGovernanceProperties,
+        governanceRevisions,
+        Action.MANAGE_CHANNELS,
+        ResourceRef.channel(name),
+        revisionId,
+        (id, g) -> admin.updateGovernance(id, g),
+        id -> {
+          ChannelConfig cfg = requireConfig(id);
+          return cfg.governance() == null ? AssetGovernance.empty() : cfg.governance();
+        });
+  }
+
   @PutMapping("/{name}/governance")
   public ApiResponse<AssetGovernanceView> putGovernance(
       HttpServletRequest request,

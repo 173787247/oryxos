@@ -1,6 +1,7 @@
 package io.oryxos.web.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -19,10 +20,13 @@ import io.oryxos.storage.AssetGovernanceRevision;
 import io.oryxos.storage.AssetGovernanceRevisionRecorder;
 import io.oryxos.web.config.WebAssetGovernanceProperties;
 import io.oryxos.web.controller.dto.AssetGovernanceView;
+import io.oryxos.web.error.ResourceNotFoundException;
 import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.security.PrincipalHolder;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -47,7 +51,6 @@ class AssetGovernanceApiSupportTest {
     WebAssetGovernanceProperties props = new WebAssetGovernanceProperties();
     props.setVersionHistoryEnabled(true);
     AssetBindGuard guard = mock(AssetBindGuard.class);
-    AssetGovernanceStore store = mock(AssetGovernanceStore.class);
     AssetGovernanceEventRecorder events = mock(AssetGovernanceEventRecorder.class);
     AssetGovernanceRevisionRecorder revisions = mock(AssetGovernanceRevisionRecorder.class);
     AssetGovernance saved =
@@ -58,7 +61,6 @@ class AssetGovernanceApiSupportTest {
             null,
             AssetGovernance.Health.ACTIVE,
             null);
-    when(store.load(eq(ResourceRef.TYPE_AGENT), eq("bot"))).thenReturn(saved);
 
     MockHttpServletRequest request = new MockHttpServletRequest();
     PrincipalHolder.set(request, Principal.user("alice", "alice", Set.of(Role.ADMIN)));
@@ -66,14 +68,14 @@ class AssetGovernanceApiSupportTest {
     AssetGovernanceApiSupport.put(
         request,
         guard,
-        store,
         events,
         props,
         revisions,
         Action.MANAGE_AGENTS,
         ResourceRef.agent("bot"),
         AssetGovernanceView.from(saved),
-        (id, g) -> {});
+        (id, g) -> {},
+        id -> saved);
 
     verify(revisions)
         .record(eq("USER:alice"), eq(ResourceRef.TYPE_AGENT), eq("bot"), eq("1.0"), anyString());
@@ -100,5 +102,72 @@ class AssetGovernanceApiSupportTest {
         .first()
         .extracting("versionLabel", "snapshotText", "actor")
         .containsExactly("1.0", "owner: alice\n", "alice");
+  }
+
+  @Test
+  @DisplayName("restore_flag关_404")
+  void restore_flagOff_notFound() {
+    WebAssetGovernanceProperties props = new WebAssetGovernanceProperties();
+    AssetBindGuard guard = mock(AssetBindGuard.class);
+    AssetGovernanceRevisionRecorder revisions = mock(AssetGovernanceRevisionRecorder.class);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    assertThatThrownBy(
+            () ->
+                AssetGovernanceApiSupport.restore(
+                    request,
+                    guard,
+                    null,
+                    props,
+                    revisions,
+                    Action.MANAGE_AGENTS,
+                    ResourceRef.agent("bot"),
+                    1L,
+                    (id, g) -> {},
+                    id -> AssetGovernance.empty()))
+        .isInstanceOf(ResourceNotFoundException.class);
+  }
+
+  @Test
+  @DisplayName("restore_写回快照并记新修订")
+  void restore_appliesSnapshot() {
+    WebAssetGovernanceProperties props = new WebAssetGovernanceProperties();
+    props.setVersionHistoryEnabled(true);
+    AssetBindGuard guard = mock(AssetBindGuard.class);
+    AssetGovernanceEventRecorder events = mock(AssetGovernanceEventRecorder.class);
+    AssetGovernanceRevisionRecorder revisions = mock(AssetGovernanceRevisionRecorder.class);
+
+    AssetGovernance old =
+        new AssetGovernance(
+            "alice", "1.0", AssetGovernance.Visibility.PUBLIC, null, AssetGovernance.Health.ACTIVE);
+    String yaml = AssetGovernanceStore.snapshotYaml(old);
+    AssetGovernanceRevision row = new AssetGovernanceRevision();
+    row.setResourceType(ResourceRef.TYPE_AGENT);
+    row.setResourceId("bot");
+    row.setSnapshotText(yaml);
+    when(revisions.find(9L)).thenReturn(Optional.of(row));
+
+    AtomicReference<AssetGovernance> written = new AtomicReference<>();
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    PrincipalHolder.set(request, Principal.user("bob", "bob", Set.of(Role.ADMIN)));
+
+    var resp =
+        AssetGovernanceApiSupport.restore(
+            request,
+            guard,
+            events,
+            props,
+            revisions,
+            Action.MANAGE_AGENTS,
+            ResourceRef.agent("bot"),
+            9L,
+            (id, g) -> written.set(g),
+            id -> written.get());
+
+    assertThat(written.get().owner()).isEqualTo("alice");
+    assertThat(written.get().version()).isEqualTo("1.0");
+    assertThat(resp.getData().owner()).isEqualTo("alice");
+    verify(revisions)
+        .record(eq("USER:bob"), eq(ResourceRef.TYPE_AGENT), eq("bot"), eq("1.0"), anyString());
+    verify(events).record(eq("USER:bob"), eq(ResourceRef.TYPE_AGENT), eq("bot"), anyString());
   }
 }
