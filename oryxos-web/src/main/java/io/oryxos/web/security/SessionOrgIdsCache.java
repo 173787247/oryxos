@@ -8,9 +8,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Session 作用域组织声明（041 / #560）：由登录时 {@code teamIds} × {@code teams.org_id} 派生；请求期填入 {@code
- * Principal.orgIds}。进程内缓存、不落库——重启丢失。flag {@code oryxos.web.rbac.org-ids-from-team-org-enabled}
- * 关时不应写入。
+ * Session 作用域组织声明（041 / #560 / #590）：由登录时写入，请求期填入 {@code Principal.orgIds}。来源可为 (a) {@code teamIds}
+ * × {@code teams.org_id}（{@code org-ids-from-team-org-enabled}），和/或 (b) OIDC {@code org-ids-claim}
+ * 不透明值；两者都开时取并集。进程内缓存、不落库——重启丢失。两路均关且无 claim 值时不应写入。
  */
 public final class SessionOrgIdsCache {
 

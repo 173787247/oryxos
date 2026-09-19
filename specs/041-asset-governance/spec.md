@@ -36,7 +36,7 @@
 - Admin：入站渠道列表 + `channels.yaml` `governance:` 面板（`GET/PUT /api/v1/channels/{name}/governance`）
 - 列表过滤：`GET` agents/skills/knowledge/channels 在 rbac+asset-governance 开启时按具名 `decide(READ_WORKSPACE)` 剔除 OFFLINE / PRIVATE 他属主条目
 - WORKSPACE 团队门禁：`teamOwner` 字段 + `oryxos.web.asset-governance.workspace-team-acl-enabled`（默认关）；OIDC groups 经 session 缓存注入 `Principal.teamIds`；可选祖先匹配 `workspace-team-acl-ancestor-enabled`（#588，默认关；沿 `parent_team_id` 有界上行；深度复用 `max-org-ancestor-depth`）
-- WORKSPACE 组织门禁：`orgOwner` 字段 + `oryxos.web.asset-governance.workspace-org-acl-enabled`（默认关）；`Principal.teamIds` × `teams.org_id` 查找（#558）；可选 session `Principal.orgIds` 缓存（#560，`oryxos.web.rbac.org-ids-from-team-org-enabled`，默认关；有 orgIds 时门禁优先用）；可选祖先匹配 `workspace-org-acl-ancestor-enabled`（#568，默认关；沿 `parent_org_id` 有界上行；深度 `max-org-ancestor-depth` 默认 16，#579）
+- WORKSPACE 组织门禁：`orgOwner` 字段 + `oryxos.web.asset-governance.workspace-org-acl-enabled`（默认关）；`Principal.teamIds` × `teams.org_id` 查找（#558）；可选 session `Principal.orgIds` 缓存（#560，`oryxos.web.rbac.org-ids-from-team-org-enabled`，默认关；有 orgIds 时门禁优先用）；可选 OIDC 专用 claim `oryxos.web.oidc.org-ids-claim`（#590，默认空=关；与 team-derived 可并集；**无** org catalog JIT）；可选祖先匹配 `workspace-org-acl-ancestor-enabled`（#568，默认关；沿 `parent_org_id` 有界上行；深度 `max-org-ancestor-depth` 默认 16，#579）
 - 密码登录可选 `oryxos.web.auth.user-team-ids` → 同 session 缓存（默认空=不声明团队）
 - 持久化成员（#535）：V12 `team_memberships` + `oryxos team member-*`；`oryxos.web.rbac.durable-team-memberships-enabled`（默认关）开时与 session 团队取并集
 - 团队目录（#539/#581）：V14 `teams(team_id, display_name)` + V17 nullable `parent_team_id` 自引用；`oryxos team create|rename|list|delete|set-org|set-parent`（与成员表解耦，catalog 可选；setParent 有界环检测，深度同 `max-org-ancestor-depth`）
