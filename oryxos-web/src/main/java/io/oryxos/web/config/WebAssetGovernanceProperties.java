@@ -17,6 +17,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p>{@code workspace-org-acl-ancestor-enabled} 默认 {@code false}——仅在 org ACL 已开时生效；开时沿 {@code
  * parent_org_id} 上行匹配祖先（#568）。
+ *
+ * <p>{@code max-org-ancestor-depth} 默认 {@code 16}——祖先匹配与 {@code setParent} 环检测共用的上行跳数上界（#579）。
  */
 @ConfigurationProperties(prefix = "oryxos.web.asset-governance")
 public class WebAssetGovernanceProperties {
@@ -32,6 +34,12 @@ public class WebAssetGovernanceProperties {
 
   /** 是否叠加 WORKSPACE+orgOwner 祖先匹配。默认关。须同时 {@link #workspaceOrgAclEnabled}；装配层传入装饰器。 */
   private boolean workspaceOrgAclAncestorEnabled = false;
+
+  /**
+   * 祖先匹配 / setParent 环检测上行最大跳数。默认 16（与 {@link
+   * io.oryxos.core.policy.OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH} 一致）。
+   */
+  private int maxOrgAncestorDepth = 16;
 
   /**
    * 是否在治理 PUT 时追加全文快照到 {@code asset_governance_revisions}（#537）。默认关：仅 V11 change_summary
@@ -69,6 +77,14 @@ public class WebAssetGovernanceProperties {
 
   public void setWorkspaceOrgAclAncestorEnabled(boolean workspaceOrgAclAncestorEnabled) {
     this.workspaceOrgAclAncestorEnabled = workspaceOrgAclAncestorEnabled;
+  }
+
+  public int getMaxOrgAncestorDepth() {
+    return maxOrgAncestorDepth;
+  }
+
+  public void setMaxOrgAncestorDepth(int maxOrgAncestorDepth) {
+    this.maxOrgAncestorDepth = maxOrgAncestorDepth;
   }
 
   public boolean isVersionHistoryEnabled() {

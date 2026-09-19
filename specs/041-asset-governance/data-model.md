@@ -59,7 +59,7 @@ Append-only full-text snapshots when `version-history-enabled`:
 
 ## Runtime wiring
 
-- `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`; optional `OrgParentLookup` when `workspace-org-acl-ancestor-enabled`
+- `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`; optional `OrgParentLookup` when `workspace-org-acl-ancestor-enabled`; depth from `max-org-ancestor-depth` (default 16 / `OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH`)
 - Channel writes: extra `decide(MANAGE_CHANNELS, channel(name))` so the decorator can see the named block. Filter still uses `channel(null)`.
 
 
@@ -68,7 +68,7 @@ Append-only full-text snapshots when `version-history-enabled`:
 Optional org catalog metadata (not used by `AuthorizationService.decide`):
 
 - `organizations(org_id, display_name, created_at, updated_at, parent_org_id?)`
-- `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). `setParent` rejects cycles via bounded walk (depth `OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH` = 16; #573). `decide` / `orgOwner` exact-match by default; optional ancestor match behind `workspace-org-acl-ancestor-enabled` (#568) via `OrgParentLookup` (same depth bound).
+- `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). `setParent` rejects cycles via bounded walk (depth `oryxos.web.asset-governance.max-org-ancestor-depth`, default `OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH` = 16; #573/#579). `decide` / `orgOwner` exact-match by default; optional ancestor match behind `workspace-org-acl-ancestor-enabled` (#568) via `OrgParentLookup` (same configurable depth bound).
 - `teams.org_id` nullable FK (PG `ON DELETE SET NULL`; SQLite clears on org delete in service)
 
 CLI: `oryxos org create|list|rename|delete|set-parent`, `oryxos team set-org`.

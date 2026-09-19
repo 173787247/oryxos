@@ -20,6 +20,11 @@ abstract class OrganizationCatalogServiceContractTest {
     return new OrganizationCatalogService(organizationRepository, teamRepository);
   }
 
+  private OrganizationCatalogService orgs(int maxOrgAncestorDepth) {
+    return new OrganizationCatalogService(
+        organizationRepository, teamRepository, maxOrgAncestorDepth);
+  }
+
   private TeamCatalogService teams() {
     return new TeamCatalogService(teamRepository, organizationRepository);
   }
@@ -124,6 +129,35 @@ abstract class OrganizationCatalogServiceContractTest {
     svc.setParent("a", "b");
     svc.setParent("b", "c");
 
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("c", "a"));
+    assertTrue(ex.getMessage().contains("cycle"));
+    assertNull(svc.find("c").orElseThrow().getParentOrgId());
+  }
+
+  @Test
+  @DisplayName("setParent_自定义深度过浅则放过更深环")
+  void setParent_customDepthMissesDeeperCycle() {
+    OrganizationCatalogService svc = orgs(1);
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.create("c", "C");
+    svc.setParent("a", "b");
+    svc.setParent("b", "c");
+    // depth=1: walk from a stops after seeing b; does not reach c → no cycle reject
+    Organization linked = svc.setParent("c", "a");
+    assertEquals("a", linked.getParentOrgId());
+  }
+
+  @Test
+  @DisplayName("setParent_自定义深度足够则仍拒环")
+  void setParent_customDepthStillRejectsWhenDeepEnough() {
+    OrganizationCatalogService svc = orgs(2);
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.create("c", "C");
+    svc.setParent("a", "b");
+    svc.setParent("b", "c");
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> svc.setParent("c", "a"));
     assertTrue(ex.getMessage().contains("cycle"));

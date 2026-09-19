@@ -42,6 +42,12 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   private final OrgParentLookup orgParentLookup;
 
+  /**
+   * parent_org_id 上行最大跳数（含环时靠深度截断；不含 orgOwner 自身）。默认 {@link
+   * OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}。
+   */
+  private final int maxOrgAncestorDepth;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "delegate/store 为注入共享单例，存同一引用正是意图。")
@@ -94,6 +100,31 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       TeamOrgLookup teamOrgLookup,
       boolean workspaceOrgAclAncestorEnabled,
       OrgParentLookup orgParentLookup) {
+    this(
+        delegate,
+        store,
+        enabled,
+        workspaceTeamAclEnabled,
+        workspaceOrgAclEnabled,
+        teamOrgLookup,
+        workspaceOrgAclAncestorEnabled,
+        orgParentLookup,
+        OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "delegate/store/lookup 为注入共享单例，存同一引用正是意图。")
+  public AssetAwareAuthorizationServiceImpl(
+      AuthorizationService delegate,
+      AssetGovernanceStore store,
+      boolean enabled,
+      boolean workspaceTeamAclEnabled,
+      boolean workspaceOrgAclEnabled,
+      TeamOrgLookup teamOrgLookup,
+      boolean workspaceOrgAclAncestorEnabled,
+      OrgParentLookup orgParentLookup,
+      int maxOrgAncestorDepth) {
     this.delegate = delegate == null ? AuthorizationService.ALLOW_ALL : delegate;
     if (store == null) {
       throw new IllegalArgumentException("store 不能为空");
@@ -105,6 +136,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
     this.teamOrgLookup = teamOrgLookup;
     this.workspaceOrgAclAncestorEnabled = workspaceOrgAclAncestorEnabled;
     this.orgParentLookup = orgParentLookup;
+    this.maxOrgAncestorDepth =
+        maxOrgAncestorDepth < 1 ? OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH : maxOrgAncestorDepth;
   }
 
   @Override
@@ -232,11 +265,11 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       return principalOrgs.contains(orgOwner);
     }
     String current = orgOwner;
-    for (int depth = 0; depth <= OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH; depth++) {
+    for (int depth = 0; depth <= maxOrgAncestorDepth; depth++) {
       if (principalOrgs.contains(current)) {
         return true;
       }
-      if (orgParentLookup == null || depth == OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH) {
+      if (orgParentLookup == null || depth == maxOrgAncestorDepth) {
         return false;
       }
       Optional<String> parent = orgParentLookup.findParentOrgId(current);

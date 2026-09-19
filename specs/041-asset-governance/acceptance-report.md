@@ -18,7 +18,7 @@
 - [x] WORKSPACE `teamOwner` gate behind `workspace-team-acl-enabled` (default off); OIDC groups → session `Principal.teamIds`
 - [x] WORKSPACE `orgOwner` gate behind `workspace-org-acl-enabled` (default off); teamIds × teams.org_id (#558)
 - [x] WORKSPACE `orgOwner` ancestor match behind `workspace-org-acl-ancestor-enabled` (default off; #568; bounded `parent_org_id` walk)
-- [x] `setParent` rejects org parent cycles via bounded walk (depth 16 shared with #568; #573)
+- [x] `setParent` rejects org parent cycles via bounded walk (depth shared with #568; default 16; configurable via `max-org-ancestor-depth` #579; #573)
 - [x] `/skills/catalog` installed rows also filtered via `AssetBindGuard.isVisible` (012 tags unchanged for external candidates)
 - [x] Agent author paths (`validateCatalog` / `generate-files` / `saveFiles` skill bindings) honor `isVisible` predicate
 - [x] Knowledge author paths (create/bind/replace/saveFiles/generate-files) honor `isVisible` predicate
@@ -30,6 +30,6 @@
 
 ## Honest gaps
 
-- Organizations catalog + nullable `teams.org_id` done (#554); `parent_org_id` + set-parent done (#566); setParent bounded cycle guard done (#573); ancestor decide opt-in done (#568, depth-bound only); Admin org UI + team set-org done (#556); Admin org set-parent UI done (#570); WORKSPACE orgOwner gate done (#558); Admin tree / OIDC→org JIT / configurable cycle depth still deferred
+- Organizations catalog + nullable `teams.org_id` done (#554); `parent_org_id` + set-parent done (#566); setParent bounded cycle guard done (#573); ancestor decide opt-in done (#568); configurable `max-org-ancestor-depth` done (#579, default 16); Admin org UI + team set-org done (#556); Admin org set-parent UI done (#570); Admin tree done (#575); WORKSPACE orgOwner gate done (#558); OIDC→org JIT still deferred
 - OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); OIDC JIT durable `team_memberships` add done behind `oryxos.web.oidc.jit-team-memberships-enabled` (#562, default off; skip if no catalog row); revoke unmatched behind `revoke-unmatched-team-memberships` (#564, default off; empty groups clears all)
 - Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups; JIT memberships flag skips when catalog row missing)
