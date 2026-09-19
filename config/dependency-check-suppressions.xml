@@ -140,4 +140,54 @@
         <packageUrl regex="true">^pkg:maven/org\.springframework\.ai/.*@1\.1\.8$</packageUrl>
         <cve>CVE-2026-59318</cve>
     </suppress>
+    <!-- ===== 2026-09 wave: Spring family + Spring AI, no OSS fix without Boot 4 ===== -->
+    <suppress>
+        <notes><![CDATA[
+        2026-08-20 Spring disclosure batch (CVE-2026-47883~47893 / 59280~59282).
+        OSS fix is Spring Framework 7.0.9 (needs Boot 4); 6.2.20 is enterprise-only.
+        Maven Central latest 3.5.x is 3.5.16 (embeds 6.2.19) — same posture as
+        CVE-2026-59313 in this file. Suppress until Boot 4 migration.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-core@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47883</cve>
+        <cve>CVE-2026-47885</cve>
+        <cve>CVE-2026-47886</cve>
+        <cve>CVE-2026-47887</cve>
+        <cve>CVE-2026-47888</cve>
+        <cve>CVE-2026-47889</cve>
+        <cve>CVE-2026-47893</cve>
+        <cve>CVE-2026-59280</cve>
+        <cve>CVE-2026-59281</cve>
+        <cve>CVE-2026-59282</cve>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        CVE-2026-47841/47842/59276. OSS fix is Spring Security 7.x (needs Boot 4);
+        6.5.x has no OSS patch (Central latest 6.5.11). Same 2026-09 wave posture.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.security/spring-security-crypto@6\.5\.11$</packageUrl>
+        <cve>CVE-2026-47841</cve>
+        <cve>CVE-2026-47842</cve>
+        <cve>CVE-2026-59276</cve>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        CVE-2026-47834. OSS fix is Spring Data 2025.2/4.0 (needs Boot 4);
+        3.5.x has no OSS patch (Central latest 3.5.13). Same 2026-09 wave posture.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.data/spring-data-jpa@3\.5\.13$</packageUrl>
+        <cve>CVE-2026-47834</cve>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+        Spring AI 1.1.x is EOL; fix only in 2.0.1 (needs Boot 4; backport discussion
+        https://github.com/spring-projects/spring-ai/issues/6985).
+        CVE-2026-59318 covered by broader org.springframework.ai/.*@1.1.8 entry above.
+        Remaining three (47851/47852/59294) same artifact/EOL posture.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.ai/spring-ai-mcp@1\.1\.8$</packageUrl>
+        <cve>CVE-2026-47851</cve>
+        <cve>CVE-2026-47852</cve>
+        <cve>CVE-2026-59294</cve>
+    </suppress>
 </suppressions>
