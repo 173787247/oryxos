@@ -6,6 +6,7 @@ import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
 import io.oryxos.storage.IdentityMappingService;
+import io.oryxos.storage.OrganizationCatalogService;
 import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.storage.TeamMembershipService;
 import io.oryxos.storage.WebSession;
@@ -59,6 +60,7 @@ public class OidcAuthService {
   private final SessionTeamIdsCache teamIdsCache;
   private final TeamCatalogService teamCatalogService;
   private final TeamMembershipService teamMembershipService;
+  private final OrganizationCatalogService organizationCatalogService;
   private final SessionOrgIdsCache orgIdsCache;
   private final WebRbacProperties rbacProperties;
   private final TeamOrgLookup teamOrgLookup;
@@ -82,6 +84,7 @@ public class OidcAuthService {
         userService,
         sessionService,
         authEventRecorder,
+        null,
         null,
         null,
         null,
@@ -115,6 +118,7 @@ public class OidcAuthService {
         null,
         null,
         null,
+        null,
         null);
   }
 
@@ -141,6 +145,7 @@ public class OidcAuthService {
         authEventRecorder,
         teamIdsCache,
         teamCatalogService,
+        null,
         null,
         null,
         null,
@@ -176,6 +181,7 @@ public class OidcAuthService {
         orgIdsCache,
         rbacProperties,
         teamOrgLookup,
+        null,
         null);
   }
 
@@ -196,6 +202,41 @@ public class OidcAuthService {
       WebRbacProperties rbacProperties,
       TeamOrgLookup teamOrgLookup,
       TeamMembershipService teamMembershipService) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        teamCatalogService,
+        orgIdsCache,
+        rbacProperties,
+        teamOrgLookup,
+        teamMembershipService,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService,
+      SessionOrgIdsCache orgIdsCache,
+      WebRbacProperties rbacProperties,
+      TeamOrgLookup teamOrgLookup,
+      TeamMembershipService teamMembershipService,
+      OrganizationCatalogService organizationCatalogService) {
     this.properties = properties;
     this.tokenClient = tokenClient;
     this.pendingStore = pendingStore;
@@ -207,6 +248,7 @@ public class OidcAuthService {
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
     this.teamCatalogService = teamCatalogService;
     this.teamMembershipService = teamMembershipService;
+    this.organizationCatalogService = organizationCatalogService;
     this.orgIdsCache = orgIdsCache == null ? new SessionOrgIdsCache() : orgIdsCache;
     this.rbacProperties = rbacProperties;
     this.teamOrgLookup = teamOrgLookup;
@@ -287,6 +329,7 @@ public class OidcAuthService {
       return OidcLoginResult.failure("group role sync failed");
     }
     ensureTeamCatalogRows(claims.groups());
+    ensureOrgCatalogRows(claims.orgIds());
     ensureTeamMemberships(username, claims.groups());
     try {
       authEventRecorder.recordOrThrow(
@@ -402,6 +445,32 @@ public class OidcAuthService {
             "OIDC JIT team catalog ensure 失败 group={}：{}",
             sanitize(group),
             sanitize(ex.toString()));
+      }
+    }
+  }
+
+  /**
+   * Flag 开且 {@code org-ids-claim} 非空时，对 claim 组织 id 幂等写 {@code organizations}
+   * 目录行（#592）。失败只打日志，不阻断登录。
+   */
+  private void ensureOrgCatalogRows(List<String> orgIds) {
+    if (!properties.isJitOrgCatalogEnabled()
+        || properties.getOrgIdsClaim().isBlank()
+        || organizationCatalogService == null) {
+      return;
+    }
+    if (orgIds == null || orgIds.isEmpty()) {
+      return;
+    }
+    for (String orgId : new LinkedHashSet<>(orgIds)) {
+      if (orgId == null || orgId.isBlank()) {
+        continue;
+      }
+      try {
+        organizationCatalogService.ensure(orgId);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT org catalog ensure 失败 org={}：{}", sanitize(orgId), sanitize(ex.toString()));
       }
     }
   }

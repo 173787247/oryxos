@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 经验证的 id_token 声明子集（040 / #502 / #590）。callback 用 iss/sub 做身份映射；{@code preferredUsername}/{@code
  * email} 供 JIT 推导本地用户名；{@code groups} 只供组→角色 / 团队路径；{@code orgIds} 供专用 org-ids claim → session
- * Principal.orgIds（不做 AuthorizationService 裁决、不写 organizations catalog）。
+ * Principal.orgIds（不做 AuthorizationService 裁决；catalog 写入由独立 JIT flag 负责）。
  *
  * @param issuer iss
  * @param subject sub

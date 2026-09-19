@@ -124,6 +124,8 @@ oryxos:
       # jit-team-catalog-enabled: false # true 时登录按 groups 幂等写 teams 目录行（display_name=id）
       # jit-team-memberships-enabled: false # true 时登录按 groups 幂等写 team_memberships（无 catalog 行则跳过）
       # revoke-unmatched-team-memberships: false # true 时（须 JIT memberships）移除不在期望集中的成员；空 groups → 清空
+      # org-ids-claim: "" # 非空=读 id_token claim → session orgIds（#590）
+      # jit-org-catalog-enabled: false # true 且 org-ids-claim 非空时，登录按 claim org ids 幂等写 organizations（#592）
       # group-claim: groups
       # group-roles: {}
 

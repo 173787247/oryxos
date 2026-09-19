@@ -21,6 +21,7 @@ import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
 import io.oryxos.storage.IdentityMappingService;
+import io.oryxos.storage.OrganizationCatalogService;
 import io.oryxos.storage.Team;
 import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.storage.TeamMembershipService;
@@ -54,6 +55,7 @@ class OidcAuthServiceTest {
   private AuthEventRecorder authEventRecorder;
   private TeamCatalogService teamCatalogService;
   private TeamMembershipService teamMembershipService;
+  private OrganizationCatalogService organizationCatalogService;
   private AuthorizationService authorizationService;
   private OidcAuthService service;
   private MockMvc mvc;
@@ -74,6 +76,7 @@ class OidcAuthServiceTest {
     authEventRecorder = mock(AuthEventRecorder.class);
     teamCatalogService = mock(TeamCatalogService.class);
     teamMembershipService = mock(TeamMembershipService.class);
+    organizationCatalogService = mock(OrganizationCatalogService.class);
     authorizationService = mock(AuthorizationService.class);
     service =
         new OidcAuthService(
@@ -89,7 +92,8 @@ class OidcAuthServiceTest {
             null,
             null,
             null,
-            teamMembershipService);
+            teamMembershipService,
+            organizationCatalogService);
     mvc =
         MockMvcBuilders.standaloneSetup(new OidcAuthController(service))
             .setControllerAdvice(new GlobalExceptionHandler())
@@ -495,5 +499,136 @@ class OidcAuthServiceTest {
     verify(teamMembershipService, never()).add(anyString(), anyString());
     verify(teamMembershipService).remove("alice", "eng");
     verify(teamMembershipService).remove("alice", "ops");
+  }
+
+  @Test
+  @DisplayName("JIT org catalog关_不调用ensure")
+  void callback_jitOrgCatalogOff_noCatalogCalls() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(false);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of("acme", "contoso")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService, never()).ensure(anyString());
+    verify(organizationCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开但org-ids-claim空_不调用ensure")
+  void callback_jitOrgCatalogOn_emptyClaimName_skips() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of("acme")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService, never()).ensure(anyString());
+    verify(organizationCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开_claim空列表_不调用ensure")
+  void callback_jitOrgCatalogOn_emptyClaimValues_skips() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of()));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService, never()).ensure(anyString());
+    verify(organizationCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开_对缺失org ensure_去重后幂等")
+  void callback_jitOrgCatalogOn_ensuresOrgIds() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example",
+                "sub-1",
+                null,
+                null,
+                List.of(),
+                List.of("acme", "contoso", "acme")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService).ensure("acme");
+    verify(organizationCatalogService).ensure("contoso");
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开_再登录仍幂等调用ensure")
+  void callback_jitOrgCatalogOn_idempotentRelogin() {
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of("acme")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    pendingStore.put("st1", "verifier");
+    assertThat(service.completeLogin("code", "st1").isSuccess()).isTrue();
+    pendingStore.put("st2", "verifier");
+    assertThat(service.completeLogin("code", "st2").isSuccess()).isTrue();
+    verify(organizationCatalogService, times(2)).ensure("acme");
   }
 }
