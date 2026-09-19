@@ -16,6 +16,7 @@ import {
   setParentOrg,
   setTeamOrg,
 } from './teams-api.js'
+import { buildOrgTreeRows } from './org-tree.js'
 
 const catalog = ref({ loading: true, error: null, disabled: false, data: [] })
 const orgs = ref({ loading: true, error: null, disabled: false, data: [] })
@@ -42,6 +43,7 @@ const canSetOrg = computed(() => !!setOrgForm.teamId && !setOrgForm.busy)
 const canCreateOrg = computed(() => orgCreate.orgId.trim().length > 0 && !orgCreate.busy)
 const canRenameOrg = computed(() => orgRename.displayName.trim().length > 0 && !orgRename.busy)
 const canSetParent = computed(() => !!setParentForm.orgId && !setParentForm.busy)
+const orgTreeRows = computed(() => buildOrgTreeRows(orgs.value.data || []))
 const canLoadMembers = computed(() => member.username.trim().length > 0 && !member.loading)
 const canAddMember = computed(
   () => member.loadedFor && member.addTeamId.trim().length > 0 && !member.busy,
@@ -350,7 +352,8 @@ defineExpose({ load })
     <p class="lede">
       管理组织目录、团队目录与用户成员关系。依赖
       <span class="mono">oryxos.web.teams-api.enabled</span>（默认关 → API 404）。需 ADMIN /
-      <span class="mono">MANAGE_MEMBERS</span>。无完整树 UI / 环检测 / OIDC→org JIT。
+      <span class="mono">MANAGE_MEMBERS</span>。组织按
+      <span class="mono">parentOrgId</span> 客户端缩进树展示；无拖拽改父 / 环检测 UI / OIDC→org JIT。
     </p>
 
     <p v-if="catalog.disabled || orgs.disabled" class="error">
@@ -409,12 +412,19 @@ defineExpose({ load })
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!orgs.data.length">
+          <tr v-if="!orgTreeRows.length">
             <td colspan="4" class="empty">（暂无组织目录）</td>
           </tr>
-          <tr v-for="o in orgs.data" :key="o.orgId">
-            <td class="mono">{{ o.orgId }}</td>
-            <td>{{ o.displayName || '—' }}</td>
+          <tr v-for="o in orgTreeRows" :key="o.orgId">
+            <td class="mono">
+              <span class="org-indent" :style="{ paddingLeft: o.depth * 16 + 'px' }">
+                <span v-if="o.depth > 0" class="org-branch" aria-hidden="true">└ </span>{{ o.orgId }}
+              </span>
+            </td>
+            <td>
+              {{ o.displayName || '—' }}
+              <span v-if="o.orphan" class="orphan-tag" title="parentOrgId 指向不存在的组织">orphan</span>
+            </td>
             <td class="mono">{{ o.parentOrgId || '—' }}</td>
             <td class="ops">
               <button class="btn" @click="startRenameOrg(o)">重命名</button>
@@ -557,4 +567,14 @@ defineExpose({ load })
   min-width: 140px;
 }
 .ops { white-space: nowrap; }
+.org-indent { display: inline-block; }
+.org-branch { color: var(--text-2); }
+.orphan-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  border: 1px solid var(--border, #ccc);
+  border-radius: 3px;
+  padding: 0 4px;
+}
 </style>
