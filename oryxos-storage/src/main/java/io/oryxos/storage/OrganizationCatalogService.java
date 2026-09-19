@@ -1,5 +1,6 @@
 package io.oryxos.storage;
 
+import io.oryxos.core.policy.OrgParentLookup;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -86,7 +87,7 @@ public class OrganizationCatalogService {
     return repository.save(row);
   }
 
-  /** 设置父组织；{@code parentOrgId} 空/空白则清空。非空时父组织必须已在目录中，且不得等于自身。不做环检测。 */
+  /** 设置父组织；{@code parentOrgId} 空/空白则清空。非空时父组织必须已在目录中，且不得等于自身；有界上行检测环（#573）。 */
   @Transactional(rollbackFor = Exception.class)
   public Organization setParent(String orgId, String parentOrgId) {
     String cleanId = requireOrgId(orgId);
@@ -104,6 +105,7 @@ public class OrganizationCatalogService {
       if (!repository.existsByOrgId(cleanParent)) {
         throw new IllegalArgumentException("org '" + cleanParent + "' not found");
       }
+      rejectParentCycle(cleanId, cleanParent);
       row.setParentOrgId(cleanParent);
     }
     row.setUpdatedAt(Instant.now());
@@ -128,6 +130,33 @@ public class OrganizationCatalogService {
       repository.save(child);
     }
     repository.findByOrgId(cleanId).ifPresent(repository::delete);
+  }
+
+  /**
+   * 沿 proposedParent 的 parent_org_id 有界上行；若路径含 orgId 则拒（A→B 再 B→A 等）。深度复用 {@link
+   * OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}。
+   */
+  private void rejectParentCycle(String orgId, String proposedParentId) {
+    String current = proposedParentId;
+    for (int depth = 0; depth < OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH; depth++) {
+      Optional<Organization> node = repository.findByOrgId(current);
+      if (node.isEmpty()) {
+        return;
+      }
+      String next = node.get().getParentOrgId();
+      if (next == null || next.isBlank()) {
+        return;
+      }
+      String cleanNext = next.strip();
+      if (orgId.equals(cleanNext)) {
+        throw new IllegalArgumentException(
+            "org '" + orgId + "' parent would create a cycle via '" + proposedParentId + "'");
+      }
+      if (cleanNext.equals(current)) {
+        return;
+      }
+      current = cleanNext;
+    }
   }
 
   private static String requireOrgId(String orgId) {
