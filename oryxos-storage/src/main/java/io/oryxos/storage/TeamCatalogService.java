@@ -1,11 +1,15 @@
 package io.oryxos.storage;
 
+import io.oryxos.core.policy.OrgParentLookup;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 团队目录管理（#539 / #554）：create / rename / list / delete / setOrg。不强制成员关系引用本表——catalog 是可选展示元数据。 */
+/**
+ * 团队目录管理（#539 / #554 / #581）：create / rename / list / delete / setOrg /
+ * setParent。不强制成员关系引用本表——catalog 是可选展示元数据。
+ */
 public class TeamCatalogService {
 
   private static final int MAX_TEAM_ID = 128;
@@ -15,13 +19,28 @@ public class TeamCatalogService {
   private final TeamRepository repository;
   private final OrganizationRepository organizationRepository;
 
+  /** setParent 环检测上行深度；默认 {@link OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}。 */
+  private final int maxTeamAncestorDepth;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "repository 为 Spring 注入共享单例，构造注入存同一引用正是意图。")
   public TeamCatalogService(
       TeamRepository repository, OrganizationRepository organizationRepository) {
+    this(repository, organizationRepository, OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "repository 为 Spring 注入共享单例，构造注入存同一引用正是意图。")
+  public TeamCatalogService(
+      TeamRepository repository,
+      OrganizationRepository organizationRepository,
+      int maxTeamAncestorDepth) {
     this.repository = repository;
     this.organizationRepository = organizationRepository;
+    this.maxTeamAncestorDepth =
+        maxTeamAncestorDepth < 1 ? OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH : maxTeamAncestorDepth;
   }
 
   @Transactional(readOnly = true)
@@ -107,11 +126,71 @@ public class TeamCatalogService {
     return repository.save(row);
   }
 
-  /** 删除目录行；不存在则幂等成功。不删 {@code team_memberships}——成员关系可继续用裸 team_id。 */
+  /** 设置父团队；{@code parentTeamId} 空/空白则清空。非空时父团队必须已在目录中，且不得等于自身；有界上行检测环（#581）。 */
+  @Transactional(rollbackFor = Exception.class)
+  public Team setParent(String teamId, String parentTeamId) {
+    String cleanId = requireTeamId(teamId);
+    Team row =
+        repository
+            .findByTeamId(cleanId)
+            .orElseThrow(() -> new IllegalArgumentException("team '" + cleanId + "' not found"));
+    if (parentTeamId == null || parentTeamId.isBlank()) {
+      row.setParentTeamId(null);
+    } else {
+      String cleanParent = parentTeamId.strip();
+      if (cleanParent.equals(cleanId)) {
+        throw new IllegalArgumentException("team '" + cleanId + "' cannot be its own parent");
+      }
+      if (!repository.existsByTeamId(cleanParent)) {
+        throw new IllegalArgumentException("team '" + cleanParent + "' not found");
+      }
+      rejectParentCycle(cleanId, cleanParent);
+      row.setParentTeamId(cleanParent);
+    }
+    row.setUpdatedAt(Instant.now());
+    return repository.save(row);
+  }
+
+  /**
+   * 删除目录行；不存在则幂等成功。先清空子团队 {@code parent_team_id}（镜像 PG ON DELETE SET NULL）。不删 {@code
+   * team_memberships}——成员关系可继续用裸 team_id。
+   */
   @Transactional(rollbackFor = Exception.class)
   public void delete(String teamId) {
     String cleanId = requireTeamId(teamId);
+    for (Team child : repository.findByParentTeamIdOrderByTeamIdAsc(cleanId)) {
+      child.setParentTeamId(null);
+      child.setUpdatedAt(Instant.now());
+      repository.save(child);
+    }
     repository.findByTeamId(cleanId).ifPresent(repository::delete);
+  }
+
+  /**
+   * 沿 proposedParent 的 parent_team_id 有界上行；若路径含 teamId 则拒。深度取构造注入的 {@code maxTeamAncestorDepth}（默认
+   * {@link OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}）。
+   */
+  private void rejectParentCycle(String teamId, String proposedParentId) {
+    String current = proposedParentId;
+    for (int depth = 0; depth < maxTeamAncestorDepth; depth++) {
+      Optional<Team> node = repository.findByTeamId(current);
+      if (node.isEmpty()) {
+        return;
+      }
+      String next = node.get().getParentTeamId();
+      if (next == null || next.isBlank()) {
+        return;
+      }
+      String cleanNext = next.strip();
+      if (teamId.equals(cleanNext)) {
+        throw new IllegalArgumentException(
+            "team '" + teamId + "' parent would create a cycle via '" + proposedParentId + "'");
+      }
+      if (cleanNext.equals(current)) {
+        return;
+      }
+      current = cleanNext;
+    }
   }
 
   private static String requireTeamId(String teamId) {

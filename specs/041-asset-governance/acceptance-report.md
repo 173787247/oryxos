@@ -28,8 +28,10 @@
 - [x] Admin organizations page (#556/#570) on same teams Admin surface (org list/create/rename/delete + parentOrgId show/set/clear + team set-org/clear) behind same `teams-api.enabled`
 - [x] Admin revision history UI (#550): Agent / Skill / Knowledge / Channel governance panels → list / diff / restore (`version-history-enabled`)
 
+- [x] Team catalog `parent_team_id` + set-parent behind `teams-api.enabled` (#581; bounded cycle guard; SQLite clears children on delete)
+
 ## Honest gaps
 
-- Organizations catalog + nullable `teams.org_id` done (#554); `parent_org_id` + set-parent done (#566); setParent bounded cycle guard done (#573); ancestor decide opt-in done (#568); configurable `max-org-ancestor-depth` done (#579, default 16); Admin org UI + team set-org done (#556); Admin org set-parent UI done (#570); Admin tree done (#575); WORKSPACE orgOwner gate done (#558); OIDC→org JIT still deferred
+- Organizations catalog + nullable `teams.org_id` done (#554); `parent_org_id` + set-parent done (#566); setParent bounded cycle guard done (#573); ancestor decide opt-in done (#568); configurable `max-org-ancestor-depth` done (#579, default 16); Admin org UI + team set-org done (#556); Admin org set-parent UI done (#570); Admin tree done (#575); teams `parent_team_id` catalog-only done (#581); WORKSPACE orgOwner gate done (#558); teamOwner decide inheritance / Admin team tree / OIDC→org JIT still deferred
 - OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); OIDC JIT durable `team_memberships` add done behind `oryxos.web.oidc.jit-team-memberships-enabled` (#562, default off; skip if no catalog row); revoke unmatched behind `revoke-unmatched-team-memberships` (#564, default off; empty groups clears all)
 - Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups; JIT memberships flag skips when catalog row missing)

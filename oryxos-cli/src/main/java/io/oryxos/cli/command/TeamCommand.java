@@ -15,7 +15,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 /**
- * 团队目录与成员管理（#535 / #539）：{@code create|rename|list|delete} + {@code
+ * 团队目录与成员管理（#535 / #539 / #581）：{@code create|rename|list|delete|set-org|set-parent} + {@code
  * member-add|member-remove|member-list}。无 Admin UI。
  */
 @Command(
@@ -28,6 +28,7 @@ import picocli.CommandLine.Parameters;
       TeamCommand.ListCommand.class,
       TeamCommand.DeleteCommand.class,
       TeamCommand.SetOrgCommand.class,
+      TeamCommand.SetParentCommand.class,
       TeamCommand.MemberAddCommand.class,
       TeamCommand.MemberRemoveCommand.class,
       TeamCommand.MemberListCommand.class
@@ -109,16 +110,22 @@ public class TeamCommand implements Runnable {
               System.out.println("No teams. Run 'oryxos team create <id>' to add one.");
               return;
             }
-            System.out.printf("%-24s %-24s %s%n", "TEAM_ID", "ORG_ID", "DISPLAY_NAME");
+            System.out.printf(
+                "%-24s %-24s %-24s %s%n", "TEAM_ID", "ORG_ID", "PARENT_TEAM_ID", "DISPLAY_NAME");
             for (Team t : teams) {
               String org = t.getOrgId() == null ? "-" : t.getOrgId();
-              System.out.printf("%-24s %-24s %s%n", t.getTeamId(), org, t.getDisplayName());
+              String parent = t.getParentTeamId() == null ? "-" : t.getParentTeamId();
+              System.out.printf(
+                  "%-24s %-24s %-24s %s%n", t.getTeamId(), org, parent, t.getDisplayName());
             }
           });
     }
   }
 
-  @Command(name = "delete", description = "删除团队目录行（不删成员关系）", mixinStandardHelpOptions = true)
+  @Command(
+      name = "delete",
+      description = "删除团队目录行（清空子团队 parent；不删成员关系）",
+      mixinStandardHelpOptions = true)
   static class DeleteCommand implements Runnable {
     @Parameters(index = "0", description = "团队 id")
     String teamId;
@@ -151,6 +158,28 @@ public class TeamCommand implements Runnable {
             Team t = service.setOrg(teamId, orgId);
             String org = t.getOrgId() == null ? "(none)" : t.getOrgId();
             System.out.println("Set team '" + t.getTeamId() + "' org -> " + org);
+          });
+    }
+  }
+
+  @Command(
+      name = "set-parent",
+      description = "设置团队父级（缺省 parentTeamId 则清空）",
+      mixinStandardHelpOptions = true)
+  static class SetParentCommand implements Runnable {
+    @Parameters(index = "0", description = "团队 id")
+    String teamId;
+
+    @Parameters(index = "1", arity = "0..1", description = "父团队 id（省略则清空）")
+    String parentTeamId;
+
+    @Override
+    public void run() {
+      withCatalog(
+          service -> {
+            Team t = service.setParent(teamId, parentTeamId);
+            String parent = t.getParentTeamId() == null ? "(none)" : t.getParentTeamId();
+            System.out.println("Set team '" + t.getTeamId() + "' parent -> " + parent);
           });
     }
   }

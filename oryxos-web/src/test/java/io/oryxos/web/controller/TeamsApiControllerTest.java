@@ -31,7 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * Teams/Orgs HTTP API（#546/#554/#566）：flag 关 404；开时 list/create/member/set-org/set-parent 走
+ * Teams/Orgs HTTP API（#546/#554/#566/#581）：flag 关 404；开时 list/create/member/set-org/set-parent 走
  * catalog。
  */
 class TeamsApiControllerTest {
@@ -72,19 +72,21 @@ class TeamsApiControllerTest {
   }
 
   @Test
-  @DisplayName("flag开_list_返回目录含orgId")
+  @DisplayName("flag开_list_返回目录含orgId与parentTeamId")
   void flagOn_list() throws Exception {
     properties.setEnabled(true);
     Team t = new Team();
     t.setTeamId("eng");
     t.setDisplayName("Engineering");
     t.setOrgId("acme");
+    t.setParentTeamId("platform");
     when(catalog.list()).thenReturn(List.of(t));
     mvc.perform(get("/api/v1/teams"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data[0].teamId").value("eng"))
         .andExpect(jsonPath("$.data[0].displayName").value("Engineering"))
-        .andExpect(jsonPath("$.data[0].orgId").value("acme"));
+        .andExpect(jsonPath("$.data[0].orgId").value("acme"))
+        .andExpect(jsonPath("$.data[0].parentTeamId").value("platform"));
   }
 
   @Test
@@ -282,5 +284,38 @@ class TeamsApiControllerTest {
             put("/api/v1/orgs/eng/parent").contentType(MediaType.APPLICATION_JSON).content("{}"))
         .andExpect(status().isOk());
     verify(organizations).setParent("eng", null);
+  }
+
+  @Test
+  @DisplayName("flag开_setTeamParent_赋值")
+  void flagOn_setTeamParent() throws Exception {
+    properties.setEnabled(true);
+    Team t = new Team();
+    t.setTeamId("eng");
+    t.setDisplayName("Engineering");
+    t.setParentTeamId("platform");
+    when(catalog.setParent(eq("eng"), eq("platform"))).thenReturn(t);
+    mvc.perform(
+            put("/api/v1/teams/eng/parent")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"parentTeamId\":\"platform\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.teamId").value("eng"))
+        .andExpect(jsonPath("$.data.parentTeamId").value("platform"));
+    verify(catalog).setParent("eng", "platform");
+  }
+
+  @Test
+  @DisplayName("flag开_setTeamParent_清空")
+  void flagOn_setTeamParent_clear() throws Exception {
+    properties.setEnabled(true);
+    Team t = new Team();
+    t.setTeamId("eng");
+    t.setDisplayName("Engineering");
+    when(catalog.setParent(eq("eng"), eq(null))).thenReturn(t);
+    mvc.perform(
+            put("/api/v1/teams/eng/parent").contentType(MediaType.APPLICATION_JSON).content("{}"))
+        .andExpect(status().isOk());
+    verify(catalog).setParent("eng", null);
   }
 }
