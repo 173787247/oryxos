@@ -16,6 +16,7 @@
 - [x] Admin UI: 入站渠道 list + governance panel → `GET/PUT /api/v1/channels/{name}/governance`
 - [x] Catalog list filter via `AssetBindGuard.isVisible` → `decide(READ_WORKSPACE, named resource)` on agents/skills/knowledge/channels lists
 - [x] WORKSPACE `teamOwner` gate behind `workspace-team-acl-enabled` (default off); OIDC groups → session `Principal.teamIds`
+- [x] WORKSPACE `teamOwner` ancestor match behind `workspace-team-acl-ancestor-enabled` (default off; #588; bounded `parent_team_id` walk; depth reuses `max-org-ancestor-depth`)
 - [x] WORKSPACE `orgOwner` gate behind `workspace-org-acl-enabled` (default off); teamIds × teams.org_id (#558)
 - [x] WORKSPACE `orgOwner` ancestor match behind `workspace-org-acl-ancestor-enabled` (default off; #568; bounded `parent_org_id` walk)
 - [x] `setParent` rejects org parent cycles via bounded walk (depth shared with #568; default 16; configurable via `max-org-ancestor-depth` #579; #573)
@@ -34,6 +35,6 @@
 
 ## Honest gaps
 
-- Organizations catalog + nullable `teams.org_id` done (#554); `parent_org_id` + set-parent done (#566); setParent bounded cycle guard done (#573); ancestor decide opt-in done (#568); configurable `max-org-ancestor-depth` done (#579, default 16); Admin org UI + team set-org done (#556); Admin org set-parent UI done (#570); Admin tree done (#575); teams `parent_team_id` catalog-only done (#581); Admin team tree done (#583); Admin team set-parent UI done (#585); WORKSPACE orgOwner gate done (#558); teamOwner decide inheritance / OIDC→org JIT still deferred
+- Organizations catalog + nullable `teams.org_id` done (#554); `parent_org_id` + set-parent done (#566); setParent bounded cycle guard done (#573); org ancestor decide opt-in done (#568); team ancestor decide opt-in done (#588); configurable `max-org-ancestor-depth` done (#579, default 16; reused by team); Admin org UI + team set-org done (#556); Admin org set-parent UI done (#570); Admin tree done (#575); teams `parent_team_id` + set-parent done (#581); Admin team tree done (#583); Admin team set-parent UI done (#585); WORKSPACE orgOwner gate done (#558); OIDC→org JIT / drag-drop still deferred
 - OIDC JIT team catalog ensure done behind `oryxos.web.oidc.jit-team-catalog-enabled` (#552); OIDC JIT durable `team_memberships` add done behind `oryxos.web.oidc.jit-team-memberships-enabled` (#562, default off; skip if no catalog row); revoke unmatched behind `revoke-unmatched-team-memberships` (#564, default off; empty groups clears all)
 - Team memberships may reference ids without a catalog row (catalog is optional metadata; JIT catalog flag optionally fills rows from IdP groups; JIT memberships flag skips when catalog row missing)

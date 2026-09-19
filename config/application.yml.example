@@ -236,15 +236,18 @@ oryxos:
   # 打开 rbac.enabled（无主体则跳过资产门禁）。仍只走 AuthorizationService.decide。
   # workspace-team-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 teamOwner 的资产
   # 要求 Principal.teamIds 含该 id（OIDC groups 或密码登录 user-team-ids 经 session 缓存注入）；无 teamOwner 仍不另拒。
+  # workspace-team-acl-ancestor-enabled：默认关。须同时开 workspace-team-acl-enabled；开时沿
+  # teams.parent_team_id 上行匹配祖先（#588；有界深度；深度复用 max-org-ancestor-depth）。
   # workspace-org-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 orgOwner 的资产
   # 要求同组织（或 ADMIN）；优先 Principal.orgIds（#560 flag），否则 teamIds × teams.org_id（#558）；无 orgOwner 仍不另拒。
   # workspace-org-acl-ancestor-enabled：默认关。须同时开 workspace-org-acl-enabled；开时沿
   # organizations.parent_org_id 上行匹配祖先（#568；有界深度；不做环检测 UI）。
-  # max-org-ancestor-depth：默认 16。祖先匹配与 setParent 环检测共用上行跳数上界（#579）。
+  # max-org-ancestor-depth：默认 16。org/team 祖先匹配与 setParent 环检测共用上行跳数上界（#579/#588）。
   # web:
   #   asset-governance:
   #     enabled: true
   #     workspace-team-acl-enabled: true
+  #     # workspace-team-acl-ancestor-enabled: true
   #     workspace-org-acl-enabled: true
   #     # workspace-org-acl-ancestor-enabled: true
   #     # max-org-ancestor-depth: 16

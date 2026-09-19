@@ -8,6 +8,7 @@ import io.oryxos.core.policy.AuthorizationService;
 import io.oryxos.core.policy.OrgParentLookup;
 import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
 import io.oryxos.core.policy.TeamOrgLookup;
+import io.oryxos.core.policy.TeamParentLookup;
 import io.oryxos.storage.Organization;
 import io.oryxos.storage.OrganizationCatalogService;
 import io.oryxos.storage.Team;
@@ -111,9 +112,13 @@ public class AuthorizationConfig {
     }
     TeamOrgLookup orgLookup = teamOrgLookupBean(teamCatalog);
     OrgParentLookup parentLookup = orgParentLookupBean(orgCatalog);
-    boolean ancestorEnabled =
+    TeamParentLookup teamParentLookup = teamParentLookupBean(teamCatalog);
+    boolean orgAncestorEnabled =
         assetGovernance.isWorkspaceOrgAclEnabled()
             && assetGovernance.isWorkspaceOrgAclAncestorEnabled();
+    boolean teamAncestorEnabled =
+        assetGovernance.isWorkspaceTeamAclEnabled()
+            && assetGovernance.isWorkspaceTeamAclAncestorEnabled();
     return new AssetAwareAuthorizationServiceImpl(
         roleBased,
         store,
@@ -121,9 +126,11 @@ public class AuthorizationConfig {
         assetGovernance.isWorkspaceTeamAclEnabled(),
         assetGovernance.isWorkspaceOrgAclEnabled(),
         orgLookup,
-        ancestorEnabled,
+        orgAncestorEnabled,
         parentLookup,
-        assetGovernance.getMaxOrgAncestorDepth());
+        assetGovernance.getMaxOrgAncestorDepth(),
+        teamAncestorEnabled,
+        teamParentLookup);
   }
 
   /** #558 / #560：把 teamId 映射到 teams.org_id；目录 Bean 缺失时恒 empty。 */
@@ -136,6 +143,12 @@ public class AuthorizationConfig {
   @Bean
   OrgParentLookup orgParentLookup(ObjectProvider<OrganizationCatalogService> orgCatalog) {
     return orgParentLookupBean(orgCatalog);
+  }
+
+  /** #588：把 teamId 映射到 teams.parent_team_id；目录 Bean 缺失时恒 empty。 */
+  @Bean
+  TeamParentLookup teamParentLookup(ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamParentLookupBean(teamCatalog);
   }
 
   private static TeamOrgLookup teamOrgLookupBean(ObjectProvider<TeamCatalogService> teamCatalog) {
@@ -174,6 +187,28 @@ public class AuthorizationConfig {
         return Optional.empty();
       }
       String parent = row.get().getParentOrgId();
+      if (parent == null || parent.isBlank()) {
+        return Optional.empty();
+      }
+      return Optional.of(parent.strip());
+    };
+  }
+
+  private static TeamParentLookup teamParentLookupBean(
+      ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamId -> {
+      if (teamId == null || teamId.isBlank()) {
+        return Optional.empty();
+      }
+      TeamCatalogService catalog = teamCatalog.getIfAvailable();
+      if (catalog == null) {
+        return Optional.empty();
+      }
+      Optional<Team> row = catalog.find(teamId.strip());
+      if (row.isEmpty()) {
+        return Optional.empty();
+      }
+      String parent = row.get().getParentTeamId();
       if (parent == null || parent.isBlank()) {
         return Optional.empty();
       }

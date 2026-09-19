@@ -34,6 +34,10 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   private final boolean workspaceTeamAclEnabled;
 
+  private final boolean workspaceTeamAclAncestorEnabled;
+
+  private final TeamParentLookup teamParentLookup;
+
   private final boolean workspaceOrgAclEnabled;
 
   private final TeamOrgLookup teamOrgLookup;
@@ -43,8 +47,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
   private final OrgParentLookup orgParentLookup;
 
   /**
-   * parent_org_id 上行最大跳数（含环时靠深度截断；不含 orgOwner 自身）。默认 {@link
-   * OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}。
+   * parent_org_id / parent_team_id 上行最大跳数（含环时靠深度截断；不含 owner 自身）。默认 {@link
+   * OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}（团队同值，#588 复用）。
    */
   private final int maxOrgAncestorDepth;
 
@@ -53,7 +57,18 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       justification = "delegate/store 为注入共享单例，存同一引用正是意图。")
   public AssetAwareAuthorizationServiceImpl(
       AuthorizationService delegate, AssetGovernanceStore store, boolean enabled) {
-    this(delegate, store, enabled, false, false, null, false, null);
+    this(
+        delegate,
+        store,
+        enabled,
+        false,
+        false,
+        null,
+        false,
+        null,
+        OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH,
+        false,
+        null);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -64,7 +79,18 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       AssetGovernanceStore store,
       boolean enabled,
       boolean workspaceTeamAclEnabled) {
-    this(delegate, store, enabled, workspaceTeamAclEnabled, false, null, false, null);
+    this(
+        delegate,
+        store,
+        enabled,
+        workspaceTeamAclEnabled,
+        false,
+        null,
+        false,
+        null,
+        OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH,
+        false,
+        null);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -84,6 +110,9 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
         workspaceTeamAclEnabled,
         workspaceOrgAclEnabled,
         teamOrgLookup,
+        false,
+        null,
+        OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH,
         false,
         null);
   }
@@ -109,7 +138,9 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
         teamOrgLookup,
         workspaceOrgAclAncestorEnabled,
         orgParentLookup,
-        OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH);
+        OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH,
+        false,
+        null);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -125,6 +156,35 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       boolean workspaceOrgAclAncestorEnabled,
       OrgParentLookup orgParentLookup,
       int maxOrgAncestorDepth) {
+    this(
+        delegate,
+        store,
+        enabled,
+        workspaceTeamAclEnabled,
+        workspaceOrgAclEnabled,
+        teamOrgLookup,
+        workspaceOrgAclAncestorEnabled,
+        orgParentLookup,
+        maxOrgAncestorDepth,
+        false,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "delegate/store/lookup 为注入共享单例，存同一引用正是意图。")
+  public AssetAwareAuthorizationServiceImpl(
+      AuthorizationService delegate,
+      AssetGovernanceStore store,
+      boolean enabled,
+      boolean workspaceTeamAclEnabled,
+      boolean workspaceOrgAclEnabled,
+      TeamOrgLookup teamOrgLookup,
+      boolean workspaceOrgAclAncestorEnabled,
+      OrgParentLookup orgParentLookup,
+      int maxOrgAncestorDepth,
+      boolean workspaceTeamAclAncestorEnabled,
+      TeamParentLookup teamParentLookup) {
     this.delegate = delegate == null ? AuthorizationService.ALLOW_ALL : delegate;
     if (store == null) {
       throw new IllegalArgumentException("store 不能为空");
@@ -132,6 +192,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
     this.store = store;
     this.enabled = enabled;
     this.workspaceTeamAclEnabled = workspaceTeamAclEnabled;
+    this.workspaceTeamAclAncestorEnabled = workspaceTeamAclAncestorEnabled;
+    this.teamParentLookup = teamParentLookup;
     this.workspaceOrgAclEnabled = workspaceOrgAclEnabled;
     this.teamOrgLookup = teamOrgLookup;
     this.workspaceOrgAclAncestorEnabled = workspaceOrgAclAncestorEnabled;
@@ -191,7 +253,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   /**
    * WORKSPACE + teamOwner：仅 {@code workspaceTeamAclEnabled} 时生效。无 teamOwner 不另拒（存量兼容）。API_KEY /
-   * 匿名跳过（与 PRIVATE 同口径）；USER 须同队或 ADMIN。
+   * 匿名跳过（与 PRIVATE 同口径）；USER 须同队或 ADMIN。{@code workspaceTeamAclAncestorEnabled} 开时与 {@link
+   * TeamParentLookup} 沿 parent_team_id 上行匹配祖先（#588）。
    */
   private Decision workspaceTeamGate(Principal principal, AssetGovernance governance) {
     if (!workspaceTeamAclEnabled) {
@@ -211,10 +274,35 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
     if (subject.hasRole(Role.ADMIN)) {
       return Decision.ALLOWED;
     }
-    if (subject.hasTeam(teamOwner)) {
+    if (belongsToTeam(subject, teamOwner.strip())) {
       return Decision.ALLOWED;
     }
     return Decision.denied(REASON_WORKSPACE_TEAM);
+  }
+
+  private boolean belongsToTeam(Principal subject, String teamOwner) {
+    if (!workspaceTeamAclAncestorEnabled) {
+      return subject.hasTeam(teamOwner);
+    }
+    String current = teamOwner;
+    for (int depth = 0; depth <= maxOrgAncestorDepth; depth++) {
+      if (subject.hasTeam(current)) {
+        return true;
+      }
+      if (teamParentLookup == null || depth == maxOrgAncestorDepth) {
+        return false;
+      }
+      Optional<String> parent = teamParentLookup.findParentTeamId(current);
+      if (parent.isEmpty() || parent.get().isBlank()) {
+        return false;
+      }
+      String next = parent.get().strip();
+      if (next.equals(current)) {
+        return false;
+      }
+      current = next;
+    }
+    return false;
   }
 
   /**
