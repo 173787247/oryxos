@@ -2,10 +2,12 @@ package io.oryxos.core.policy;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** 审批策略配置（042 / #464）：{@code oryxos.approval.*}。默认 {@code enabled=false} 零行为变化。 */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = {"EI_EXPOSE_REP", "EI_EXPOSE_REP2"},
+    justification = "Spring ConfigurationProperties binders require mutable list getters/setters.")
 @ConfigurationProperties(prefix = "oryxos.approval")
 public class ApprovalPolicyProperties {
 
@@ -59,7 +61,7 @@ public class ApprovalPolicyProperties {
       return null;
     }
     try {
-      return HighRiskActionType.valueOf(raw.trim().toUpperCase(Locale.ROOT).replace('-', '_'));
+      return HighRiskActionType.valueOf(ApprovalPolicyConfig.asciiUpperSnake(raw.trim()));
     } catch (IllegalArgumentException ex) {
       return null;
     }

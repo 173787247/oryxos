@@ -2,7 +2,6 @@ package io.oryxos.core.policy;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * 审批策略配置快照（042 / #464）：由 {@link ApprovalPolicyProperties} 或测试直接构造；纯数据、无 Spring 依赖。
@@ -120,7 +119,7 @@ public record ApprovalPolicyConfig(
     if (pattern == null || pattern.isBlank() || WILDCARD_ALL.equals(pattern.trim())) {
       return true;
     }
-    return pattern.trim().equalsIgnoreCase(value);
+    return asciiEqualsIgnoreCase(pattern.trim(), value);
   }
 
   static boolean matchesToolPattern(String pattern, String toolName, String mcpServer) {
@@ -130,9 +129,48 @@ public record ApprovalPolicyConfig(
     String p = pattern.trim();
     if (p.endsWith(MCP_SERVER_WILDCARD_SUFFIX)) {
       String server = p.substring(0, p.length() - MCP_SERVER_WILDCARD_SUFFIX.length());
-      return mcpServer != null && server.equalsIgnoreCase(mcpServer);
+      return mcpServer != null && asciiEqualsIgnoreCase(server, mcpServer);
     }
-    return p.equalsIgnoreCase(toolName);
+    return asciiEqualsIgnoreCase(p, toolName);
+  }
+
+  /** ASCII-only case fold — mirrors InboundMessageService (SpotBugs IMPROPER_UNICODE). */
+  static boolean asciiEqualsIgnoreCase(String left, String right) {
+    if (left == null || right == null) {
+      return left == null && right == null;
+    }
+    if (left.length() != right.length()) {
+      return false;
+    }
+    for (int i = 0; i < left.length(); i++) {
+      char a = left.charAt(i);
+      char b = right.charAt(i);
+      if (a >= 'A' && a <= 'Z') {
+        a = (char) (a + ('a' - 'A'));
+      }
+      if (b >= 'A' && b <= 'Z') {
+        b = (char) (b + ('a' - 'A'));
+      }
+      if (a != b) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static String asciiUpperSnake(String raw) {
+    StringBuilder out = new StringBuilder(raw.length());
+    for (int i = 0; i < raw.length(); i++) {
+      char c = raw.charAt(i);
+      if (c == '-') {
+        out.append('_');
+      } else if (c >= 'a' && c <= 'z') {
+        out.append((char) (c - ('a' - 'A')));
+      } else {
+        out.append(c);
+      }
+    }
+    return out.toString();
   }
 
   /** 从 Spring properties 转换时用的可变构建辅助。 */
@@ -159,7 +197,7 @@ public record ApprovalPolicyConfig(
     }
 
     public Builder defaultApprovers(List<String> defaultApprovers) {
-      this.defaultApprovers = defaultApprovers;
+      this.defaultApprovers = defaultApprovers == null ? List.of() : List.copyOf(defaultApprovers);
       return this;
     }
 
@@ -179,7 +217,7 @@ public record ApprovalPolicyConfig(
     if (raw == null || raw.isBlank()) {
       return ApprovalOutcome.REQUIRE_APPROVAL;
     }
-    String v = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+    String v = asciiUpperSnake(raw.trim());
     if (EFFECT_DENY.equals(v) || EFFECT_REJECT.equals(v)) {
       return ApprovalOutcome.DENY;
     }
@@ -191,7 +229,7 @@ public record ApprovalPolicyConfig(
     if (raw == null || raw.isBlank()) {
       return fallback;
     }
-    String v = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+    String v = asciiUpperSnake(raw.trim());
     try {
       return ApprovalDenySemantics.valueOf(v);
     } catch (IllegalArgumentException ex) {

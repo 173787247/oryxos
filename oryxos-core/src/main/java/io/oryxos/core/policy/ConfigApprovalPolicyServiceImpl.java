@@ -11,6 +11,9 @@ import org.slf4j.LoggerFactory;
  *
  * <p>关闭时恒 {@link ApprovalOutcome#ALLOW}。开启后按规则顺序匹配 Agent / 工具 / 动作类型。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "CRLF_INJECTION_LOGS",
+    justification = "Log args are policy rule ids / tool names from trusted config or registry.")
 public final class ConfigApprovalPolicyServiceImpl implements ApprovalPolicyService {
 
   private static final Logger LOG = LoggerFactory.getLogger(ConfigApprovalPolicyServiceImpl.class);
