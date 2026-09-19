@@ -204,7 +204,7 @@ oryxos:
   # 与用户成员 PUT/DELETE /api/v1/users/{u}/teams/{teamId}；RBAC 下映射 MANAGE_MEMBERS（ADMIN）。
   # web:
   #   teams-api:
-  #     enabled: true                  # 亦覆盖 /api/v1/orgs 与 PUT /api/v1/teams/{id}/org（#554）；默认关→404
+  #     enabled: true                  # 亦覆盖 /api/v1/orgs、PUT .../teams/{id}/org、PUT .../orgs/{id}/parent（#554/#566）；默认关→404
   #     roles:
   #       default-user-roles: []           # 空=拒绝；可选显式 [VIEWER]/[EDITOR]/[ADMIN]
   #       default-api-key-roles: []        # 默认空 = 机器凭证不默认授权

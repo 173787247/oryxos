@@ -9,7 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** OrganizationCatalogService 契约：create/ensure/rename/list/delete。 */
+/** OrganizationCatalogService 契约：create/ensure/rename/list/delete/setParent。 */
 @org.springframework.transaction.annotation.Transactional
 abstract class OrganizationCatalogServiceContractTest {
 
@@ -76,5 +76,41 @@ abstract class OrganizationCatalogServiceContractTest {
     orgSvc.delete("acme");
     assertNull(teamSvc.find("eng").orElseThrow().getOrgId());
     assertTrue(orgSvc.list().isEmpty());
+  }
+
+  @Test
+  @DisplayName("setParent_赋值_清空_拒自身_拒缺失父")
+  void setParent_assignClearRejectSelfMissing() {
+    OrganizationCatalogService svc = orgs();
+    svc.create("acme", "Acme");
+    svc.create("eng", "Engineering");
+
+    Organization linked = svc.setParent("eng", "acme");
+    assertEquals("acme", linked.getParentOrgId());
+
+    Organization cleared = svc.setParent("eng", null);
+    assertNull(cleared.getParentOrgId());
+
+    IllegalArgumentException self =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("eng", "eng"));
+    assertTrue(self.getMessage().contains("own parent"));
+
+    IllegalArgumentException missing =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("eng", "ghost"));
+    assertTrue(missing.getMessage().contains("not found"));
+  }
+
+  @Test
+  @DisplayName("delete_清空子组织parent_org_id")
+  void delete_clearsChildParentOrgId() {
+    OrganizationCatalogService svc = orgs();
+    svc.create("acme", "Acme");
+    svc.create("eng", "Engineering");
+    svc.setParent("eng", "acme");
+    assertEquals("acme", svc.find("eng").orElseThrow().getParentOrgId());
+
+    svc.delete("acme");
+    assertNull(svc.find("eng").orElseThrow().getParentOrgId());
+    assertTrue(svc.find("acme").isEmpty());
   }
 }

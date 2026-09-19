@@ -12,7 +12,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-/** 组织目录管理（#554）：{@code create|rename|list|delete}。无 Admin UI。 */
+/** 组织目录管理（#554 / #566）：{@code create|rename|list|delete|set-parent}。无 Admin UI。 */
 @Command(
     name = "org",
     description = "管理组织目录（可选元数据；不驱动授权）",
@@ -21,7 +21,8 @@ import picocli.CommandLine.Parameters;
       OrgCommand.CreateCommand.class,
       OrgCommand.RenameCommand.class,
       OrgCommand.ListCommand.class,
-      OrgCommand.DeleteCommand.class
+      OrgCommand.DeleteCommand.class,
+      OrgCommand.SetParentCommand.class
     })
 public class OrgCommand implements Runnable {
 
@@ -90,9 +91,10 @@ public class OrgCommand implements Runnable {
               System.out.println("No orgs. Run 'oryxos org create <id>' to add one.");
               return;
             }
-            System.out.printf("%-24s %s%n", "ORG_ID", "DISPLAY_NAME");
+            System.out.printf("%-24s %-24s %s%n", "ORG_ID", "PARENT_ORG_ID", "DISPLAY_NAME");
             for (Organization o : orgs) {
-              System.out.printf("%-24s %s%n", o.getOrgId(), o.getDisplayName());
+              String parent = o.getParentOrgId() == null ? "-" : o.getParentOrgId();
+              System.out.printf("%-24s %-24s %s%n", o.getOrgId(), parent, o.getDisplayName());
             }
           });
     }
@@ -100,7 +102,7 @@ public class OrgCommand implements Runnable {
 
   @Command(
       name = "delete",
-      description = "删除组织目录行（清空 teams.org_id）",
+      description = "删除组织目录行（清空 teams.org_id 与子 org parent）",
       mixinStandardHelpOptions = true)
   static class DeleteCommand implements Runnable {
     @Parameters(index = "0", description = "组织 id")
@@ -112,6 +114,28 @@ public class OrgCommand implements Runnable {
           service -> {
             service.delete(orgId);
             System.out.println("Deleted org catalog entry '" + orgId + "'");
+          });
+    }
+  }
+
+  @Command(
+      name = "set-parent",
+      description = "设置组织父级（缺省 parentOrgId 则清空）",
+      mixinStandardHelpOptions = true)
+  static class SetParentCommand implements Runnable {
+    @Parameters(index = "0", description = "组织 id")
+    String orgId;
+
+    @Parameters(index = "1", arity = "0..1", description = "父组织 id（省略则清空）")
+    String parentOrgId;
+
+    @Override
+    public void run() {
+      withCatalog(
+          service -> {
+            Organization o = service.setParent(orgId, parentOrgId);
+            String parent = o.getParentOrgId() == null ? "(none)" : o.getParentOrgId();
+            System.out.println("Set org '" + o.getOrgId() + "' parent -> " + parent);
           });
     }
   }
