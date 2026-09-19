@@ -54,5 +54,5 @@
 
 ## Out of scope (honest gaps)
 
-- team set-parent Admin UI / teamOwner decide inheritance / OIDC group→org JIT / 拖拽改父（#554 organizations + `teams.org_id`；#566 `parent_org_id`；#581 `parent_team_id` catalog-only；#573/#581 setParent 有界环检测；#568 祖先匹配有界深度截断；#579 `max-org-ancestor-depth` 可配默认 16；#548/#556/#570/#575/#583 Admin 含 org/team 缩进树；#558 WORKSPACE `orgOwner`；#560 session `orgIds` 缓存 opt-in；相关 API/UI 仍默认关）
+- teamOwner decide inheritance / OIDC group→org JIT / 拖拽改父（#554 organizations + `teams.org_id`；#566 `parent_org_id`；#581 `parent_team_id` + set-parent；#585 Admin team set-parent UI；#573/#581 setParent 有界环检测；#568 祖先匹配有界深度截断；#579 `max-org-ancestor-depth` 可配默认 16；#548/#556/#570/#575/#583/#585 Admin 含 org/team 缩进树与设父；#558 WORKSPACE `orgOwner`；#560 session `orgIds` 缓存 opt-in；相关 API/UI 仍默认关）
 - OIDC JIT 目录行已落地：`oryxos.web.oidc.jit-team-catalog-enabled`（#552，默认关）；OIDC JIT 成员写已落地：`oryxos.web.oidc.jit-team-memberships-enabled`（#562，默认关；无 catalog 行则跳过）；撤销未匹配成员：`revoke-unmatched-team-memberships`（#564，默认关；空 groups → 清空；与 JIT memberships 同路径）

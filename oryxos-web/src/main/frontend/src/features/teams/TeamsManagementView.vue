@@ -14,6 +14,7 @@ import {
   renameOrg,
   renameTeam,
   setParentOrg,
+  setParentTeam,
   setTeamOrg,
 } from './teams-api.js'
 import { buildOrgTreeRows } from './org-tree.js'
@@ -27,6 +28,7 @@ const setOrgForm = reactive({ teamId: '', orgId: '', busy: false, error: '' })
 const orgCreate = reactive({ orgId: '', displayName: '', busy: false, error: '' })
 const orgRename = reactive({ orgId: '', displayName: '', busy: false, error: '' })
 const setParentForm = reactive({ orgId: '', parentOrgId: '', busy: false, error: '' })
+const setTeamParentForm = reactive({ teamId: '', parentTeamId: '', busy: false, error: '' })
 const member = reactive({
   username: '',
   loadedFor: '',
@@ -44,6 +46,7 @@ const canSetOrg = computed(() => !!setOrgForm.teamId && !setOrgForm.busy)
 const canCreateOrg = computed(() => orgCreate.orgId.trim().length > 0 && !orgCreate.busy)
 const canRenameOrg = computed(() => orgRename.displayName.trim().length > 0 && !orgRename.busy)
 const canSetParent = computed(() => !!setParentForm.orgId && !setParentForm.busy)
+const canSetTeamParent = computed(() => !!setTeamParentForm.teamId && !setTeamParentForm.busy)
 const orgTreeRows = computed(() => buildOrgTreeRows(orgs.value.data || []))
 const teamTreeRows = computed(() => buildTeamTreeRows(catalog.value.data || []))
 const canLoadMembers = computed(() => member.username.trim().length > 0 && !member.loading)
@@ -186,6 +189,47 @@ async function onClearParent(row) {
   }
 }
 
+async function startSetTeamParent(row) {
+  setTeamParentForm.teamId = row.teamId
+  setTeamParentForm.parentTeamId = row.parentTeamId || ''
+  setTeamParentForm.error = ''
+}
+
+function cancelSetTeamParent() {
+  setTeamParentForm.teamId = ''
+  setTeamParentForm.parentTeamId = ''
+  setTeamParentForm.error = ''
+  setTeamParentForm.busy = false
+}
+
+async function onSetTeamParent() {
+  if (!canSetTeamParent.value) return
+  setTeamParentForm.busy = true
+  setTeamParentForm.error = ''
+  try {
+    await setParentTeam(setTeamParentForm.teamId, setTeamParentForm.parentTeamId)
+    cancelSetTeamParent()
+    await loadTeams()
+  } catch (e) {
+    setTeamParentForm.error = e.message
+  } finally {
+    setTeamParentForm.busy = false
+  }
+}
+
+async function onClearTeamParent(row) {
+  if (!row?.teamId) return
+  if (!confirm(`清空团队「${row.teamId}」的 parentTeamId？`)) return
+  try {
+    await setParentTeam(row.teamId, null)
+    if (setTeamParentForm.teamId === row.teamId) cancelSetTeamParent()
+    await loadTeams()
+  } catch (e) {
+    if (applyDisabled(e)) return
+    catalog.value = { ...catalog.value, error: e.message }
+  }
+}
+
 async function onCreate() {
   if (!canCreate.value) return
   createForm.busy = true
@@ -279,6 +323,7 @@ async function onDelete(row) {
     await deleteTeam(row.teamId)
     if (renameForm.teamId === row.teamId) cancelRename()
     if (setOrgForm.teamId === row.teamId) cancelSetOrg()
+    if (setTeamParentForm.teamId === row.teamId) cancelSetTeamParent()
     await loadTeams()
   } catch (e) {
     catalog.value = {
@@ -356,7 +401,7 @@ defineExpose({ load })
       <span class="mono">oryxos.web.teams-api.enabled</span>（默认关 → API 404）。需 ADMIN /
       <span class="mono">MANAGE_MEMBERS</span>。组织按
       <span class="mono">parentOrgId</span>、团队按
-      <span class="mono">parentTeamId</span> 客户端缩进树展示；无拖拽改父 / 团队设父 UI / 环检测 UI / OIDC→org JIT。
+      <span class="mono">parentTeamId</span> 客户端缩进树展示；可设父级（无拖拽改父 / 环检测 UI / OIDC→org JIT）。
     </p>
 
     <p v-if="catalog.disabled || orgs.disabled" class="error">
@@ -471,6 +516,26 @@ defineExpose({ load })
       </div>
       <p v-if="setOrgForm.error" class="error">{{ setOrgForm.error }}</p>
 
+      <div v-if="setTeamParentForm.teamId" class="toolbar create-row">
+        <span class="mono">设父团队 {{ setTeamParentForm.teamId }}</span>
+        <input
+          v-model="setTeamParentForm.parentTeamId"
+          class="gen-input mono"
+          list="parent-team-id-options"
+          placeholder="parentTeamId（空=清空）"
+        />
+        <datalist id="parent-team-id-options">
+          <option
+            v-for="t in catalog.data.filter((x) => x.teamId !== setTeamParentForm.teamId)"
+            :key="t.teamId"
+            :value="t.teamId"
+          />
+        </datalist>
+        <button class="btn btn-primary" :disabled="!canSetTeamParent" @click="onSetTeamParent">保存</button>
+        <button class="btn" :disabled="setTeamParentForm.busy" @click="cancelSetTeamParent">取消</button>
+      </div>
+      <p v-if="setTeamParentForm.error" class="error">{{ setTeamParentForm.error }}</p>
+
       <table v-if="!catalog.loading">
         <thead>
           <tr>
@@ -478,7 +543,7 @@ defineExpose({ load })
             <th>displayName</th>
             <th>orgId</th>
             <th>parentTeamId</th>
-            <th style="width:240px">操作</th>
+            <th style="width:320px">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -501,6 +566,8 @@ defineExpose({ load })
               <button class="btn" @click="startRename(t)">重命名</button>
               <button class="btn" @click="startSetOrg(t)">设组织</button>
               <button v-if="t.orgId" class="btn" @click="onClearOrg(t)">清组织</button>
+              <button class="btn" @click="startSetTeamParent(t)">设父级</button>
+              <button v-if="t.parentTeamId" class="btn" @click="onClearTeamParent(t)">清父级</button>
               <button class="btn" @click="onDelete(t)">删除</button>
             </td>
           </tr>
