@@ -14,6 +14,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p>{@code workspace-org-acl-enabled} 默认 {@code false}——开时对带 {@code orgOwner} 的 WORKSPACE 资产要求
  * Principal 持有某 teamId 且该队 {@code teams.org_id} 等于 orgOwner（或 ADMIN）。
+ *
+ * <p>{@code workspace-org-acl-ancestor-enabled} 默认 {@code false}——仅在 org ACL 已开时生效；开时沿 {@code
+ * parent_org_id} 上行匹配祖先（#568）。
  */
 @ConfigurationProperties(prefix = "oryxos.web.asset-governance")
 public class WebAssetGovernanceProperties {
@@ -26,6 +29,9 @@ public class WebAssetGovernanceProperties {
 
   /** 是否叠加 WORKSPACE+orgOwner 门禁。默认关。仅在 {@link #enabled} 为 true 且 RBAC 已开时由装配层传入装饰器。 */
   private boolean workspaceOrgAclEnabled = false;
+
+  /** 是否叠加 WORKSPACE+orgOwner 祖先匹配。默认关。须同时 {@link #workspaceOrgAclEnabled}；装配层传入装饰器。 */
+  private boolean workspaceOrgAclAncestorEnabled = false;
 
   /**
    * 是否在治理 PUT 时追加全文快照到 {@code asset_governance_revisions}（#537）。默认关：仅 V11 change_summary
@@ -55,6 +61,14 @@ public class WebAssetGovernanceProperties {
 
   public void setWorkspaceOrgAclEnabled(boolean workspaceOrgAclEnabled) {
     this.workspaceOrgAclEnabled = workspaceOrgAclEnabled;
+  }
+
+  public boolean isWorkspaceOrgAclAncestorEnabled() {
+    return workspaceOrgAclAncestorEnabled;
+  }
+
+  public void setWorkspaceOrgAclAncestorEnabled(boolean workspaceOrgAclAncestorEnabled) {
+    this.workspaceOrgAclAncestorEnabled = workspaceOrgAclAncestorEnabled;
   }
 
   public boolean isVersionHistoryEnabled() {

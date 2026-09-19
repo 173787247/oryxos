@@ -2,6 +2,7 @@ package io.oryxos.core.policy;
 
 import io.oryxos.core.auth.Principal;
 import io.oryxos.core.auth.Role;
+import java.util.LinkedHashSet;
 import java.util.Optional;
 
 /**
@@ -37,12 +38,19 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   private final TeamOrgLookup teamOrgLookup;
 
+  private final boolean workspaceOrgAclAncestorEnabled;
+
+  private final OrgParentLookup orgParentLookup;
+
+  /** parent_org_id 上行最大跳数（含环时靠深度截断；不含 orgOwner 自身）。 */
+  static final int MAX_ORG_ANCESTOR_DEPTH = 16;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "delegate/store 为注入共享单例，存同一引用正是意图。")
   public AssetAwareAuthorizationServiceImpl(
       AuthorizationService delegate, AssetGovernanceStore store, boolean enabled) {
-    this(delegate, store, enabled, false, false, null);
+    this(delegate, store, enabled, false, false, null, false, null);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -53,7 +61,7 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       AssetGovernanceStore store,
       boolean enabled,
       boolean workspaceTeamAclEnabled) {
-    this(delegate, store, enabled, workspaceTeamAclEnabled, false, null);
+    this(delegate, store, enabled, workspaceTeamAclEnabled, false, null, false, null);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -66,6 +74,29 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       boolean workspaceTeamAclEnabled,
       boolean workspaceOrgAclEnabled,
       TeamOrgLookup teamOrgLookup) {
+    this(
+        delegate,
+        store,
+        enabled,
+        workspaceTeamAclEnabled,
+        workspaceOrgAclEnabled,
+        teamOrgLookup,
+        false,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "delegate/store/lookup 为注入共享单例，存同一引用正是意图。")
+  public AssetAwareAuthorizationServiceImpl(
+      AuthorizationService delegate,
+      AssetGovernanceStore store,
+      boolean enabled,
+      boolean workspaceTeamAclEnabled,
+      boolean workspaceOrgAclEnabled,
+      TeamOrgLookup teamOrgLookup,
+      boolean workspaceOrgAclAncestorEnabled,
+      OrgParentLookup orgParentLookup) {
     this.delegate = delegate == null ? AuthorizationService.ALLOW_ALL : delegate;
     if (store == null) {
       throw new IllegalArgumentException("store 不能为空");
@@ -75,6 +106,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
     this.workspaceTeamAclEnabled = workspaceTeamAclEnabled;
     this.workspaceOrgAclEnabled = workspaceOrgAclEnabled;
     this.teamOrgLookup = teamOrgLookup;
+    this.workspaceOrgAclAncestorEnabled = workspaceOrgAclAncestorEnabled;
+    this.orgParentLookup = orgParentLookup;
   }
 
   @Override
@@ -156,7 +189,8 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   /**
    * WORKSPACE + orgOwner：仅 {@code workspaceOrgAclEnabled} 时生效。无 orgOwner 不另拒。API_KEY / 匿名跳过；USER
-   * 优先用 {@code Principal.orgIds}（#560）；空则回退 teamIds × {@link TeamOrgLookup}（#558 兼容）。
+   * 优先用 {@code Principal.orgIds}（#560）；空则回退 teamIds × {@link TeamOrgLookup}（#558 兼容）。{@code
+   * workspaceOrgAclAncestorEnabled} 开时与 {@link OrgParentLookup} 沿 parent_org_id 上行匹配祖先（#568）。
    */
   private Decision workspaceOrgGate(Principal principal, AssetGovernance governance) {
     if (!workspaceOrgAclEnabled) {
@@ -183,17 +217,40 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
   }
 
   private boolean belongsToOrg(Principal subject, String orgOwner) {
+    LinkedHashSet<String> principalOrgs = new LinkedHashSet<>();
     if (!subject.orgIds().isEmpty()) {
-      return subject.hasOrg(orgOwner);
+      principalOrgs.addAll(subject.orgIds());
+    } else if (teamOrgLookup != null) {
+      for (String teamId : subject.teamIds()) {
+        Optional<String> orgId = teamOrgLookup.findOrgId(teamId);
+        if (orgId.isPresent() && !orgId.get().isBlank()) {
+          principalOrgs.add(orgId.get().strip());
+        }
+      }
     }
-    if (teamOrgLookup == null) {
+    if (principalOrgs.isEmpty()) {
       return false;
     }
-    for (String teamId : subject.teamIds()) {
-      Optional<String> orgId = teamOrgLookup.findOrgId(teamId);
-      if (orgId.isPresent() && orgOwner.equals(orgId.get())) {
+    if (!workspaceOrgAclAncestorEnabled) {
+      return principalOrgs.contains(orgOwner);
+    }
+    String current = orgOwner;
+    for (int depth = 0; depth <= MAX_ORG_ANCESTOR_DEPTH; depth++) {
+      if (principalOrgs.contains(current)) {
         return true;
       }
+      if (orgParentLookup == null || depth == MAX_ORG_ANCESTOR_DEPTH) {
+        return false;
+      }
+      Optional<String> parent = orgParentLookup.findParentOrgId(current);
+      if (parent.isEmpty() || parent.get().isBlank()) {
+        return false;
+      }
+      String next = parent.get().strip();
+      if (next.equals(current)) {
+        return false;
+      }
+      current = next;
     }
     return false;
   }

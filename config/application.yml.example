@@ -238,11 +238,14 @@ oryxos:
   # 要求 Principal.teamIds 含该 id（OIDC groups 或密码登录 user-team-ids 经 session 缓存注入）；无 teamOwner 仍不另拒。
   # workspace-org-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 orgOwner 的资产
   # 要求同组织（或 ADMIN）；优先 Principal.orgIds（#560 flag），否则 teamIds × teams.org_id（#558）；无 orgOwner 仍不另拒。
+  # workspace-org-acl-ancestor-enabled：默认关。须同时开 workspace-org-acl-enabled；开时沿
+  # organizations.parent_org_id 上行匹配祖先（#568；有界深度；不做环检测 UI）。
   # web:
   #   asset-governance:
   #     enabled: true
   #     workspace-team-acl-enabled: true
   #     workspace-org-acl-enabled: true
+  #     # workspace-org-acl-ancestor-enabled: true
   #     # 治理 PUT 追加全文快照；POST .../revisions/{id}/restore 写回；
   #     # GET .../revisions/{id}/diff?against= 统一 diff（#537/#541/#544）。默认关。
   #     # version-history-enabled: true

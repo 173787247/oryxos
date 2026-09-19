@@ -18,7 +18,7 @@ Fields:
 | riskLevel | string | 标签，本刀不驱动裁决 |
 | health | ACTIVE / DEPRECATED / OFFLINE | OFFLINE → deny「资产已安全下线」 |
 | teamOwner | string | 团队 id；仅 `workspace-team-acl-enabled` 开且 visibility=WORKSPACE 时裁决；缺省不另拒 |
-| orgOwner | string | 组织 id；仅 `workspace-org-acl-enabled` 开且 visibility=WORKSPACE 时裁决；与 `teams.org_id` 对齐；缺省不另拒 |
+| orgOwner | string | 组织 id；仅 `workspace-org-acl-enabled` 开且 visibility=WORKSPACE 时裁决；与 `teams.org_id` 对齐；缺省不另拒；`workspace-org-acl-ancestor-enabled` 开时还可匹配祖先（#568） |
 
 Missing file → empty governance → no extra deny when flag on.
 
@@ -59,7 +59,7 @@ Append-only full-text snapshots when `version-history-enabled`:
 
 ## Runtime wiring
 
-- `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`
+- `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`; optional `OrgParentLookup` when `workspace-org-acl-ancestor-enabled`
 - Channel writes: extra `decide(MANAGE_CHANNELS, channel(name))` so the decorator can see the named block. Filter still uses `channel(null)`.
 
 
@@ -68,7 +68,7 @@ Append-only full-text snapshots when `version-history-enabled`:
 Optional org catalog metadata (not used by `AuthorizationService.decide`):
 
 - `organizations(org_id, display_name, created_at, updated_at, parent_org_id?)`
-- `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). No cycle detection; `decide` / `orgOwner` remain exact-match only.
+- `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). No cycle detection beyond decide depth bound. `decide` / `orgOwner` exact-match by default; optional ancestor match behind `workspace-org-acl-ancestor-enabled` (#568) via `OrgParentLookup`.
 - `teams.org_id` nullable FK (PG `ON DELETE SET NULL`; SQLite clears on org delete in service)
 
 CLI: `oryxos org create|list|rename|delete|set-parent`, `oryxos team set-org`.
