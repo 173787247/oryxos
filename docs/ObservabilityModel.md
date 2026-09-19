@@ -65,7 +65,7 @@ graph TD
 | 预留实体 | 依赖 | 建议命名 |
 |---------|------|---------|
 | Flow 节点 | #456（#467/#468） | `oryxos.flow_node`（attrs: flow, node, node_type） |
-| 审批 | #455（#464/#466） | `oryxos.approval`（attrs: policy, decision） |
+| 审批 | #455（#464/#466） | `oryxos.approval`（attrs: policy, decision）— SpanRecorder.recordApprovalSpan 已预留 |
 | 子任务/子 Agent | Flow 之后的委托机制 | `oryxos.subtask` |
 
 ## 6. 已知留白（如实记录）
