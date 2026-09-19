@@ -82,6 +82,12 @@ public class WebOidcProperties {
    */
   private boolean revokeUnmatchedTeamMemberships = false;
 
+  /**
+   * 是否暴露 identity_mappings Admin HTTP API（#577）。默认关 → 404。与 {@link #enabled}（OIDC 登录）独立；开启后走 {@code
+   * MANAGE_MEMBERS}。
+   */
+  private boolean mappingsApiEnabled = false;
+
   public boolean isEnabled() {
     return enabled;
   }
@@ -209,5 +215,13 @@ public class WebOidcProperties {
 
   public void setRevokeUnmatchedTeamMemberships(boolean revokeUnmatchedTeamMemberships) {
     this.revokeUnmatchedTeamMemberships = revokeUnmatchedTeamMemberships;
+  }
+
+  public boolean isMappingsApiEnabled() {
+    return mappingsApiEnabled;
+  }
+
+  public void setMappingsApiEnabled(boolean mappingsApiEnabled) {
+    this.mappingsApiEnabled = mappingsApiEnabled;
   }
 }

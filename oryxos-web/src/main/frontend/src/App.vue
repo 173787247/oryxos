@@ -6,6 +6,7 @@ import logoUrl from './assets/logo.svg'
 import LoginView from './views/LoginView.vue'
 import RunManagementView from './features/runs/RunManagementView.vue'
 import TeamsManagementView from './features/teams/TeamsManagementView.vue'
+import IdentityMappingsView from './features/identity-mappings/IdentityMappingsView.vue'
 import GovernanceRevisionHistory from './features/governance/GovernanceRevisionHistory.vue'
 import { isNearBottom } from './chat-scroll.js'
 import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
@@ -80,6 +81,7 @@ const RUNTIME_NAV = [
   { key: 'notify-channels', label: 'Notify 渠道' },
   { key: 'inbound-channels', label: '入站渠道' },
   { key: 'teams', label: '团队与组织' },
+  { key: 'identity-mappings', label: 'OIDC 映射' },
   { key: 'whitelist', label: 'SandBox 列表' },
   { key: 'tool-policy', label: '工具策略' },
   { key: 'exec-backend', label: '执行后端' },
@@ -226,6 +228,7 @@ function select(key, options = {}) {
   if (key === 'knowledge') { cancelKb(); closeKbDetail(); loadKnowledge() }
   if (key === 'overview') { loadOverviewStats() }
   if (key === 'teams') { teamsViewRef.value?.load?.() }
+  if (key === 'identity-mappings') { identityMappingsViewRef.value?.load?.() }
   if (key === 'runs') {
     runViewRef.value?.load?.()
     if (!options.fromHash) writeRunHash(selectedRunId.value)
@@ -251,6 +254,7 @@ function refresh() {
   if (key === 'knowledge') { kbDetail.value ? refreshKbDetail(kbDetail.value.name) : loadKnowledge(); return }
   if (key === 'overview') { loadOverviewStats(); return }
   if (key === 'teams') { teamsViewRef.value?.load?.(); return }
+  if (key === 'identity-mappings') { identityMappingsViewRef.value?.load?.(); return }
   if (key === 'runs') { runViewRef.value?.load?.(); return }
   if (key === 'report') { loadReport(); return }
   if (NAV.find((n) => n.key === key)?.path) load(key)
@@ -689,6 +693,7 @@ const triggering = ref(null) // 正在“立即触发”的 agent 名，防重�
 const selectedRunId = ref(null)
 const runViewRef = ref(null)
 const teamsViewRef = ref(null)
+const identityMappingsViewRef = ref(null)
 
 function writeRunHash(runId) {
   const next = runId ? runHash(runId) : runListHash()
@@ -2370,6 +2375,10 @@ const outputRows = computed(() =>
 
           <div v-if="active === 'teams'">
             <TeamsManagementView ref="teamsViewRef" />
+          </div>
+
+          <div v-if="active === 'identity-mappings'">
+            <IdentityMappingsView ref="identityMappingsViewRef" />
           </div>
 
           <!-- 报表（016 审计看板）：KPI 汇总 + 分布条形图 + 明细下钻；时间窗三档 -->

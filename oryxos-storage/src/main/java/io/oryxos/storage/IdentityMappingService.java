@@ -1,6 +1,7 @@
 package io.oryxos.storage;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,11 @@ public class IdentityMappingService {
     this.repository = repository;
     this.userRepository = userRepository;
     this.authEventRecorder = authEventRecorder;
+  }
+
+  /** 全量列表（Admin / mappings API）；按 issuer、subject 升序。 */
+  public List<IdentityMapping> list() {
+    return List.copyOf(repository.findAllByOrderByIssuerAscSubjectAsc());
   }
 
   public Optional<IdentityMapping> findByIssuerAndSubject(String issuer, String subject) {
