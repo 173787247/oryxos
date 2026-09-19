@@ -461,6 +461,60 @@ class AssetAwareAuthorizationServiceImplTest {
   }
 
   @Test
+  void workspaceOrgAclAncestorCustomDepthStopsBeforeGrandparent() throws Exception {
+    writeAgent(workspaceWithOrg("leaf"));
+    // leaf -> mid -> root; principal has root; depth=1 reaches mid only → deny
+    OrgParentLookup parents =
+        orgId -> {
+          if ("leaf".equals(orgId)) {
+            return Optional.of("mid");
+          }
+          if ("mid".equals(orgId)) {
+            return Optional.of("root");
+          }
+          return Optional.empty();
+        };
+    AssetAwareAuthorizationServiceImpl shallow =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            teamId -> Optional.empty(),
+            true,
+            parents,
+            1);
+    Decision denied =
+        shallow.decide(
+            Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of(), Set.of("root")),
+            Action.READ_WORKSPACE,
+            ResourceRef.agent(AGENT));
+    assertThat(denied.allowed()).isFalse();
+    assertThat(denied.reason()).isEqualTo(AssetAwareAuthorizationServiceImpl.REASON_WORKSPACE_ORG);
+
+    AssetAwareAuthorizationServiceImpl deepEnough =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            teamId -> Optional.empty(),
+            true,
+            parents,
+            2);
+    assertThat(
+            deepEnough
+                .decide(
+                    Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of(), Set.of("root")),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+  }
+
+  @Test
   void workspaceOrgAclAncestorAdminAndApiKeyUnchanged() throws Exception {
     writeAgent(workspaceWithOrg("eng"));
     OrgParentLookup parents = orgId -> "eng".equals(orgId) ? Optional.of("acme") : Optional.empty();

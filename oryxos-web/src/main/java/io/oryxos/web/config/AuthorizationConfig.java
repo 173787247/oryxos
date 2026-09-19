@@ -122,7 +122,8 @@ public class AuthorizationConfig {
         assetGovernance.isWorkspaceOrgAclEnabled(),
         orgLookup,
         ancestorEnabled,
-        parentLookup);
+        parentLookup,
+        assetGovernance.getMaxOrgAncestorDepth());
   }
 
   /** #558 / #560：把 teamId 映射到 teams.org_id；目录 Bean 缺失时恒 empty。 */

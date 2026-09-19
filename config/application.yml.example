@@ -240,12 +240,14 @@ oryxos:
   # 要求同组织（或 ADMIN）；优先 Principal.orgIds（#560 flag），否则 teamIds × teams.org_id（#558）；无 orgOwner 仍不另拒。
   # workspace-org-acl-ancestor-enabled：默认关。须同时开 workspace-org-acl-enabled；开时沿
   # organizations.parent_org_id 上行匹配祖先（#568；有界深度；不做环检测 UI）。
+  # max-org-ancestor-depth：默认 16。祖先匹配与 setParent 环检测共用上行跳数上界（#579）。
   # web:
   #   asset-governance:
   #     enabled: true
   #     workspace-team-acl-enabled: true
   #     workspace-org-acl-enabled: true
   #     # workspace-org-acl-ancestor-enabled: true
+  #     # max-org-ancestor-depth: 16
   #     # 治理 PUT 追加全文快照；POST .../revisions/{id}/restore 写回；
   #     # GET .../revisions/{id}/diff?against= 统一 diff（#537/#541/#544）。默认关。
   #     # version-history-enabled: true

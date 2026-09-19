@@ -16,13 +16,26 @@ public class OrganizationCatalogService {
   private final OrganizationRepository repository;
   private final TeamRepository teamRepository;
 
+  /** setParent 环检测上行深度；默认 {@link OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}。 */
+  private final int maxOrgAncestorDepth;
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "repository 为 Spring 注入共享单例，构造注入存同一引用正是意图。")
   public OrganizationCatalogService(
       OrganizationRepository repository, TeamRepository teamRepository) {
+    this(repository, teamRepository, OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "repository 为 Spring 注入共享单例，构造注入存同一引用正是意图。")
+  public OrganizationCatalogService(
+      OrganizationRepository repository, TeamRepository teamRepository, int maxOrgAncestorDepth) {
     this.repository = repository;
     this.teamRepository = teamRepository;
+    this.maxOrgAncestorDepth =
+        maxOrgAncestorDepth < 1 ? OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH : maxOrgAncestorDepth;
   }
 
   @Transactional(readOnly = true)
@@ -133,12 +146,12 @@ public class OrganizationCatalogService {
   }
 
   /**
-   * 沿 proposedParent 的 parent_org_id 有界上行；若路径含 orgId 则拒（A→B 再 B→A 等）。深度复用 {@link
-   * OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}。
+   * 沿 proposedParent 的 parent_org_id 有界上行；若路径含 orgId 则拒（A→B 再 B→A 等）。深度取构造注入的 {@code
+   * maxOrgAncestorDepth}（默认 {@link OrgParentLookup#MAX_ORG_ANCESTOR_DEPTH}）。
    */
   private void rejectParentCycle(String orgId, String proposedParentId) {
     String current = proposedParentId;
-    for (int depth = 0; depth < OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH; depth++) {
+    for (int depth = 0; depth < maxOrgAncestorDepth; depth++) {
       Optional<Organization> node = repository.findByOrgId(current);
       if (node.isEmpty()) {
         return;
