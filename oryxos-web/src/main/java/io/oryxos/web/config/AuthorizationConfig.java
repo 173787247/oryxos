@@ -5,8 +5,11 @@ import io.oryxos.core.auth.Role;
 import io.oryxos.core.policy.AssetAwareAuthorizationServiceImpl;
 import io.oryxos.core.policy.AssetGovernanceStore;
 import io.oryxos.core.policy.AuthorizationService;
+import io.oryxos.core.policy.OrgParentLookup;
 import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
 import io.oryxos.core.policy.TeamOrgLookup;
+import io.oryxos.storage.Organization;
+import io.oryxos.storage.OrganizationCatalogService;
 import io.oryxos.storage.Team;
 import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.web.security.AssetBindGuard;
@@ -87,7 +90,8 @@ public class AuthorizationConfig {
       RoleMappingProperties roleProperties,
       WebAssetGovernanceProperties assetGovernance,
       org.springframework.beans.factory.ObjectProvider<AssetGovernanceStore> governanceStore,
-      ObjectProvider<TeamCatalogService> teamCatalog) {
+      ObjectProvider<TeamCatalogService> teamCatalog,
+      ObjectProvider<OrganizationCatalogService> orgCatalog) {
     if (!properties.isEnabled()) {
       LOG.info(LOG_ALLOW_ALL);
       return AuthorizationService.ALLOW_ALL;
@@ -106,19 +110,31 @@ public class AuthorizationConfig {
       return roleBased;
     }
     TeamOrgLookup orgLookup = teamOrgLookupBean(teamCatalog);
+    OrgParentLookup parentLookup = orgParentLookupBean(orgCatalog);
+    boolean ancestorEnabled =
+        assetGovernance.isWorkspaceOrgAclEnabled()
+            && assetGovernance.isWorkspaceOrgAclAncestorEnabled();
     return new AssetAwareAuthorizationServiceImpl(
         roleBased,
         store,
         true,
         assetGovernance.isWorkspaceTeamAclEnabled(),
         assetGovernance.isWorkspaceOrgAclEnabled(),
-        orgLookup);
+        orgLookup,
+        ancestorEnabled,
+        parentLookup);
   }
 
   /** #558 / #560：把 teamId 映射到 teams.org_id；目录 Bean 缺失时恒 empty。 */
   @Bean
   TeamOrgLookup teamOrgLookup(ObjectProvider<TeamCatalogService> teamCatalog) {
     return teamOrgLookupBean(teamCatalog);
+  }
+
+  /** #568：把 orgId 映射到 organizations.parent_org_id；目录 Bean 缺失时恒 empty。 */
+  @Bean
+  OrgParentLookup orgParentLookup(ObjectProvider<OrganizationCatalogService> orgCatalog) {
+    return orgParentLookupBean(orgCatalog);
   }
 
   private static TeamOrgLookup teamOrgLookupBean(ObjectProvider<TeamCatalogService> teamCatalog) {
@@ -139,6 +155,28 @@ public class AuthorizationConfig {
         return Optional.empty();
       }
       return Optional.of(orgId.strip());
+    };
+  }
+
+  private static OrgParentLookup orgParentLookupBean(
+      ObjectProvider<OrganizationCatalogService> orgCatalog) {
+    return orgId -> {
+      if (orgId == null || orgId.isBlank()) {
+        return Optional.empty();
+      }
+      OrganizationCatalogService catalog = orgCatalog.getIfAvailable();
+      if (catalog == null) {
+        return Optional.empty();
+      }
+      Optional<Organization> row = catalog.find(orgId.strip());
+      if (row.isEmpty()) {
+        return Optional.empty();
+      }
+      String parent = row.get().getParentOrgId();
+      if (parent == null || parent.isBlank()) {
+        return Optional.empty();
+      }
+      return Optional.of(parent.strip());
     };
   }
 

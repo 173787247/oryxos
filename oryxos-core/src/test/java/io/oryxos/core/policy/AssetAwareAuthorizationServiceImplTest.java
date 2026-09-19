@@ -359,6 +359,135 @@ class AssetAwareAuthorizationServiceImplTest {
         .isTrue();
   }
 
+  @Test
+  void workspaceOrgAclAncestorOffKeepsExactMatchOnly() throws Exception {
+    writeAgent(workspaceWithOrg("eng"));
+    // parent member has orgIds={acme}; without ancestor flag must deny (exact only).
+    OrgParentLookup parents = orgId -> "eng".equals(orgId) ? Optional.of("acme") : Optional.empty();
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            teamId -> Optional.empty(),
+            false,
+            parents);
+
+    Decision parentMember =
+        service.decide(
+            Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of(), Set.of("acme")),
+            Action.READ_WORKSPACE,
+            ResourceRef.agent(AGENT));
+    assertThat(parentMember.allowed()).isFalse();
+    assertThat(parentMember.reason())
+        .isEqualTo(AssetAwareAuthorizationServiceImpl.REASON_WORKSPACE_ORG);
+    assertThat(
+            service
+                .decide(
+                    Principal.user(OWNER, OWNER, Set.of(Role.EDITOR), Set.of(), Set.of("eng")),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+  }
+
+  @Test
+  void workspaceOrgAclAncestorOnParentMemberAccessesChildOrgOwner() throws Exception {
+    writeAgent(workspaceWithOrg("eng"));
+    OrgParentLookup parents = orgId -> "eng".equals(orgId) ? Optional.of("acme") : Optional.empty();
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            teamId -> Optional.empty(),
+            true,
+            parents);
+
+    assertThat(
+            service
+                .decide(
+                    Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of(), Set.of("acme")),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+    Decision unrelated =
+        service.decide(
+            Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of(), Set.of("other-org")),
+            Action.READ_WORKSPACE,
+            ResourceRef.agent(AGENT));
+    assertThat(unrelated.allowed()).isFalse();
+    assertThat(unrelated.reason())
+        .isEqualTo(AssetAwareAuthorizationServiceImpl.REASON_WORKSPACE_ORG);
+  }
+
+  @Test
+  void workspaceOrgAclAncestorDepthBoundStopsLoops() throws Exception {
+    writeAgent(workspaceWithOrg("a"));
+    // a -> b -> a cycle; principal has unrelated org — must terminate without match.
+    OrgParentLookup cyclic =
+        orgId -> {
+          if ("a".equals(orgId)) {
+            return Optional.of("b");
+          }
+          if ("b".equals(orgId)) {
+            return Optional.of("a");
+          }
+          return Optional.empty();
+        };
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            teamId -> Optional.empty(),
+            true,
+            cyclic);
+
+    Decision denied =
+        service.decide(
+            Principal.user(OTHER, OTHER, Set.of(Role.EDITOR), Set.of(), Set.of("zzz")),
+            Action.READ_WORKSPACE,
+            ResourceRef.agent(AGENT));
+    assertThat(denied.allowed()).isFalse();
+    assertThat(denied.reason()).isEqualTo(AssetAwareAuthorizationServiceImpl.REASON_WORKSPACE_ORG);
+  }
+
+  @Test
+  void workspaceOrgAclAncestorAdminAndApiKeyUnchanged() throws Exception {
+    writeAgent(workspaceWithOrg("eng"));
+    OrgParentLookup parents = orgId -> "eng".equals(orgId) ? Optional.of("acme") : Optional.empty();
+    AssetAwareAuthorizationServiceImpl service =
+        new AssetAwareAuthorizationServiceImpl(
+            allowAllButCounting(),
+            new AssetGovernanceStore(root),
+            true,
+            false,
+            true,
+            teamId -> Optional.empty(),
+            true,
+            parents);
+
+    assertThat(
+            service.decide(admin(OTHER), Action.READ_WORKSPACE, ResourceRef.agent(AGENT)).allowed())
+        .isTrue();
+    assertThat(
+            service
+                .decide(
+                    Principal.apiKey(KEY_NAME, KEY_NAME, Set.of(Role.EDITOR)),
+                    Action.READ_WORKSPACE,
+                    ResourceRef.agent(AGENT))
+                .allowed())
+        .isTrue();
+  }
+
   private static AssetGovernance workspaceWithTeam(String team) {
     return new AssetGovernance(
         OWNER,
