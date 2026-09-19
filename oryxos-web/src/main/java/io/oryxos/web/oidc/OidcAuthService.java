@@ -298,25 +298,42 @@ public class OidcAuthService {
     }
     WebSession session = sessionService.create(username);
     teamIdsCache.put(session.getSessionId(), claims.groups());
-    cacheOrgIdsFromTeams(session.getSessionId(), claims.groups());
+    cacheSessionOrgIds(session.getSessionId(), claims.groups(), claims.orgIds());
     return OidcLoginResult.success(session, username);
   }
 
-  /** #560：flag 开时由 groups/teamIds 派生 orgIds 写入 session 缓存；关则清掉。 */
-  private void cacheOrgIdsFromTeams(String sessionId, java.util.Collection<String> teamIds) {
-    if (rbacProperties == null || !rbacProperties.isOrgIdsFromTeamOrgEnabled()) {
-      orgIdsCache.remove(sessionId);
-      return;
-    }
-    LinkedHashSet<String> teams = new LinkedHashSet<>();
-    if (teamIds != null) {
-      for (String t : teamIds) {
-        if (t != null && !t.isBlank()) {
-          teams.add(t.strip());
+  /**
+   * Session orgIds（#560 / #590）：{@code org-ids-claim} 非空时并入 claim 值（缺 claim → 空集，不阻断登录）；{@code
+   * org-ids-from-team-org-enabled} 开时再并入 team→org 派生；两路都开取并集；最终空则清除缓存。
+   */
+  private void cacheSessionOrgIds(
+      String sessionId, java.util.Collection<String> teamIds, List<String> claimOrgIds) {
+    LinkedHashSet<String> orgIds = new LinkedHashSet<>();
+    if (!properties.getOrgIdsClaim().isBlank()) {
+      if (claimOrgIds != null) {
+        for (String orgId : claimOrgIds) {
+          if (orgId != null && !orgId.isBlank()) {
+            orgIds.add(orgId.strip());
+          }
         }
       }
     }
-    orgIdsCache.put(sessionId, SessionOrgIdsFromTeams.resolve(teams, teamOrgLookup));
+    if (rbacProperties != null && rbacProperties.isOrgIdsFromTeamOrgEnabled()) {
+      LinkedHashSet<String> teams = new LinkedHashSet<>();
+      if (teamIds != null) {
+        for (String t : teamIds) {
+          if (t != null && !t.isBlank()) {
+            teams.add(t.strip());
+          }
+        }
+      }
+      orgIds.addAll(SessionOrgIdsFromTeams.resolve(teams, teamOrgLookup));
+    }
+    if (orgIds.isEmpty()) {
+      orgIdsCache.remove(sessionId);
+    } else {
+      orgIdsCache.put(sessionId, orgIds);
+    }
   }
 
   /**

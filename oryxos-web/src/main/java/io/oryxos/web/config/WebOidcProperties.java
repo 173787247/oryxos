@@ -88,6 +88,12 @@ public class WebOidcProperties {
    */
   private boolean mappingsApiEnabled = false;
 
+  /**
+   * id_token 组织 id 声明名（#590 / #587）。默认空 = 不提取；非空则读该 claim（字符串或字符串数组）写入 session {@code
+   * Principal.orgIds}。不写 organizations catalog；缺 claim 不阻断登录。与 {@code group-claim}（teams）分离。
+   */
+  private String orgIdsClaim = "";
+
   public boolean isEnabled() {
     return enabled;
   }
@@ -223,5 +229,14 @@ public class WebOidcProperties {
 
   public void setMappingsApiEnabled(boolean mappingsApiEnabled) {
     this.mappingsApiEnabled = mappingsApiEnabled;
+  }
+
+  /** 空或空白 → 功能关；否则返回去首尾空白后的 claim 名。 */
+  public String getOrgIdsClaim() {
+    return orgIdsClaim == null ? "" : orgIdsClaim.strip();
+  }
+
+  public void setOrgIdsClaim(String orgIdsClaim) {
+    this.orgIdsClaim = orgIdsClaim == null ? "" : orgIdsClaim;
   }
 }
