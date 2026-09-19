@@ -39,8 +39,8 @@
 - WORKSPACE 组织门禁：`orgOwner` 字段 + `oryxos.web.asset-governance.workspace-org-acl-enabled`（默认关）；`Principal.teamIds` × `teams.org_id` 查找（#558）；可选 session `Principal.orgIds` 缓存（#560，`oryxos.web.rbac.org-ids-from-team-org-enabled`，默认关；有 orgIds 时门禁优先用）；可选祖先匹配 `workspace-org-acl-ancestor-enabled`（#568，默认关；沿 `parent_org_id` 有界上行；深度 `max-org-ancestor-depth` 默认 16，#579）
 - 密码登录可选 `oryxos.web.auth.user-team-ids` → 同 session 缓存（默认空=不声明团队）
 - 持久化成员（#535）：V12 `team_memberships` + `oryxos team member-*`；`oryxos.web.rbac.durable-team-memberships-enabled`（默认关）开时与 session 团队取并集
-- 团队目录（#539）：V14 `teams(team_id, display_name)` + `oryxos team create|rename|list|delete`（与成员表解耦，catalog 可选）
-- 组织目录（#554/#566/#573）：V15 `organizations` + nullable `teams.org_id`；V16 nullable `parent_org_id` 自引用；`oryxos org create|list|rename|delete|set-parent` + `team set-org`；HTTP `/api/v1/orgs` + `PUT /api/v1/teams/{id}/org` + `PUT /api/v1/orgs/{id}/parent` 同 `teams-api.enabled`（setParent 有界环检测 #573；decide/orgOwner 默认可精确匹配；#568 可选祖先匹配；深度可配 #579）
+- 团队目录（#539/#581）：V14 `teams(team_id, display_name)` + V17 nullable `parent_team_id` 自引用；`oryxos team create|rename|list|delete|set-org|set-parent`（与成员表解耦，catalog 可选；setParent 有界环检测，深度同 `max-org-ancestor-depth`）
+- 组织目录（#554/#566/#573）：V15 `organizations` + nullable `teams.org_id`；V16 nullable `parent_org_id` 自引用；`oryxos org create|list|rename|delete|set-parent` + `team set-org`；HTTP `/api/v1/orgs` + `PUT /api/v1/teams/{id}/org` + `PUT /api/v1/orgs/{id}/parent` + `PUT /api/v1/teams/{id}/parent` 同 `teams-api.enabled`（setParent 有界环检测 #573/#581；decide/orgOwner 默认可精确匹配；#568 可选祖先匹配；深度可配 #579）
 - 团队 HTTP API（#546）：`oryxos.web.teams-api.enabled`（默认关→404）；`/api/v1/teams` + `/api/v1/users/{u}/teams`；RBAC 映射 `MANAGE_MEMBERS`
 - Admin 管队 UI（#548）：管理台「团队管理」页（list/create/rename/delete + 按用户增删成员）；同 `teams-api.enabled`
 - Admin 组织 UI（#556/#570/#575）：同页组织目录 list/create/rename/delete + 展示/设置 `parentOrgId`（`PUT /api/v1/orgs/{id}/parent`）+ 客户端按 `parentOrgId` 缩进树 + 团队 set-org/清 org_id；复用 `/api/v1/orgs` 与 `PUT /api/v1/teams/{id}/org`；同 `teams-api.enabled`
@@ -54,5 +54,5 @@
 
 ## Out of scope (honest gaps)
 
-- `parent_team_id` / OIDC group→org JIT / 拖拽改父（#554 organizations + `teams.org_id`；#566 `parent_org_id`；#573 setParent 有界环检测；#568 祖先匹配有界深度截断；#579 `max-org-ancestor-depth` 可配默认 16；#548/#556/#570/#575 Admin 含 org 缩进树；#558 WORKSPACE `orgOwner`；#560 session `orgIds` 缓存 opt-in；相关 API/UI 仍默认关）
+- Admin team tree / teamOwner decide inheritance / OIDC group→org JIT / 拖拽改父（#554 organizations + `teams.org_id`；#566 `parent_org_id`；#581 `parent_team_id` catalog-only；#573/#581 setParent 有界环检测；#568 祖先匹配有界深度截断；#579 `max-org-ancestor-depth` 可配默认 16；#548/#556/#570/#575 Admin 含 org 缩进树；#558 WORKSPACE `orgOwner`；#560 session `orgIds` 缓存 opt-in；相关 API/UI 仍默认关）
 - OIDC JIT 目录行已落地：`oryxos.web.oidc.jit-team-catalog-enabled`（#552，默认关）；OIDC JIT 成员写已落地：`oryxos.web.oidc.jit-team-memberships-enabled`（#562，默认关；无 catalog 行则跳过）；撤销未匹配成员：`revoke-unmatched-team-memberships`（#564，默认关；空 groups → 清空；与 JIT memberships 同路径）

@@ -9,7 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** TeamCatalogService 契约：create/ensure/rename/list/delete/setOrg。 */
+/** TeamCatalogService 契约：create/ensure/rename/list/delete/setOrg/setParent。 */
 @org.springframework.transaction.annotation.Transactional
 abstract class TeamCatalogServiceContractTest {
 
@@ -18,6 +18,10 @@ abstract class TeamCatalogServiceContractTest {
 
   private TeamCatalogService service() {
     return new TeamCatalogService(repository, organizationRepository);
+  }
+
+  private TeamCatalogService service(int maxTeamAncestorDepth) {
+    return new TeamCatalogService(repository, organizationRepository, maxTeamAncestorDepth);
   }
 
   private OrganizationCatalogService orgs() {
@@ -94,5 +98,112 @@ abstract class TeamCatalogServiceContractTest {
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> svc.setOrg("eng", "ghost"));
     assertTrue(ex.getMessage().contains("not found"));
+  }
+
+  @Test
+  @DisplayName("setParent_赋值_清空_拒自身_拒缺失父")
+  void setParent_assignClearRejectSelfMissing() {
+    TeamCatalogService svc = service();
+    svc.create("platform", "Platform");
+    svc.create("eng", "Engineering");
+
+    Team linked = svc.setParent("eng", "platform");
+    assertEquals("platform", linked.getParentTeamId());
+
+    Team cleared = svc.setParent("eng", null);
+    assertNull(cleared.getParentTeamId());
+
+    IllegalArgumentException self =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("eng", "eng"));
+    assertTrue(self.getMessage().contains("own parent"));
+
+    IllegalArgumentException missing =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("eng", "ghost"));
+    assertTrue(missing.getMessage().contains("not found"));
+  }
+
+  @Test
+  @DisplayName("setParent_拒A到B到A环")
+  void setParent_rejectsTwoNodeCycle() {
+    TeamCatalogService svc = service();
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.setParent("a", "b");
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("b", "a"));
+    assertTrue(ex.getMessage().contains("cycle"));
+    assertNull(svc.find("b").orElseThrow().getParentTeamId());
+  }
+
+  @Test
+  @DisplayName("setParent_拒更深环")
+  void setParent_rejectsDeeperCycle() {
+    TeamCatalogService svc = service();
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.create("c", "C");
+    svc.setParent("a", "b");
+    svc.setParent("b", "c");
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("c", "a"));
+    assertTrue(ex.getMessage().contains("cycle"));
+    assertNull(svc.find("c").orElseThrow().getParentTeamId());
+  }
+
+  @Test
+  @DisplayName("setParent_自定义深度过浅则放过更深环")
+  void setParent_customDepthMissesDeeperCycle() {
+    TeamCatalogService svc = service(1);
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.create("c", "C");
+    svc.setParent("a", "b");
+    svc.setParent("b", "c");
+    Team linked = svc.setParent("c", "a");
+    assertEquals("a", linked.getParentTeamId());
+  }
+
+  @Test
+  @DisplayName("setParent_自定义深度足够则仍拒环")
+  void setParent_customDepthStillRejectsWhenDeepEnough() {
+    TeamCatalogService svc = service(2);
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.create("c", "C");
+    svc.setParent("a", "b");
+    svc.setParent("b", "c");
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("c", "a"));
+    assertTrue(ex.getMessage().contains("cycle"));
+    assertNull(svc.find("c").orElseThrow().getParentTeamId());
+  }
+
+  @Test
+  @DisplayName("setParent_合法链")
+  void setParent_allowsValidChain() {
+    TeamCatalogService svc = service();
+    svc.create("root", "Root");
+    svc.create("mid", "Mid");
+    svc.create("leaf", "Leaf");
+    svc.setParent("mid", "root");
+    Team linked = svc.setParent("leaf", "mid");
+    assertEquals("mid", linked.getParentTeamId());
+    assertEquals("root", svc.find("mid").orElseThrow().getParentTeamId());
+  }
+
+  @Test
+  @DisplayName("delete_清空子团队parent_team_id")
+  void delete_clearsChildParentTeamId() {
+    TeamCatalogService svc = service();
+    svc.create("platform", "Platform");
+    svc.create("eng", "Engineering");
+    svc.setParent("eng", "platform");
+    assertEquals("platform", svc.find("eng").orElseThrow().getParentTeamId());
+
+    svc.delete("platform");
+    assertNull(svc.find("eng").orElseThrow().getParentTeamId());
+    assertTrue(svc.find("platform").isEmpty());
   }
 }

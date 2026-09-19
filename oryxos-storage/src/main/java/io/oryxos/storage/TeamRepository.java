@@ -14,4 +14,6 @@ public interface TeamRepository extends JpaRepository<Team, String> {
   boolean existsByTeamId(String teamId);
 
   List<Team> findByOrgIdOrderByTeamIdAsc(String orgId);
+
+  List<Team> findByParentTeamIdOrderByTeamIdAsc(String parentTeamId);
 }

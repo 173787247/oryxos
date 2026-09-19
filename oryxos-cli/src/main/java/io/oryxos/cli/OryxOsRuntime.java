@@ -1200,12 +1200,16 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.TeamMembershipService(repository, userRepository);
   }
 
-  /** #539 / #554：团队目录（展示名 + 可选 org_id）；与成员表解耦，catalog 行可选。 */
+  /** #539 / #554 / #581：团队目录（展示名 + 可选 org_id / parent_team_id）；与成员表解耦，catalog 行可选。 */
   @Bean
   io.oryxos.storage.TeamCatalogService teamCatalogService(
       io.oryxos.storage.TeamRepository repository,
-      io.oryxos.storage.OrganizationRepository organizationRepository) {
-    return new io.oryxos.storage.TeamCatalogService(repository, organizationRepository);
+      io.oryxos.storage.OrganizationRepository organizationRepository,
+      @org.springframework.beans.factory.annotation.Value(
+              "${oryxos.web.asset-governance.max-org-ancestor-depth:16}")
+          int maxTeamAncestorDepth) {
+    return new io.oryxos.storage.TeamCatalogService(
+        repository, organizationRepository, maxTeamAncestorDepth);
   }
 
   /** #554：组织目录（展示名）；不驱动 AuthorizationService.decide。深度与 decide 祖先匹配共用配置。 */
