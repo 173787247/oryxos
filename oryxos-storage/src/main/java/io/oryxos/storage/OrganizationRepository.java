@@ -12,4 +12,6 @@ public interface OrganizationRepository extends JpaRepository<Organization, Stri
   Optional<Organization> findByOrgId(String orgId);
 
   boolean existsByOrgId(String orgId);
+
+  List<Organization> findByParentOrgIdOrderByOrgIdAsc(String parentOrgId);
 }

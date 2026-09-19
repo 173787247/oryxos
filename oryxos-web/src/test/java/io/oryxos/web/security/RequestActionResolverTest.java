@@ -58,6 +58,7 @@ class RequestActionResolverTest {
     assertAction("POST", "/api/v1/orgs", Action.MANAGE_MEMBERS);
     assertAction("PATCH", "/api/v1/orgs/acme", Action.MANAGE_MEMBERS);
     assertAction("DELETE", "/api/v1/orgs/acme", Action.MANAGE_MEMBERS);
+    assertAction("PUT", "/api/v1/orgs/acme/parent", Action.MANAGE_MEMBERS);
     assertAction("GET", "/api/v1/users/alice/teams", Action.MANAGE_MEMBERS);
     assertAction("PUT", "/api/v1/users/alice/teams/eng", Action.MANAGE_MEMBERS);
     assertAction("DELETE", "/api/v1/users/alice/teams/eng", Action.MANAGE_MEMBERS);

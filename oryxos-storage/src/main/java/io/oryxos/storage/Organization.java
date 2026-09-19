@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 组织目录行（#554）。表结构以 db/migration V15 为唯一权威。
+ * 组织目录行（#554 / #566）。表结构以 db/migration V15+V16 为唯一权威。
  *
  * <p>本表只存展示元数据；不参与 {@code AuthorizationService.decide}。
  */
@@ -23,6 +23,9 @@ public class Organization {
 
   @Column(name = "display_name", nullable = false, length = 255)
   private String displayName;
+
+  @Column(name = "parent_org_id", length = 128)
+  private String parentOrgId;
 
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
@@ -60,6 +63,14 @@ public class Organization {
 
   public void setDisplayName(String displayName) {
     this.displayName = displayName;
+  }
+
+  public String getParentOrgId() {
+    return parentOrgId;
+  }
+
+  public void setParentOrgId(String parentOrgId) {
+    this.parentOrgId = parentOrgId;
   }
 
   public Instant getCreatedAt() {

@@ -63,13 +63,14 @@ Append-only full-text snapshots when `version-history-enabled`:
 - Channel writes: extra `decide(MANAGE_CHANNELS, channel(name))` so the decorator can see the named block. Filter still uses `channel(null)`.
 
 
-## organizations + teams.org_id (V15 / #554)
+## organizations + teams.org_id (V15 / #554) + parent_org_id (V16 / #566)
 
 Optional org catalog metadata (not used by `AuthorizationService.decide`):
 
-- `organizations(org_id, display_name, created_at, updated_at)`
+- `organizations(org_id, display_name, created_at, updated_at, parent_org_id?)`
+- `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). No cycle detection; `decide` / `orgOwner` remain exact-match only.
 - `teams.org_id` nullable FK (PG `ON DELETE SET NULL`; SQLite clears on org delete in service)
 
-CLI: `oryxos org create|list|rename|delete`, `oryxos team set-org`.
-HTTP under same `oryxos.web.teams-api.enabled` (default off → 404): `/api/v1/orgs`, `PUT /api/v1/teams/{teamId}/org`.
-Admin org UI (#556): same teams Admin page — org catalog CRUD + team set-org/clear; still not used by `AuthorizationService.decide`.
+CLI: `oryxos org create|list|rename|delete|set-parent`, `oryxos team set-org`.
+HTTP under same `oryxos.web.teams-api.enabled` (default off → 404): `/api/v1/orgs`, `PUT /api/v1/teams/{teamId}/org`, `PUT /api/v1/orgs/{orgId}/parent`.
+Admin org UI (#556): same teams Admin page — org catalog CRUD + team set-org/clear; still not used by `AuthorizationService.decide`. No Admin tree UI in this cut.

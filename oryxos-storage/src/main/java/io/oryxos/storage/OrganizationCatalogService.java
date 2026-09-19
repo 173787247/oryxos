@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 组织目录管理（#554）：create / rename / list / delete / ensure。不驱动授权裁决。 */
+/** 组织目录管理（#554 / #566）：create / rename / list / delete / ensure / setParent。不驱动授权裁决。 */
 public class OrganizationCatalogService {
 
   private static final int MAX_ORG_ID = 128;
@@ -86,7 +86,34 @@ public class OrganizationCatalogService {
     return repository.save(row);
   }
 
-  /** 删除目录行；不存在则幂等成功。先清空引用本 org 的 {@code teams.org_id}（镜像 PG ON DELETE SET NULL）。 */
+  /** 设置父组织；{@code parentOrgId} 空/空白则清空。非空时父组织必须已在目录中，且不得等于自身。不做环检测。 */
+  @Transactional(rollbackFor = Exception.class)
+  public Organization setParent(String orgId, String parentOrgId) {
+    String cleanId = requireOrgId(orgId);
+    Organization row =
+        repository
+            .findByOrgId(cleanId)
+            .orElseThrow(() -> new IllegalArgumentException("org '" + cleanId + "' not found"));
+    if (parentOrgId == null || parentOrgId.isBlank()) {
+      row.setParentOrgId(null);
+    } else {
+      String cleanParent = parentOrgId.strip();
+      if (cleanParent.equals(cleanId)) {
+        throw new IllegalArgumentException("org '" + cleanId + "' cannot be its own parent");
+      }
+      if (!repository.existsByOrgId(cleanParent)) {
+        throw new IllegalArgumentException("org '" + cleanParent + "' not found");
+      }
+      row.setParentOrgId(cleanParent);
+    }
+    row.setUpdatedAt(Instant.now());
+    return repository.save(row);
+  }
+
+  /**
+   * 删除目录行；不存在则幂等成功。先清空引用本 org 的 {@code teams.org_id} 与子组织 {@code parent_org_id}（镜像 PG ON DELETE SET
+   * NULL）。
+   */
   @Transactional(rollbackFor = Exception.class)
   public void delete(String orgId) {
     String cleanId = requireOrgId(orgId);
@@ -94,6 +121,11 @@ public class OrganizationCatalogService {
       team.setOrgId(null);
       team.setUpdatedAt(Instant.now());
       teamRepository.save(team);
+    }
+    for (Organization child : repository.findByParentOrgIdOrderByOrgIdAsc(cleanId)) {
+      child.setParentOrgId(null);
+      child.setUpdatedAt(Instant.now());
+      repository.save(child);
     }
     repository.findByOrgId(cleanId).ifPresent(repository::delete);
   }

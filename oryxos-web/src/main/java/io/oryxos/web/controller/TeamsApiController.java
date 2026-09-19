@@ -13,6 +13,7 @@ import io.oryxos.web.controller.dto.CreateTeamRequest;
 import io.oryxos.web.controller.dto.OrganizationView;
 import io.oryxos.web.controller.dto.PatchOrganizationRequest;
 import io.oryxos.web.controller.dto.PatchTeamRequest;
+import io.oryxos.web.controller.dto.SetParentOrgRequest;
 import io.oryxos.web.controller.dto.SetTeamOrgRequest;
 import io.oryxos.web.controller.dto.TeamView;
 import io.oryxos.web.controller.dto.UserTeamsView;
@@ -29,8 +30,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 团队/组织目录与成员 HTTP API（#546 / #554）：镜像 CLI {@code oryxos team *} / {@code oryxos org *} → {@link
- * TeamCatalogService} / {@link OrganizationCatalogService} / {@link TeamMembershipService}。
+ * 团队/组织目录与成员 HTTP API（#546 / #554 / #566）：镜像 CLI {@code oryxos team *} / {@code oryxos org *} →
+ * {@link TeamCatalogService} / {@link OrganizationCatalogService} / {@link TeamMembershipService}。
  *
  * <p>flag {@code oryxos.web.teams-api.enabled} 默认关 → 404（含 /api/v1/orgs）。授权走 {@code
  * RequestActionResolver} 的 {@code MANAGE_MEMBERS}（ADMIN），不另开权限路径。
@@ -152,6 +153,14 @@ public class TeamsApiController {
     requireEnabled();
     String displayName = body == null ? null : body.displayName();
     return ApiResponse.ok(OrganizationView.from(organizations.rename(orgId, displayName)));
+  }
+
+  @PutMapping("/api/v1/orgs/{orgId}/parent")
+  public ApiResponse<OrganizationView> setOrgParent(
+      @PathVariable String orgId, @RequestBody(required = false) SetParentOrgRequest body) {
+    requireEnabled();
+    String parentOrgId = body == null ? null : body.parentOrgId();
+    return ApiResponse.ok(OrganizationView.from(organizations.setParent(orgId, parentOrgId)));
   }
 
   @DeleteMapping("/api/v1/orgs/{orgId}")

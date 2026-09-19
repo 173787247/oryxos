@@ -30,7 +30,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-/** Teams/Orgs HTTP API（#546/#554）：flag 关 404；开时 list/create/member/set-org 走 catalog。 */
+/**
+ * Teams/Orgs HTTP API（#546/#554/#566）：flag 关 404；开时 list/create/member/set-org/set-parent 走
+ * catalog。
+ */
 class TeamsApiControllerTest {
 
   private MockMvc mvc;
@@ -246,5 +249,38 @@ class TeamsApiControllerTest {
     properties.setEnabled(false);
     mvc.perform(get("/api/v1/users/alice/teams")).andExpect(status().isNotFound());
     verify(memberships, never()).listTeamIds(eq("alice"));
+  }
+
+  @Test
+  @DisplayName("flag开_setParent_赋值")
+  void flagOn_setParent() throws Exception {
+    properties.setEnabled(true);
+    Organization o = new Organization();
+    o.setOrgId("eng");
+    o.setDisplayName("Engineering");
+    o.setParentOrgId("acme");
+    when(organizations.setParent(eq("eng"), eq("acme"))).thenReturn(o);
+    mvc.perform(
+            put("/api/v1/orgs/eng/parent")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"parentOrgId\":\"acme\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.orgId").value("eng"))
+        .andExpect(jsonPath("$.data.parentOrgId").value("acme"));
+    verify(organizations).setParent("eng", "acme");
+  }
+
+  @Test
+  @DisplayName("flag开_setParent_清空")
+  void flagOn_setParent_clear() throws Exception {
+    properties.setEnabled(true);
+    Organization o = new Organization();
+    o.setOrgId("eng");
+    o.setDisplayName("Engineering");
+    when(organizations.setParent(eq("eng"), eq(null))).thenReturn(o);
+    mvc.perform(
+            put("/api/v1/orgs/eng/parent").contentType(MediaType.APPLICATION_JSON).content("{}"))
+        .andExpect(status().isOk());
+    verify(organizations).setParent("eng", null);
   }
 }
