@@ -17,6 +17,7 @@ import {
   setTeamOrg,
 } from './teams-api.js'
 import { buildOrgTreeRows } from './org-tree.js'
+import { buildTeamTreeRows } from './team-tree.js'
 
 const catalog = ref({ loading: true, error: null, disabled: false, data: [] })
 const orgs = ref({ loading: true, error: null, disabled: false, data: [] })
@@ -44,6 +45,7 @@ const canCreateOrg = computed(() => orgCreate.orgId.trim().length > 0 && !orgCre
 const canRenameOrg = computed(() => orgRename.displayName.trim().length > 0 && !orgRename.busy)
 const canSetParent = computed(() => !!setParentForm.orgId && !setParentForm.busy)
 const orgTreeRows = computed(() => buildOrgTreeRows(orgs.value.data || []))
+const teamTreeRows = computed(() => buildTeamTreeRows(catalog.value.data || []))
 const canLoadMembers = computed(() => member.username.trim().length > 0 && !member.loading)
 const canAddMember = computed(
   () => member.loadedFor && member.addTeamId.trim().length > 0 && !member.busy,
@@ -353,7 +355,8 @@ defineExpose({ load })
       管理组织目录、团队目录与用户成员关系。依赖
       <span class="mono">oryxos.web.teams-api.enabled</span>（默认关 → API 404）。需 ADMIN /
       <span class="mono">MANAGE_MEMBERS</span>。组织按
-      <span class="mono">parentOrgId</span> 客户端缩进树展示；无拖拽改父 / 环检测 UI / OIDC→org JIT。
+      <span class="mono">parentOrgId</span>、团队按
+      <span class="mono">parentTeamId</span> 客户端缩进树展示；无拖拽改父 / 团队设父 UI / 环检测 UI / OIDC→org JIT。
     </p>
 
     <p v-if="catalog.disabled || orgs.disabled" class="error">
@@ -474,17 +477,26 @@ defineExpose({ load })
             <th>teamId</th>
             <th>displayName</th>
             <th>orgId</th>
+            <th>parentTeamId</th>
             <th style="width:240px">操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!catalog.data.length">
-            <td colspan="4" class="empty">（暂无团队目录）</td>
+          <tr v-if="!teamTreeRows.length">
+            <td colspan="5" class="empty">（暂无团队目录）</td>
           </tr>
-          <tr v-for="t in catalog.data" :key="t.teamId">
-            <td class="mono">{{ t.teamId }}</td>
-            <td>{{ t.displayName || '—' }}</td>
+          <tr v-for="t in teamTreeRows" :key="t.teamId">
+            <td class="mono">
+              <span class="org-indent" :style="{ paddingLeft: t.depth * 16 + 'px' }">
+                <span v-if="t.depth > 0" class="org-branch" aria-hidden="true">└ </span>{{ t.teamId }}
+              </span>
+            </td>
+            <td>
+              {{ t.displayName || '—' }}
+              <span v-if="t.orphan" class="orphan-tag" title="parentTeamId 指向不存在的团队">orphan</span>
+            </td>
             <td class="mono">{{ t.orgId || '—' }}</td>
+            <td class="mono">{{ t.parentTeamId || '—' }}</td>
             <td class="ops">
               <button class="btn" @click="startRename(t)">重命名</button>
               <button class="btn" @click="startSetOrg(t)">设组织</button>
