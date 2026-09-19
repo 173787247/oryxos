@@ -59,7 +59,7 @@ Append-only full-text snapshots when `version-history-enabled`:
 
 ## Runtime wiring
 
-- `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`; optional `OrgParentLookup` when `workspace-org-acl-ancestor-enabled`; depth from `max-org-ancestor-depth` (default 16 / `OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH`)
+- `AssetAwareAuthorizationServiceImpl` wraps role-based decide when `rbac.enabled && asset-governance.enabled`; optional `OrgParentLookup` when `workspace-org-acl-ancestor-enabled`; optional `TeamParentLookup` when `workspace-team-acl-ancestor-enabled` (#588); depth from `max-org-ancestor-depth` (default 16 / `OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH` = `TeamParentLookup.MAX_TEAM_ANCESTOR_DEPTH`)
 - Channel writes: extra `decide(MANAGE_CHANNELS, channel(name))` so the decorator can see the named block. Filter still uses `channel(null)`.
 
 
@@ -70,7 +70,7 @@ Optional org/team catalog metadata (not used by `AuthorizationService.decide`):
 - `organizations(org_id, display_name, created_at, updated_at, parent_org_id?)`
 - `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). `setParent` rejects cycles via bounded walk (depth `oryxos.web.asset-governance.max-org-ancestor-depth`, default `OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH` = 16; #573/#579). `decide` / `orgOwner` exact-match by default; optional ancestor match behind `workspace-org-acl-ancestor-enabled` (#568) via `OrgParentLookup` (same configurable depth bound).
 - `teams.org_id` nullable FK (PG `ON DELETE SET NULL`; SQLite clears on org delete in service)
-- `teams.parent_team_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on team delete in service). `TeamCatalogService.setParent` rejects cycles via the same bounded depth (#581). Not used by `teamOwner` decide.
+- `teams.parent_team_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on team delete in service). `TeamCatalogService.setParent` rejects cycles via the same bounded depth (#581). `decide` / `teamOwner` exact-match by default; optional ancestor match behind `workspace-team-acl-ancestor-enabled` (#588) via `TeamParentLookup` (same configurable depth bound).
 
 CLI: `oryxos org create|list|rename|delete|set-parent`, `oryxos team set-org|set-parent`.
 HTTP under same `oryxos.web.teams-api.enabled` (default off → 404): `/api/v1/orgs`, `PUT /api/v1/teams/{teamId}/org`, `PUT /api/v1/orgs/{orgId}/parent`, `PUT /api/v1/teams/{teamId}/parent`.
