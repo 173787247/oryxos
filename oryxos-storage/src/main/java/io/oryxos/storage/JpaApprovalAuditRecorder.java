@@ -6,6 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** 审批审计落库（042 / #464）：写入失败记 ERROR，不向调用方抛（fail-open）。 */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "CRLF_INJECTION_LOGS",
+    justification = "Log arg is ApprovalAuditKind enum name from trusted code path.")
 public final class JpaApprovalAuditRecorder implements ApprovalAuditRecorder {
 
   private static final Logger LOG = LoggerFactory.getLogger(JpaApprovalAuditRecorder.class);
