@@ -47,7 +47,7 @@ class RequestActionResolverTest {
   }
 
   @Test
-  @DisplayName("teams / orgs / user-teams → MANAGE_MEMBERS（含 GET，ADMIN 门）")
+  @DisplayName("teams / orgs / user-teams / identity-mappings → MANAGE_MEMBERS（含 GET，ADMIN 门）")
   void teamsApi() {
     assertAction("GET", "/api/v1/teams", Action.MANAGE_MEMBERS);
     assertAction("POST", "/api/v1/teams", Action.MANAGE_MEMBERS);
@@ -62,6 +62,9 @@ class RequestActionResolverTest {
     assertAction("GET", "/api/v1/users/alice/teams", Action.MANAGE_MEMBERS);
     assertAction("PUT", "/api/v1/users/alice/teams/eng", Action.MANAGE_MEMBERS);
     assertAction("DELETE", "/api/v1/users/alice/teams/eng", Action.MANAGE_MEMBERS);
+    assertAction("GET", "/api/v1/identity-mappings", Action.MANAGE_MEMBERS);
+    assertAction("POST", "/api/v1/identity-mappings", Action.MANAGE_MEMBERS);
+    assertAction("DELETE", "/api/v1/identity-mappings", Action.MANAGE_MEMBERS);
   }
 
   @Test
