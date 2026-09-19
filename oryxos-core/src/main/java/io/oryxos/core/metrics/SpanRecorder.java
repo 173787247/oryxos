@@ -36,4 +36,8 @@ public interface SpanRecorder {
       boolean blockedByPolicy,
       long startEpochMs,
       long durationMs) {}
+
+  /** 一次审批裁决 span（042 / #464；attrs 建议 policyVersion / decision）。默认 NOOP；#466 交互落地后补强。 */
+  default void recordApprovalSpan(
+      String traceId, String policyVersion, String decision, long startEpochMs, long durationMs) {}
 }

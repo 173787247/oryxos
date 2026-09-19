@@ -179,6 +179,7 @@ import org.springframework.web.context.WebApplicationContext;
   SmtpSandboxProperties.class,
   ExecutionBackendProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
+  io.oryxos.core.policy.ApprovalPolicyProperties.class,
   OtelProperties.class
 })
 public class OryxOsRuntime {
@@ -1046,6 +1047,36 @@ public class OryxOsRuntime {
   }
 
   /**
+   * 042 / #464: high-risk approval policy. Default {@code oryxos.approval.enabled=false} keeps
+   * evaluate() as ALLOW; audit goes to approval_events (NOOP when repo absent).
+   */
+  @Bean
+  io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService(
+      io.oryxos.core.policy.ApprovalPolicyProperties properties,
+      ToolRegistry toolRegistry,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.policy.ApprovalAuditRecorder>
+          auditRecorder) {
+    java.util.function.Function<String, String> mcpLookup =
+        name -> toolRegistry.mcpToolOwners().get(name);
+    return new io.oryxos.core.policy.ConfigApprovalPolicyServiceImpl(
+        properties.toConfig(),
+        new io.oryxos.core.policy.HighRiskActionClassifier(mcpLookup),
+        mcpLookup,
+        auditRecorder.getIfAvailable(() -> io.oryxos.core.policy.ApprovalAuditRecorder.NOOP));
+  }
+
+  @Bean
+  io.oryxos.core.policy.ApprovalAuditRecorder approvalAuditRecorder(
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.ApprovalEventRepository>
+          repository) {
+    io.oryxos.storage.ApprovalEventRepository repo = repository.getIfAvailable();
+    if (repo == null) {
+      return io.oryxos.core.policy.ApprovalAuditRecorder.NOOP;
+    }
+    return new io.oryxos.storage.JpaApprovalAuditRecorder(repo);
+  }
+
+  /**
    * 020：策略加载期告警（未知目标规则 / 有效集全空，WARN 不阻断）。仅 SERVLET 模式（serve/gateway）跑—— CLI 管理命令用
    * WebApplicationType.NONE，不受影响（镜像 018 ApiKeyStartupCheck 的条件口径）。
    */
@@ -1090,11 +1121,13 @@ public class OryxOsRuntime {
       ContextLoader contextLoader,
       Map<String, OryxTool> tools,
       MemoryService memoryService,
-      io.oryxos.core.policy.ToolPolicyService toolPolicyService) {
+      io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService) {
     // 22 节起：注入 MemoryService，长期记忆段由门面供给（会话历史段仍由 PromptBuilder 独立负责）
     PromptBuilder builder =
         new PromptBuilder(contextLoader, tools, memoryService, java.time.Clock.systemDefaultZone());
     builder.setToolPolicy(toolPolicyService); // 020：事前过滤——被 deny 工具不进模型清单
+    builder.setApprovalPolicy(approvalPolicyService); // 042: prompt visibility shares decide
     return builder;
   }
 
@@ -1106,6 +1139,7 @@ public class OryxOsRuntime {
       ToolInvocationAuditor auditor,
       AgentRunEventPublisher agentRunEventPublisher,
       io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService,
       org.springframework.beans.factory.ObjectProvider<io.oryxos.core.policy.AuthorizationService>
           authorizationService,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
@@ -1115,6 +1149,7 @@ public class OryxOsRuntime {
         new ToolExecutor(
             tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor, agentRunEventPublisher);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
+    executor.setApprovalPolicy(approvalPolicyService); // 042: execution-side approval gate
     // 039/#527：web 装配注入同一 decide；纯 CLI 无 Bean 时 ALLOW_ALL
     executor.setAuthorizationService(
         authorizationService.getIfAvailable(

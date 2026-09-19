@@ -44,11 +44,21 @@ public class ToolExecutor {
   /** 审计的授权拒绝标记（039 / #527：与 policy 正交）。 */
   private static final String AUTHZ_BLOCKED = "authz";
 
+  /** 审计的审批闸标记（042 / #464：与 policy/authz 正交）。 */
+  private static final String APPROVAL_BLOCKED = "approval";
+
   private final Map<String, String> mcpToolOwners;
 
   /** 020 工具策略（事中保险）。默认 ALLOW_ALL——旧构造/未装配策略时行为与现状一致。 */
   private io.oryxos.core.policy.ToolPolicyService toolPolicy =
       io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL;
+
+  /**
+   * 042 审批策略（事中闸）。默认 {@link io.oryxos.core.policy.ApprovalPolicyService#PASS_THROUGH}；与
+   * PromptBuilder 共用同一实现以保证可见性/执行一致。
+   */
+  private io.oryxos.core.policy.ApprovalPolicyService approvalPolicy =
+      io.oryxos.core.policy.ApprovalPolicyService.PASS_THROUGH;
 
   /**
    * 039 / #527：运行时主体裁决。默认 {@link AuthorizationService#ALLOW_ALL}；仅当 {@link PrincipalContext} 有主体时才
@@ -68,6 +78,14 @@ public class ToolExecutor {
   public void setToolPolicy(io.oryxos.core.policy.ToolPolicyService toolPolicy) {
     this.toolPolicy =
         toolPolicy == null ? io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL : toolPolicy;
+  }
+
+  /** 装配期注入；未装配保持 PASS_THROUGH。 */
+  public void setApprovalPolicy(io.oryxos.core.policy.ApprovalPolicyService approvalPolicy) {
+    this.approvalPolicy =
+        approvalPolicy == null
+            ? io.oryxos.core.policy.ApprovalPolicyService.PASS_THROUGH
+            : approvalPolicy;
   }
 
   /** 装配期注入同一 {@link AuthorizationService} Bean；未装配保持 ALLOW_ALL。 */
@@ -154,6 +172,20 @@ public class ToolExecutor {
           call,
           "被平台策略禁止：" + policyDecision.reason(),
           POLICY_BLOCKED,
+          startedAt);
+    }
+    // 042 审批闸：与 PromptBuilder 同一 ApprovalPolicyService；REQUIRE_APPROVAL / DENY 均零执行（本刀 stub，#465
+    // 挂起）
+    var approvalDecision = approvalPolicy.evaluate(agentName, call.name(), call.argumentsJson());
+    if (!approvalDecision.allowed()) {
+      approvalPolicy.recordHit(sessionId, agentName, call.name(), approvalDecision);
+      String prefix = approvalDecision.requiresApproval() ? "需要人工审批：" : "被审批策略拒绝：";
+      return fail(
+          sessionId,
+          agentName,
+          call,
+          prefix + approvalDecision.reason(),
+          APPROVAL_BLOCKED,
           startedAt);
     }
     JsonNode input;
