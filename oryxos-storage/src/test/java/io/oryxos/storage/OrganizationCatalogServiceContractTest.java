@@ -101,6 +101,49 @@ abstract class OrganizationCatalogServiceContractTest {
   }
 
   @Test
+  @DisplayName("setParent_拒A到B到A环")
+  void setParent_rejectsTwoNodeCycle() {
+    OrganizationCatalogService svc = orgs();
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.setParent("a", "b");
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("b", "a"));
+    assertTrue(ex.getMessage().contains("cycle"));
+    assertNull(svc.find("b").orElseThrow().getParentOrgId());
+  }
+
+  @Test
+  @DisplayName("setParent_拒更深环")
+  void setParent_rejectsDeeperCycle() {
+    OrganizationCatalogService svc = orgs();
+    svc.create("a", "A");
+    svc.create("b", "B");
+    svc.create("c", "C");
+    svc.setParent("a", "b");
+    svc.setParent("b", "c");
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> svc.setParent("c", "a"));
+    assertTrue(ex.getMessage().contains("cycle"));
+    assertNull(svc.find("c").orElseThrow().getParentOrgId());
+  }
+
+  @Test
+  @DisplayName("setParent_合法链")
+  void setParent_allowsValidChain() {
+    OrganizationCatalogService svc = orgs();
+    svc.create("root", "Root");
+    svc.create("mid", "Mid");
+    svc.create("leaf", "Leaf");
+    svc.setParent("mid", "root");
+    Organization linked = svc.setParent("leaf", "mid");
+    assertEquals("mid", linked.getParentOrgId());
+    assertEquals("root", svc.find("mid").orElseThrow().getParentOrgId());
+  }
+
+  @Test
   @DisplayName("delete_清空子组织parent_org_id")
   void delete_clearsChildParentOrgId() {
     OrganizationCatalogService svc = orgs();

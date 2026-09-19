@@ -68,7 +68,7 @@ Append-only full-text snapshots when `version-history-enabled`:
 Optional org catalog metadata (not used by `AuthorizationService.decide`):
 
 - `organizations(org_id, display_name, created_at, updated_at, parent_org_id?)`
-- `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). No cycle detection beyond decide depth bound. `decide` / `orgOwner` exact-match by default; optional ancestor match behind `workspace-org-acl-ancestor-enabled` (#568) via `OrgParentLookup`.
+- `organizations.parent_org_id` nullable self-FK (PG `ON DELETE SET NULL`; SQLite clears children on org delete in service). `setParent` rejects cycles via bounded walk (depth `OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH` = 16; #573). `decide` / `orgOwner` exact-match by default; optional ancestor match behind `workspace-org-acl-ancestor-enabled` (#568) via `OrgParentLookup` (same depth bound).
 - `teams.org_id` nullable FK (PG `ON DELETE SET NULL`; SQLite clears on org delete in service)
 
 CLI: `oryxos org create|list|rename|delete|set-parent`, `oryxos team set-org`.

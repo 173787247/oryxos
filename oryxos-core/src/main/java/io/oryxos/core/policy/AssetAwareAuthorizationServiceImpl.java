@@ -42,9 +42,6 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
 
   private final OrgParentLookup orgParentLookup;
 
-  /** parent_org_id 上行最大跳数（含环时靠深度截断；不含 orgOwner 自身）。 */
-  static final int MAX_ORG_ANCESTOR_DEPTH = 16;
-
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
       justification = "delegate/store 为注入共享单例，存同一引用正是意图。")
@@ -235,11 +232,11 @@ public final class AssetAwareAuthorizationServiceImpl implements AuthorizationSe
       return principalOrgs.contains(orgOwner);
     }
     String current = orgOwner;
-    for (int depth = 0; depth <= MAX_ORG_ANCESTOR_DEPTH; depth++) {
+    for (int depth = 0; depth <= OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH; depth++) {
       if (principalOrgs.contains(current)) {
         return true;
       }
-      if (orgParentLookup == null || depth == MAX_ORG_ANCESTOR_DEPTH) {
+      if (orgParentLookup == null || depth == OrgParentLookup.MAX_ORG_ANCESTOR_DEPTH) {
         return false;
       }
       Optional<String> parent = orgParentLookup.findParentOrgId(current);
