@@ -1,5 +1,6 @@
 package io.oryxos.storage;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -7,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface IdentityMappingRepository extends JpaRepository<IdentityMapping, Long> {
 
   Optional<IdentityMapping> findByIssuerAndSubject(String issuer, String subject);
+
+  List<IdentityMapping> findAllByOrderByIssuerAscSubjectAsc();
 
   void deleteByIssuerAndSubject(String issuer, String subject);
 }

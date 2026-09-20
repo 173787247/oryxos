@@ -24,6 +24,18 @@ public class WebRbacProperties {
   /** 未认证请求（匿名主体）在启用授权时是否直接拒绝。默认 {@code true}——授权启用后默认拒绝是安全默认值。 */
   private boolean denyAnonymous = true;
 
+  /**
+   * 是否把 V12 {@code team_memberships} 并入 {@code Principal.teamIds}（#535）。默认关：仅 session 缓存（OIDC
+   * groups / user-team-ids）生效，与引入持久化成员前行为一致。
+   */
+  private boolean durableTeamMembershipsEnabled = false;
+
+  /**
+   * 是否由 session {@code teamIds} 经 {@code teams.org_id} 派生并缓存 {@code Principal.orgIds}（#560）。默认关：主体无
+   * orgIds；orgOwner 门禁仍可走即时 team×lookup。
+   */
+  private boolean orgIdsFromTeamOrgEnabled = false;
+
   public boolean isEnabled() {
     return enabled;
   }
@@ -38,5 +50,21 @@ public class WebRbacProperties {
 
   public void setDenyAnonymous(boolean denyAnonymous) {
     this.denyAnonymous = denyAnonymous;
+  }
+
+  public boolean isDurableTeamMembershipsEnabled() {
+    return durableTeamMembershipsEnabled;
+  }
+
+  public void setDurableTeamMembershipsEnabled(boolean durableTeamMembershipsEnabled) {
+    this.durableTeamMembershipsEnabled = durableTeamMembershipsEnabled;
+  }
+
+  public boolean isOrgIdsFromTeamOrgEnabled() {
+    return orgIdsFromTeamOrgEnabled;
+  }
+
+  public void setOrgIdsFromTeamOrgEnabled(boolean orgIdsFromTeamOrgEnabled) {
+    this.orgIdsFromTeamOrgEnabled = orgIdsFromTeamOrgEnabled;
   }
 }

@@ -53,6 +53,8 @@ public final class AssetGovernanceStore {
 
   private static final String KEY_TEAM_OWNER = "teamOwner";
 
+  private static final String KEY_ORG_OWNER = "orgOwner";
+
   /** 渠道配置文件名（与运行时 {@code oryxosRoot/channels.yaml} 同一路径）。 */
   static final String CHANNELS_FILE = "channels.yaml";
 
@@ -212,6 +214,7 @@ public final class AssetGovernanceStore {
       body.put(KEY_HEALTH, governance.health().name());
     }
     putText(body, KEY_TEAM_OWNER, governance.teamOwner());
+    putText(body, KEY_ORG_OWNER, governance.orgOwner());
     return body;
   }
 
@@ -228,7 +231,8 @@ public final class AssetGovernanceStore {
         AssetGovernance.parseVisibility(text(raw.get(KEY_VISIBILITY))),
         text(raw.get(KEY_RISK)),
         AssetGovernance.parseHealth(text(raw.get(KEY_HEALTH))),
-        text(raw.get(KEY_TEAM_OWNER)));
+        text(raw.get(KEY_TEAM_OWNER)),
+        text(raw.get(KEY_ORG_OWNER)));
   }
 
   private static String text(Object value) {
@@ -244,6 +248,25 @@ public final class AssetGovernanceStore {
       throw new IllegalArgumentException("governance 不能为空");
     }
     AtomicFiles.writeString(file, render(governance));
+  }
+
+  /** 渲染侧车 YAML（块风格，字段名稳定）。与 channels.yaml 治理块共用 {@link #toBlock}。公开供 #537 版本快照落库。 */
+  public static String snapshotYaml(AssetGovernance governance) {
+    return render(governance == null ? AssetGovernance.empty() : governance);
+  }
+
+  /** 解析 #537 快照 YAML 回模型（#541 restore）。脏/空文本回落 empty，不因脏快照炸请求。 */
+  public static AssetGovernance parseSnapshotYaml(String text) {
+    if (text == null || text.isBlank()) {
+      return AssetGovernance.empty();
+    }
+    try {
+      Object loaded = new Yaml(new SafeConstructor(new LoaderOptions())).load(text);
+      return parseNode(loaded);
+    } catch (YAMLException ex) {
+      LOG.warn("解析治理快照 YAML 失败，按未设治理处理");
+      return AssetGovernance.empty();
+    }
   }
 
   /** 渲染侧车 YAML（块风格，字段名稳定）。与 channels.yaml 治理块共用 {@link #toBlock}。 */
@@ -274,7 +297,9 @@ public final class AssetGovernanceStore {
         + " health="
         + health
         + " team="
-        + nullToEmpty(governance.teamOwner());
+        + nullToEmpty(governance.teamOwner())
+        + " org="
+        + nullToEmpty(governance.orgOwner());
   }
 
   private static String nullToEmpty(String value) {

@@ -5,12 +5,21 @@ import io.oryxos.core.auth.Role;
 import io.oryxos.core.policy.AssetAwareAuthorizationServiceImpl;
 import io.oryxos.core.policy.AssetGovernanceStore;
 import io.oryxos.core.policy.AuthorizationService;
+import io.oryxos.core.policy.OrgParentLookup;
 import io.oryxos.core.policy.RoleBasedAuthorizationServiceImpl;
+import io.oryxos.core.policy.TeamOrgLookup;
+import io.oryxos.core.policy.TeamParentLookup;
+import io.oryxos.storage.Organization;
+import io.oryxos.storage.OrganizationCatalogService;
+import io.oryxos.storage.Team;
+import io.oryxos.storage.TeamCatalogService;
 import io.oryxos.web.security.AssetBindGuard;
 import io.oryxos.web.security.RbacEnforcer;
 import io.oryxos.web.security.RuntimeAgentGuard;
+import io.oryxos.web.security.SessionOrgIdsCache;
 import io.oryxos.web.security.SessionTeamIdsCache;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +59,21 @@ public class AuthorizationConfig {
     return new SessionTeamIdsCache();
   }
 
+  /** #560：session 组织声明（由 teamIds × teams.org_id 派生）。 */
+  @Bean
+  SessionOrgIdsCache sessionOrgIdsCache() {
+    return new SessionOrgIdsCache();
+  }
+
+  /** #535：session 团队 ∪（可选）持久化 team_memberships。 */
+  @Bean
+  io.oryxos.web.security.PrincipalTeamIdsMerger principalTeamIdsMerger(
+      WebRbacProperties properties,
+      ObjectProvider<io.oryxos.storage.TeamMembershipService> memberships) {
+    return new io.oryxos.web.security.PrincipalTeamIdsMerger(
+        properties, memberships.getIfAvailable());
+  }
+
   /**
    * 授权决策点。
    *
@@ -66,7 +90,9 @@ public class AuthorizationConfig {
       WebRbacProperties properties,
       RoleMappingProperties roleProperties,
       WebAssetGovernanceProperties assetGovernance,
-      org.springframework.beans.factory.ObjectProvider<AssetGovernanceStore> governanceStore) {
+      org.springframework.beans.factory.ObjectProvider<AssetGovernanceStore> governanceStore,
+      ObjectProvider<TeamCatalogService> teamCatalog,
+      ObjectProvider<OrganizationCatalogService> orgCatalog) {
     if (!properties.isEnabled()) {
       LOG.info(LOG_ALLOW_ALL);
       return AuthorizationService.ALLOW_ALL;
@@ -84,8 +110,110 @@ public class AuthorizationConfig {
       LOG.warn("资产治理已启用但未装配 AssetGovernanceStore，跳过资产门禁");
       return roleBased;
     }
+    TeamOrgLookup orgLookup = teamOrgLookupBean(teamCatalog);
+    OrgParentLookup parentLookup = orgParentLookupBean(orgCatalog);
+    TeamParentLookup teamParentLookup = teamParentLookupBean(teamCatalog);
+    boolean orgAncestorEnabled =
+        assetGovernance.isWorkspaceOrgAclEnabled()
+            && assetGovernance.isWorkspaceOrgAclAncestorEnabled();
+    boolean teamAncestorEnabled =
+        assetGovernance.isWorkspaceTeamAclEnabled()
+            && assetGovernance.isWorkspaceTeamAclAncestorEnabled();
     return new AssetAwareAuthorizationServiceImpl(
-        roleBased, store, true, assetGovernance.isWorkspaceTeamAclEnabled());
+        roleBased,
+        store,
+        true,
+        assetGovernance.isWorkspaceTeamAclEnabled(),
+        assetGovernance.isWorkspaceOrgAclEnabled(),
+        orgLookup,
+        orgAncestorEnabled,
+        parentLookup,
+        assetGovernance.getMaxOrgAncestorDepth(),
+        teamAncestorEnabled,
+        teamParentLookup);
+  }
+
+  /** #558 / #560：把 teamId 映射到 teams.org_id；目录 Bean 缺失时恒 empty。 */
+  @Bean
+  TeamOrgLookup teamOrgLookup(ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamOrgLookupBean(teamCatalog);
+  }
+
+  /** #568：把 orgId 映射到 organizations.parent_org_id；目录 Bean 缺失时恒 empty。 */
+  @Bean
+  OrgParentLookup orgParentLookup(ObjectProvider<OrganizationCatalogService> orgCatalog) {
+    return orgParentLookupBean(orgCatalog);
+  }
+
+  /** #588：把 teamId 映射到 teams.parent_team_id；目录 Bean 缺失时恒 empty。 */
+  @Bean
+  TeamParentLookup teamParentLookup(ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamParentLookupBean(teamCatalog);
+  }
+
+  private static TeamOrgLookup teamOrgLookupBean(ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamId -> {
+      if (teamId == null || teamId.isBlank()) {
+        return Optional.empty();
+      }
+      TeamCatalogService catalog = teamCatalog.getIfAvailable();
+      if (catalog == null) {
+        return Optional.empty();
+      }
+      Optional<Team> row = catalog.find(teamId.strip());
+      if (row.isEmpty()) {
+        return Optional.empty();
+      }
+      String orgId = row.get().getOrgId();
+      if (orgId == null || orgId.isBlank()) {
+        return Optional.empty();
+      }
+      return Optional.of(orgId.strip());
+    };
+  }
+
+  private static OrgParentLookup orgParentLookupBean(
+      ObjectProvider<OrganizationCatalogService> orgCatalog) {
+    return orgId -> {
+      if (orgId == null || orgId.isBlank()) {
+        return Optional.empty();
+      }
+      OrganizationCatalogService catalog = orgCatalog.getIfAvailable();
+      if (catalog == null) {
+        return Optional.empty();
+      }
+      Optional<Organization> row = catalog.find(orgId.strip());
+      if (row.isEmpty()) {
+        return Optional.empty();
+      }
+      String parent = row.get().getParentOrgId();
+      if (parent == null || parent.isBlank()) {
+        return Optional.empty();
+      }
+      return Optional.of(parent.strip());
+    };
+  }
+
+  private static TeamParentLookup teamParentLookupBean(
+      ObjectProvider<TeamCatalogService> teamCatalog) {
+    return teamId -> {
+      if (teamId == null || teamId.isBlank()) {
+        return Optional.empty();
+      }
+      TeamCatalogService catalog = teamCatalog.getIfAvailable();
+      if (catalog == null) {
+        return Optional.empty();
+      }
+      Optional<Team> row = catalog.find(teamId.strip());
+      if (row.isEmpty()) {
+        return Optional.empty();
+      }
+      String parent = row.get().getParentTeamId();
+      if (parent == null || parent.isBlank()) {
+        return Optional.empty();
+      }
+      return Optional.of(parent.strip());
+    };
   }
 
   /** 绑定/调用点的薄封装：内部仍只调 {@link AuthorizationService#decide}。 */

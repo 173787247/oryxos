@@ -6,6 +6,9 @@ import logoUrl from './assets/logo.svg'
 import { withRevision, rowsWithRevision, revisionHeaders } from './workspace-revision.js'
 import LoginView from './views/LoginView.vue'
 import RunManagementView from './features/runs/RunManagementView.vue'
+import TeamsManagementView from './features/teams/TeamsManagementView.vue'
+import IdentityMappingsView from './features/identity-mappings/IdentityMappingsView.vue'
+import GovernanceRevisionHistory from './features/governance/GovernanceRevisionHistory.vue'
 import { isNearBottom } from './chat-scroll.js'
 import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
 import { DEFAULT_MCP_REQUEST_TIMEOUT_SECONDS, normalizeMcpRequestTimeout } from './mcp-timeout.js'
@@ -78,6 +81,8 @@ const RUNTIME_NAV = [
   { key: 'tools', label: 'Tool 列表', path: '/api/v1/tools' },
   { key: 'notify-channels', label: 'Notify 渠道' },
   { key: 'inbound-channels', label: '入站渠道' },
+  { key: 'teams', label: '团队与组织' },
+  { key: 'identity-mappings', label: 'OIDC 映射' },
   { key: 'whitelist', label: 'SandBox 列表' },
   { key: 'tool-policy', label: '工具策略' },
   { key: 'exec-backend', label: '执行后端' },
@@ -223,6 +228,8 @@ function select(key, options = {}) {
   if (key === 'skills') { cancelSkill(); closeSkillDetail(); loadSkills() }
   if (key === 'knowledge') { cancelKb(); closeKbDetail(); loadKnowledge() }
   if (key === 'overview') { loadOverviewStats() }
+  if (key === 'teams') { teamsViewRef.value?.load?.() }
+  if (key === 'identity-mappings') { identityMappingsViewRef.value?.load?.() }
   if (key === 'runs') {
     runViewRef.value?.load?.()
     if (!options.fromHash) writeRunHash(selectedRunId.value)
@@ -247,6 +254,8 @@ function refresh() {
   if (key === 'skills') { loadSkills(); return }
   if (key === 'knowledge') { kbDetail.value ? refreshKbDetail(kbDetail.value.name) : loadKnowledge(); return }
   if (key === 'overview') { loadOverviewStats(); return }
+  if (key === 'teams') { teamsViewRef.value?.load?.(); return }
+  if (key === 'identity-mappings') { identityMappingsViewRef.value?.load?.(); return }
   if (key === 'runs') { runViewRef.value?.load?.(); return }
   if (key === 'report') { loadReport(); return }
   if (NAV.find((n) => n.key === key)?.path) load(key)
@@ -685,6 +694,8 @@ const agents = ref({ loading: false, error: null, data: [] })
 const triggering = ref(null) // 正在“立即触发”的 agent 名，防重复点击
 const selectedRunId = ref(null)
 const runViewRef = ref(null)
+const teamsViewRef = ref(null)
+const identityMappingsViewRef = ref(null)
 
 function writeRunHash(runId) {
   const next = runId ? runHash(runId) : runListHash()
@@ -1867,6 +1878,10 @@ async function savePersona() {
 const governanceEdit = reactive(createGovernanceEdit())
 const skillGovernance = reactive(createGovernanceEdit())
 const kbGovernance = reactive(createGovernanceEdit())
+const agentGovRevRef = ref(null)
+const skillGovRevRef = ref(null)
+const kbGovRevRef = ref(null)
+const channelGovRevRef = ref(null)
 function loadAgentGovernance(name) {
   return loadGovernance(governanceEdit, 'agents', name)
 }
@@ -1876,8 +1891,9 @@ function startEditGovernance() {
 function cancelEditGovernance() {
   return abortGovEdit(governanceEdit, 'agents', agentDetail.value?.name)
 }
-function saveGovernance() {
-  return persistGovernance(governanceEdit, 'agents', agentDetail.value?.name)
+async function saveGovernance() {
+  await persistGovernance(governanceEdit, 'agents', agentDetail.value?.name)
+  if (!governanceEdit.open) agentGovRevRef.value?.load()
 }
 function loadSkillGovernance(name) {
   return loadGovernance(skillGovernance, 'skills', name)
@@ -1888,8 +1904,9 @@ function startEditSkillGovernance() {
 function cancelEditSkillGovernance() {
   return abortGovEdit(skillGovernance, 'skills', skillDetail.value?.name)
 }
-function saveSkillGovernance() {
-  return persistGovernance(skillGovernance, 'skills', skillDetail.value?.name)
+async function saveSkillGovernance() {
+  await persistGovernance(skillGovernance, 'skills', skillDetail.value?.name)
+  if (!skillGovernance.open) skillGovRevRef.value?.load()
 }
 function loadKbGovernance(name) {
   return loadGovernance(kbGovernance, 'knowledge', name)
@@ -1900,8 +1917,21 @@ function startEditKbGovernance() {
 function cancelEditKbGovernance() {
   return abortGovEdit(kbGovernance, 'knowledge', kbDetail.value?.name)
 }
-function saveKbGovernance() {
-  return persistGovernance(kbGovernance, 'knowledge', kbDetail.value?.name)
+async function saveKbGovernance() {
+  await persistGovernance(kbGovernance, 'knowledge', kbDetail.value?.name)
+  if (!kbGovernance.open) kbGovRevRef.value?.load()
+}
+function onAgentGovRestored() {
+  if (agentDetail.value?.name) loadAgentGovernance(agentDetail.value.name)
+}
+function onSkillGovRestored() {
+  if (skillDetail.value?.name) loadSkillGovernance(skillDetail.value.name)
+}
+function onKbGovRestored() {
+  if (kbDetail.value?.name) loadKbGovernance(kbDetail.value.name)
+}
+function onChannelGovRestored() {
+  if (inboundChannelDetail.value?.name) loadChannelGovernance(inboundChannelDetail.value.name)
 }
 
 // —— 041 / #504：入站渠道列表 + channels.yaml governance 面板 ——
@@ -1918,6 +1948,7 @@ const channelGovernance = reactive({
   riskLevel: '',
   health: '',
   teamOwner: '',
+  orgOwner: '',
   loaded: false,
 })
 async function loadInboundChannels() {
@@ -1966,6 +1997,7 @@ async function loadChannelGovernance(name) {
     channelGovernance.riskLevel = g.riskLevel || ''
     channelGovernance.health = g.health || ''
     channelGovernance.teamOwner = g.teamOwner || ''
+    channelGovernance.orgOwner = g.orgOwner || ''
     channelGovernance.loaded = true
   } catch (e) {
     channelGovernance.error = e.message
@@ -1999,6 +2031,7 @@ async function saveChannelGovernance() {
           riskLevel: channelGovernance.riskLevel.trim() || null,
           health: channelGovernance.health.trim() || null,
           teamOwner: channelGovernance.teamOwner.trim() || null,
+          orgOwner: channelGovernance.orgOwner.trim() || null,
         }),
       },
     )
@@ -2011,8 +2044,10 @@ async function saveChannelGovernance() {
     channelGovernance.riskLevel = g.riskLevel || ''
     channelGovernance.health = g.health || ''
     channelGovernance.teamOwner = g.teamOwner || ''
+    channelGovernance.orgOwner = g.orgOwner || ''
     channelGovernance.open = false
     channelGovernance.loaded = true
+    channelGovRevRef.value?.load()
   } catch (e) {
     channelGovernance.error = e.message
   } finally {
@@ -2352,6 +2387,14 @@ const outputRows = computed(() =>
             />
           </div>
 
+          <div v-if="active === 'teams'">
+            <TeamsManagementView ref="teamsViewRef" />
+          </div>
+
+          <div v-if="active === 'identity-mappings'">
+            <IdentityMappingsView ref="identityMappingsViewRef" />
+          </div>
+
           <!-- 报表（016 审计看板）：KPI 汇总 + 分布条形图 + 明细下钻；时间窗三档 -->
           <div v-if="active === 'report'">
             <div class="md-toggle" style="margin-bottom:14px">
@@ -2632,6 +2675,7 @@ const outputRows = computed(() =>
                     <div class="info-row edit"><label class="k">version</label><input v-model="skillGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="skillGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
                     <div class="info-row edit"><label class="k">teamOwner</label><input v-model="skillGovernance.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
+                    <div class="info-row edit"><label class="k">orgOwner</label><input v-model="skillGovernance.orgOwner" class="gen-input" placeholder="组织 id（WORKSPACE；需开启 workspace-org-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="skillGovernance.saving" @click="saveSkillGovernance">保存</button>
                       <button class="btn" :disabled="skillGovernance.saving" @click="cancelEditSkillGovernance">取消</button>
@@ -2648,7 +2692,15 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(skillGovernance.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(skillGovernance.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(skillGovernance.teamOwner) }}</span></div>
+                  <div class="info-row"><span class="k">orgOwner</span><span class="mono">{{ blankGov(skillGovernance.orgOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="skillDetail.name"
+                  ref="skillGovRevRef"
+                  api-kind="skills"
+                  :name="skillDetail.name"
+                  @restored="onSkillGovRestored"
+                />
               </div>
               <p v-if="skillDetail.loading" class="empty">加载中…</p>
               <p v-else-if="skillDetail.error" class="error">出错：{{ skillDetail.error }}</p>
@@ -2765,6 +2817,7 @@ const outputRows = computed(() =>
                     <div class="info-row edit"><label class="k">version</label><input v-model="kbGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="kbGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
                     <div class="info-row edit"><label class="k">teamOwner</label><input v-model="kbGovernance.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
+                    <div class="info-row edit"><label class="k">orgOwner</label><input v-model="kbGovernance.orgOwner" class="gen-input" placeholder="组织 id（WORKSPACE；需开启 workspace-org-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="kbGovernance.saving" @click="saveKbGovernance">保存</button>
                       <button class="btn" :disabled="kbGovernance.saving" @click="cancelEditKbGovernance">取消</button>
@@ -2781,7 +2834,15 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(kbGovernance.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(kbGovernance.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(kbGovernance.teamOwner) }}</span></div>
+                  <div class="info-row"><span class="k">orgOwner</span><span class="mono">{{ blankGov(kbGovernance.orgOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="kbDetail.name"
+                  ref="kbGovRevRef"
+                  api-kind="knowledge"
+                  :name="kbDetail.name"
+                  @restored="onKbGovRestored"
+                />
               </div>
               <p v-if="kbDetail.loading" class="empty">加载中…</p>
               <template v-else>
@@ -3328,6 +3389,7 @@ const outputRows = computed(() =>
                     <div class="info-row edit"><label class="k">version</label><input v-model="governanceEdit.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="governanceEdit.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
                     <div class="info-row edit"><label class="k">teamOwner</label><input v-model="governanceEdit.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
+                    <div class="info-row edit"><label class="k">orgOwner</label><input v-model="governanceEdit.orgOwner" class="gen-input" placeholder="组织 id（WORKSPACE；需开启 workspace-org-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="governanceEdit.saving" @click="saveGovernance">保存</button>
                       <button class="btn" :disabled="governanceEdit.saving" @click="cancelEditGovernance">取消</button>
@@ -3344,7 +3406,15 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(governanceEdit.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(governanceEdit.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(governanceEdit.teamOwner) }}</span></div>
+                  <div class="info-row"><span class="k">orgOwner</span><span class="mono">{{ blankGov(governanceEdit.orgOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="agentDetail.name"
+                  ref="agentGovRevRef"
+                  api-kind="agents"
+                  :name="agentDetail.name"
+                  @restored="onAgentGovRestored"
+                />
               </div>
 
               <!-- Tab 3：文件浏览器（可编辑） -->
@@ -3821,6 +3891,7 @@ const outputRows = computed(() =>
                     <div class="info-row edit"><label class="k">version</label><input v-model="channelGovernance.version" class="gen-input" placeholder="版本（展示/审计）" /></div>
                     <div class="info-row edit"><label class="k">riskLevel</label><input v-model="channelGovernance.riskLevel" class="gen-input" placeholder="风险等级（展示）" /></div>
                     <div class="info-row edit"><label class="k">teamOwner</label><input v-model="channelGovernance.teamOwner" class="gen-input" placeholder="团队 id（WORKSPACE；需开启 workspace-team-acl）" /></div>
+                    <div class="info-row edit"><label class="k">orgOwner</label><input v-model="channelGovernance.orgOwner" class="gen-input" placeholder="组织 id（WORKSPACE；需开启 workspace-org-acl）" /></div>
                     <div class="info-actions">
                       <button class="btn btn-primary" :disabled="channelGovernance.saving" @click="saveChannelGovernance">保存</button>
                       <button class="btn" :disabled="channelGovernance.saving" @click="cancelEditChannelGovernance">取消</button>
@@ -3837,7 +3908,15 @@ const outputRows = computed(() =>
                   <div class="info-row"><span class="k">version</span><span>{{ blankGov(channelGovernance.version) }}</span></div>
                   <div class="info-row"><span class="k">riskLevel</span><span>{{ blankGov(channelGovernance.riskLevel) }}</span></div>
                   <div class="info-row"><span class="k">teamOwner</span><span class="mono">{{ blankGov(channelGovernance.teamOwner) }}</span></div>
+                  <div class="info-row"><span class="k">orgOwner</span><span class="mono">{{ blankGov(channelGovernance.orgOwner) }}</span></div>
                 </div>
+                <GovernanceRevisionHistory
+                  v-if="inboundChannelDetail.name"
+                  ref="channelGovRevRef"
+                  api-kind="channels"
+                  :name="inboundChannelDetail.name"
+                  @restored="onChannelGovRestored"
+                />
               </div>
             </div>
           </div>

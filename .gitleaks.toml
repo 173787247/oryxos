@@ -1,0 +1,14 @@
+# Gitleaks config for OryxOS (#453 secret-scan slice).
+# Extends the default rule set; allowlist only covers known synthetic credentials
+# in tests and Spec-Kit quickstarts so the gate stays fail-loud for real leaks.
+title = "OryxOS"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic credentials in unit tests and Spec-Kit quickstart examples"
+paths = [
+  '''(^|/)src/test/''',
+  '''^specs/.+/quickstart\.md$''',
+]

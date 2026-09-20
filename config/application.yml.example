@@ -195,6 +195,16 @@ oryxos:
   #   rbac:
   #     enabled: true
   #     deny-anonymous: true
+  #     # 持久化团队成员并入 Principal.teamIds（#535）。默认关；开后与 session 缓存取并集。
+  #     # CLI: oryxos team create|rename|list|delete + member-add|member-remove|member-list
+  #     # durable-team-memberships-enabled: true
+  #     # 由 session teamIds × teams.org_id 派生并缓存 Principal.orgIds（#560）。默认关。
+  #     # org-ids-from-team-org-enabled: true
+  # 团队 HTTP API（#546）+ Admin「团队管理」页（#548）。默认关=404。开启后 GET/POST/PATCH/DELETE /api/v1/teams
+  # 与用户成员 PUT/DELETE /api/v1/users/{u}/teams/{teamId}；RBAC 下映射 MANAGE_MEMBERS（ADMIN）。
+  # web:
+  #   teams-api:
+  #     enabled: true                  # 亦覆盖 /api/v1/orgs、PUT .../teams/{id}/org、PUT .../orgs/{id}/parent（#554/#566）；默认关→404
   #     roles:
   #       default-user-roles: []           # 空=拒绝；可选显式 [VIEWER]/[EDITOR]/[ADMIN]
   #       default-api-key-roles: []        # 默认空 = 机器凭证不默认授权
@@ -215,6 +225,11 @@ oryxos:
   #     # group-claim: groups
   #     # group-roles:
   #     #   oryxos-editors: EDITOR
+  #     # jit-team-catalog-enabled: false  # true 时登录按 groups 幂等写 teams 目录行（display_name=id）
+  #     # jit-team-memberships-enabled: false  # true 时登录按 groups 幂等写 team_memberships（无 catalog 行则跳过）
+  #     # revoke-unmatched-team-memberships: false  # true 时（须 JIT memberships）移除不在 catalog-present 期望集中的成员；空 groups → 清空
+  #     # org-ids-claim: ""  # 非空=读 id_token 该 claim（string|string[]）→ session Principal.orgIds（#590）；缺 claim 不阻断登录。groups 仍只表示 teams。
+  #     # jit-org-catalog-enabled: false  # true 且 org-ids-claim 非空时，登录按 claim org ids 幂等写 organizations 目录行（display_name=id；#592）
   #     # 可选：跳过 discovery 时显式端点
   #     # authorization-endpoint:
   #     # token-endpoint:
@@ -223,10 +238,24 @@ oryxos:
   # 打开 rbac.enabled（无主体则跳过资产门禁）。仍只走 AuthorizationService.decide。
   # workspace-team-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 teamOwner 的资产
   # 要求 Principal.teamIds 含该 id（OIDC groups 或密码登录 user-team-ids 经 session 缓存注入）；无 teamOwner 仍不另拒。
+  # workspace-team-acl-ancestor-enabled：默认关。须同时开 workspace-team-acl-enabled；开时沿
+  # teams.parent_team_id 上行匹配祖先（#588；有界深度；深度复用 max-org-ancestor-depth）。
+  # workspace-org-acl-enabled：默认关。开时对 visibility=WORKSPACE 且设了 orgOwner 的资产
+  # 要求同组织（或 ADMIN）；优先 Principal.orgIds（#560 flag），否则 teamIds × teams.org_id（#558）；无 orgOwner 仍不另拒。
+  # workspace-org-acl-ancestor-enabled：默认关。须同时开 workspace-org-acl-enabled；开时沿
+  # organizations.parent_org_id 上行匹配祖先（#568；有界深度；不做环检测 UI）。
+  # max-org-ancestor-depth：默认 16。org/team 祖先匹配与 setParent 环检测共用上行跳数上界（#579/#588）。
   # web:
   #   asset-governance:
   #     enabled: true
   #     workspace-team-acl-enabled: true
+  #     # workspace-team-acl-ancestor-enabled: true
+  #     workspace-org-acl-enabled: true
+  #     # workspace-org-acl-ancestor-enabled: true
+  #     # max-org-ancestor-depth: 16
+  #     # 治理 PUT 追加全文快照；POST .../revisions/{id}/restore 写回；
+  #     # GET .../revisions/{id}/diff?against= 统一 diff（#537/#541/#544）。默认关。
+  #     # version-history-enabled: true
   # SSE 流式响应（019-sse-streaming）。消息端点带 Accept: text/event-stream 即流式返回，
   # 无需开关；heartbeat-seconds 为静默期心跳间隔（SSE 注释行，防代理空闲断连），默认 15。
   # web:

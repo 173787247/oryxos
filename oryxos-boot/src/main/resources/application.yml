@@ -107,6 +107,19 @@ oryxos:
   author:
     provider: deepseek
     model: deepseek-v4-flash
+  # 042 / #464：高风险动作审批策略（HITL）。默认关=零行为变化；开启后按 rules 分类并闸住执行面。
+  # 耐久挂起/恢复见 #465；管理台与 IM 审批交互见 #466。
+  approval:
+    enabled: false
+    policy-version: "1"
+    default-ttl-seconds: 3600
+    default-approvers: []
+    # rules:
+    #   - id: shell-global
+    #     action-types: [SHELL]
+    #     effect: require_approval
+    #     approvers: [admin]
+    #     ttl-seconds: 1800
   # 管理台 Basic Auth（012-web-auth）。默认关=假设内网现状不变（SC-001）；
   # 开启后 /admin/** 需账密，/api/v1/** 不受影响（REST 不做 Basic Auth）。
   # 开启前先 oryxos user add <username> 建账号，否则启动阻断（FR-006）。
@@ -121,6 +134,11 @@ oryxos:
       # group-roles 为空则不改角色。非空时命中才 setRoles；未命中默认不撤权。
       # revoke-unmatched-roles: false   # true 时 group-roles 已配但零命中 → 清空 roles
       # jit-provision-enabled: false    # true 时未映射 subject 按 preferred_username/email 建用户+mapping
+      # jit-team-catalog-enabled: false # true 时登录按 groups 幂等写 teams 目录行（display_name=id）
+      # jit-team-memberships-enabled: false # true 时登录按 groups 幂等写 team_memberships（无 catalog 行则跳过）
+      # revoke-unmatched-team-memberships: false # true 时（须 JIT memberships）移除不在期望集中的成员；空 groups → 清空
+      # org-ids-claim: "" # 非空=读 id_token claim → session orgIds（#590）
+      # jit-org-catalog-enabled: false # true 且 org-ids-claim 非空时，登录按 claim org ids 幂等写 organizations（#592）
       # group-claim: groups
       # group-roles: {}
 

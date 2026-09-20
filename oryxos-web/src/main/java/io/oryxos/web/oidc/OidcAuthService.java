@@ -1,14 +1,21 @@
 package io.oryxos.web.oidc;
 
 import io.oryxos.core.auth.Role;
+import io.oryxos.core.policy.TeamOrgLookup;
 import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
 import io.oryxos.storage.IdentityMappingService;
+import io.oryxos.storage.OrganizationCatalogService;
+import io.oryxos.storage.TeamCatalogService;
+import io.oryxos.storage.TeamMembershipService;
 import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.web.config.WebOidcProperties;
+import io.oryxos.web.config.WebRbacProperties;
+import io.oryxos.web.security.SessionOrgIdsCache;
+import io.oryxos.web.security.SessionOrgIdsFromTeams;
 import io.oryxos.web.security.SessionTeamIdsCache;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -16,6 +23,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -49,6 +58,12 @@ public class OidcAuthService {
   private final AuthEventRecorder authEventRecorder;
   private final OidcGroupRoleSync groupRoleSync;
   private final SessionTeamIdsCache teamIdsCache;
+  private final TeamCatalogService teamCatalogService;
+  private final TeamMembershipService teamMembershipService;
+  private final OrganizationCatalogService organizationCatalogService;
+  private final SessionOrgIdsCache orgIdsCache;
+  private final WebRbacProperties rbacProperties;
+  private final TeamOrgLookup teamOrgLookup;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -69,6 +84,12 @@ public class OidcAuthService {
         userService,
         sessionService,
         authEventRecorder,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null);
   }
 
@@ -84,6 +105,138 @@ public class OidcAuthService {
       WebSessionService sessionService,
       AuthEventRecorder authEventRecorder,
       SessionTeamIdsCache teamIdsCache) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        teamCatalogService,
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService,
+      SessionOrgIdsCache orgIdsCache,
+      WebRbacProperties rbacProperties,
+      TeamOrgLookup teamOrgLookup) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        teamCatalogService,
+        orgIdsCache,
+        rbacProperties,
+        teamOrgLookup,
+        null,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService,
+      SessionOrgIdsCache orgIdsCache,
+      WebRbacProperties rbacProperties,
+      TeamOrgLookup teamOrgLookup,
+      TeamMembershipService teamMembershipService) {
+    this(
+        properties,
+        tokenClient,
+        pendingStore,
+        mappingService,
+        userService,
+        sessionService,
+        authEventRecorder,
+        teamIdsCache,
+        teamCatalogService,
+        orgIdsCache,
+        rbacProperties,
+        teamOrgLookup,
+        teamMembershipService,
+        null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "全部为 Spring 注入共享单例，存同一引用正是意图。")
+  public OidcAuthService(
+      WebOidcProperties properties,
+      OidcTokenClient tokenClient,
+      OidcPendingStore pendingStore,
+      IdentityMappingService mappingService,
+      WebUserService userService,
+      WebSessionService sessionService,
+      AuthEventRecorder authEventRecorder,
+      SessionTeamIdsCache teamIdsCache,
+      TeamCatalogService teamCatalogService,
+      SessionOrgIdsCache orgIdsCache,
+      WebRbacProperties rbacProperties,
+      TeamOrgLookup teamOrgLookup,
+      TeamMembershipService teamMembershipService,
+      OrganizationCatalogService organizationCatalogService) {
     this.properties = properties;
     this.tokenClient = tokenClient;
     this.pendingStore = pendingStore;
@@ -93,6 +246,12 @@ public class OidcAuthService {
     this.authEventRecorder = authEventRecorder;
     this.groupRoleSync = new OidcGroupRoleSync(userService);
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
+    this.teamCatalogService = teamCatalogService;
+    this.teamMembershipService = teamMembershipService;
+    this.organizationCatalogService = organizationCatalogService;
+    this.orgIdsCache = orgIdsCache == null ? new SessionOrgIdsCache() : orgIdsCache;
+    this.rbacProperties = rbacProperties;
+    this.teamOrgLookup = teamOrgLookup;
   }
 
   public boolean isEnabled() {
@@ -169,6 +328,9 @@ public class OidcAuthService {
     if (!syncGroupRoles(username, claims)) {
       return OidcLoginResult.failure("group role sync failed");
     }
+    ensureTeamCatalogRows(claims.groups());
+    ensureOrgCatalogRows(claims.orgIds());
+    ensureTeamMemberships(username, claims.groups());
     try {
       authEventRecorder.recordOrThrow(
           AuthEventType.LOGIN_SUCCESS, username, "oidc issuer=" + claims.issuer());
@@ -179,7 +341,42 @@ public class OidcAuthService {
     }
     WebSession session = sessionService.create(username);
     teamIdsCache.put(session.getSessionId(), claims.groups());
+    cacheSessionOrgIds(session.getSessionId(), claims.groups(), claims.orgIds());
     return OidcLoginResult.success(session, username);
+  }
+
+  /**
+   * Session orgIds（#560 / #590）：{@code org-ids-claim} 非空时并入 claim 值（缺 claim → 空集，不阻断登录）；{@code
+   * org-ids-from-team-org-enabled} 开时再并入 team→org 派生；两路都开取并集；最终空则清除缓存。
+   */
+  private void cacheSessionOrgIds(
+      String sessionId, java.util.Collection<String> teamIds, List<String> claimOrgIds) {
+    LinkedHashSet<String> orgIds = new LinkedHashSet<>();
+    if (!properties.getOrgIdsClaim().isBlank()) {
+      if (claimOrgIds != null) {
+        for (String orgId : claimOrgIds) {
+          if (orgId != null && !orgId.isBlank()) {
+            orgIds.add(orgId.strip());
+          }
+        }
+      }
+    }
+    if (rbacProperties != null && rbacProperties.isOrgIdsFromTeamOrgEnabled()) {
+      LinkedHashSet<String> teams = new LinkedHashSet<>();
+      if (teamIds != null) {
+        for (String t : teamIds) {
+          if (t != null && !t.isBlank()) {
+            teams.add(t.strip());
+          }
+        }
+      }
+      orgIds.addAll(SessionOrgIdsFromTeams.resolve(teams, teamOrgLookup));
+    }
+    if (orgIds.isEmpty()) {
+      orgIdsCache.remove(sessionId);
+    } else {
+      orgIdsCache.put(sessionId, orgIds);
+    }
   }
 
   /**
@@ -227,6 +424,134 @@ public class OidcAuthService {
       return Optional.empty();
     }
     return Optional.of(trimmed);
+  }
+
+  /** Flag 开时对 IdP groups 幂等写 {@code teams} 目录行（#552）。失败只打日志，不阻断登录（catalog 为可选元数据）。 */
+  private void ensureTeamCatalogRows(List<String> groups) {
+    if (!properties.isJitTeamCatalogEnabled() || teamCatalogService == null) {
+      return;
+    }
+    if (groups == null || groups.isEmpty()) {
+      return;
+    }
+    for (String group : new LinkedHashSet<>(groups)) {
+      if (group == null || group.isBlank()) {
+        continue;
+      }
+      try {
+        teamCatalogService.ensure(group);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT team catalog ensure 失败 group={}：{}",
+            sanitize(group),
+            sanitize(ex.toString()));
+      }
+    }
+  }
+
+  /**
+   * Flag 开且 {@code org-ids-claim} 非空时，对 claim 组织 id 幂等写 {@code organizations}
+   * 目录行（#592）。失败只打日志，不阻断登录。
+   */
+  private void ensureOrgCatalogRows(List<String> orgIds) {
+    if (!properties.isJitOrgCatalogEnabled()
+        || properties.getOrgIdsClaim().isBlank()
+        || organizationCatalogService == null) {
+      return;
+    }
+    if (orgIds == null || orgIds.isEmpty()) {
+      return;
+    }
+    for (String orgId : new LinkedHashSet<>(orgIds)) {
+      if (orgId == null || orgId.isBlank()) {
+        continue;
+      }
+      try {
+        organizationCatalogService.ensure(orgId);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT org catalog ensure 失败 org={}：{}", sanitize(orgId), sanitize(ex.toString()));
+      }
+    }
+  }
+
+  /**
+   * Flag 开时对 IdP groups 幂等写 {@code team_memberships}（#562）。无 catalog 行则跳过并打日志；add 失败只打日志，不阻断登录。
+   * {@code revoke-unmatched-team-memberships} 开时再移除不在 catalog-present 期望集中的成员（#564）；空 groups 对齐
+   * revoke-unmatched-roles：期望集为空 → 清空全部 durable 成员。
+   */
+  private void ensureTeamMemberships(String username, List<String> groups) {
+    if (!properties.isJitTeamMembershipsEnabled() || teamMembershipService == null) {
+      return;
+    }
+    Set<String> expected = catalogPresentExpectation(username, groups);
+    for (String group : expected) {
+      try {
+        teamMembershipService.add(username, group);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT team membership add 失败 group={} user={}：{}",
+            sanitize(group),
+            sanitize(username),
+            sanitize(ex.toString()));
+      }
+    }
+    if (!properties.isRevokeUnmatchedTeamMemberships()) {
+      return;
+    }
+    revokeUnmatchedTeamMemberships(username, expected);
+  }
+
+  /**
+   * IdP groups 中存在 catalog 行的期望集（无 {@link TeamCatalogService} 时等同去重后的非空 groups）。空/null groups → 空集。
+   */
+  private Set<String> catalogPresentExpectation(String username, List<String> groups) {
+    LinkedHashSet<String> expected = new LinkedHashSet<>();
+    if (groups == null || groups.isEmpty()) {
+      return Set.copyOf(expected);
+    }
+    for (String group : new LinkedHashSet<>(groups)) {
+      if (group == null || group.isBlank()) {
+        continue;
+      }
+      if (teamCatalogService != null && teamCatalogService.find(group).isEmpty()) {
+        LOG.warn(
+            "OIDC JIT team membership skip (no catalog row) group={} user={}",
+            sanitize(group),
+            sanitize(username));
+        continue;
+      }
+      expected.add(group);
+    }
+    return Set.copyOf(expected);
+  }
+
+  /** 移除 durable 成员中不在期望集的条目；list/remove 失败只打日志。 */
+  private void revokeUnmatchedTeamMemberships(String username, Set<String> expected) {
+    Set<String> current;
+    try {
+      current = teamMembershipService.listTeamIds(username);
+    } catch (RuntimeException ex) {
+      LOG.warn(
+          "OIDC JIT team membership list 失败 user={}：{}",
+          sanitize(username),
+          sanitize(ex.toString()));
+      return;
+    }
+    for (String teamId : current) {
+      if (expected.contains(teamId)) {
+        continue;
+      }
+      try {
+        teamMembershipService.remove(username, teamId);
+      } catch (RuntimeException ex) {
+        LOG.warn(
+            "OIDC JIT team membership remove 失败 group={} user={}：{}",
+            sanitize(teamId),
+            sanitize(username),
+            sanitize(ex.toString()));
+      }
+    }
   }
 
   /**

@@ -11,6 +11,9 @@ import java.util.Objects;
  *
  * <p>{@code teamOwner}：WORKSPACE 可见性的团队 id（与 OIDC groups / {@code Principal.teamIds} 对齐）。仅在 {@code
  * workspace-team-acl} 开启且本字段非空时参与裁决；缺省不另拒。
+ *
+ * <p>{@code orgOwner}：WORKSPACE 可见性的组织 id（与 {@code teams.org_id} 对齐）。仅在 {@code workspace-org-acl}
+ * 开启且本字段非空时参与裁决；缺省不另拒。
  */
 public record AssetGovernance(
     String owner,
@@ -18,9 +21,10 @@ public record AssetGovernance(
     Visibility visibility,
     String riskLevel,
     Health health,
-    String teamOwner) {
+    String teamOwner,
+    String orgOwner) {
 
-  /** 可见范围：PRIVATE 仅 owner/ADMIN；WORKSPACE 在 team-acl 关或无 teamOwner 时不另拒；PUBLIC 不另拒。 */
+  /** 可见范围：PRIVATE 仅 owner/ADMIN；WORKSPACE 在 team/org-acl 关或无对应 owner 时不另拒；PUBLIC 不另拒。 */
   public enum Visibility {
     PRIVATE,
     WORKSPACE,
@@ -34,15 +38,26 @@ public record AssetGovernance(
     OFFLINE
   }
 
-  /** 无团队归属的便捷构造——既有 5 参调用点保持编译。 */
+  /** 无团队/组织归属的便捷构造——既有 5 参调用点保持编译。 */
   public AssetGovernance(
       String owner, String version, Visibility visibility, String riskLevel, Health health) {
-    this(owner, version, visibility, riskLevel, health, null);
+    this(owner, version, visibility, riskLevel, health, null, null);
+  }
+
+  /** 无组织归属的便捷构造——既有 6 参（含 teamOwner）调用点保持编译。 */
+  public AssetGovernance(
+      String owner,
+      String version,
+      Visibility visibility,
+      String riskLevel,
+      Health health,
+      String teamOwner) {
+    this(owner, version, visibility, riskLevel, health, teamOwner, null);
   }
 
   /** 空元数据：无 GOVERNANCE.yml 或解析后无有效字段。 */
   public static AssetGovernance empty() {
-    return new AssetGovernance(null, null, null, null, null, null);
+    return new AssetGovernance(null, null, null, null, null, null, null);
   }
 
   /** 是否携带任何可裁决/展示字段（缺文件时为 false）。 */
@@ -52,7 +67,8 @@ public record AssetGovernance(
         || visibility != null
         || (riskLevel != null && !riskLevel.isBlank())
         || health != null
-        || (teamOwner != null && !teamOwner.isBlank());
+        || (teamOwner != null && !teamOwner.isBlank())
+        || (orgOwner != null && !orgOwner.isBlank());
   }
 
   /** 解析可见性；未知 token 返回 null（不因脏数据误拒）。 */
@@ -86,6 +102,8 @@ public record AssetGovernance(
         + health
         + ", teamOwner="
         + Objects.toString(teamOwner, "")
+        + ", orgOwner="
+        + Objects.toString(orgOwner, "")
         + "}";
   }
 }

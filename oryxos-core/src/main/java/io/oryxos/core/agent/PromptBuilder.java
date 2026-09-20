@@ -38,10 +38,25 @@ public class PromptBuilder {
   private io.oryxos.core.policy.ToolPolicyService toolPolicy =
       io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL;
 
+  /**
+   * 042 审批策略（事前可见性）：与执行面同一 {@link io.oryxos.core.policy.ApprovalPolicyService}。 {@link
+   * io.oryxos.core.policy.ApprovalOutcome#DENY} 隐藏；REQUIRE_APPROVAL 仍可见。默认 PASS_THROUGH。
+   */
+  private io.oryxos.core.policy.ApprovalPolicyService approvalPolicy =
+      io.oryxos.core.policy.ApprovalPolicyService.PASS_THROUGH;
+
   /** 装配期注入（OryxOsRuntime）；测试直构不调用即保持 ALLOW_ALL。 */
   public void setToolPolicy(io.oryxos.core.policy.ToolPolicyService toolPolicy) {
     this.toolPolicy =
         toolPolicy == null ? io.oryxos.core.policy.ToolPolicyService.ALLOW_ALL : toolPolicy;
+  }
+
+  /** 装配期注入；未装配保持 PASS_THROUGH（零破坏）。 */
+  public void setApprovalPolicy(io.oryxos.core.policy.ApprovalPolicyService approvalPolicy) {
+    this.approvalPolicy =
+        approvalPolicy == null
+            ? io.oryxos.core.policy.ApprovalPolicyService.PASS_THROUGH
+            : approvalPolicy;
   }
 
   public PromptBuilder(ContextLoader contextLoader, Map<String, OryxTool> tools) {
@@ -80,7 +95,8 @@ public class PromptBuilder {
     List<Message> history =
         pruneHistoricalMedia(session.recentTurns(profile.settings().maxHistoryTurns()));
     // ④ 工具列表经 availableTools 传递，Provider 侧翻译成 Function Calling 格式
-    return new ProviderRequest(system.toString(), history, resolveTools(profile));
+    return new ProviderRequest(
+        system.toString(), history, resolveTools(profile, session.sessionId()));
   }
 
   /**
@@ -117,14 +133,21 @@ public class PromptBuilder {
     return out;
   }
 
-  private List<OryxTool> resolveTools(Profile profile) {
+  private List<OryxTool> resolveTools(Profile profile, String sessionId) {
     List<OryxTool> resolved = new ArrayList<>();
     for (String name : profile.tools()) {
       OryxTool tool = tools.get(name);
       // 020 事前保险：策略拒绝的工具对模型不可见（每轮按当时策略求值，热更新下一轮生效）
-      if (tool != null && toolPolicy.check(profile.name(), name).allowed()) {
-        resolved.add(tool);
+      if (tool == null || !toolPolicy.check(profile.name(), name).allowed()) {
+        continue;
       }
+      // 042：与执行面同一审批裁决——DENY 隐藏并记命中；REQUIRE_APPROVAL 保持可见
+      var approval = approvalPolicy.evaluate(profile.name(), name, null);
+      if (!approval.visibleInPrompt()) {
+        approvalPolicy.recordHit(sessionId, profile.name(), name, approval);
+        continue;
+      }
+      resolved.add(tool);
     }
     return resolved;
   }

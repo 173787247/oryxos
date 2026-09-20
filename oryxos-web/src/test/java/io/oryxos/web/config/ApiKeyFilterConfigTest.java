@@ -34,6 +34,8 @@ class ApiKeyFilterConfigTest {
             new WebApiKeyProperties(),
             new ObjectMapper(),
             null,
+            null,
+            null,
             null);
 
     assertThat(registration.getUrlPatterns())

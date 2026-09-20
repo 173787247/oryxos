@@ -38,7 +38,9 @@ public class ApiKeyFilterConfig {
       WebApiKeyProperties properties,
       ObjectMapper objectMapper,
       RbacEnforcer rbacEnforcer,
-      io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache) {
+      io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache,
+      io.oryxos.web.security.PrincipalTeamIdsMerger principalTeamIdsMerger,
+      io.oryxos.web.security.SessionOrgIdsCache sessionOrgIdsCache) {
     FilterRegistrationBean<ApiKeyAuthFilter> registration = new FilterRegistrationBean<>();
     registration.setFilter(
         new ApiKeyAuthFilter(
@@ -48,7 +50,9 @@ public class ApiKeyFilterConfig {
             properties,
             objectMapper,
             rbacEnforcer,
-            sessionTeamIdsCache));
+            sessionTeamIdsCache,
+            principalTeamIdsMerger,
+            sessionOrgIdsCache));
     registration.addUrlPatterns(PROTECTED_URL_PATTERNS);
     registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 11);
     return registration;

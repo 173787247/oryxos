@@ -9,12 +9,24 @@ public record AssetGovernanceView(
     String visibility,
     String riskLevel,
     String health,
-    String teamOwner) {
+    String teamOwner,
+    String orgOwner) {
 
-  /** 无 teamOwner 的便捷构造——既有 5 参 JSON/测试保持兼容。 */
+  /** 无 teamOwner/orgOwner 的便捷构造——既有 5 参 JSON/测试保持兼容。 */
   public AssetGovernanceView(
       String owner, String version, String visibility, String riskLevel, String health) {
-    this(owner, version, visibility, riskLevel, health, null);
+    this(owner, version, visibility, riskLevel, health, null, null);
+  }
+
+  /** 无 orgOwner 的便捷构造——既有 6 参 JSON/测试保持兼容。 */
+  public AssetGovernanceView(
+      String owner,
+      String version,
+      String visibility,
+      String riskLevel,
+      String health,
+      String teamOwner) {
+    this(owner, version, visibility, riskLevel, health, teamOwner, null);
   }
 
   public static AssetGovernanceView from(AssetGovernance governance) {
@@ -25,7 +37,8 @@ public record AssetGovernanceView(
         source.visibility() == null ? null : source.visibility().name(),
         source.riskLevel(),
         source.health() == null ? null : source.health().name(),
-        source.teamOwner());
+        source.teamOwner(),
+        source.orgOwner());
   }
 
   public AssetGovernance toModel() {
@@ -35,7 +48,8 @@ public record AssetGovernanceView(
         AssetGovernance.parseVisibility(visibility),
         blankToNull(riskLevel),
         AssetGovernance.parseHealth(health),
-        blankToNull(teamOwner));
+        blankToNull(teamOwner),
+        blankToNull(orgOwner));
   }
 
   private static String blankToNull(String value) {

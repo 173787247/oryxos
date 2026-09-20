@@ -62,6 +62,45 @@ public class WebOidcProperties {
    */
   private boolean revokeUnmatchedRoles = false;
 
+  /**
+   * 登录后是否按 IdP groups 幂等确保 {@code teams} 目录行（#552）。默认关——关时不写 catalog；开时 display_name 回落为 group
+   * id。不写 {@code team_memberships}（见 {@link #jitTeamMembershipsEnabled}）。
+   */
+  private boolean jitTeamCatalogEnabled = false;
+
+  /**
+   * 登录后是否按 {@link #orgIdsClaim} 提取的组织 id 幂等确保 {@code organizations} 目录行（#592）。默认关——关时不写
+   * catalog；须同时配置非空 {@code org-ids-claim}；开时 display_name 回落为 org id。不写成员关系、不把 groups 当 orgs。
+   */
+  private boolean jitOrgCatalogEnabled = false;
+
+  /**
+   * 登录后是否按 IdP groups 幂等写 {@code team_memberships}（#562）。默认关——关时不写库。开时对每组调用 {@code
+   * TeamMembershipService.add}；无 catalog 行则跳过并打日志（可先开 {@link #jitTeamCatalogEnabled}）。撤销未匹配见 {@link
+   * #revokeUnmatchedTeamMemberships}。
+   */
+  private boolean jitTeamMembershipsEnabled = false;
+
+  /**
+   * 在 {@link #jitTeamMembershipsEnabled} 路径上，登录确保 add 之后是否移除不在「当前 IdP groups 且 catalog 存在」期望集中的
+   * durable {@code team_memberships}（#564）。默认关。空 groups 且本开关开 → 清空全部成员（对齐 {@link
+   * #revokeUnmatchedRoles} 零命中语义）。失败只打日志，不阻断登录。
+   */
+  private boolean revokeUnmatchedTeamMemberships = false;
+
+  /**
+   * 是否暴露 identity_mappings Admin HTTP API（#577）。默认关 → 404。与 {@link #enabled}（OIDC 登录）独立；开启后走 {@code
+   * MANAGE_MEMBERS}。
+   */
+  private boolean mappingsApiEnabled = false;
+
+  /**
+   * id_token 组织 id 声明名（#590 / #587）。默认空 = 不提取；非空则读该 claim（字符串或字符串数组）写入 session {@code
+   * Principal.orgIds}。catalog 写入另见 {@link #jitOrgCatalogEnabled}（#592）；缺 claim 不阻断登录。与 {@code
+   * group-claim}（teams）分离。
+   */
+  private String orgIdsClaim = "";
+
   public boolean isEnabled() {
     return enabled;
   }
@@ -165,5 +204,54 @@ public class WebOidcProperties {
 
   public void setRevokeUnmatchedRoles(boolean revokeUnmatchedRoles) {
     this.revokeUnmatchedRoles = revokeUnmatchedRoles;
+  }
+
+  public boolean isJitTeamCatalogEnabled() {
+    return jitTeamCatalogEnabled;
+  }
+
+  public void setJitTeamCatalogEnabled(boolean jitTeamCatalogEnabled) {
+    this.jitTeamCatalogEnabled = jitTeamCatalogEnabled;
+  }
+
+  public boolean isJitOrgCatalogEnabled() {
+    return jitOrgCatalogEnabled;
+  }
+
+  public void setJitOrgCatalogEnabled(boolean jitOrgCatalogEnabled) {
+    this.jitOrgCatalogEnabled = jitOrgCatalogEnabled;
+  }
+
+  public boolean isJitTeamMembershipsEnabled() {
+    return jitTeamMembershipsEnabled;
+  }
+
+  public void setJitTeamMembershipsEnabled(boolean jitTeamMembershipsEnabled) {
+    this.jitTeamMembershipsEnabled = jitTeamMembershipsEnabled;
+  }
+
+  public boolean isRevokeUnmatchedTeamMemberships() {
+    return revokeUnmatchedTeamMemberships;
+  }
+
+  public void setRevokeUnmatchedTeamMemberships(boolean revokeUnmatchedTeamMemberships) {
+    this.revokeUnmatchedTeamMemberships = revokeUnmatchedTeamMemberships;
+  }
+
+  public boolean isMappingsApiEnabled() {
+    return mappingsApiEnabled;
+  }
+
+  public void setMappingsApiEnabled(boolean mappingsApiEnabled) {
+    this.mappingsApiEnabled = mappingsApiEnabled;
+  }
+
+  /** 空或空白 → 功能关；否则返回去首尾空白后的 claim 名。 */
+  public String getOrgIdsClaim() {
+    return orgIdsClaim == null ? "" : orgIdsClaim.strip();
+  }
+
+  public void setOrgIdsClaim(String orgIdsClaim) {
+    this.orgIdsClaim = orgIdsClaim == null ? "" : orgIdsClaim;
   }
 }

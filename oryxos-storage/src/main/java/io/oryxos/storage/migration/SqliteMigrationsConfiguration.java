@@ -8,8 +8,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
- * SQLite 存量收敛迁移 V2~V6 + V9 + V10 + V11 的装配（025 + Run 工作台 + 039 角色 + 040 OIDC + 041 资产治理事件）：仅
- * datasource url 为 SQLite 时注册。V6/V9/V10/V11 是 JavaMigration；PostgreSQL 目录另有成对 SQL。 V7/V8 为纯 SQL。
+ * SQLite 存量收敛迁移 V2~V6 + V9~V18 的装配（025 + Run 工作台 + 039 角色 + 040 OIDC + 041 资产治理事件 + #535 团队成员 +
+ * #537 治理版本快照 + #539 团队目录 + #554 组织目录 + #566 组织父级 + #581 团队父级 + #464 审批事件）：仅 datasource url 为
+ * SQLite 时注册。V6/V9~V18 是 JavaMigration；PostgreSQL 目录另有成对 SQL。 V7/V8 为纯 SQL。
  */
 @Configuration(proxyBeanMethods = false)
 @Conditional(SqliteMigrationsConfiguration.OnSqliteDatasource.class)
@@ -63,5 +64,40 @@ public class SqliteMigrationsConfiguration {
   @Bean
   AssetGovernanceEventsMigration assetGovernanceEventsMigration() {
     return new AssetGovernanceEventsMigration();
+  }
+
+  @Bean
+  TeamMembershipsMigration teamMembershipsMigration() {
+    return new TeamMembershipsMigration();
+  }
+
+  @Bean
+  AssetGovernanceRevisionsMigration assetGovernanceRevisionsMigration() {
+    return new AssetGovernanceRevisionsMigration();
+  }
+
+  @Bean
+  TeamsCatalogMigration teamsCatalogMigration() {
+    return new TeamsCatalogMigration();
+  }
+
+  @Bean
+  OrganizationsMigration organizationsMigration() {
+    return new OrganizationsMigration();
+  }
+
+  @Bean
+  OrganizationsParentMigration organizationsParentMigration() {
+    return new OrganizationsParentMigration();
+  }
+
+  @Bean
+  TeamsParentMigration teamsParentMigration() {
+    return new TeamsParentMigration();
+  }
+
+  @Bean
+  ApprovalEventsMigration approvalEventsMigration() {
+    return new ApprovalEventsMigration();
   }
 }

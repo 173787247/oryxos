@@ -203,4 +203,25 @@ class PrincipalTest {
     assertThat(principal.describe()).isEqualTo(Principal.Kind.API_KEY + ":" + KEY_NAME);
     assertThat(principal.describe()).doesNotContain(KEY_DISPLAY_NAME);
   }
+
+  @Test
+  @DisplayName("orgIds_默认空_与 flag 关语义对齐")
+  void orgIdsAreAbsentByDefault() {
+    Principal principal =
+        Principal.user(USER_ID, USER_DISPLAY_NAME, Set.of(Role.EDITOR), Set.of("ops"));
+    assertThat(principal.orgIds()).isEmpty();
+    assertThat(principal.hasOrg("acme")).isFalse();
+  }
+
+  @Test
+  @DisplayName("orgIds_可声明且不可变")
+  void orgIdsCanBeDeclaredAndAreImmutable() {
+    Principal principal =
+        Principal.user(
+            USER_ID, USER_DISPLAY_NAME, Set.of(Role.EDITOR), Set.of("ops"), Set.of("acme"));
+    assertThat(principal.orgIds()).containsExactly("acme");
+    assertThat(principal.hasOrg("acme")).isTrue();
+    assertThatThrownBy(() -> principal.orgIds().add("beta"))
+        .isInstanceOf(UnsupportedOperationException.class);
+  }
 }

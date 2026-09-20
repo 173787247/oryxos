@@ -4,19 +4,26 @@ import io.oryxos.core.policy.Action;
 import io.oryxos.core.policy.AssetGovernanceStore;
 import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.storage.AssetGovernanceEventRecorder;
+import io.oryxos.storage.AssetGovernanceRevisionRecorder;
 import io.oryxos.web.common.ApiResponse;
+import io.oryxos.web.config.WebAssetGovernanceProperties;
+import io.oryxos.web.controller.dto.AssetGovernanceRevisionDiffView;
+import io.oryxos.web.controller.dto.AssetGovernanceRevisionView;
 import io.oryxos.web.controller.dto.AssetGovernanceView;
 import io.oryxos.web.security.AssetBindGuard;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 资产治理侧车读写（041）。路径落在既有 agents / skills / knowledge 前缀下，由 {@code RequestActionResolver} 的 MANAGE_*
- * 覆盖；PUT 再对具体资源 {@code decide}，以便 PRIVATE/OFFLINE 侧车生效。
+ * 资产治理侧车读写（041 / #537 / #541 / #544）。路径落在既有 agents / skills / knowledge 前缀下，由 {@code
+ * RequestActionResolver} 的 MANAGE_* 覆盖；PUT/restore 再对具体资源 {@code decide}，以便 PRIVATE/OFFLINE 侧车生效。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = {"SPRING_ENDPOINT", "EI_EXPOSE_REP2"},
@@ -30,16 +37,57 @@ public class AssetGovernanceController {
 
   private final AssetGovernanceEventRecorder recorder;
 
+  private final WebAssetGovernanceProperties properties;
+
+  private final AssetGovernanceRevisionRecorder revisions;
+
   public AssetGovernanceController(
-      AssetGovernanceStore store, AssetBindGuard guard, AssetGovernanceEventRecorder recorder) {
+      AssetGovernanceStore store,
+      AssetBindGuard guard,
+      AssetGovernanceEventRecorder recorder,
+      WebAssetGovernanceProperties properties,
+      AssetGovernanceRevisionRecorder revisions) {
     this.store = store;
     this.guard = guard;
     this.recorder = recorder;
+    this.properties = properties;
+    this.revisions = revisions;
   }
 
   @GetMapping("/api/v1/agents/{name}/governance")
   public ApiResponse<AssetGovernanceView> getAgent(@PathVariable String name) {
     return AssetGovernanceApiSupport.get(ResourceRef.agent(name), store::loadAgent);
+  }
+
+  @GetMapping("/api/v1/agents/{name}/governance/revisions")
+  public ApiResponse<List<AssetGovernanceRevisionView>> listAgentRevisions(
+      @PathVariable String name) {
+    return AssetGovernanceApiSupport.listRevisions(properties, revisions, ResourceRef.agent(name));
+  }
+
+  @GetMapping("/api/v1/agents/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffAgent(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    return AssetGovernanceApiSupport.diff(
+        properties, revisions, ResourceRef.agent(name), against, revisionId);
+  }
+
+  @PostMapping("/api/v1/agents/{name}/governance/revisions/{revisionId}/restore")
+  public ApiResponse<AssetGovernanceView> restoreAgent(
+      @PathVariable String name, @PathVariable long revisionId, HttpServletRequest request) {
+    return AssetGovernanceApiSupport.restore(
+        request,
+        guard,
+        recorder,
+        properties,
+        revisions,
+        Action.MANAGE_AGENTS,
+        ResourceRef.agent(name),
+        revisionId,
+        store::saveAgent,
+        store::loadAgent);
   }
 
   @PutMapping("/api/v1/agents/{name}/governance")
@@ -50,17 +98,50 @@ public class AssetGovernanceController {
     return AssetGovernanceApiSupport.put(
         request,
         guard,
-        store,
         recorder,
+        properties,
+        revisions,
         Action.MANAGE_AGENTS,
         ResourceRef.agent(name),
         body,
-        store::saveAgent);
+        store::saveAgent,
+        store::loadAgent);
   }
 
   @GetMapping("/api/v1/skills/{name}/governance")
   public ApiResponse<AssetGovernanceView> getSkill(@PathVariable String name) {
     return AssetGovernanceApiSupport.get(ResourceRef.skill(name), store::loadSkill);
+  }
+
+  @GetMapping("/api/v1/skills/{name}/governance/revisions")
+  public ApiResponse<List<AssetGovernanceRevisionView>> listSkillRevisions(
+      @PathVariable String name) {
+    return AssetGovernanceApiSupport.listRevisions(properties, revisions, ResourceRef.skill(name));
+  }
+
+  @GetMapping("/api/v1/skills/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffSkill(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    return AssetGovernanceApiSupport.diff(
+        properties, revisions, ResourceRef.skill(name), against, revisionId);
+  }
+
+  @PostMapping("/api/v1/skills/{name}/governance/revisions/{revisionId}/restore")
+  public ApiResponse<AssetGovernanceView> restoreSkill(
+      @PathVariable String name, @PathVariable long revisionId, HttpServletRequest request) {
+    return AssetGovernanceApiSupport.restore(
+        request,
+        guard,
+        recorder,
+        properties,
+        revisions,
+        Action.MANAGE_SKILLS,
+        ResourceRef.skill(name),
+        revisionId,
+        store::saveSkill,
+        store::loadSkill);
   }
 
   @PutMapping("/api/v1/skills/{name}/governance")
@@ -71,17 +152,51 @@ public class AssetGovernanceController {
     return AssetGovernanceApiSupport.put(
         request,
         guard,
-        store,
         recorder,
+        properties,
+        revisions,
         Action.MANAGE_SKILLS,
         ResourceRef.skill(name),
         body,
-        store::saveSkill);
+        store::saveSkill,
+        store::loadSkill);
   }
 
   @GetMapping("/api/v1/knowledge/{name}/governance")
   public ApiResponse<AssetGovernanceView> getKnowledge(@PathVariable String name) {
     return AssetGovernanceApiSupport.get(ResourceRef.knowledge(name), store::loadKnowledge);
+  }
+
+  @GetMapping("/api/v1/knowledge/{name}/governance/revisions")
+  public ApiResponse<List<AssetGovernanceRevisionView>> listKnowledgeRevisions(
+      @PathVariable String name) {
+    return AssetGovernanceApiSupport.listRevisions(
+        properties, revisions, ResourceRef.knowledge(name));
+  }
+
+  @GetMapping("/api/v1/knowledge/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffKnowledge(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    return AssetGovernanceApiSupport.diff(
+        properties, revisions, ResourceRef.knowledge(name), against, revisionId);
+  }
+
+  @PostMapping("/api/v1/knowledge/{name}/governance/revisions/{revisionId}/restore")
+  public ApiResponse<AssetGovernanceView> restoreKnowledge(
+      @PathVariable String name, @PathVariable long revisionId, HttpServletRequest request) {
+    return AssetGovernanceApiSupport.restore(
+        request,
+        guard,
+        recorder,
+        properties,
+        revisions,
+        Action.MANAGE_KNOWLEDGE,
+        ResourceRef.knowledge(name),
+        revisionId,
+        store::saveKnowledge,
+        store::loadKnowledge);
   }
 
   @PutMapping("/api/v1/knowledge/{name}/governance")
@@ -92,11 +207,13 @@ public class AssetGovernanceController {
     return AssetGovernanceApiSupport.put(
         request,
         guard,
-        store,
         recorder,
+        properties,
+        revisions,
         Action.MANAGE_KNOWLEDGE,
         ResourceRef.knowledge(name),
         body,
-        store::saveKnowledge);
+        store::saveKnowledge,
+        store::loadKnowledge);
   }
 }

@@ -47,6 +47,27 @@ class RequestActionResolverTest {
   }
 
   @Test
+  @DisplayName("teams / orgs / user-teams / identity-mappings → MANAGE_MEMBERS（含 GET，ADMIN 门）")
+  void teamsApi() {
+    assertAction("GET", "/api/v1/teams", Action.MANAGE_MEMBERS);
+    assertAction("POST", "/api/v1/teams", Action.MANAGE_MEMBERS);
+    assertAction("PATCH", "/api/v1/teams/eng", Action.MANAGE_MEMBERS);
+    assertAction("PUT", "/api/v1/teams/eng/org", Action.MANAGE_MEMBERS);
+    assertAction("DELETE", "/api/v1/teams/eng", Action.MANAGE_MEMBERS);
+    assertAction("GET", "/api/v1/orgs", Action.MANAGE_MEMBERS);
+    assertAction("POST", "/api/v1/orgs", Action.MANAGE_MEMBERS);
+    assertAction("PATCH", "/api/v1/orgs/acme", Action.MANAGE_MEMBERS);
+    assertAction("DELETE", "/api/v1/orgs/acme", Action.MANAGE_MEMBERS);
+    assertAction("PUT", "/api/v1/orgs/acme/parent", Action.MANAGE_MEMBERS);
+    assertAction("GET", "/api/v1/users/alice/teams", Action.MANAGE_MEMBERS);
+    assertAction("PUT", "/api/v1/users/alice/teams/eng", Action.MANAGE_MEMBERS);
+    assertAction("DELETE", "/api/v1/users/alice/teams/eng", Action.MANAGE_MEMBERS);
+    assertAction("GET", "/api/v1/identity-mappings", Action.MANAGE_MEMBERS);
+    assertAction("POST", "/api/v1/identity-mappings", Action.MANAGE_MEMBERS);
+    assertAction("DELETE", "/api/v1/identity-mappings", Action.MANAGE_MEMBERS);
+  }
+
+  @Test
   @DisplayName("未登记路径返回 null（fail-closed）")
   void unmapped() {
     assertThat(RequestActionResolver.resolve("GET", "/api/v1/unknown-thing")).isNull();

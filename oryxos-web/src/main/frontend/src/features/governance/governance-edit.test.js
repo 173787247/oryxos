@@ -37,7 +37,7 @@ describe('governance-edit helpers', () => {
       const revision = calls.length === 1 ? 'read-revision' : 'write-revision'
       return {
         headers: { get: (name) => (name === 'X-Workspace-Revision' ? revision : null) },
-        json: async () => ({ code: 0, data: { health: 'ACTIVE' } }),
+        json: async () => ({ code: 0, data: { health: 'ACTIVE', orgOwner: 'org-1' } }),
       }
     }
     try {
@@ -47,6 +47,7 @@ describe('governance-edit helpers', () => {
 
       assert.equal(calls[1].options.headers['If-Match'], 'read-revision')
       assert.equal(state.revision, 'write-revision')
+      assert.equal(JSON.parse(calls[1].options.body).orgOwner, 'org-1')
     } finally {
       globalThis.fetch = originalFetch
     }

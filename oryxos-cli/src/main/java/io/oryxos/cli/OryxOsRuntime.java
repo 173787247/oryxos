@@ -179,6 +179,7 @@ import org.springframework.web.context.WebApplicationContext;
   SmtpSandboxProperties.class,
   ExecutionBackendProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
+  io.oryxos.core.policy.ApprovalPolicyProperties.class,
   OtelProperties.class
 })
 public class OryxOsRuntime {
@@ -859,7 +860,7 @@ public class OryxOsRuntime {
           new Mem0MemoryStore(
               restClient.mutate().baseUrl(mem0BaseUrl).build(), mem0UserId, mem0ApiKey);
       case "markdown" -> new MarkdownMemoryStore(oryxosRoot());
-        // 026 顺修：未知值曾静默回落 markdown——配置了却不生效比启动失败更危险（knowledge.store 同口径）
+      // 026 顺修：未知值曾静默回落 markdown——配置了却不生效比启动失败更危险（knowledge.store 同口径）
       default ->
           throw new IllegalStateException(
               "未知的 memory.backend: " + backend + "（支持 markdown / sqlite / mem0）");
@@ -1057,6 +1058,36 @@ public class OryxOsRuntime {
   }
 
   /**
+   * 042 / #464: high-risk approval policy. Default {@code oryxos.approval.enabled=false} keeps
+   * evaluate() as ALLOW; audit goes to approval_events (NOOP when repo absent).
+   */
+  @Bean
+  io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService(
+      io.oryxos.core.policy.ApprovalPolicyProperties properties,
+      ToolRegistry toolRegistry,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.policy.ApprovalAuditRecorder>
+          auditRecorder) {
+    java.util.function.Function<String, String> mcpLookup =
+        name -> toolRegistry.mcpToolOwners().get(name);
+    return new io.oryxos.core.policy.ConfigApprovalPolicyServiceImpl(
+        properties.toConfig(),
+        new io.oryxos.core.policy.HighRiskActionClassifier(mcpLookup),
+        mcpLookup,
+        auditRecorder.getIfAvailable(() -> io.oryxos.core.policy.ApprovalAuditRecorder.NOOP));
+  }
+
+  @Bean
+  io.oryxos.core.policy.ApprovalAuditRecorder approvalAuditRecorder(
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.ApprovalEventRepository>
+          repository) {
+    io.oryxos.storage.ApprovalEventRepository repo = repository.getIfAvailable();
+    if (repo == null) {
+      return io.oryxos.core.policy.ApprovalAuditRecorder.NOOP;
+    }
+    return new io.oryxos.storage.JpaApprovalAuditRecorder(repo);
+  }
+
+  /**
    * 020：策略加载期告警（未知目标规则 / 有效集全空，WARN 不阻断）。仅 SERVLET 模式（serve/gateway）跑—— CLI 管理命令用
    * WebApplicationType.NONE，不受影响（镜像 018 ApiKeyStartupCheck 的条件口径）。
    */
@@ -1101,11 +1132,13 @@ public class OryxOsRuntime {
       ContextLoader contextLoader,
       Map<String, OryxTool> tools,
       MemoryService memoryService,
-      io.oryxos.core.policy.ToolPolicyService toolPolicyService) {
+      io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService) {
     // 22 节起：注入 MemoryService，长期记忆段由门面供给（会话历史段仍由 PromptBuilder 独立负责）
     PromptBuilder builder =
         new PromptBuilder(contextLoader, tools, memoryService, java.time.Clock.systemDefaultZone());
     builder.setToolPolicy(toolPolicyService); // 020：事前过滤——被 deny 工具不进模型清单
+    builder.setApprovalPolicy(approvalPolicyService); // 042: prompt visibility shares decide
     return builder;
   }
 
@@ -1117,6 +1150,7 @@ public class OryxOsRuntime {
       ToolInvocationAuditor auditor,
       AgentRunEventPublisher agentRunEventPublisher,
       io.oryxos.core.policy.ToolPolicyService toolPolicyService,
+      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService,
       org.springframework.beans.factory.ObjectProvider<io.oryxos.core.policy.AuthorizationService>
           authorizationService,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
@@ -1126,6 +1160,7 @@ public class OryxOsRuntime {
         new ToolExecutor(
             tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor, agentRunEventPublisher);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
+    executor.setApprovalPolicy(approvalPolicyService); // 042: execution-side approval gate
     // 039/#527：web 装配注入同一 decide；纯 CLI 无 Bean 时 ALLOW_ALL
     executor.setAuthorizationService(
         authorizationService.getIfAvailable(
@@ -1188,6 +1223,13 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.AssetGovernanceEventRecorder(repository);
   }
 
+  /** #537：治理全文快照（写失败不回滚侧车）。 */
+  @Bean
+  io.oryxos.storage.AssetGovernanceRevisionRecorder assetGovernanceRevisionRecorder(
+      io.oryxos.storage.AssetGovernanceRevisionRepository repository) {
+    return new io.oryxos.storage.AssetGovernanceRevisionRecorder(repository);
+  }
+
   /** 040：OIDC issuer/sub → 本地 username 映射。 */
   @Bean
   IdentityMappingService identityMappingService(
@@ -1195,6 +1237,37 @@ public class OryxOsRuntime {
       WebUserRepository userRepository,
       AuthEventRecorder authEventRecorder) {
     return new IdentityMappingService(repository, userRepository, authEventRecorder);
+  }
+
+  /** #535：持久化团队成员（CLI + Principal 合并）；注入 Principal 由 web 侧 flag 控制。 */
+  @Bean
+  io.oryxos.storage.TeamMembershipService teamMembershipService(
+      io.oryxos.storage.TeamMembershipRepository repository, WebUserRepository userRepository) {
+    return new io.oryxos.storage.TeamMembershipService(repository, userRepository);
+  }
+
+  /** #539 / #554 / #581：团队目录（展示名 + 可选 org_id / parent_team_id）；与成员表解耦，catalog 行可选。 */
+  @Bean
+  io.oryxos.storage.TeamCatalogService teamCatalogService(
+      io.oryxos.storage.TeamRepository repository,
+      io.oryxos.storage.OrganizationRepository organizationRepository,
+      @org.springframework.beans.factory.annotation.Value(
+              "${oryxos.web.asset-governance.max-org-ancestor-depth:16}")
+          int maxTeamAncestorDepth) {
+    return new io.oryxos.storage.TeamCatalogService(
+        repository, organizationRepository, maxTeamAncestorDepth);
+  }
+
+  /** #554：组织目录（展示名）；不驱动 AuthorizationService.decide。深度与 decide 祖先匹配共用配置。 */
+  @Bean
+  io.oryxos.storage.OrganizationCatalogService organizationCatalogService(
+      io.oryxos.storage.OrganizationRepository repository,
+      io.oryxos.storage.TeamRepository teamRepository,
+      @org.springframework.beans.factory.annotation.Value(
+              "${oryxos.web.asset-governance.max-org-ancestor-depth:16}")
+          int maxOrgAncestorDepth) {
+    return new io.oryxos.storage.OrganizationCatalogService(
+        repository, teamRepository, maxOrgAncestorDepth);
   }
 
   /**
@@ -1239,8 +1312,44 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  CliChannel cliChannel(AgentService agentService, SessionManager sessionManager) {
-    return new CliChannel(agentService, sessionManager);
+  CliChannel cliChannel(
+      AgentService agentService,
+      SessionManager sessionManager,
+      org.springframework.core.env.Environment environment) {
+    CliChannel channel = new CliChannel(agentService, sessionManager);
+    // 039 / #533：角色取 default-user-roles（与管理台空默认档一致）；不反向依赖 oryxos-web
+    channel.setRunRoles(
+        parseRoleNames(bindStringList(environment, "oryxos.web.rbac.roles.default-user-roles")));
+    return channel;
+  }
+
+  private static java.util.List<String> bindStringList(
+      org.springframework.core.env.Environment environment, String property) {
+    return org.springframework.boot.context.properties.bind.Binder.get(environment)
+        .bind(
+            property,
+            org.springframework.boot.context.properties.bind.Bindable.listOf(String.class))
+        .orElse(java.util.List.of());
+  }
+
+  private static java.util.Set<io.oryxos.core.auth.Role> parseRoleNames(
+      java.util.List<String> raw) {
+    java.util.Set<io.oryxos.core.auth.Role> parsed = new java.util.LinkedHashSet<>();
+    if (raw == null) {
+      return parsed;
+    }
+    for (String name : raw) {
+      if (name == null || name.isBlank()) {
+        continue;
+      }
+      try {
+        parsed.add(
+            io.oryxos.core.auth.Role.valueOf(name.strip().toUpperCase(java.util.Locale.ROOT)));
+      } catch (IllegalArgumentException ignored) {
+        // 非法名忽略（与 AuthorizationConfig.parseRoles 同口径）
+      }
+    }
+    return parsed;
   }
 
   // ── 017：入站 IM 渠道（飞书长连接）────────────────────────────────────────

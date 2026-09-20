@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,10 @@ import io.oryxos.storage.AuthEventRecorder;
 import io.oryxos.storage.AuthEventType;
 import io.oryxos.storage.IdentityMapping;
 import io.oryxos.storage.IdentityMappingService;
+import io.oryxos.storage.OrganizationCatalogService;
+import io.oryxos.storage.Team;
+import io.oryxos.storage.TeamCatalogService;
+import io.oryxos.storage.TeamMembershipService;
 import io.oryxos.storage.WebSession;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
@@ -48,6 +53,9 @@ class OidcAuthServiceTest {
   private WebUserService userService;
   private WebSessionService sessionService;
   private AuthEventRecorder authEventRecorder;
+  private TeamCatalogService teamCatalogService;
+  private TeamMembershipService teamMembershipService;
+  private OrganizationCatalogService organizationCatalogService;
   private AuthorizationService authorizationService;
   private OidcAuthService service;
   private MockMvc mvc;
@@ -66,6 +74,9 @@ class OidcAuthServiceTest {
     userService = mock(WebUserService.class);
     sessionService = mock(WebSessionService.class);
     authEventRecorder = mock(AuthEventRecorder.class);
+    teamCatalogService = mock(TeamCatalogService.class);
+    teamMembershipService = mock(TeamMembershipService.class);
+    organizationCatalogService = mock(OrganizationCatalogService.class);
     authorizationService = mock(AuthorizationService.class);
     service =
         new OidcAuthService(
@@ -75,7 +86,14 @@ class OidcAuthServiceTest {
             mappingService,
             userService,
             sessionService,
-            authEventRecorder);
+            authEventRecorder,
+            null,
+            teamCatalogService,
+            null,
+            null,
+            null,
+            teamMembershipService,
+            organizationCatalogService);
     mvc =
         MockMvcBuilders.standaloneSetup(new OidcAuthController(service))
             .setControllerAdvice(new GlobalExceptionHandler())
@@ -253,5 +271,364 @@ class OidcAuthServiceTest {
     verify(userService).setRoles("alice", Set.of());
     verify(authEventRecorder)
         .recordOrThrow(eq(AuthEventType.GROUP_ROLE_SYNC), eq("alice"), eq("roles=[]"));
+  }
+
+  @Test
+  @DisplayName("JIT team catalog关_不调用ensure")
+  void callback_jitTeamCatalogOff_noCatalogCalls() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamCatalogEnabled(false);
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng", "ops")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamCatalogService, never()).ensure(anyString());
+    verify(teamCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT team catalog开_对缺失组ensure_已有跳过由服务幂等")
+  void callback_jitTeamCatalogOn_ensuresGroups() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamCatalogEnabled(true);
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, List.of("eng", "ops", "eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamCatalogService).ensure("eng");
+    verify(teamCatalogService).ensure("ops");
+  }
+
+  @Test
+  @DisplayName("JIT team memberships关_不调用add")
+  void callback_jitTeamMembershipsOff_noAdds() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(false);
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng", "ops")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService, never()).add(anyString(), anyString());
+  }
+
+  @Test
+  @DisplayName("JIT team memberships开_对每组幂等add")
+  void callback_jitTeamMembershipsOn_addsEachGroup() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    Team eng = new Team();
+    eng.setTeamId("eng");
+    Team ops = new Team();
+    ops.setTeamId("ops");
+    when(teamCatalogService.find("eng")).thenReturn(Optional.of(eng));
+    when(teamCatalogService.find("ops")).thenReturn(Optional.of(ops));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, List.of("eng", "ops", "eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService, times(1)).add("alice", "eng");
+    verify(teamMembershipService, times(1)).add("alice", "ops");
+  }
+
+  @Test
+  @DisplayName("JIT team memberships开_再登录仍幂等调用add")
+  void callback_jitTeamMembershipsOn_idempotentRelogin() {
+    properties.setJitTeamMembershipsEnabled(true);
+    Team eng = new Team();
+    eng.setTeamId("eng");
+    when(teamCatalogService.find("eng")).thenReturn(Optional.of(eng));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    pendingStore.put("st1", "verifier");
+    assertThat(service.completeLogin("code", "st1").isSuccess()).isTrue();
+    pendingStore.put("st2", "verifier");
+    assertThat(service.completeLogin("code", "st2").isSuccess()).isTrue();
+    verify(teamMembershipService, times(2)).add("alice", "eng");
+  }
+
+  @Test
+  @DisplayName("JIT team memberships开_无catalog行则跳过add")
+  void callback_jitTeamMembershipsOn_skipsMissingCatalog() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    when(teamCatalogService.find("eng")).thenReturn(Optional.empty());
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService, never()).add(anyString(), anyString());
+  }
+
+  @Test
+  @DisplayName("revoke unmatched memberships关_不调用remove")
+  void callback_revokeUnmatchedMembershipsOff_noRemoves() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    properties.setRevokeUnmatchedTeamMemberships(false);
+    Team eng = new Team();
+    eng.setTeamId("eng");
+    when(teamCatalogService.find("eng")).thenReturn(Optional.of(eng));
+    when(teamMembershipService.listTeamIds("alice")).thenReturn(Set.of("eng", "legacy"));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService).add("alice", "eng");
+    verify(teamMembershipService, never()).remove(anyString(), anyString());
+    verify(teamMembershipService, never()).listTeamIds(anyString());
+  }
+
+  @Test
+  @DisplayName("revoke unmatched memberships开_移除多余并保留命中")
+  void callback_revokeUnmatchedMembershipsOn_removesExtrasKeepsMatched() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    properties.setRevokeUnmatchedTeamMemberships(true);
+    Team eng = new Team();
+    eng.setTeamId("eng");
+    when(teamCatalogService.find("eng")).thenReturn(Optional.of(eng));
+    when(teamMembershipService.listTeamIds("alice")).thenReturn(Set.of("eng", "legacy"));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of("eng")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService).add("alice", "eng");
+    verify(teamMembershipService).remove("alice", "legacy");
+    verify(teamMembershipService, never()).remove("alice", "eng");
+  }
+
+  @Test
+  @DisplayName("revoke unmatched memberships开_空groups清空全部成员")
+  void callback_revokeUnmatchedMembershipsOn_emptyGroupsClearsAll() {
+    pendingStore.put("st", "verifier");
+    properties.setJitTeamMembershipsEnabled(true);
+    properties.setRevokeUnmatchedTeamMemberships(true);
+    when(teamMembershipService.listTeamIds("alice")).thenReturn(Set.of("eng", "ops"));
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(new OidcIdTokenClaims("https://idp.example", "sub-1", null, List.of()));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(teamMembershipService, never()).add(anyString(), anyString());
+    verify(teamMembershipService).remove("alice", "eng");
+    verify(teamMembershipService).remove("alice", "ops");
+  }
+
+  @Test
+  @DisplayName("JIT org catalog关_不调用ensure")
+  void callback_jitOrgCatalogOff_noCatalogCalls() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(false);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of("acme", "contoso")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService, never()).ensure(anyString());
+    verify(organizationCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开但org-ids-claim空_不调用ensure")
+  void callback_jitOrgCatalogOn_emptyClaimName_skips() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of("acme")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService, never()).ensure(anyString());
+    verify(organizationCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开_claim空列表_不调用ensure")
+  void callback_jitOrgCatalogOn_emptyClaimValues_skips() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of()));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService, never()).ensure(anyString());
+    verify(organizationCatalogService, never()).ensure(anyString(), any());
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开_对缺失org ensure_去重后幂等")
+  void callback_jitOrgCatalogOn_ensuresOrgIds() {
+    pendingStore.put("st", "verifier");
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example",
+                "sub-1",
+                null,
+                null,
+                List.of(),
+                List.of("acme", "contoso", "acme")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    assertThat(service.completeLogin("code", "st").isSuccess()).isTrue();
+    verify(organizationCatalogService).ensure("acme");
+    verify(organizationCatalogService).ensure("contoso");
+  }
+
+  @Test
+  @DisplayName("JIT org catalog开_再登录仍幂等调用ensure")
+  void callback_jitOrgCatalogOn_idempotentRelogin() {
+    properties.setJitOrgCatalogEnabled(true);
+    properties.setOrgIdsClaim("org_ids");
+    when(tokenClient.exchangeAndValidate(anyString(), anyString(), any()))
+        .thenReturn(
+            new OidcIdTokenClaims(
+                "https://idp.example", "sub-1", null, null, List.of(), List.of("acme")));
+    IdentityMapping mapping = new IdentityMapping();
+    mapping.setUsername("alice");
+    when(mappingService.findByIssuerAndSubject(anyString(), anyString()))
+        .thenReturn(Optional.of(mapping));
+    when(userService.isEnabledUser("alice")).thenReturn(true);
+    WebSession session = new WebSession();
+    session.setSessionId("sid");
+    session.setUsername("alice");
+    when(sessionService.create("alice")).thenReturn(session);
+
+    pendingStore.put("st1", "verifier");
+    assertThat(service.completeLogin("code", "st1").isSuccess()).isTrue();
+    pendingStore.put("st2", "verifier");
+    assertThat(service.completeLogin("code", "st2").isSuccess()).isTrue();
+    verify(organizationCatalogService, times(2)).ensure("acme");
   }
 }

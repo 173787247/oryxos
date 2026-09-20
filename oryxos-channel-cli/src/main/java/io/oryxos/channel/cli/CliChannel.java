@@ -2,6 +2,9 @@ package io.oryxos.channel.cli;
 
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.agent.StreamListener;
+import io.oryxos.core.auth.Principal;
+import io.oryxos.core.auth.PrincipalContext;
+import io.oryxos.core.auth.Role;
 import io.oryxos.core.session.Session;
 import io.oryxos.core.session.SessionManager;
 import java.io.BufferedReader;
@@ -11,6 +14,7 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
+import java.util.Set;
 
 /**
  * chat 命令的交互通道：读 stdin、写 stdout，维护当前 Session，每行交给引擎，{@code /quit} 退出、{@code /new} 清空历史。
@@ -20,6 +24,9 @@ import java.nio.charset.Charset;
  *
  * <p>stdin 编码：有 {@link System#console()} 用 console reader；否则 {@link Charset#defaultCharset()}。不硬编码
  * UTF-8。
+ *
+ * <p>039 / #533：每轮 {@code process} 前把 OS 用户装入 {@link PrincipalContext}（角色由装配方注入），供 {@code
+ * ToolExecutor.decide(RUN_AGENT)}。
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
@@ -32,9 +39,17 @@ public class CliChannel {
   private final AgentService agentService;
   private final SessionManager sessionManager;
 
+  /** 运行时角色（#533）；默认空，RBAC 关时 ToolExecutor 仍 ALLOW_ALL。 */
+  private volatile Set<Role> runRoles = Set.of();
+
   public CliChannel(AgentService agentService, SessionManager sessionManager) {
     this.agentService = agentService;
     this.sessionManager = sessionManager;
+  }
+
+  /** 装配期注入角色（通常取 {@code default-user-roles}）。{@code null} 回落空集。 */
+  public void setRunRoles(Set<Role> runRoles) {
+    this.runRoles = runRoles == null ? Set.of() : Set.copyOf(runRoles);
   }
 
   public void run(String profileName, String userId) {
@@ -60,6 +75,7 @@ public class CliChannel {
         continue;
       }
       TypewriterListener listener = new TypewriterListener(out);
+      PrincipalContext.set(Principal.user(userId, userId, runRoles));
       try {
         String reply = agentService.process(session, line, listener);
         if (listener.printedAny()) {
@@ -73,6 +89,8 @@ public class CliChannel {
           out.println();
         }
         out.printf("[本轮出错: %s]%n", e.getMessage());
+      } finally {
+        PrincipalContext.clear();
       }
     }
   }

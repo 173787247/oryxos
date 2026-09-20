@@ -10,7 +10,11 @@ import io.oryxos.core.policy.AssetGovernanceStore;
 import io.oryxos.core.policy.AuthorizationService;
 import io.oryxos.core.policy.ResourceRef;
 import io.oryxos.storage.AssetGovernanceEventRecorder;
+import io.oryxos.storage.AssetGovernanceRevisionRecorder;
 import io.oryxos.web.common.ApiResponse;
+import io.oryxos.web.config.WebAssetGovernanceProperties;
+import io.oryxos.web.controller.dto.AssetGovernanceRevisionDiffView;
+import io.oryxos.web.controller.dto.AssetGovernanceRevisionView;
 import io.oryxos.web.controller.dto.AssetGovernanceView;
 import io.oryxos.web.controller.dto.ChannelStatusView;
 import io.oryxos.web.controller.dto.ChannelView;
@@ -27,6 +31,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -55,6 +60,11 @@ public class ChannelApiController {
   /** 治理变更审计；未装配时跳过（与 AssetGovernanceController 一致）。 */
   private AssetGovernanceEventRecorder governanceRecorder;
 
+  /** #537 全文快照；未装配或 flag 关时跳过。 */
+  private AssetGovernanceRevisionRecorder governanceRevisions;
+
+  private WebAssetGovernanceProperties assetGovernanceProperties;
+
   public ChannelApiController(ChannelAdminService admin) {
     this.admin = admin;
   }
@@ -69,6 +79,16 @@ public class ChannelApiController {
   @Autowired(required = false)
   public void setGovernanceRecorder(AssetGovernanceEventRecorder governanceRecorder) {
     this.governanceRecorder = governanceRecorder;
+  }
+
+  @Autowired(required = false)
+  public void setGovernanceRevisions(AssetGovernanceRevisionRecorder governanceRevisions) {
+    this.governanceRevisions = governanceRevisions;
+  }
+
+  @Autowired(required = false)
+  public void setAssetGovernanceProperties(WebAssetGovernanceProperties assetGovernanceProperties) {
+    this.assetGovernanceProperties = assetGovernanceProperties;
   }
 
   @GetMapping
@@ -93,6 +113,48 @@ public class ChannelApiController {
     return ApiResponse.ok(AssetGovernanceView.from(block));
   }
 
+  @GetMapping("/{name}/governance/revisions")
+  public ApiResponse<List<AssetGovernanceRevisionView>> listGovernanceRevisions(
+      @PathVariable String name) {
+    requireExists(name);
+    return AssetGovernanceApiSupport.listRevisions(
+        assetGovernanceProperties, governanceRevisions, ResourceRef.channel(name));
+  }
+
+  @GetMapping("/{name}/governance/revisions/{revisionId}/diff")
+  public ApiResponse<AssetGovernanceRevisionDiffView> diffGovernance(
+      @PathVariable String name,
+      @PathVariable long revisionId,
+      @RequestParam("against") long against) {
+    requireExists(name);
+    return AssetGovernanceApiSupport.diff(
+        assetGovernanceProperties,
+        governanceRevisions,
+        ResourceRef.channel(name),
+        against,
+        revisionId);
+  }
+
+  @PostMapping("/{name}/governance/revisions/{revisionId}/restore")
+  public ApiResponse<AssetGovernanceView> restoreGovernance(
+      HttpServletRequest request, @PathVariable String name, @PathVariable long revisionId) {
+    requireExists(name);
+    return AssetGovernanceApiSupport.restore(
+        request,
+        assetBindGuard,
+        governanceRecorder,
+        assetGovernanceProperties,
+        governanceRevisions,
+        Action.MANAGE_CHANNELS,
+        ResourceRef.channel(name),
+        revisionId,
+        (id, g) -> admin.updateGovernance(id, g),
+        id -> {
+          ChannelConfig cfg = requireConfig(id);
+          return cfg.governance() == null ? AssetGovernance.empty() : cfg.governance();
+        });
+  }
+
   @PutMapping("/{name}/governance")
   public ApiResponse<AssetGovernanceView> putGovernance(
       HttpServletRequest request,
@@ -102,10 +164,20 @@ public class ChannelApiController {
     requireChannelManage(request, name);
     AssetGovernance model = body == null ? AssetGovernance.empty() : body.toModel();
     AssetGovernance saved = admin.updateGovernance(name, model);
+    Principal actor = PrincipalHolder.get(request);
     if (governanceRecorder != null) {
-      Principal actor = PrincipalHolder.get(request);
       governanceRecorder.record(
           actor.describe(), ResourceRef.TYPE_CHANNEL, name, AssetGovernanceStore.summarize(saved));
+    }
+    if (assetGovernanceProperties != null
+        && assetGovernanceProperties.isVersionHistoryEnabled()
+        && governanceRevisions != null) {
+      governanceRevisions.record(
+          actor.describe(),
+          ResourceRef.TYPE_CHANNEL,
+          name,
+          saved.version(),
+          AssetGovernanceStore.snapshotYaml(saved));
     }
     return ApiResponse.ok(AssetGovernanceView.from(saved));
   }
