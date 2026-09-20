@@ -76,6 +76,7 @@ public class PricingApiController {
     if (req != null) {
       existing.setPromptPrice(req.promptPrice());
       existing.setCompletionPrice(req.completionPrice());
+      existing.bumpPriceVersion();
     }
     return ApiResponse.ok(PricingView.from(repository.save(existing)));
   }

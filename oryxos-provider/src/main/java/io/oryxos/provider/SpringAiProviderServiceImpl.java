@@ -1,5 +1,9 @@
 package io.oryxos.provider;
 
+import io.oryxos.core.cost.BudgetDecision;
+import io.oryxos.core.cost.BudgetExceededException;
+import io.oryxos.core.cost.CostContext;
+import io.oryxos.core.cost.CostLedgerService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.provider.LlmCallAuditor;
 import io.oryxos.core.provider.ModelPricing;
@@ -109,6 +113,13 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         spanRecorder == null ? io.oryxos.core.metrics.SpanRecorder.NOOP : spanRecorder;
   }
 
+  /** 050 / #476: cost ledger budget gate; unset = no enforcement. */
+  private volatile CostLedgerService costLedger;
+
+  public void setCostLedgerService(CostLedgerService costLedger) {
+    this.costLedger = costLedger;
+  }
+
   @Override
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "CRLF_INJECTION_LOGS",
@@ -123,7 +134,18 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         continue; // 备用候选未注册：WARN 已记，跳过不落审计（FR-008）
       }
       try {
+        Attempt gated = applyBudgetGate(profile, attempt);
+        if (gated != attempt) {
+          ProviderDef degraded = findDef(gated, true);
+          if (degraded == null) {
+            throw new BudgetExceededException(
+                "degrade provider not registered: " + gated.provider());
+          }
+          return chatOnce(sessionId, profile, request, gated, degraded);
+        }
         return chatOnce(sessionId, profile, request, attempt, def);
+      } catch (BudgetExceededException e) {
+        throw e;
       } catch (RuntimeException e) {
         last = e;
         if (i + 1 >= attempts.size() || !FallbackClassifier.isSwitchable(e)) {
@@ -540,6 +562,46 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   }
 
   /** 按 (provider, model) 查价算成本（微元）；失败/查不到价 → null（未计量）。 */
+  private Attempt applyBudgetGate(Profile profile, Attempt attempt) {
+    CostLedgerService ledger = this.costLedger;
+    if (ledger == null || !ledger.isEnforcementEnabled()) {
+      return attempt;
+    }
+    CostContext.State ctx = CostContext.current();
+    String teamId = ctx == null ? null : ctx.teamId();
+    String runId =
+        ctx != null && ctx.runId() != null
+            ? ctx.runId()
+            : io.oryxos.core.agent.TraceContext.current();
+    BudgetDecision decision = ledger.checkBudget(profile.name(), teamId, attempt.model(), runId);
+    if (!decision.allowed()) {
+      throw new BudgetExceededException(
+          decision.reason() == null ? "budget exceeded" : decision.reason());
+    }
+    if (!decision.isDegrade()) {
+      return attempt;
+    }
+    String provider =
+        decision.degradeProvider() == null || decision.degradeProvider().isBlank()
+            ? attempt.provider()
+            : decision.degradeProvider();
+    String model =
+        decision.degradeModel() == null || decision.degradeModel().isBlank()
+            ? attempt.model()
+            : decision.degradeModel();
+    if (provider.equals(attempt.provider()) && model.equals(attempt.model())) {
+      return attempt;
+    }
+    LOG.warn(
+        "budget degrade: {}/{} -> {}/{} ({})",
+        sanitize(attempt.provider()),
+        sanitize(attempt.model()),
+        sanitize(provider),
+        sanitize(model),
+        sanitize(decision.reason()));
+    return new Attempt(provider, model);
+  }
+
   private Long computeCost(String providerName, String model, Usage usage) {
     if (usage == null || usage.totalTokens() == null) {
       return null;

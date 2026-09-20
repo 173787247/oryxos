@@ -182,6 +182,7 @@ import org.springframework.web.context.WebApplicationContext;
   io.oryxos.core.policy.ApprovalPolicyProperties.class,
   io.oryxos.core.flow.FlowEngineProperties.class,
   io.oryxos.core.eval.EvalProperties.class,
+  io.oryxos.core.cost.CostProperties.class,
   OtelProperties.class
 })
 public class OryxOsRuntime {
@@ -232,13 +233,40 @@ public class OryxOsRuntime {
   }
 
   @Bean
-  LlmCallAuditor llmCallAuditor(LlmCallRepository repository) {
-    return new JpaLlmCallAuditor(repository);
+  io.oryxos.core.cost.CostLedgerStore costLedgerStore(
+      io.oryxos.storage.CostLedgerEntryRepository repository) {
+    return new io.oryxos.storage.JpaCostLedgerStore(repository);
   }
 
   @Bean
-  ToolInvocationAuditor toolInvocationAuditor(ToolInvocationRepository repository) {
-    return new JpaToolInvocationAuditor(repository);
+  io.oryxos.core.cost.AuditLlmCostSource auditLlmCostSource(LlmCallRepository repository) {
+    return new io.oryxos.storage.JpaAuditLlmCostSource(repository);
+  }
+
+  @Bean
+  io.oryxos.core.cost.CostLedgerService costLedgerService(
+      io.oryxos.core.cost.CostProperties costProperties,
+      io.oryxos.core.cost.CostLedgerStore costLedgerStore,
+      io.oryxos.core.cost.AuditLlmCostSource auditLlmCostSource) {
+    return new io.oryxos.core.cost.CostLedgerService(
+        costProperties, costLedgerStore, auditLlmCostSource);
+  }
+
+  @Bean
+  LlmCallAuditor llmCallAuditor(
+      LlmCallRepository repository,
+      io.oryxos.core.cost.CostLedgerService costLedgerService,
+      PricingStore pricingStore) {
+    LlmCallAuditor jpa = new JpaLlmCallAuditor(repository);
+    return new io.oryxos.core.cost.CostAwareLlmCallAuditor(jpa, costLedgerService, pricingStore);
+  }
+
+  @Bean
+  ToolInvocationAuditor toolInvocationAuditor(
+      ToolInvocationRepository repository,
+      io.oryxos.core.cost.CostLedgerService costLedgerService) {
+    ToolInvocationAuditor jpa = new JpaToolInvocationAuditor(repository);
+    return new io.oryxos.core.cost.CostAwareToolInvocationAuditor(jpa, costLedgerService);
   }
 
   @Bean

@@ -82,7 +82,7 @@ class MigrationEvolutionIT {
     try (Connection connection = DriverManager.getConnection(dbUrl);
         Statement statement = connection.createStatement()) {
       assertEquals(
-          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '23'"));
+          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '24'"));
     }
 
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
@@ -92,9 +92,9 @@ class MigrationEvolutionIT {
         Statement statement = connection.createStatement();
         ResultSet rows =
             statement.executeQuery(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '23' AND success = 1")) {
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '24' AND success = 1")) {
       assertTrue(rows.next());
-      assertEquals(1, rows.getLong(1), "V23 should have converged idempotently on restart");
+      assertEquals(1, rows.getLong(1), "V24 should have converged idempotently on restart");
     }
   }
 

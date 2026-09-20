@@ -201,7 +201,7 @@ class PostgresStorageE2ETest {
             statement.executeQuery(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true")) {
       assertTrue(rows.next());
-      assertEquals(19, rows.getLong(1));
+      assertEquals(20, rows.getLong(1));
     }
   }
 

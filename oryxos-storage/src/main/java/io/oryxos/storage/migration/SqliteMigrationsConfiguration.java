@@ -121,4 +121,9 @@ public class SqliteMigrationsConfiguration {
   FlowStepExpiresMigration flowStepExpiresMigration() {
     return new FlowStepExpiresMigration();
   }
+
+  @Bean
+  CostLedgerMigration costLedgerMigration() {
+    return new CostLedgerMigration();
+  }
 }

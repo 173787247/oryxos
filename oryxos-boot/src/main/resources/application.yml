@@ -133,6 +133,20 @@ oryxos:
   # 开启后 API：/api/v1/workspace/assets/{kind}/{id}/versions|activate|rollback
   cluster:
     versioned-asset-source-enabled: false
+  # 050 / #476: task cost ledger / budget / quotas. Default off.
+  # enabled -> cost_ledger_entries + /api/v1/cost/**; enforcement-enabled -> block/degrade.
+  cost:
+    enabled: false
+    enforcement-enabled: false
+    over-budget-action: block
+    degrade-provider: ""
+    degrade-model: ""
+    default-tool-cost-micros: 0
+    # budgets:
+    #   - id: agent-demo
+    #     scope: agent
+    #     key: demo
+    #     limit-micros: 1000000
   # 048 / #472：Agent/Skill/Prompt/Flow 评测与回归门禁。默认关=零行为变化；
   # CI/发布可用 scripts/eval-regression-gate.sh；开启 gate-enabled 后调用方可比对基线阻断发布。
   eval:
