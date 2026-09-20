@@ -180,6 +180,7 @@ import org.springframework.web.context.WebApplicationContext;
   ExecutionBackendProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
   io.oryxos.core.policy.ApprovalPolicyProperties.class,
+  io.oryxos.core.flow.FlowEngineProperties.class,
   OtelProperties.class
 })
 public class OryxOsRuntime {
@@ -1114,6 +1115,33 @@ public class OryxOsRuntime {
   io.oryxos.core.durable.DurableTaskReplay durableTaskReplay(
       io.oryxos.core.durable.DurableTaskService durableTaskService, ToolExecutor toolExecutor) {
     return new io.oryxos.core.durable.DurableTaskReplay(durableTaskService, toolExecutor);
+  }
+
+  /** 046 / #468：Flow run 存储；无 JPA 时进程内。 */
+  @Bean
+  io.oryxos.core.flow.FlowRunStore flowRunStore(
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.FlowRunRepository> runRepo,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.FlowStepRepository>
+          stepRepo) {
+    io.oryxos.storage.FlowRunRepository runs = runRepo.getIfAvailable();
+    io.oryxos.storage.FlowStepRepository steps = stepRepo.getIfAvailable();
+    if (runs == null || steps == null) {
+      return new io.oryxos.core.flow.InMemoryFlowRunStore();
+    }
+    return new io.oryxos.storage.JpaFlowRunStore(runs, steps);
+  }
+
+  /** 046 / #468：Markdown Flow 执行引擎（默认 oryxos.flow.engine-enabled=false）。 */
+  @Bean
+  io.oryxos.core.flow.FlowEngine flowEngine(
+      io.oryxos.core.flow.FlowRunStore flowRunStore,
+      io.oryxos.core.flow.FlowEngineProperties flowProperties) {
+    return new io.oryxos.core.flow.FlowEngine(
+        flowRunStore,
+        new io.oryxos.core.flow.DefaultFlowNodeHandler(),
+        java.time.Clock.systemUTC(),
+        flowProperties.isEngineEnabled(),
+        flowProperties.getDefaultMaxRetries());
   }
 
   /** 044 / #466：IM 回调收据；无 JPA 时进程内。 */
