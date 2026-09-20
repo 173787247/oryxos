@@ -89,17 +89,25 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # Package only (skip quality plugins already covered by `build`), then run
+      # Install this reactor before aggregation so cached first-party jars cannot
+      # substitute an older frontend bundle during dependency resolution.
+      # Skip quality plugins already covered by `build`, then run
       # Dependency-Check aggregate. Avoids a second spotless/pmd/spotbugs pass
       # that duplicated ~half the CI time and made CVE failures hard to spot.
       # NVD feed uses Dependency-Check's nightly cache (no NVD API key for forks).
-      - name: package (skip quality plugins)
+      - name: install current reactor (skip quality plugins)
         run: >-
-          mvn -B clean package -DskipTests
+          mvn -B clean install -DskipTests
           -Dspotless.check.skip=true
           -Dcheckstyle.skip=true
           -Dpmd.skip=true
           -Dspotbugs.skip=true
+      - name: Verify security exclusion assumptions
+        run: |
+          python3 scripts/test-security-assumptions.py
+          mkdir -p target
+          mvn -B -pl oryxos-boot -am dependency:tree -Dscope=runtime > target/security-dependency-tree.txt
+          python3 scripts/check-security-assumptions.py --dependency-tree target/security-dependency-tree.txt
       - name: OWASP dependency-check aggregate
         run: mvn -B -Dowasp.skip=false org.owasp:dependency-check-maven:aggregate
       - name: Upload Dependency-Check report

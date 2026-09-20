@@ -30,6 +30,20 @@ class KnowledgeBindingServiceTest {
   }
 
   @Test
+  void selectedProviderLinksSupportBindingInspectionAndDeleteProtection() throws IOException {
+    var storage = new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(root, null);
+    var selected = new KnowledgeBindingService(storage.root());
+    selected.bind("assistant", "ops");
+    assertTrue(selected.inspect("assistant").issues().isEmpty());
+    assertEquals(1, selected.inspect("assistant").bindings().size());
+    assertEquals(1, selected.references("ops").size());
+    assertThrows(KnowledgeReferencedException.class, () -> selected.ensureDeletable("ops"));
+    selected.unbind("assistant", "ops");
+    assertTrue(selected.inspect("assistant").bindings().isEmpty());
+    selected.ensureDeletable("ops");
+  }
+
+  @Test
   void bindCreatesFixedRelativeLinkAndInspectReturnsMetadata() throws IOException {
     SymlinkAssumptions.assumeSymlinksSupported(root);
     BoundKnowledgeDescriptor bound = service.bind("assistant", "ops");

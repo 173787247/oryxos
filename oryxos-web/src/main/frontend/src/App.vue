@@ -3,6 +3,7 @@ import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'v
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import logoUrl from './assets/logo.svg'
+import { withRevision, rowsWithRevision, revisionHeaders } from './workspace-revision.js'
 import LoginView from './views/LoginView.vue'
 import RunManagementView from './features/runs/RunManagementView.vue'
 import TeamsManagementView from './features/teams/TeamsManagementView.vue'
@@ -270,7 +271,7 @@ async function loadKnowledge() {
     const res = await fetch('/api/v1/knowledge')
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
-    kb.value = { loading: false, error: null, data: body.data || [] }
+    kb.value = { loading: false, error: null, data: rowsWithRevision(body.data, res) }
   } catch (e) { kb.value = { loading: false, error: e.message, data: [] } }
 }
 function cancelKb() { kbForm.open = false; kbForm.name = ''; kbForm.description = ''; kbForm.busy = false; kbForm.error = '' }
@@ -282,7 +283,7 @@ async function refreshKbDetail(name) {
     const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}`)
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
-    kbDetail.value = { name, base: body.data.base, documents: body.data.documents || [], loading: false, error: null, busy: false }
+    kbDetail.value = { revision: res.headers.get('X-Workspace-Revision'), name, base: body.data.base, documents: body.data.documents || [], loading: false, error: null, busy: false }
     loadKbMetrics(kbMetrics.range)
   } catch (e) { kbDetail.value = { name, base: null, documents: [], loading: false, error: e.message, busy: false } }
 }
@@ -301,7 +302,7 @@ async function createKb() {
 async function deleteKb(name) {
   if (!confirm(`删除知识库「${name}」？（目录与索引一并删除）`)) return
   try {
-    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE', headers: revisionHeaders(kb.value.data.find((b) => b.name === name)?._workspaceRevision) })
     const body = await res.json()
     if (body.code !== 0) {
       // 409：被 Agent 引用——点名引用方（FR-011）
@@ -321,7 +322,7 @@ async function uploadKbDoc(event) {
   try {
     const form = new FormData()
     form.append('file', file)
-    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/documents`, { method: 'POST', body: form })
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/documents`, { method: 'POST', headers: revisionHeaders(kbDetail.value.revision), body: form })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '上传失败')
     await refreshKbDetail(name)
@@ -466,7 +467,7 @@ async function deleteKbDoc(relPath) {
   if (!confirm(`删除文档「${relPath}」？（源文件与索引片段一并删除）`)) return
   const name = kbDetail.value.name
   try {
-    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/documents?path=${encodeURIComponent(relPath)}`, { method: 'DELETE' })
+    const res = await fetch(`/api/v1/knowledge/${encodeURIComponent(name)}/documents?path=${encodeURIComponent(relPath)}`, { method: 'DELETE', headers: revisionHeaders(kbDetail.value.revision) })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '删除失败')
     await refreshKbDetail(name)
@@ -509,7 +510,7 @@ async function loadSkills() {
     const res = await fetch('/api/v1/skills')
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
-    skills.value = { loading: false, error: null, data: body.data || [] }
+    skills.value = { loading: false, error: null, data: rowsWithRevision(body.data, res) }
   } catch (e) { skills.value = { loading: false, error: e.message, data: [] } }
 }
 const skillForm = reactive({ open: false, editing: null, name: '', description: '', body: '', busy: false, error: null })
@@ -518,6 +519,7 @@ function newSkill() {
   skillForm.error = null; skillForm.open = true
 }
 function editSkill(row) {
+  skillForm.revision = row._workspaceRevision
   skillForm.editing = row.name; skillForm.name = row.name
   skillForm.description = row.description || ''; skillForm.body = row.body || ''
   skillForm.error = null; skillForm.open = true
@@ -535,7 +537,7 @@ async function saveSkill() {
       : { name: skillForm.name, description: skillForm.description, body: skillForm.body }
     const res = await fetch(url, {
       method: skillForm.editing ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(skillForm.editing ? revisionHeaders(skillForm.revision) : {}) },
       body: JSON.stringify(payload),
     })
     const body = await res.json()
@@ -546,7 +548,7 @@ async function saveSkill() {
 async function deleteSkill(name) {
   if (!confirm(`归档 Skill「${name}」？存在活跃或归档 Agent 引用时会拒绝，实体不会被物理删除。`)) return
   try {
-    const res = await fetch(`/api/v1/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    const res = await fetch(`/api/v1/skills/${encodeURIComponent(name)}`, { method: 'DELETE', headers: revisionHeaders(skills.value.data.find((s) => s.name === name)?._workspaceRevision) })
     const body = await res.json()
     if (body.code !== 0) {
       const refs = (body.data?.references || []).map((r) => `${r.agentName}(${r.state})`).join('、')
@@ -734,7 +736,7 @@ async function loadAgents() {
     const res = await fetch('/api/v1/agents')
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
-    agents.value = { loading: false, error: null, data: body.data || [] }
+    agents.value = { loading: false, error: null, data: rowsWithRevision(body.data, res), revision: res.headers.get('X-Workspace-Revision') }
   } catch (e) {
     agents.value = { loading: false, error: e.message, data: [] }
   }
@@ -745,7 +747,7 @@ async function loadAgents() {
 const agentCreate = reactive({
   open: false, name: '', description: '', provider: '', model: '', notifyChannel: '', skills: [],
   requiredSkills: [], suggestedSkills: [], knowledge: [], suggestedKnowledge: [],
-  files: null, busy: false, error: '',
+  files: null, busy: false, error: '', revision: null,
 })
 
 // 新建页用的 provider / model 下拉数据源：provider 来自 GET /providers；model 来自 GET /providers/{name}/models（服务端代理）
@@ -775,6 +777,7 @@ function onProviderChange() { agentCreate.model = ''; loadCreateModels(agentCrea
 // 打开新建页：重置字段 + 拉通知渠道下拉数据
 function openCreate() {
   agentCreate.open = true
+  agentCreate.revision = agents.value.revision
   agentCreate.name = ''
   agentCreate.description = ''
   agentCreate.provider = ''
@@ -825,11 +828,11 @@ async function submitCreate() {
   try {
     const res = agentCreate.files
       ? await fetch(`/api/v1/agents/${encodeURIComponent(agentCreate.name)}/files`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...revisionHeaders(agentCreate.revision) },
           body: JSON.stringify({ files: agentCreate.files, skillBindings: agentCreate.skills, knowledgeBindings: agentCreate.knowledge }),
         })
         : await fetch('/api/v1/agents', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...revisionHeaders(agentCreate.revision) },
           body: JSON.stringify({ name: agentCreate.name, description: agentCreate.description, provider: agentCreate.provider || undefined, model: agentCreate.model || undefined, skillBindings: agentCreate.skills, knowledgeBindings: agentCreate.knowledge }),
         })
     const body = await res.json()
@@ -862,7 +865,7 @@ async function loadPersonaPresets() {
     const res = await fetch('/api/v1/personas')
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
-    personaPresets.value = { loading: false, error: null, data: body.data || [] }
+    personaPresets.value = { loading: false, error: null, data: rowsWithRevision(body.data, res) }
     personaPageError.value = ''
   } catch (e) { personaPresets.value = { loading: false, error: e.message, data: [] } }
 }
@@ -963,6 +966,7 @@ async function editPersona(p) {
     const res = await fetch(`/api/v1/personas/${encodeURIComponent(p.key)}`)
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
+    personaForm.revision = res.headers.get('X-Workspace-Revision')
     personaForm.open = true; personaForm.editing = true; personaForm.viewOnly = false
     personaForm.key = p.key; personaForm.sourceContent = body.data.sourceContent; personaForm.busy = false
   } catch (e) { personaPageError.value = e.message; personaForm.busy = false }
@@ -986,7 +990,7 @@ async function savePersonaForm() {
   try {
     const res = await fetch(personaForm.editing ? `/api/v1/personas/${encodeURIComponent(key)}` : '/api/v1/personas', {
       method: personaForm.editing ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(personaForm.editing ? revisionHeaders(personaForm.revision) : {}) },
       body: JSON.stringify({ key, sourceContent: personaForm.sourceContent }),
     })
     const body = await res.json()
@@ -1001,7 +1005,7 @@ async function deletePersona(p) {
   if (!window.confirm(`删除自定义人格「${p.label}」？此操作不可撤销。`)) return
   personaPageError.value = ''
   try {
-    const res = await fetch(`/api/v1/personas/${encodeURIComponent(p.key)}`, { method: 'DELETE' })
+    const res = await fetch(`/api/v1/personas/${encodeURIComponent(p.key)}`, { method: 'DELETE', headers: revisionHeaders(p._workspaceRevision) })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '删除失败')
     if (agentImport.selected === p.key) { agentImport.selected = '' }
@@ -1032,7 +1036,7 @@ async function triggerAgent(a) {
 async function deleteAgent(name) {
   if (!confirm(`删除 Agent「${name}」？（整个目录归档到 archive/，不物理删）`)) return
   try {
-    const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}`, { method: 'DELETE', headers: revisionHeaders(agents.value.data.find((a) => a.name === name)?._workspaceRevision) })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '删除失败')
     if (agentDetail.value?.name === name) closeAgent()
@@ -1670,27 +1674,33 @@ async function openAgent(agent) {
   resetAgentMemory()
   loadAgentGovernance(agent.name)
   try {
-    const [treeRes, bindingRes, kbRes] = await Promise.all([
+    const [treeRes, bindingRes, kbRes, agentRes] = await Promise.all([
       fetch('/api/v1/workspace/tree'),
       fetch(`/api/v1/agents/${encodeURIComponent(agent.name)}/skills`),
       fetch(`/api/v1/agents/${encodeURIComponent(agent.name)}/knowledge`),
+      fetch(`/api/v1/agents/${encodeURIComponent(agent.name)}`),
       loadSkills(), // Skill 绑定选择器的数据源：存在即已安装
       loadKnowledge(), // 知识库绑定选择器的数据源
     ])
+    const agentBody = await agentRes.json()
+    if (agentBody.code !== 0) throw new Error(agentBody.message || 'Agent 加载失败')
+    const freshAgent = withRevision(agentBody.data, agentRes)
     const body = await treeRes.json()
     const bindingBody = await bindingRes.json()
     const kbBody = await kbRes.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
     if (bindingBody.code !== 0) throw new Error(bindingBody.message || '绑定加载失败')
     if (kbBody.code !== 0) throw new Error(kbBody.message || '知识库绑定加载失败')
+    agentKb.revision = kbRes.headers.get('X-Workspace-Revision')
     agentKb.selected = (kbBody.data.bindings || []).map((b) => b.name)
     agentKb.issues = kbBody.data.issues || []
     const agentsNode = (body.data.children || []).find((c) => c.name === 'agents')
     const node = (agentsNode?.children || []).find((c) => c.name === agent.name) || null
     const outputTree = (body.data.children || []).find((c) => c.name === 'output') || null
+    agentBinding.revision = bindingRes.headers.get('X-Workspace-Revision')
     agentBinding.selected = (bindingBody.data.bindings || []).map((b) => b.name)
     agentBinding.issues = bindingBody.data.issues || []
-    agentDetail.value = { ...agentDetail.value, loading: false, node, outputTree }
+    agentDetail.value = { ...agentDetail.value, agent: freshAgent, loading: false, node, outputTree }
   } catch (e) {
     agentDetail.value = { ...agentDetail.value, loading: false, error: e.message }
   }
@@ -1701,11 +1711,12 @@ async function saveAgentBindings() {
   agentBinding.saving = true; agentBinding.error = null; agentBinding.saved = false
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/skills`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...revisionHeaders(agentBinding.revision) },
       body: JSON.stringify({ skills: agentBinding.selected }),
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '保存绑定失败')
+    agentBinding.revision = res.headers.get('X-Workspace-Revision')
     agentBinding.selected = (body.data.bindings || []).map((b) => b.name)
     agentBinding.issues = body.data.issues || []
     agentBinding.saved = true
@@ -1723,11 +1734,12 @@ async function saveAgentKnowledge() {
   agentKb.saving = true; agentKb.error = null; agentKb.saved = false
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/knowledge`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...revisionHeaders(agentKb.revision) },
       body: JSON.stringify({ knowledge: agentKb.selected }),
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '保存知识库绑定失败')
+    agentKb.revision = res.headers.get('X-Workspace-Revision')
     agentKb.selected = (body.data.bindings || []).map((b) => b.name)
     agentKb.issues = body.data.issues || []
     agentKb.saved = true
@@ -1743,7 +1755,7 @@ async function reloadAgent() {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}`)
     const body = await res.json()
     if (body.code === 0 && body.data) {
-      agentDetail.value = { ...agentDetail.value, agent: body.data }
+      agentDetail.value = { ...agentDetail.value, agent: withRevision(body.data, res) }
     }
   } catch (e) {
     /* 元数据刷新失败不阻断，忽略 */
@@ -1781,6 +1793,7 @@ function detailTab(tab) {
 // —— 详情页「编辑基本信息」：结构化改 description / provider / model / skills（只动 AGENT.md frontmatter，正文与其它配置不动）——
 function startEditBasic() {
   const a = agentDetail.value?.agent || {}
+  editBasic.revision = a._workspaceRevision
   editBasic.description = a.description || ''
   editBasic.provider = a.provider || ''
   editBasic.model = a.model || ''
@@ -1810,7 +1823,7 @@ async function saveEditBasic() {
   const name = agentDetail.value.name
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}/basic`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...revisionHeaders(editBasic.revision) },
       body: JSON.stringify({
         description: editBasic.description,
         provider: editBasic.provider,
@@ -1828,6 +1841,7 @@ async function saveEditBasic() {
 const personaEdit = reactive({ open: false, name: '', role: '', traits: '', tone: '', values: '', boundaries: '', sampleStyle: '', saving: false, error: '' })
 function startEditPersona() {
   const p = (agentDetail.value && agentDetail.value.agent && agentDetail.value.agent.persona) || {}
+  personaEdit.revision = agentDetail.value?.agent?._workspaceRevision
   personaEdit.open = true
   personaEdit.name = p.name || ''
   personaEdit.role = p.role || ''
@@ -1845,7 +1859,7 @@ async function savePersona() {
   personaEdit.saving = true; personaEdit.error = ''
   try {
     const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentDetail.value.name)}/persona`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...revisionHeaders(personaEdit.revision) },
       body: JSON.stringify({
         name: personaEdit.name.trim(), role: personaEdit.role.trim(),
         traits: personaEdit.traits.trim(), tone: personaEdit.tone.trim(),
@@ -2218,7 +2232,7 @@ async function openFile(node) {
     const res = await fetch(`/api/v1/workspace/file?path=${encodeURIComponent(node.path)}`)
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '加载失败')
-    fileView.value = { path: node.path, loading: false, error: null, content: body.data, saving: false, saved: false }
+    fileView.value = { path: node.path, loading: false, error: null, content: body.data, revision: res.headers.get('X-Workspace-Revision'), saving: false, saved: false }
   } catch (e) {
     fileView.value = { path: node.path, loading: false, error: e.message, content: '', saving: false, saved: false }
   }
@@ -2230,12 +2244,12 @@ async function saveFile() {
   fileView.value = { ...fileView.value, saving: true, error: null, saved: false }
   try {
     const res = await fetch('/api/v1/workspace/file', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...revisionHeaders(fileView.value.revision) },
       body: JSON.stringify({ path: fileView.value.path, content: fileView.value.content }),
     })
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '保存失败')
-    fileView.value = { ...fileView.value, saving: false, saved: true }
+    fileView.value = { ...fileView.value, saving: false, saved: true, revision: res.headers.get('X-Workspace-Revision') }
     if (fileView.value.path.endsWith('/AGENT.md')) await reloadAgent()
   } catch (e) {
     fileView.value = { ...fileView.value, saving: false, error: e.message }

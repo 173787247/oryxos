@@ -90,6 +90,24 @@ class DockerProcessStarterTest {
     assertTrue(argv.contains("--cidfile"));
   }
 
+  @Test
+  void workingDirectoryMapsIntoContainerAndCannotEscapeMount() throws Exception {
+    AtomicReference<List<String>> captured = new AtomicReference<>();
+    DockerProcessStarter starter =
+        starter(
+            command -> {
+              captured.set(command);
+              return new FakeCliProcess();
+            });
+    starter.start(List.of("echo", "hello"), tempDir.resolve(".staging/run"));
+    List<String> argv = captured.get();
+    assertEquals("/workspace/.staging/run", argv.get(argv.indexOf("--workdir") + 1));
+    assertTrue(argv.indexOf("--workdir") < argv.indexOf("alpine:3.20"));
+    assertThrows(
+        IOException.class,
+        () -> starter.start(List.of("echo", "hello"), tempDir.resolve("../escape").normalize()));
+  }
+
   /** 最小假 CLI 进程（无 IO 语义，只验证包装与上下文）。 */
   static final class FakeCliProcess extends Process {
     @Override

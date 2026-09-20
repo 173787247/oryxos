@@ -33,7 +33,7 @@ public class KnowledgeCommand implements Runnable {
   @Command(name = "list", description = "列出知识库", mixinStandardHelpOptions = true)
   static class ListCommand implements Runnable {
 
-    private static final Path KNOWLEDGE_DIR = Path.of(".oryxos", "knowledge");
+    private Path knowledgeDir;
 
     /** indexStats 结果各下标：0=文档数 1=片段数 2=失败数 3=进行中数。 */
     private static final int STAT_COUNT = 4;
@@ -43,8 +43,9 @@ public class KnowledgeCommand implements Runnable {
 
     @Override
     public void run() {
-      if (!Files.isDirectory(KNOWLEDGE_DIR)) {
-        System.out.println("暂无知识库（" + KNOWLEDGE_DIR + " 尚未创建，可先 oryxos init）。");
+      knowledgeDir = Workspace.root().resolve("knowledge");
+      if (!Files.isDirectory(knowledgeDir)) {
+        System.out.println("暂无知识库（" + knowledgeDir + " 尚未创建，可先 oryxos init）。");
         return;
       }
       List<KnowledgeManifest> manifests = readManifests();
@@ -66,10 +67,10 @@ public class KnowledgeCommand implements Runnable {
       }
     }
 
-    private static List<KnowledgeManifest> readManifests() {
+    private List<KnowledgeManifest> readManifests() {
       List<KnowledgeManifest> manifests = new ArrayList<>();
       try (DirectoryStream<Path> dirs =
-          Files.newDirectoryStream(KNOWLEDGE_DIR, Files::isDirectory)) {
+          Files.newDirectoryStream(knowledgeDir, Files::isDirectory)) {
         for (Path dir : dirs) {
           try {
             manifests.add(KnowledgeManifest.read(dir));

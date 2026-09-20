@@ -1,6 +1,7 @@
 package io.oryxos.tool.sandbox;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -16,6 +17,19 @@ public final class LocalProcessStarter implements ProcessStarter {
               + " 精确白名单校验（自 ShellTools.startProcess 原样搬运，含注解）")
   @Override
   public Process start(List<String> command) throws IOException {
-    return new ProcessBuilder(command).start();
+    return start(command, null);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "COMMAND_INJECTION",
+      justification =
+          "ShellTools validates executable and supplies argv without shell interpolation")
+  @Override
+  public Process start(List<String> command, Path workingDirectory) throws IOException {
+    ProcessBuilder builder = new ProcessBuilder(command);
+    if (workingDirectory != null) {
+      builder.directory(workingDirectory.toFile());
+    }
+    return builder.start();
   }
 }

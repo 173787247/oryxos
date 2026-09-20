@@ -652,7 +652,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     return names.stream().map(name -> safe(name, "Skill")).distinct().sorted().toList();
   }
 
-  private static void requireControlledLink(Path link, String skill) {
+  private void requireControlledLink(Path link, String skill) {
     if (!Files.isSymbolicLink(link)) {
       throw new IllegalArgumentException("绑定位置不是软连接，拒绝删除: " + link);
     }
@@ -665,8 +665,8 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     }
   }
 
-  private static Path expectedTarget(String skill) {
-    return Path.of("..", "..", "..", "skills", skill);
+  private Path expectedTarget(String skill) {
+    return root.getFileSystem().getPath("..", "..", "..", "skills", skill);
   }
 
   private static void moveAtomic(Path source, Path target) throws IOException {

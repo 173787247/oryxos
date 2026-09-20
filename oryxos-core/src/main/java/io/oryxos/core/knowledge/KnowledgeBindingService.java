@@ -77,6 +77,11 @@ public class KnowledgeBindingService {
     }
   }
 
+  /** Validate requested knowledge targets before any Agent files are changed. */
+  public void validateTargets(List<String> desiredKbs) {
+    normalizedNames(desiredKbs).forEach(this::requireKnowledgeBase);
+  }
+
   /** 整体替换一个 Agent 的绑定集合；I/O 失败回滚本次新增，损坏绑定先修复再替换。 */
   public synchronized KnowledgeBindingInspection replaceBindings(
       String agentName, List<String> desiredKbs) {
@@ -479,7 +484,7 @@ public class KnowledgeBindingService {
     return dir.toAbsolutePath().normalize();
   }
 
-  private static void requireControlledLink(Path link, String kb) {
+  private void requireControlledLink(Path link, String kb) {
     if (!Files.isSymbolicLink(link)) {
       throw new IllegalArgumentException("绑定位置不是软连接，拒绝删除: " + link);
     }
@@ -499,8 +504,8 @@ public class KnowledgeBindingService {
     return names.stream().map(name -> safe(name, "知识库")).distinct().sorted().toList();
   }
 
-  private static Path expectedTarget(String kb) {
-    return Path.of("..", "..", "..", LINKS_DIR, kb);
+  private Path expectedTarget(String kb) {
+    return knowledgeDir.getFileSystem().getPath("..", "..", "..", LINKS_DIR, kb);
   }
 
   private static KnowledgeBindingIssue issue(

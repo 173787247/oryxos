@@ -18,14 +18,30 @@ final class Workspace {
 
   /** 解析工作区根目录（可自定义路径与名字）。 */
   static Path root() {
-    String sys = System.getProperty("oryxos.root");
-    if (sys != null && !sys.isBlank()) {
-      return Path.of(sys);
+    String root = setting("oryxos.root", "ORYXOS_ROOT", DEFAULT_ROOT);
+    String provider =
+        setting("oryxos.workspace.storage.provider", "ORYXOS_WORKSPACE_STORAGE_PROVIDER", "local");
+    String identity =
+        setting("oryxos.workspace.storage.identity", "ORYXOS_WORKSPACE_STORAGE_IDENTITY", "");
+    var providers = new java.util.ArrayList<io.oryxos.core.workspace.WorkspaceStorageProvider>();
+    providers.add(new io.oryxos.core.workspace.LocalWorkspaceStorageProvider());
+    providers.add(new io.oryxos.core.workspace.SharedPosixWorkspaceStorageProvider());
+    java.util.ServiceLoader.load(io.oryxos.core.workspace.WorkspaceStorageProvider.class)
+        .forEach(providers::add);
+    try {
+      return new io.oryxos.core.workspace.WorkspaceStorageRegistry(providers)
+          .open(provider, Path.of(root), identity)
+          .root();
+    } catch (java.io.IOException failure) {
+      throw new java.io.UncheckedIOException("Workspace unavailable", failure);
     }
-    String env = System.getenv("ORYXOS_ROOT");
-    if (env != null && !env.isBlank()) {
-      return Path.of(env);
+  }
+
+  private static String setting(String property, String environment, String fallback) {
+    String value = System.getProperty(property);
+    if (value == null || value.isBlank()) {
+      value = System.getenv(environment);
     }
-    return Path.of(DEFAULT_ROOT);
+    return value == null || value.isBlank() ? fallback : value;
   }
 }

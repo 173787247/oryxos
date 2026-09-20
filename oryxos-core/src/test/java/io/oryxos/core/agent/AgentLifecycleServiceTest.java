@@ -21,12 +21,17 @@ import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.Profile.ScheduleConfig;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.profile.ProfileValidationException;
+import io.oryxos.core.workspace.SharedPosixWorkspaceStorageProvider;
+import io.oryxos.core.workspace.WorkspaceStorage;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
@@ -133,6 +138,55 @@ class AgentLifecycleServiceTest {
 
     verify(profileRegistry).register(p);
     verify(agentScheduler).registerProfile(p);
+  }
+
+  @Test
+  void sharedWorkspaceOutageFailsReconciliationWithoutRemovingProfiles(@TempDir Path temporaryRoot)
+      throws Exception {
+    Path shared = Files.createDirectories(temporaryRoot.resolve("shared"));
+    Files.writeString(shared.resolve(".workspace-id"), "agents-fixture");
+    Path agent = Files.createDirectories(shared.resolve("agents/demo"));
+    Files.writeString(agent.resolve("AGENT.md"), MD);
+
+    try (WorkspaceStorage storage =
+        new SharedPosixWorkspaceStorageProvider().open(shared, "agents-fixture")) {
+      Path selectedAgents = storage.root().resolve("agents");
+      ProfileRegistry liveRegistry = new ProfileRegistry();
+      AgentStore selectedStore = mock(AgentStore.class);
+      when(selectedStore.agentsDir()).thenReturn(selectedAgents);
+      AgentLifecycleService selectedService =
+          new AgentLifecycleService(
+              new AgentLoader(selectedAgents, java.util.Set.of("deepseek")),
+              liveRegistry,
+              mock(AgentScheduler.class),
+              selectedStore,
+              mock(io.oryxos.core.provider.ProviderService.class),
+              "deepseek",
+              "deepseek",
+              "deepseek-chat",
+              java.util.Map.of(),
+              mock(io.oryxos.core.notify.NotifyChannelRegistry.class));
+
+      selectedService.reconcileAll();
+      assertTrue(liveRegistry.exists("demo"));
+
+      Files.writeString(shared.resolve(".workspace-id"), "wrong");
+
+      assertThrows(UncheckedIOException.class, selectedService::reconcileAll);
+      assertTrue(liveRegistry.exists("demo"));
+
+      Files.writeString(shared.resolve(".workspace-id"), "agents-fixture");
+      selectedService.reconcileAll();
+      Files.delete(shared.resolve(".workspace-id"));
+      assertThrows(UncheckedIOException.class, selectedService::reconcileAll);
+      assertTrue(liveRegistry.exists("demo"));
+
+      Files.writeString(shared.resolve(".workspace-id"), "agents-fixture");
+      Files.delete(agent.resolve("AGENT.md"));
+      Files.delete(agent);
+      selectedService.reconcileAll();
+      assertFalse(liveRegistry.exists("demo"));
+    }
   }
 
   @Test

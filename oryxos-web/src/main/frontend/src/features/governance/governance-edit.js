@@ -1,3 +1,5 @@
+import { revisionHeaders } from '../../workspace-revision.js'
+
 /**
  * Shared GOVERNANCE.yml editor state + API helpers (#504).
  * apiKind: 'agents' | 'skills' | 'knowledge'
@@ -19,6 +21,7 @@ export function createGovernanceEdit() {
     health: '',
     teamOwner: '',
     orgOwner: '',
+    revision: null,
     loaded: false,
   }
 }
@@ -45,6 +48,7 @@ export async function loadGovernance(state, apiKind, name) {
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '治理加载失败')
     applyData(state, body.data)
+    state.revision = res.headers.get('X-Workspace-Revision')
   } catch (e) {
     state.error = e.message
   } finally {
@@ -69,7 +73,10 @@ export async function saveGovernance(state, apiKind, name) {
   try {
     const res = await fetch(`/api/v1/${apiKind}/${encodeURIComponent(name)}/governance`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...revisionHeaders(state.revision),
+      },
       body: JSON.stringify({
         owner: state.owner.trim() || null,
         version: state.version.trim() || null,
@@ -83,6 +90,7 @@ export async function saveGovernance(state, apiKind, name) {
     const body = await res.json()
     if (body.code !== 0) throw new Error(body.message || '保存失败')
     applyData(state, body.data)
+    state.revision = res.headers.get('X-Workspace-Revision')
     state.open = false
   } catch (e) {
     state.error = e.message

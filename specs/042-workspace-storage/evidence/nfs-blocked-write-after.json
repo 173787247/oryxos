@@ -1,0 +1,117 @@
+{
+  "deadline_seconds": 5,
+  "requests": [
+    {
+      "status": 503,
+      "seconds": 0.006991091184318066,
+      "body": {
+        "code": 503,
+        "message": "\u5de5\u4f5c\u533a\u5065\u5eb7\u68c0\u67e5\u672a\u5c31\u7eea\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        "data": null,
+        "timestamp": 1789867289413
+      },
+      "port": 18046,
+      "name": "blocked-5328a93b6988"
+    },
+    {
+      "status": 503,
+      "seconds": 0.007352265063673258,
+      "body": {
+        "code": 503,
+        "message": "\u5de5\u4f5c\u533a\u5065\u5eb7\u68c0\u67e5\u672a\u5c31\u7eea\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        "data": null,
+        "timestamp": 1789867289414
+      },
+      "port": 18047,
+      "name": "blocked-430deaf4e64f"
+    }
+  ],
+  "scope": "direct Pod HTTP after readiness DOWN, NFSv4.1 hard mount",
+  "down_after_seconds": 11.116178086027503,
+  "recovered_health": [
+    200,
+    200
+  ],
+  "after_recovery": [
+    {
+      "status": 404,
+      "seconds": 0.015998716931790113,
+      "body": {
+        "code": 404,
+        "message": "Agent \u4e0d\u5b58\u5728: blocked-5328a93b6988",
+        "data": null,
+        "timestamp": 1789867292564
+      },
+      "name": "blocked-5328a93b6988"
+    },
+    {
+      "status": 404,
+      "seconds": 0.01611188566312194,
+      "body": {
+        "code": 404,
+        "message": "Agent \u4e0d\u5b58\u5728: blocked-430deaf4e64f",
+        "data": null,
+        "timestamp": 1789867292580
+      },
+      "name": "blocked-430deaf4e64f"
+    }
+  ],
+  "control_writes": [
+    {
+      "status": 200,
+      "seconds": 0.22506649093702435,
+      "body": {
+        "code": 0,
+        "message": "success",
+        "data": {
+          "name": "recovered-20a77676c085",
+          "description": "healthy control",
+          "provider": "mock",
+          "model": "mock",
+          "tools": [
+            "read_file",
+            "shell",
+            "notify",
+            "web_search",
+            "http_get",
+            "fetch_webpage"
+          ],
+          "skills": [],
+          "schedules": [],
+          "persona": null
+        },
+        "timestamp": 1789867292777
+      }
+    },
+    {
+      "status": 200,
+      "seconds": 0.2358178640715778,
+      "body": {
+        "code": 0,
+        "message": "success",
+        "data": {
+          "name": "recovered-97d3ca4ce838",
+          "description": "healthy control",
+          "provider": "mock",
+          "model": "mock",
+          "tools": [
+            "read_file",
+            "shell",
+            "notify",
+            "web_search",
+            "http_get",
+            "fetch_webpage"
+          ],
+          "skills": [],
+          "schedules": [],
+          "persona": null
+        },
+        "timestamp": 1789867293013
+      }
+    }
+  ],
+  "passed": true,
+  "image": "oryxos:042-nfs-guard",
+  "image_id": "sha256:1347a713e8bf9f8ab20048bc5a2ae7b8bd8d5d7086fabcf74da5021a80b1a948",
+  "jar_sha256": "d82bc0cbc5cf4507e13c2454214beaa15595f90770fd2eed9dc41a51d701cd6a"
+}

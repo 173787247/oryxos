@@ -2,12 +2,17 @@ package io.oryxos.core.cluster;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
@@ -127,6 +132,81 @@ class WorkspaceVersionPollerTest {
         store, new ClusterProperties(), new ThreadPoolTaskScheduler());
   }
 
+  private static WorkspaceVersionPoller pollerOf(
+      FakeStore store, ClusterProperties properties, Clock clock) {
+    return new WorkspaceVersionPoller(store, properties, new ThreadPoolTaskScheduler(), clock);
+  }
+
+  static final class MutableClock extends Clock {
+    private Instant instant;
+
+    MutableClock(Instant instant) {
+      this.instant = instant;
+    }
+
+    void advance(Duration duration) {
+      instant = instant.plus(duration);
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return ZoneId.of("UTC");
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return this;
+    }
+
+    @Override
+    public Instant instant() {
+      return instant;
+    }
+  }
+
+  static final class NoOpScheduler extends ThreadPoolTaskScheduler {
+    @Override
+    public ScheduledFuture<?> scheduleWithFixedDelay(
+        Runnable task, Instant startTime, Duration delay) {
+      return new ScheduledFuture<>() {
+        @Override
+        public long getDelay(TimeUnit unit) {
+          return 0;
+        }
+
+        @Override
+        public int compareTo(Delayed other) {
+          return 0;
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+          return true;
+        }
+
+        @Override
+        public boolean isCancelled() {
+          return false;
+        }
+
+        @Override
+        public boolean isDone() {
+          return false;
+        }
+
+        @Override
+        public Object get() {
+          return null;
+        }
+
+        @Override
+        public Object get(long timeout, TimeUnit unit) {
+          return null;
+        }
+      };
+    }
+  }
+
   @Test
   void reloadsOnlyChangedDomains() {
     FakeStore store = new FakeStore();
@@ -202,5 +282,138 @@ class WorkspaceVersionPollerTest {
     WorkspaceVersionPoller poller = pollerOf(new FakeStore());
     org.junit.jupiter.api.Assertions.assertThrows(
         IllegalArgumentException.class, () -> poller.register("nope", () -> {}));
+  }
+
+  @Test
+  void periodicReconciliationRecoversMissedVersionNotification() {
+    FakeStore store = new FakeStore();
+    ClusterProperties properties = new ClusterProperties();
+    properties.setWorkspaceReconcileInterval(Duration.ofSeconds(30));
+    MutableClock clock = new MutableClock(Instant.parse("2026-09-17T12:00:00Z"));
+    WorkspaceVersionPoller poller = pollerOf(store, properties, clock);
+    AtomicInteger agents = new AtomicInteger();
+    poller.register("agents", agents::incrementAndGet);
+
+    poller.pollOnce();
+    agents.set(0);
+    clock.advance(Duration.ofSeconds(29));
+    poller.pollOnce();
+    assertThat(agents).hasValue(0);
+
+    clock.advance(Duration.ofSeconds(1));
+    poller.pollOnce();
+    assertThat(agents).hasValue(1);
+    assertThat(poller.reloadFailures()).isEmpty();
+  }
+
+  @Test
+  void failedForcedReconciliationRetriesOnNextTick() {
+    FakeStore store = new FakeStore();
+    ClusterProperties properties = new ClusterProperties();
+    properties.setWorkspaceReconcileInterval(Duration.ofSeconds(30));
+    MutableClock clock = new MutableClock(Instant.parse("2026-09-17T12:00:00Z"));
+    WorkspaceVersionPoller poller = pollerOf(store, properties, clock);
+    AtomicInteger attempts = new AtomicInteger();
+    poller.register(
+        "agents",
+        () -> {
+          if (attempts.incrementAndGet() == 2) {
+            throw new IllegalStateException("shared mount unavailable");
+          }
+        });
+
+    poller.pollOnce();
+    clock.advance(Duration.ofSeconds(30));
+    poller.pollOnce();
+    assertThat(poller.reloadFailures()).containsEntry("agents", "IllegalStateException");
+
+    poller.pollOnce();
+    assertThat(attempts).hasValue(3);
+    assertThat(poller.reloadFailures()).isEmpty();
+  }
+
+  @Test
+  void dueReconciliationRunsDuringDatabaseOutageWithoutMarkingBusHealthy() {
+    FakeStore store = new FakeStore();
+    ClusterProperties properties = new ClusterProperties();
+    properties.setWorkspaceReconcileInterval(Duration.ofSeconds(30));
+    MutableClock clock = new MutableClock(Instant.parse("2026-09-17T12:00:00Z"));
+    WorkspaceVersionPoller poller = pollerOf(store, properties, clock);
+    AtomicInteger agents = new AtomicInteger();
+    poller.register("agents", agents::incrementAndGet);
+
+    poller.pollOnce();
+    Instant healthyAt = poller.lastSuccessfulPoll();
+    agents.set(0);
+    store.failRead = true;
+    clock.advance(Duration.ofSeconds(30));
+    poller.pollOnce();
+
+    assertThat(agents).hasValue(1);
+    assertThat(poller.lastSuccessfulPoll()).isEqualTo(healthyAt);
+    assertThat(poller.lastPollFailed()).isTrue();
+  }
+
+  @Test
+  void databaseRecoveryAppliesVersionChangeAfterOutageReconciliation() {
+    FakeStore store = new FakeStore();
+    ClusterProperties properties = new ClusterProperties();
+    properties.setWorkspaceReconcileInterval(Duration.ofSeconds(30));
+    MutableClock clock = new MutableClock(Instant.parse("2026-09-17T12:00:00Z"));
+    WorkspaceVersionPoller poller = pollerOf(store, properties, clock);
+    AtomicInteger agents = new AtomicInteger();
+    poller.register("agents", agents::incrementAndGet);
+    poller.pollOnce();
+    agents.set(0);
+
+    store.failRead = true;
+    store.bumpWorkspaceVersion("agents", "a@1");
+    clock.advance(Duration.ofSeconds(30));
+    poller.pollOnce();
+    store.failRead = false;
+    clock.advance(Duration.ofSeconds(1));
+    poller.pollOnce();
+
+    assertThat(agents).hasValue(2);
+    assertThat(poller.lastSuccessfulPoll()).isEqualTo(clock.instant());
+    assertThat(poller.lastPollFailed()).isFalse();
+  }
+
+  @Test
+  void startupBusFailureStillReconcilesOnDeadlineAndForcesFirstRecoveryRead() {
+    FakeStore store = new FakeStore();
+    store.failRead = true;
+    ClusterProperties properties = new ClusterProperties();
+    properties.setWorkspaceReconcileInterval(Duration.ofSeconds(30));
+    MutableClock clock = new MutableClock(Instant.parse("2026-09-17T12:00:00Z"));
+    WorkspaceVersionPoller poller =
+        new WorkspaceVersionPoller(store, properties, new NoOpScheduler(), clock);
+    AtomicInteger agents = new AtomicInteger();
+    poller.register("agents", agents::incrementAndGet);
+
+    poller.start();
+    clock.advance(Duration.ofSeconds(29));
+    poller.pollOnce();
+    assertThat(agents).hasValue(0);
+
+    clock.advance(Duration.ofSeconds(1));
+    poller.pollOnce();
+    assertThat(agents).hasValue(1);
+    assertThat(poller.lastSuccessfulPoll()).isNull();
+    assertThat(poller.lastPollFailed()).isTrue();
+
+    store.failRead = false;
+    poller.pollOnce();
+    assertThat(agents).hasValue(2);
+    assertThat(poller.lastPollFailed()).isFalse();
+  }
+
+  @Test
+  void reconciliationIntervalMustBePositive() {
+    ClusterProperties properties = new ClusterProperties();
+    assertThat(properties.getWorkspaceReconcileInterval()).isEqualTo(Duration.ofSeconds(30));
+    org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> properties.setWorkspaceReconcileInterval(Duration.ZERO));
   }
 }

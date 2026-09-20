@@ -2,14 +2,15 @@ package io.oryxos.tool.builtin;
 
 import io.oryxos.core.fs.AdminConfigFileGuard;
 import io.oryxos.core.fs.WorkspaceMutationGuard;
+import io.oryxos.core.io.AtomicFiles;
 import io.oryxos.core.memory.MemoryMdGuard;
+import io.oryxos.core.workspace.WorkspaceStorage;
 import io.oryxos.tool.sandbox.ActionType;
 import io.oryxos.tool.sandbox.PinnedHttpReadClient;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -81,11 +82,23 @@ public class HttpTools {
   /** 下载落盘上限（可注入便于测试，生产固定 {@link #DOWNLOAD_MAX_BYTES}）。 */
   private final long downloadMaxBytes;
 
+  private final WorkspaceStorage storage;
+
   public HttpTools(Sandbox sandbox, RestClient restClient) {
     this(sandbox, restClient, DOWNLOAD_MAX_BYTES);
   }
 
+  public HttpTools(Sandbox sandbox, RestClient restClient, WorkspaceStorage storage) {
+    this(sandbox, restClient, DOWNLOAD_MAX_BYTES, storage);
+  }
+
   HttpTools(Sandbox sandbox, RestClient restClient, long downloadMaxBytes) {
+    this(sandbox, restClient, downloadMaxBytes, null);
+  }
+
+  HttpTools(
+      Sandbox sandbox, RestClient restClient, long downloadMaxBytes, WorkspaceStorage storage) {
+    this.storage = storage;
     this.sandbox = Objects.requireNonNull(sandbox, "sandbox 不能为空");
     Objects.requireNonNull(restClient, "restClient 不能为空"); // 保留构造签名，供 Spring 装配
     this.downloadMaxBytes = downloadMaxBytes;
@@ -363,7 +376,7 @@ public class HttpTools {
       @ToolParam(description = "要下载的 URL") String url,
       @ToolParam(description = "保存到的本地文件路径") String path) {
     enforceWriteGuards(path); // 先校验落盘路径，被拒就不发起网络请求
-    Path file = Path.of(path);
+    Path file = FileTools.resolvePath(storage, path);
     try {
       Path parent = file.getParent();
       if (parent != null) {
@@ -446,34 +459,27 @@ public class HttpTools {
   }
 
   /** 边读边写并计数；超上限时中止、关闭流后删除半成品文件（Windows 上打开中的文件删不掉）， 不留部分下载内容被误用。 */
-  private static void copyBounded(InputStream in, Path file, String url, long maxBytes)
+  private void copyBounded(InputStream in, Path file, String url, long maxBytes)
       throws IOException {
-    long total = 0;
-    boolean exceeded = false;
-    try (OutputStream out = Files.newOutputStream(file)) {
-      byte[] buffer = new byte[8192];
-      int n;
-      while ((n = in.read(buffer)) != -1) {
-        total += n;
-        if (total > maxBytes) {
-          exceeded = true;
-          break;
-        }
-        out.write(buffer, 0, n);
-      }
-    }
-    if (exceeded) {
-      deleteQuietly(file);
-      throw new IllegalStateException("下载中止：超过上限 " + maxBytes + " 字节: " + url);
-    }
-  }
-
-  private static void deleteQuietly(Path file) {
-    try {
-      Files.deleteIfExists(file);
-    } catch (IOException e) {
-      // 半成品删不掉不掩盖原始失败——中止异常照常抛出
-    }
+    AtomicFiles.write(
+        file,
+        out -> {
+          long total = 0;
+          byte[] buffer = new byte[8192];
+          int n;
+          while ((n = in.read(buffer)) != -1) {
+            total += n;
+            if (total > maxBytes) {
+              throw new IllegalStateException("下载中止：超过上限 " + maxBytes + " 字节: " + url);
+            }
+            out.write(buffer, 0, n);
+          }
+          out.flush();
+          enforceWriteGuards(file.toString());
+          if (storage != null && FileTools.isManaged(storage, file.toString())) {
+            storage.checkHealth();
+          }
+        });
   }
 
   /** 极简 HTML→正文：剥脚本/样式/标签、还原常见实体、压空白、截断。不追求完美渲染，只为可读。 */

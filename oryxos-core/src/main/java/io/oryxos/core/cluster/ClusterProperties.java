@@ -41,6 +41,9 @@ public class ClusterProperties {
   /** 027：工作区版本号轮询周期（集群档文件面变更感知；SC-001 的 3s 含 1 轮询 + 重载余量）。 */
   private Duration workspacePollInterval = Duration.ofSeconds(1);
 
+  /** 042：版本通知遗漏时的全量工作区对账周期。 */
+  private Duration workspaceReconcileInterval = Duration.ofSeconds(30);
+
   /** 有效实例标识（显式配置优先，否则 主机名-pid）。 */
   public String effectiveInstanceId() {
     if (instanceId != null && !instanceId.isBlank()) {
@@ -122,5 +125,18 @@ public class ClusterProperties {
 
   public void setWorkspacePollInterval(Duration workspacePollInterval) {
     this.workspacePollInterval = workspacePollInterval;
+  }
+
+  public Duration getWorkspaceReconcileInterval() {
+    return workspaceReconcileInterval;
+  }
+
+  public void setWorkspaceReconcileInterval(Duration workspaceReconcileInterval) {
+    if (workspaceReconcileInterval == null
+        || workspaceReconcileInterval.isZero()
+        || workspaceReconcileInterval.isNegative()) {
+      throw new IllegalArgumentException("workspace-reconcile-interval 必须为正");
+    }
+    this.workspaceReconcileInterval = workspaceReconcileInterval;
   }
 }

@@ -245,6 +245,11 @@ public class AgentApiController {
     if (req == null || req.name() == null || req.name().isBlank()) {
       throw new IllegalArgumentException("Agent 名为空");
     }
+    if (!req.knowledgeBindings().isEmpty()) {
+      requireKnowledgeBindings().validateTargets(req.knowledgeBindings());
+      requireKnowledgeBinds(request, req.knowledgeBindings());
+      requireKnowledgeVisible(request, req.knowledgeBindings());
+    }
     if (!req.skillBindings().isEmpty()) {
       requireSkillBinds(request, req.skillBindings());
       validateCatalog(request, req.skillBindings());
@@ -254,8 +259,6 @@ public class AgentApiController {
             req.name(), req.description(), req.provider(), req.model(), req.skillBindings());
     // 014 FR-018：新建表单的知识库多选在此落软连接（绑定仅管理面动作；失败时 Agent 已建、错误可读可重试）
     if (!req.knowledgeBindings().isEmpty()) {
-      requireKnowledgeBinds(request, req.knowledgeBindings());
-      requireKnowledgeVisible(request, req.knowledgeBindings());
       requireKnowledgeBindings().replaceBindings(req.name(), req.knowledgeBindings());
     }
     return ApiResponse.ok(view(created));
@@ -264,7 +267,7 @@ public class AgentApiController {
   @GetMapping
   public ApiResponse<List<AgentView>> list(HttpServletRequest request) {
     return ApiResponse.ok(
-        lifecycle.list().stream()
+        lifecycle.listCurrent().stream()
             .filter(p -> isCatalogVisible(request, ResourceRef.agent(p.name())))
             .map(this::view)
             .toList());
@@ -274,7 +277,7 @@ public class AgentApiController {
   public ApiResponse<AgentView> get(@PathVariable String name) {
     return ApiResponse.ok(
         lifecycle
-            .get(name)
+            .getCurrent(name)
             .map(this::view)
             .orElseThrow(() -> new ResourceNotFoundException("Agent 不存在: " + name)));
   }
@@ -499,6 +502,12 @@ public class AgentApiController {
     if (skillBindings != null) {
       requireSkillBinds(request, skillBindings);
     }
+    List<String> knowledgeBindings = req == null ? null : req.knowledgeBindings();
+    if (knowledgeBindings != null) {
+      requireKnowledgeBindings().validateTargets(knowledgeBindings);
+      requireKnowledgeBinds(request, knowledgeBindings);
+      requireKnowledgeVisible(request, knowledgeBindings);
+    }
     io.oryxos.core.profile.Profile saved =
         lifecycle.saveFiles(
             name,
@@ -506,10 +515,8 @@ public class AgentApiController {
             skillBindings,
             skill -> isCatalogVisible(request, ResourceRef.skill(skill)));
     // 014 FR-018：生成/编辑保存时同步知识库绑定（null = 不改动）
-    if (req != null && req.knowledgeBindings() != null) {
-      requireKnowledgeBinds(request, req.knowledgeBindings());
-      requireKnowledgeVisible(request, req.knowledgeBindings());
-      requireKnowledgeBindings().replaceBindings(name, req.knowledgeBindings());
+    if (knowledgeBindings != null) {
+      requireKnowledgeBindings().replaceBindings(name, knowledgeBindings);
     }
     return ApiResponse.ok(view(saved));
   }

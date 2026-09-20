@@ -20,6 +20,7 @@ const state = reactive({
   disabled: false,
   error: '',
   rows: [],
+  workspaceRevision: null,
 })
 
 const pickA = ref('')
@@ -55,6 +56,7 @@ async function load() {
   state.loading = true
   state.error = ''
   state.disabled = false
+  state.workspaceRevision = null
   pickA.value = ''
   pickB.value = ''
   diff.text = ''
@@ -62,7 +64,7 @@ async function load() {
   diff.fromLabel = ''
   diff.toLabel = ''
   try {
-    const data = await listRevisions(props.apiKind, props.name)
+    const data = await listRevisions(props.apiKind, props.name, value => { state.workspaceRevision = value })
     state.rows = Array.isArray(data) ? data : []
   } catch (e) {
     state.rows = []
@@ -107,7 +109,7 @@ async function onRestore(row) {
   restoreBusy.value = row.id
   state.error = ''
   try {
-    await restoreRevision(props.apiKind, props.name, row.id)
+    await restoreRevision(props.apiKind, props.name, row.id, state.workspaceRevision)
     emit('restored')
     await load()
   } catch (e) {

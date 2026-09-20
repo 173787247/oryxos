@@ -2,6 +2,7 @@
 {{- if and (gt (int .Values.replicaCount) 1) (ne .Values.workspace.accessMode "ReadWriteMany") -}}
 {{- fail "replicaCount > 1 时工作区必须 ReadWriteMany（RWX）共享卷——各副本要读写同一 .oryxos 工作区。存储类要求见 docs/SharedVolumeGuide.md；单副本可改 workspace.accessMode=ReadWriteOnce" -}}
 {{- end -}}
+{{- if not .Values.workspace.existingClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -17,3 +18,5 @@ spec:
   resources:
     requests:
       storage: {{ .Values.workspace.size }}
+
+{{- end }}

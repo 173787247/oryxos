@@ -57,7 +57,7 @@ class AgentSkillBindingApiTest {
     Profile profile = profile();
     ProfileRegistry profiles = new ProfileRegistry(Map.of("ops", profile));
     lifecycle = mock(AgentLifecycleService.class);
-    when(lifecycle.list()).thenReturn(List.of(profile));
+    when(lifecycle.listCurrent()).thenReturn(List.of(profile));
     when(lifecycle.saveFiles(
             eq("ops"),
             org.mockito.ArgumentMatchers.any(),

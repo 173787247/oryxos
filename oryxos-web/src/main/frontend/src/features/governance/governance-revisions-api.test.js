@@ -110,3 +110,27 @@ test('VersionHistoryDisabledError is Error subclass', () => {
   assert.ok(err instanceof Error)
   assert.equal(err.name, 'VersionHistoryDisabledError')
 })
+
+test('workspace restore rejects missing revision before fetch', async () => {
+  const restore = mockFetch(async () => { throw new Error('unexpected fetch') })
+  try {
+    await assert.rejects(restoreRevision('agents', 'bot', 2), /版本/)
+  } finally { restore() }
+})
+
+test('workspace restore uses revision captured with the list', async () => {
+  const restore = mockFetch(async (url, opts) => {
+    if (!opts) {
+      return new Response(JSON.stringify({ code: 0, data: [] }), {
+        headers: { 'X-Workspace-Revision': 'snapshot-1' },
+      })
+    }
+    assert.equal(opts.headers['If-Match'], 'snapshot-1')
+    return jsonRes(200, { code: 0, data: {} })
+  })
+  try {
+    let revision
+    await listRevisions('agents', 'bot', value => { revision = value })
+    await restoreRevision('agents', 'bot', 2, revision)
+  } finally { restore() }
+})

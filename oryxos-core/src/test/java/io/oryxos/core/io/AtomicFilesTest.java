@@ -47,4 +47,42 @@ class AtomicFilesTest {
       assertThat(files.filter(p -> p.getFileName().toString().startsWith(".persona"))).isEmpty();
     }
   }
+
+  @Test
+  void interruptedStreamPreservesTargetAndCleansTemporary() throws Exception {
+    Path target = dir.resolve("report.txt");
+    Files.writeString(target, "previous");
+    assertThrows(
+        UncheckedIOException.class,
+        () ->
+            AtomicFiles.write(
+                target,
+                output -> {
+                  output.write("partial".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                  throw new java.io.IOException("connection interrupted");
+                }));
+    assertThat(Files.readString(target)).isEqualTo("previous");
+    try (var paths = Files.list(dir)) {
+      assertThat(paths).containsExactly(target);
+    }
+  }
+
+  @Test
+  void rejectedContentPreservesTargetAndCleansTemporary() throws Exception {
+    Path target = dir.resolve("report.txt");
+    Files.writeString(target, "previous");
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            AtomicFiles.write(
+                target,
+                output -> {
+                  output.write(1);
+                  throw new IllegalStateException("size limit");
+                }));
+    assertThat(Files.readString(target)).isEqualTo("previous");
+    try (var paths = Files.list(dir)) {
+      assertThat(paths).containsExactly(target);
+    }
+  }
 }

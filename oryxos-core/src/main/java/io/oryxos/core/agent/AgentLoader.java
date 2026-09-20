@@ -6,7 +6,9 @@ import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.profile.ProfileValidationException;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -54,7 +56,10 @@ public class AgentLoader {
               dir -> {
                 try {
                   registry.register(deriveProfile(dir));
-                } catch (RuntimeException | IOException e) {
+                } catch (IOException unavailable) {
+                  throw new java.io.UncheckedIOException(
+                      "读取 Agent 目录失败: " + dir.getFileName(), unavailable);
+                } catch (RuntimeException e) {
                   LOG.error(
                       "跳过损坏的 Agent 目录 {}: {}",
                       sanitize(String.valueOf(dir.getFileName())),
@@ -73,7 +78,13 @@ public class AgentLoader {
    */
   Profile deriveProfile(Path agentDir) throws IOException {
     Path agentMd = agentDir.resolve(AGENT_FILE);
-    if (!Files.isRegularFile(agentMd)) {
+    BasicFileAttributes attributes;
+    try {
+      attributes = Files.readAttributes(agentMd, BasicFileAttributes.class);
+    } catch (NoSuchFileException missing) {
+      throw new ProfileValidationException("Agent 目录缺少 AGENT.md: " + agentDir.getFileName());
+    }
+    if (!attributes.isRegularFile()) {
       throw new ProfileValidationException("Agent 目录缺少 AGENT.md: " + agentDir.getFileName());
     }
     Profile profile = parse(Files.readString(agentMd), String.valueOf(agentDir.getFileName()));

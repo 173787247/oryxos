@@ -173,6 +173,17 @@ public class SkillService {
     return archive;
   }
 
+  /** Fresh editable representation, independent of an eventually reloaded runtime registry. */
+  public Optional<Skill> getCurrent(String name) {
+    return store.exists(name)
+        ? Optional.of(loader.deriveSkill(store.directory(name)))
+        : Optional.empty();
+  }
+
+  public Collection<Skill> listCurrent() {
+    return loader.loadAll().all();
+  }
+
   public Optional<Skill> get(String name) {
     return registry.get(name);
   }

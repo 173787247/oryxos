@@ -109,7 +109,7 @@ public class SkillApiController {
   @GetMapping
   public ApiResponse<List<SkillView>> list(HttpServletRequest request) {
     return ApiResponse.ok(
-        skills.list().stream()
+        skills.listCurrent().stream()
             .filter(
                 s ->
                     assetBindGuard == null
@@ -122,7 +122,7 @@ public class SkillApiController {
   public ApiResponse<SkillView> get(@PathVariable String name) {
     return ApiResponse.ok(
         skills
-            .get(name)
+            .getCurrent(name)
             .map(SkillView::from)
             .orElseThrow(() -> new ResourceNotFoundException("Skill 不存在: " + name)));
   }

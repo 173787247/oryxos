@@ -158,7 +158,7 @@ management:
       # 半死副本仍显示就绪）。liveness 保持仅状态位（DB 抖动不该触发重启）。
       group:
         readiness:
-          include: readinessState,db
+          include: readinessState,db,workspace
       # 匿名探活只看聚合 UP/DOWN；组件/数据源/磁盘等详情需认证（when-authorized）
       show-details: when-authorized
       show-components: when-authorized

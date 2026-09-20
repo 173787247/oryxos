@@ -64,7 +64,22 @@ public class WorkspaceApiController {
           String oryxosRoot,
       AgentLifecycleService lifecycle,
       io.oryxos.core.cluster.WorkspaceRefreshService workspaceRefresh) {
-    this.oryxosRoot = Path.of(oryxosRoot).toAbsolutePath().normalize();
+    this(Path.of(oryxosRoot), lifecycle, workspaceRefresh);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public WorkspaceApiController(
+      io.oryxos.core.workspace.WorkspaceStorage storage,
+      AgentLifecycleService lifecycle,
+      io.oryxos.core.cluster.WorkspaceRefreshService workspaceRefresh) {
+    this(storage.root(), lifecycle, workspaceRefresh);
+  }
+
+  private WorkspaceApiController(
+      Path root,
+      AgentLifecycleService lifecycle,
+      io.oryxos.core.cluster.WorkspaceRefreshService workspaceRefresh) {
+    this.oryxosRoot = root.toAbsolutePath().normalize();
     this.lifecycle = lifecycle;
     this.workspaceRefresh = workspaceRefresh;
   }
@@ -153,7 +168,7 @@ public class WorkspaceApiController {
         .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
         .contentType(contentType)
         .contentLength(length)
-        .body(new FileSystemResource(target));
+        .body(new FileSystemResource(target.getFileSystem(), target.toString()));
   }
 
   /** 写文件文本；防目录穿越：越界 → 400。编辑 Agent 的 AGENT.md 走 update 即时生效，其余文件直接写盘。 */
@@ -216,7 +231,7 @@ public class WorkspaceApiController {
         lifecycle.update(String.valueOf(agentDirRecheck.getFileName()), content);
         return ApiResponse.ok(null);
       }
-      Files.writeString(target, content);
+      io.oryxos.core.io.AtomicFiles.writeString(target, content);
     } catch (IOException e) {
       throw new UncheckedIOException("写入文件失败: " + path, e);
     }
@@ -314,6 +329,11 @@ public class WorkspaceApiController {
     try (Stream<Path> entries = Files.list(node)) {
       entries
           .sorted(Comparator.comparing(p -> String.valueOf(p.getFileName())))
+          .filter(
+              child -> {
+                Path childName = child.getFileName();
+                return childName != null && !childName.toString().startsWith(".");
+              })
           .forEach(child -> children.add(treeOf(child)));
     } catch (IOException e) {
       // 目录读不出来不阻断整棵树，返回空子节点

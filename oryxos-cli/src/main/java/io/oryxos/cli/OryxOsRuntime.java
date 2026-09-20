@@ -190,11 +190,19 @@ public class OryxOsRuntime {
   // 工作区根目录默认 ./.oryxos；可用属性 oryxos.root 覆盖（集成测试指向临时工作区，默认行为不变）。
   // 从 Spring Environment 解析（而非 JVM 静态捕获 System property）：使每个上下文各持自己的根，
   // 支持同一 JVM 内多套 hermetic 测试上下文并存（各自的 @DynamicPropertySource / SpringApplicationBuilder 根互不干扰）。
-  @Value("${oryxos.root:.oryxos}")
-  private String oryxosRootProp;
+  @org.springframework.beans.factory.annotation.Autowired
+  private io.oryxos.core.workspace.WorkspaceStorage workspaceStorage;
 
   private Path oryxosRoot() {
-    return Path.of(oryxosRootProp);
+    return workspaceStorage.root();
+  }
+
+  private Path nativeWorkspaceRoot() {
+    try {
+      return workspaceStorage.nativePath(workspaceStorage.root());
+    } catch (java.io.IOException failure) {
+      throw new java.io.UncheckedIOException("Workspace execution view unavailable", failure);
+    }
   }
 
   @Bean
@@ -783,7 +791,8 @@ public class OryxOsRuntime {
     nullToEmpty(httpProps.allowedDomains()).forEach(d -> whitelist.add(Category.HTTP, d));
     nullToEmpty(smtpProps.allowedEndpoints()).forEach(e -> whitelist.add(Category.SMTP, e));
     // 工作区根永远是 Agent 的家：随 oryxos.root 自动纳入文件白名单（幂等 + 落库）。
-    whitelist.add(Category.FILE, oryxosRootProp);
+    whitelist.add(Category.FILE, workspaceStorage.root().toString());
+    whitelist.add(Category.FILE, nativeWorkspaceRoot().toString());
     return whitelist;
   }
 
@@ -957,7 +966,8 @@ public class OryxOsRuntime {
       org.springframework.beans.factory.ObjectProvider<ProfileRegistry> profileRegistryProvider) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
-    registry.registerAnnotated(new FileTools(sandbox)); // read/write/list/edit/grep/glob
+    registry.registerAnnotated(
+        new FileTools(sandbox, workspaceStorage)); // read/write/list/edit/grep/glob
     // 024：执行后端按档位装配（local=现状零变化 / docker=短命容器），白名单 enforce 仍在工具内部前置（FR-007）；
     // US2：全局档为基线，frontmatter sandbox 段按 Agent 覆写（D8 收敛在 AgentAwareProcessStarter）。
     // ProfileRegistry 走 ObjectProvider 惰性解析——直接注入会成环：
@@ -976,11 +986,12 @@ public class OryxOsRuntime {
             effective ->
                 new DockerProcessStarter(
                     effective,
-                    new WorkspacePathMapper(oryxosRoot()),
+                    new WorkspacePathMapper(nativeWorkspaceRoot()),
                     CidfileProcessWrapper.dockerCliKiller()));
-    registry.registerAnnotated(new ShellTools(sandbox, shellStarter));
+    registry.registerAnnotated(new ShellTools(sandbox, shellStarter, workspaceStorage));
     registry.registerAnnotated(
-        new HttpTools(sandbox, restClient)); // + http_request/fetch_webpage/download_file
+        new HttpTools(
+            sandbox, restClient, workspaceStorage)); // + http_request/fetch_webpage/download_file
     registry.registerAnnotated(new UtilTools()); // current_time / json_extract（纯计算，无沙箱）
     registry.registerAnnotated(
         new WebSearchTools(sandbox, new DuckDuckGoSearchProvider(restClient, sandbox)));

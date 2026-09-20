@@ -3,6 +3,8 @@ package io.oryxos.web.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -117,6 +119,18 @@ class AgentKnowledgeBindingApiTest {
 
     mvc.perform(get("/api/v1/agents/ops/knowledge"))
         .andExpect(jsonPath("$.data.bindings[0].name").value("ops-manual"));
+  }
+
+  @Test
+  void createRejectsMissingKnowledgeBeforeWritingAgent() throws Exception {
+    mvc.perform(
+            post("/api/v1/agents")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"ops\",\"description\":\"x\",\"knowledgeBindings\":[\"missing\"]}"))
+        .andExpect(status().isBadRequest());
+
+    verify(lifecycle, never()).create(any(), any(), any(), any(), any());
   }
 
   @Test

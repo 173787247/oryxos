@@ -1,0 +1,62 @@
+{
+  "deadline_seconds": 5,
+  "requests": [
+    {
+      "status": null,
+      "seconds": 5.001981737092137,
+      "error": "TimeoutError",
+      "port": 18046,
+      "name": "blocked-fb2d64fcd1c1"
+    },
+    {
+      "status": null,
+      "seconds": 5.00448504416272,
+      "error": "TimeoutError",
+      "port": 18047,
+      "name": "blocked-23de5d1313fb"
+    }
+  ],
+  "scope": "direct Pod HTTP after readiness DOWN, NFSv4.1 hard mount",
+  "down_after_seconds": 9.069181688129902,
+  "after_recovery": [
+    {
+      "status": 404,
+      "seconds": 0.015204583760350943,
+      "body": {
+        "code": 404,
+        "message": "Agent \u4e0d\u5b58\u5728: blocked-fb2d64fcd1c1",
+        "data": null,
+        "timestamp": 1789866464495
+      },
+      "name": "blocked-fb2d64fcd1c1"
+    },
+    {
+      "status": 200,
+      "seconds": 0.017047003842890263,
+      "body": {
+        "code": 0,
+        "message": "success",
+        "data": {
+          "name": "blocked-23de5d1313fb",
+          "description": "blocked NFS write probe",
+          "provider": "mock",
+          "model": "mock",
+          "tools": [
+            "read_file",
+            "shell",
+            "notify",
+            "web_search",
+            "http_get",
+            "fetch_webpage"
+          ],
+          "skills": [],
+          "schedules": [],
+          "persona": null
+        },
+        "timestamp": 1789866464512
+      },
+      "name": "blocked-23de5d1313fb"
+    }
+  ],
+  "passed": false
+}

@@ -1,3 +1,5 @@
+import { revisionHeaders } from '../../workspace-revision.js'
+
 /**
  * Governance revision history HTTP helpers (#550 / #537 / #541 / #544).
  * Flag oryxos.web.asset-governance.version-history-enabled default off →
@@ -17,8 +19,11 @@ function basePath(apiKind, name) {
   return `/api/v1/${apiKind}/${encodeURIComponent(name)}/governance/revisions`
 }
 
-export async function listRevisions(apiKind, name) {
-  return unwrap(await fetch(basePath(apiKind, name)))
+export async function listRevisions(apiKind, name, captureRevision) {
+  const response = await fetch(basePath(apiKind, name))
+  const data = await unwrap(response)
+  captureRevision?.(response.headers.get('X-Workspace-Revision'))
+  return data
 }
 
 export async function diffRevisions(apiKind, name, revisionId, againstId) {
@@ -28,10 +33,11 @@ export async function diffRevisions(apiKind, name, revisionId, againstId) {
   return unwrap(await fetch(url))
 }
 
-export async function restoreRevision(apiKind, name, revisionId) {
+export async function restoreRevision(apiKind, name, revisionId, workspaceRevision) {
   return unwrap(
     await fetch(`${basePath(apiKind, name)}/${encodeURIComponent(revisionId)}/restore`, {
       method: 'POST',
+      headers: apiKind === 'channels' ? {} : revisionHeaders(workspaceRevision),
     }),
   )
 }

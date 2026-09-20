@@ -14,6 +14,9 @@ CLUSTER="${2:-oryxos-ci}"
 NS=oryxos-smoke
 RELEASE=oryxos
 
+# Never operate on an unrelated current kubectl context.
+kubectl() { command kubectl --context "kind-${CLUSTER}" "$@"; }
+
 echo "== 载入镜像 ${IMAGE} 到 kind/${CLUSTER} =="
 kind load docker-image "${IMAGE}" --name "${CLUSTER}"
 
@@ -59,7 +62,7 @@ kubectl -n "${NS}" create secret generic oryxos-master-key \
 
 echo "== 单节点 RWX：hostPath 静态 PV（storageClassName=manual-rwx） =="
 # hostPath 不支持 fsGroup 属主变更：节点内预建目录并放开权限（容器以 uid 1000 运行）
-docker exec "${CLUSTER}-control-plane" sh -c 'mkdir -p /tmp/oryxos-workspace && chmod 0777 /tmp/oryxos-workspace'
+docker exec "${CLUSTER}-control-plane" sh -c 'mkdir -p /tmp/oryxos-workspace && chmod 0777 /tmp/oryxos-workspace && printf "%s\n" kind-smoke-042 > /tmp/oryxos-workspace/.workspace-id'
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolume
@@ -73,15 +76,35 @@ spec:
   persistentVolumeReclaimPolicy: Delete
 EOF
 
+# Exercise 042 existingClaim + shared-posix through a real Helm installation.
+# This remains a same-host smoke test, not external NFS/Ceph HA acceptance.
+kubectl -n "${NS}" apply -f - <<'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: smoke-existing-workspace
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: manual-rwx
+  volumeName: oryxos-workspace-pv
+  resources:
+    requests:
+      storage: 5Gi
+EOF
+
 echo "== helm install（一条命令，仅两项密文引用 + 冒烟覆写） =="
 IMAGE_REPO="${IMAGE%:*}"
 IMAGE_TAG="${IMAGE##*:}"
 helm upgrade --install "${RELEASE}" charts/oryxos -n "${NS}" \
+  --kube-context "kind-${CLUSTER}" \
   -f charts/oryxos/ci/default-values-test.yaml \
   --set image.repository="${IMAGE_REPO}" \
   --set image.tag="${IMAGE_TAG}" \
   --set image.pullPolicy=Never \
-  --set workspace.storageClassName=manual-rwx
+  --set workspace.storageClassName=manual-rwx \
+  --set workspace.existingClaim=smoke-existing-workspace \
+  --set workspace.provider=shared-posix \
+  --set workspace.identity=kind-smoke-042
 
 echo "== 双副本就绪（SC-001：安装到就绪 ≤5min） =="
 kubectl -n "${NS}" rollout status "deploy/${RELEASE}" --timeout=300s
@@ -115,6 +138,6 @@ for pod in ${PODS}; do
   done
   [ -n "${ok}" ] || { echo "❌ ${pod} 10s 内未见 smoke-agent（027 可见性）"; exit 1; }
 done
-echo "✅ 跨副本 ≤3s 量级可见（各 Pod 本地确认）"
+echo "✅ 跨副本可见（各 Pod 本地确认；本冒烟不计量 SC-002 延迟）"
 
 echo "kind-smoke 全部通过"

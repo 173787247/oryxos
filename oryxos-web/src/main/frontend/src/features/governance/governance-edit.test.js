@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { blankGov, createGovernanceEdit, startEditGovernance } from './governance-edit.js'
+import {
+  blankGov,
+  createGovernanceEdit,
+  loadGovernance,
+  saveGovernance,
+  startEditGovernance,
+} from './governance-edit.js'
 
 describe('governance-edit helpers', () => {
   it('blankGov shows dash for empty', () => {
@@ -14,6 +20,7 @@ describe('governance-edit helpers', () => {
     assert.equal(s.open, false)
     assert.equal(s.loaded, false)
     assert.equal(s.health, '')
+    assert.equal(s.revision, null)
   })
 
   it('startEditGovernance opens editor', () => {
@@ -21,4 +28,44 @@ describe('governance-edit helpers', () => {
     startEditGovernance(s)
     assert.equal(s.open, true)
   })
+
+  it('round-trips the workspace revision on governance writes', async () => {
+    const calls = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (url, options = {}) => {
+      calls.push({ url, options })
+      const revision = calls.length === 1 ? 'read-revision' : 'write-revision'
+      return {
+        headers: { get: (name) => (name === 'X-Workspace-Revision' ? revision : null) },
+        json: async () => ({ code: 0, data: { health: 'ACTIVE', orgOwner: 'org-1' } }),
+      }
+    }
+    try {
+      const state = createGovernanceEdit()
+      await loadGovernance(state, 'agents', 'demo')
+      await saveGovernance(state, 'agents', 'demo')
+
+      assert.equal(calls[1].options.headers['If-Match'], 'read-revision')
+      assert.equal(state.revision, 'write-revision')
+      assert.equal(JSON.parse(calls[1].options.body).orgOwner, 'org-1')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+// Missing snapshot metadata must never silently disable concurrency protection.
+it('refuses governance writes without a read revision', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => { calls++; throw new Error('unexpected request') }
+  try {
+    const state = createGovernanceEdit()
+    await saveGovernance(state, 'agents', 'demo')
+    assert.equal(calls, 0)
+    assert.match(state.error, /重新加载/)
+    assert.equal(state.saving, false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
