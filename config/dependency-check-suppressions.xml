@@ -146,7 +146,7 @@
         https://github.com/open-telemetry/opentelemetry-js/security/advisories/GHSA-8988-4f7v-96qf
         Exact observed Maven versions only; do not suppress unrelated Java advisories.
         ]]></notes>
-        <packageUrl>pkg:maven/io.opentelemetry/opentelemetry-api@1.66.0</packageUrl>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry/opentelemetry-(api|sdk)@1\.66\.0$</packageUrl>
         <cve>CVE-2026-54285</cve>
     </suppress>
     <suppress until="2027-01-01Z">
