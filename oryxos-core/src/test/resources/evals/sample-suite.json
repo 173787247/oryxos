@@ -1,0 +1,65 @@
+{
+  "name": "sample-regression-suite",
+  "cases": [
+    {
+      "id": "agent-ops-faq",
+      "kind": "AGENT",
+      "name": "ops FAQ agent turn",
+      "success": true,
+      "expectedTools": ["retrieve_knowledge"],
+      "actualTools": ["retrieve_knowledge"],
+      "expectedCitations": ["ops-manual:runbook.md"],
+      "actualCitations": ["ops-manual:runbook.md"],
+      "latencyMs": 820,
+      "costMicros": 15000
+    },
+    {
+      "id": "skill-shell-safe",
+      "kind": "SKILL",
+      "name": "shell skill tool selection",
+      "success": true,
+      "expectedTools": ["exec"],
+      "actualTools": ["exec"],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 120,
+      "costMicros": 0
+    },
+    {
+      "id": "prompt-system-inject",
+      "kind": "PROMPT",
+      "name": "system prompt contains memory block",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 40,
+      "costMicros": 2000
+    },
+    {
+      "id": "flow-charge-refund",
+      "kind": "FLOW",
+      "name": "charge then refund flow path",
+      "success": true,
+      "expectedTools": ["charge", "refund"],
+      "actualTools": ["charge", "refund"],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 350,
+      "costMicros": 0
+    }
+  ],
+  "baseline": {
+    "suiteName": "sample-regression-suite",
+    "capturedAt": "2026-09-20T00:00:00Z",
+    "metrics": {
+      "successRate": 1.0,
+      "toolAccuracy": 1.0,
+      "citationQuality": 1.0,
+      "latencyMsAvg": 400.0,
+      "costMicrosTotal": 17000,
+      "caseCount": 4
+    }
+  }
+}

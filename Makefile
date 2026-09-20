@@ -24,7 +24,7 @@ STAGE     := $(DIST_DIR)/$(DIST_NAME)
 BOOT_JAR  := oryxos-boot/target/oryxos-boot-$(VERSION).jar
 TARBALL   := $(DIST_DIR)/$(DIST_NAME).tar.gz
 
-.PHONY: help build release docker clean sync-upstream hooks helm-lint helm-package
+.PHONY: help build release docker clean sync-upstream hooks helm-lint helm-package eval-gate
 
 help:
 	@echo "OryxOS make 目标（version = $(VERSION)）："
@@ -79,3 +79,7 @@ helm-package:
 clean:
 	rm -rf "$(DIST_DIR)"
 	-mvn clean -q
+
+# 048 / #472：评测回归门禁（默认随 unit test；本目标显式跑 eval Surefire）
+eval-gate:
+	bash scripts/eval-regression-gate.sh
