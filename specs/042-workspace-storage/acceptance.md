@@ -128,6 +128,8 @@ Docker 验收 UI：`http://localhost:18042/admin/`，副本 B：`http://localhos
 
 ### PR 交付
 
-用户审核正文后已批准公开提交，PR [#599](https://github.com/oryx-labs/oryxos/pull/599) 已创建。已集成 `main@9cc4290` 并解决冲突，保留组织治理字段、工作区版本校验及依赖安全约束；新治理历史恢复入口也回传读取时的版本。前述 2079 项与 NFS 数据对应集成前验证，合并后的测试及依赖扫描结果以本段后续记录和 PR CI 为准。当前远程 CI 正在验证，T017 暂不勾选。
+用户审核正文后已批准公开提交，PR [#599](https://github.com/oryx-labs/oryxos/pull/599) 已创建。已集成 `main@9cc4290` 并解决冲突，保留组织治理字段、工作区版本校验及依赖安全约束；新治理历史恢复入口也回传读取时的版本。前述 2079 项与 NFS 数据对应集成前验证，合并后的测试及依赖扫描结果以本段后续记录和 PR CI 为准。远程 CI 已完成，结果见下；T017 已完成。
 
 合并后隔离目录 `/tmp/oryxos-042-delivery` 执行 `mvn -B verify` 全部通过：351 类、2199 项、0 失败/错误/跳过；日志 `/tmp/oryxos-042-pr599-final-verify2.log`。构建不覆盖既有运行实例挂载的 JAR。
+
+最终代码提交 `76c2787` 的 [CI 35485265839](https://github.com/oryx-labs/oryxos/actions/runs/35485265839) 全部通过：完整构建与质量门禁、集成测试、依赖扫描、主干安全基线、Docker 镜像构建、Helm/kind 安装；独立 Secret scan 也通过。最终依赖报告为 169 个对象、0 条未排除发现、120 条审查排除记录。PR 保持 Draft，未合并；T013 的独立主机故障域验证边界不变。

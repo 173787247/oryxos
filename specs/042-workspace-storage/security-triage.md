@@ -112,3 +112,5 @@ Central installed-artifact scan on 2026-09-18: 171 objects, 0 unsuppressed findi
 Run 35484840168 additionally identified the same npm advisory against the Java SDK 1.66.0 (170 objects, 1 unsuppressed, 120 suppressed); the rule now enumerates only the API and SDK artifacts at 1.66.0.
 
 Run 35485045622 retained the same npm finding on opentelemetry-common@1.66.0. To cover all affected Java component mismatches, the rule now enumerates the 12 OpenTelemetry Java modules actually packaged in the verified boot JAR at exactly 1.66.0; it does not match future versions, other CVEs, or npm packages.
+
+Final merged-code scan [35485265839](https://github.com/oryx-labs/oryxos/actions/runs/35485265839): **169 objects, 0 unsuppressed findings, 120 reviewed exclusion records**, Dependency-Check 13.0.0. This supersedes the historical counts above. The related Java baggage issue [CVE-2026-45292](https://github.com/open-telemetry/opentelemetry-java/security/advisories/GHSA-rcgg-9c38-7xpx) was fixed in 1.62.0; the packaged Java modules use 1.66.0. Spring deployment-specific residual risks remain as documented.
