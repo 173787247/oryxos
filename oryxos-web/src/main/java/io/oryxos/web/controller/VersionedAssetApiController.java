@@ -21,6 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
  * Versioned Agent/Skill/Knowledge source API (#473). All routes 404 when {@code
  * oryxos.cluster.versioned-asset-source-enabled} is false.
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "SPRING_ENDPOINT",
+    justification =
+        "core-stage web API is unauthenticated by design (internal network + gateway); flag-off returns 404.")
 @RestController
 @RequestMapping("/api/v1/workspace/assets/{kind}/{assetId}")
 public class VersionedAssetApiController {
