@@ -15,6 +15,9 @@ import io.oryxos.core.provider.ProviderResponse;
 import io.oryxos.core.provider.ProviderService;
 import io.oryxos.core.provider.ToolCallRequest;
 import io.oryxos.core.provider.Usage;
+import io.oryxos.core.routing.ModelRoutingService;
+import io.oryxos.core.routing.RoutingCandidate;
+import io.oryxos.core.routing.RoutingDecision;
 import io.oryxos.core.session.ImageMime;
 import io.oryxos.core.session.Message;
 import java.net.URI;
@@ -120,12 +123,23 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     this.costLedger = costLedger;
   }
 
+  /** 051 / #477: explainable routing; unset / disabled = declared fallback order. */
+  private volatile ModelRoutingService modelRouting;
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification =
+          "ModelRoutingService is a shared Spring singleton injected via setter (same pattern as spanRecorder)")
+  public void setModelRoutingService(ModelRoutingService modelRouting) {
+    this.modelRouting = modelRouting;
+  }
+
   @Override
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "CRLF_INJECTION_LOGS",
       justification = "日志中的 provider 名已经 sanitize() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
   public ProviderResponse chat(String sessionId, Profile profile, ProviderRequest request) {
-    List<Attempt> attempts = attemptsOf(profile);
+    List<Attempt> attempts = resolveAttempts(profile);
     RuntimeException last = null;
     for (int i = 0; i < attempts.size(); i++) {
       Attempt attempt = attempts.get(i);
@@ -151,7 +165,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         if (i + 1 >= attempts.size() || !FallbackClassifier.isSwitchable(e)) {
           throw e; // 候选耗尽或业务性失败：原样上抛最后错误（FR-002/FR-003）
         }
-        switchWarn(attempt, attempts.get(i + 1), e);
+        switchWarn(profile, attempt, attempts.get(i + 1), e);
       }
     }
     throw last != null ? last : new ProviderNotFoundException(profile.provider().name());
@@ -226,6 +240,20 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     return attempts;
   }
 
+  /** 051 / #477：enabled 时按策略重排/过滤 Agent 声明候选；disabled 时等同 attemptsOf。 */
+  private List<Attempt> resolveAttempts(Profile profile) {
+    ModelRoutingService routing = this.modelRouting;
+    if (routing == null || !routing.isEnabled()) {
+      return attemptsOf(profile);
+    }
+    RoutingDecision decision = routing.route(profile);
+    List<Attempt> out = new ArrayList<>();
+    for (RoutingCandidate c : decision.attemptOrder()) {
+      out.add(new Attempt(c.provider(), c.model()));
+    }
+    return out.isEmpty() ? attemptsOf(profile) : out;
+  }
+
   /** 主 provider 未注册直抛（现状口径）；备用候选未注册 WARN 返回 null 跳过（FR-008）。 */
   private ProviderDef findDef(Attempt attempt, boolean primary) {
     var def = registry.find(attempt.provider());
@@ -240,7 +268,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   }
 
   /** 切换留痕（FR-006）：WARN 带 from→to（MDC 自带 traceId）+ 切换计数；指标异常不伤主链路。 */
-  private void switchWarn(Attempt from, Attempt to, RuntimeException cause) {
+  private void switchWarn(Profile profile, Attempt from, Attempt to, RuntimeException cause) {
     LOG.warn(
         "provider 切换: {} → {}（原因: {}）",
         sanitize(from.provider()),
@@ -250,6 +278,15 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       metrics.recordFallbackSwitch(from.provider(), to.provider());
     } catch (RuntimeException ignored) {
       // FR-010：指标失败静默
+    }
+    ModelRoutingService routing = this.modelRouting;
+    if (routing != null) {
+      try {
+        routing.recordFallback(
+            profile, from.provider(), from.model(), to.provider(), to.model(), cause.getMessage());
+      } catch (RuntimeException ignored) {
+        // explainability must not break fallback path
+      }
     }
   }
 
@@ -272,7 +309,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       Profile profile,
       ProviderRequest request,
       java.util.function.Consumer<String> onToken) {
-    List<Attempt> attempts = attemptsOf(profile);
+    List<Attempt> attempts = resolveAttempts(profile);
     RuntimeException last = null;
     for (int i = 0; i < attempts.size(); i++) {
       Attempt attempt = attempts.get(i);
@@ -289,7 +326,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         if (contentStarted[0] || i + 1 >= attempts.size() || !FallbackClassifier.isSwitchable(e)) {
           throw e;
         }
-        switchWarn(attempt, attempts.get(i + 1), e);
+        switchWarn(profile, attempt, attempts.get(i + 1), e);
       }
     }
     throw last != null ? last : new ProviderNotFoundException(profile.provider().name());

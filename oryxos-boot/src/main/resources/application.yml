@@ -147,6 +147,22 @@ oryxos:
     #     scope: agent
     #     key: demo
     #     limit-micros: 1000000
+  # 051 / #477: explainable model routing / cost strategy. Default off (gray-release / rollback).
+  # enabled -> strategy + /api/v1/routing/decisions; still limited to Agent primary+fallbacks.
+  routing:
+    enabled: false
+    prefer-cheapest: false
+    max-estimated-cost-micros: 0
+    max-latency-ms: 0
+    decision-log-size: 256
+    # residency-providers: []   # when RoutingContext sensitivity=SENSITIVE, filter to these
+    # difficulty-models:
+    #   low:
+    #     provider: cheap
+    #     model: flash
+    # latency-model:
+    #   provider: cheap
+    #   model: flash
   # 048 / #472：Agent/Skill/Prompt/Flow 评测与回归门禁。默认关=零行为变化；
   # CI/发布可用 scripts/eval-regression-gate.sh；开启 gate-enabled 后调用方可比对基线阻断发布。
   eval:

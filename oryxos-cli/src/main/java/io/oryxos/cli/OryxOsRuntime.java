@@ -183,6 +183,7 @@ import org.springframework.web.context.WebApplicationContext;
   io.oryxos.core.flow.FlowEngineProperties.class,
   io.oryxos.core.eval.EvalProperties.class,
   io.oryxos.core.cost.CostProperties.class,
+  io.oryxos.core.routing.RoutingProperties.class,
   OtelProperties.class
 })
 public class OryxOsRuntime {
@@ -253,6 +254,26 @@ public class OryxOsRuntime {
   }
 
   @Bean
+  io.oryxos.core.routing.RoutingDecisionStore routingDecisionStore(
+      io.oryxos.core.routing.RoutingProperties routingProperties) {
+    return new io.oryxos.core.routing.InMemoryRoutingDecisionStore(
+        routingProperties.getDecisionLogSize());
+  }
+
+  @Bean
+  io.oryxos.core.routing.ModelRoutingService modelRoutingService(
+      io.oryxos.core.routing.RoutingProperties routingProperties,
+      io.oryxos.core.routing.RoutingDecisionStore routingDecisionStore,
+      PricingStore pricingStore,
+      io.oryxos.core.cost.CostLedgerService costLedgerService) {
+    io.oryxos.core.routing.ModelRoutingService svc =
+        new io.oryxos.core.routing.ModelRoutingService(
+            routingProperties, routingDecisionStore, pricingStore);
+    svc.setCostLedgerService(costLedgerService);
+    return svc;
+  }
+
+  @Bean
   LlmCallAuditor llmCallAuditor(
       LlmCallRepository repository,
       io.oryxos.core.cost.CostLedgerService costLedgerService,
@@ -311,7 +332,9 @@ public class OryxOsRuntime {
       LlmCallAuditor auditor,
       PricingStore pricingStore,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
-      io.oryxos.core.metrics.SpanRecorder spanRecorder) {
+      io.oryxos.core.metrics.SpanRecorder spanRecorder,
+      io.oryxos.core.cost.CostLedgerService costLedgerService,
+      io.oryxos.core.routing.ModelRoutingService modelRoutingService) {
     // 动态解析（31 节）：按名从注册表取参数、经工厂即时建/缓存 ChatModel（宪法 III 显式映射，只是运行时可变）
     ProviderChatModelFactory factory = new ProviderChatModelFactory();
     SpringAiProviderServiceImpl service =
@@ -323,6 +346,8 @@ public class OryxOsRuntime {
             pricingStore,
             metricsRecorder); // 023：LLM 调用/token/切换指标
     service.setSpanRecorder(spanRecorder); // 039：LLM span（未配 otel.endpoint 时为 NOOP）
+    service.setCostLedgerService(costLedgerService); // 050 / #476
+    service.setModelRoutingService(modelRoutingService); // 051 / #477
     return service;
   }
 
