@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -88,7 +89,7 @@ public final class EvalFixtureLoader {
   private static EvalCase parseCase(JsonNode n) {
     return new EvalCase(
         text(n, "id", ""),
-        EvalTargetKind.valueOf(text(n, "kind", "AGENT").toUpperCase()),
+        EvalTargetKind.valueOf(text(n, "kind", "AGENT").toUpperCase(Locale.ROOT)),
         text(n, "name", ""),
         n.path("success").asBoolean(false),
         stringList(n.get("expectedTools")),
