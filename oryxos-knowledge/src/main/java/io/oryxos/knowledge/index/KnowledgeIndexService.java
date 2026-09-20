@@ -408,6 +408,8 @@ public class KnowledgeIndexService {
   }
 
   /** 同步校验段：一次有界读取后，同一稳定快照同时用于解析和指纹。 */
+  // Rethrow the original failure unchanged; cleanup must not mask even a parser Error.
+  @SuppressWarnings("PMD.AvoidCatchingGenericException")
   private CapturedDocument captureValidated(Path file) {
     String fileName = String.valueOf(file.getFileName());
     DocumentParser parser =
