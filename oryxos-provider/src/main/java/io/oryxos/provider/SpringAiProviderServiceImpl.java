@@ -126,6 +126,10 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   /** 051 / #477: explainable routing; unset / disabled = declared fallback order. */
   private volatile ModelRoutingService modelRouting;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification =
+          "ModelRoutingService is a shared Spring singleton injected via setter (same pattern as spanRecorder)")
   public void setModelRoutingService(ModelRoutingService modelRouting) {
     this.modelRouting = modelRouting;
   }
