@@ -17,5 +17,5 @@
 
 ## Deferred
 
-- #465 durable suspend / checkpoint resume (REQUIRE = stub deny in this cut)
+- #465 durable suspend / checkpoint resume — see specs/043-durable-task-checkpoint (flag durable-suspend)
 - #466 admin + IM approval UX (`recordHumanDecision` audit-only stub)

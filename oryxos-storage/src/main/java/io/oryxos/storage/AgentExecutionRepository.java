@@ -36,6 +36,17 @@ public interface AgentExecutionRepository extends JpaRepository<AgentExecutionEn
   @Query(
       """
       update AgentExecutionEntity e
+         set e.status = 'WAITING_APPROVAL', e.updatedAt = :updatedAt
+       where e.id = :id and e.endedAt is null
+      """)
+  int markWaitingApprovalIfOpen(
+      @Param("id") long id, @Param("updatedAt") java.time.Instant updatedAt);
+
+  @Modifying(clearAutomatically = true, flushAutomatically = true)
+  @Transactional(rollbackFor = Exception.class)
+  @Query(
+      """
+      update AgentExecutionEntity e
          set e.cancelRequestedAt = :requestedAt,
              e.status = 'CANCELLING',
              e.updatedAt = :requestedAt

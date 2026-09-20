@@ -147,6 +147,6 @@ public record AgentExecution(
 
   public boolean cancellable() {
     String status = status();
-    return "QUEUED".equals(status) || "RUNNING".equals(status);
+    return "QUEUED".equals(status) || "RUNNING".equals(status) || "WAITING_APPROVAL".equals(status);
   }
 }

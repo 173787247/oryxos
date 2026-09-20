@@ -111,6 +111,8 @@ oryxos:
   # 耐久挂起/恢复见 #465；管理台与 IM 审批交互见 #466。
   approval:
     enabled: false
+    # 043 / #465：true 时 REQUIRE_APPROVAL 耐久挂起；默认 false 保持 #464 stub 拒绝
+    durable-suspend: false
     policy-version: "1"
     default-ttl-seconds: 3600
     default-approvers: []

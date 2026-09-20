@@ -118,6 +118,11 @@ public class JpaAgentExecutionStore implements AgentExecutionStore {
   }
 
   @Override
+  public void markWaitingApproval(long id, Instant at) {
+    repository.markWaitingApprovalIfOpen(id, at);
+  }
+
+  @Override
   public void requestCancel(long id, Instant at) {
     tryRequestCancel(id, at);
   }

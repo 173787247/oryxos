@@ -71,6 +71,9 @@ public interface AgentExecutionStore {
 
   default void markRunning(long id, Instant at) {}
 
+  /** 043 / #465：耐久挂起——非终态 WAITING_APPROVAL，重启后保留。 */
+  default void markWaitingApproval(long id, Instant at) {}
+
   default void requestCancel(long id, Instant at) {}
 
   /** 原子接受取消请求；终态或不存在时返回 false。 */
