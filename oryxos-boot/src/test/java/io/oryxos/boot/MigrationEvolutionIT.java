@@ -77,12 +77,12 @@ class MigrationEvolutionIT {
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
       assertNotNull(context.getBean(AgentScheduler.class));
     }
-    // 模拟执行中途被杀的落盘形态：最后一个迁移 V22（#469 Flow step expires，JavaMigration + ALTER）效果已在，但
+    // 模拟执行中途被杀的落盘形态：最后一个迁移 V23（#473 versioned asset source，纯 SQL）效果已在，但
     // history 未记成功——中断只可能发生在序列尾部，只删末版 history。
     try (Connection connection = DriverManager.getConnection(dbUrl);
         Statement statement = connection.createStatement()) {
       assertEquals(
-          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '22'"));
+          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '23'"));
     }
 
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
@@ -92,9 +92,9 @@ class MigrationEvolutionIT {
         Statement statement = connection.createStatement();
         ResultSet rows =
             statement.executeQuery(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '22' AND success = 1")) {
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '23' AND success = 1")) {
       assertTrue(rows.next());
-      assertEquals(1, rows.getLong(1), "V22 should have converged idempotently on restart");
+      assertEquals(1, rows.getLong(1), "V23 should have converged idempotently on restart");
     }
   }
 

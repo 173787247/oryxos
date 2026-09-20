@@ -1324,6 +1324,24 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.AssetGovernanceRevisionRecorder(repository);
   }
 
+  /** 049 / #473：共享内容版本指针（默认关；启用后与 VersionedAssetSource 配合）。 */
+  @Bean
+  io.oryxos.core.workspace.versioned.VersionedAssetPointerStore versionedAssetPointerStore(
+      io.oryxos.storage.WorkspaceAssetVersionRepository versions,
+      io.oryxos.storage.WorkspaceAssetActiveRepository active) {
+    return new io.oryxos.storage.JpaVersionedAssetPointerStore(versions, active);
+  }
+
+  /** 049 / #473：Agent/Skill/Knowledge 版本源（快照 + 原子切换/回滚）。 */
+  @Bean
+  io.oryxos.core.workspace.versioned.VersionedAssetSource versionedAssetSource(
+      io.oryxos.core.workspace.versioned.VersionedAssetPointerStore pointers,
+      io.oryxos.core.cluster.ClusterProperties clusterProperties,
+      io.oryxos.core.cluster.WorkspaceVersionNotifier workspaceVersionNotifier) {
+    return new io.oryxos.core.workspace.versioned.VersionedAssetSource(
+        oryxosRoot(), pointers, clusterProperties, workspaceVersionNotifier);
+  }
+
   /** 040：OIDC issuer/sub → 本地 username 映射。 */
   @Bean
   IdentityMappingService identityMappingService(

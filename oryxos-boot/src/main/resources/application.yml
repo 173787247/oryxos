@@ -129,6 +129,10 @@ oryxos:
     #     effect: require_approval
     #     approvers: [admin]
     #     ttl-seconds: 1800
+  # 049 / #473：Agent/Skill/Knowledge 共享内容版本源（快照 + 原子切换/回滚）。默认关=零行为变化。
+  # 开启后 API：/api/v1/workspace/assets/{kind}/{id}/versions|activate|rollback
+  cluster:
+    versioned-asset-source-enabled: false
   # 048 / #472：Agent/Skill/Prompt/Flow 评测与回归门禁。默认关=零行为变化；
   # CI/发布可用 scripts/eval-regression-gate.sh；开启 gate-enabled 后调用方可比对基线阻断发布。
   eval:
