@@ -63,6 +63,8 @@ public class ApprovalCallbackReceiptEntity {
 
   /** 复合主键。 */
   public static final class Pk implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private String channel;
     private String callbackId;
 
