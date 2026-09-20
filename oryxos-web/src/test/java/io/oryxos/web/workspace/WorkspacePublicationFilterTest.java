@@ -17,6 +17,32 @@ class WorkspacePublicationFilterTest {
   @TempDir Path root;
 
   @Test
+  void unavailableSnapshotRejectsBeforeAnyStorageIoAndRecovers() throws Exception {
+    var storage = org.mockito.Mockito.mock(io.oryxos.core.workspace.WorkspaceStorage.class);
+    org.mockito.Mockito.when(storage.root()).thenReturn(root);
+    var available = new java.util.concurrent.atomic.AtomicBoolean(false);
+    var filter = new WorkspacePublicationFilter(storage, new ObjectMapper(), available::get);
+    org.mockito.Mockito.clearInvocations(storage);
+    for (String method : java.util.List.of("GET", "POST", "PUT", "DELETE")) {
+      var response = new MockHttpServletResponse();
+      filter.doFilter(
+          request(method, "/api/v1/agents/demo"),
+          response,
+          (req, res) -> fail("unavailable storage must not reach handler"));
+      assertEquals(503, response.getStatus());
+      org.mockito.Mockito.verifyNoInteractions(storage);
+    }
+    available.set(true);
+    var recovered = new MockHttpServletResponse();
+    filter.doFilter(
+        request("POST", "/api/v1/agents/demo"),
+        recovered,
+        (req, res) -> res.getWriter().write("recovered"));
+    assertEquals(200, recovered.getStatus());
+    org.mockito.Mockito.verify(storage).checkHealth();
+  }
+
+  @Test
   void potentiallyDirtyClientErrorInvalidatesStaleEditorsAndArchivesEvidence() throws Exception {
     var storage = new LocalWorkspaceStorageProvider().open(root, "");
     var publication = new WorkspacePublication(storage.root());

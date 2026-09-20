@@ -24,7 +24,7 @@ NFS 服务采用官方 GHCR amd64 固定摘要：`ghcr.io/kubernetes-sigs/nfs-ga
 | worker A 暂停 | B 的运行注册表和 READY 知识库仍可读；finally 恢复 A |
 | 管理台 | `http://localhost:18046/admin/`；B 直接入口 `http://localhost:18047/admin/`，均仅绑定 loopback |
 
-故障实验未验证 hard-mount 阻塞期间直连 Pod 写请求能在固定期限内返回 503；readiness 摘流与每个文件系统调用有界完成是不同保证。未将单宿主恢复当作新物理主机恢复。
+最初的故障实验只验证 readiness。后续已针对 hard-mount 阻塞期间的直连 Pod 管理写入补测并修复，详见下方补充记录。readiness 摘流、准入拒绝与已进入内核的文件调用有界完成是不同保证；未将单宿主恢复当作新物理主机恢复。
 
 ## 本机操作与证据
 
@@ -38,3 +38,16 @@ kubectl --context kind-oryxos-042-nfs -n oryxos-nfs port-forward svc/oryxos 1804
 ```
 
 参考：[NFS-Ganesha 官方镜像](https://github.com/kubernetes-sigs/nfs-ganesha-server-and-external-provisioner/pkgs/container/nfs-ganesha)、[VFS 导出配置](https://github.com/nfs-ganesha/nfs-ganesha/blob/next/src/config_samples/vfs.conf)。
+
+## 补充：NFS 阻塞时直连 Pod 写入（2026-09-19 本地时间）
+
+直接转发两个不同 worker 的具体 Pod，暂停 NFS 服务后等待两副本 readiness 503，再并发 POST 创建两个唯一 Agent。预先设定 HTTP 返回期限为 5 秒，客户端超时不计作服务端拒绝。finally 恢复 NFS，再检查健康、被拒请求是否延迟落盘，并发送新的正常写入作为对照。
+
+- **修复前失败**：两请求约 5 秒后客户端 TimeoutError，没有收到服务端 503；NFS 恢复后一个 Agent 实际创建。证据：[before](evidence/nfs-blocked-write-before.json)。
+- **根因与修复**：管理过滤器在同步身份检查中进入 hard NFS 阻塞。新增 `WorkspaceAvailability` 非阻塞快照准入，在探针失败或超过 15 秒失效后，于任何文件 I/O 前返回 503。Spring 装配强制注入该快照；配置重载/通知故障不单独阻止健康存储上的管理修复。
+- **修复后通过**：两请求分别约 **6.99 ms / 7.35 ms** 返回 HTTP 503；恢复健康后 3 秒回读两个唯一 Agent 均 404，无延迟创建；两个新的正常写入均 200。证据：[after](evidence/nfs-blocked-write-after.json)。
+- **回归**：`mvn -B clean verify`，2079 项测试，0 失败/错误/跳过，质量门禁通过；新增拒绝阶段不调用存储及恢复放行测试，并覆盖探针过期与重载失败时管理修复的边界。日志 `/tmp/oryxos-042-nfs/fixed-clean-verify.log`。
+- **复测脚本**：[042-nfs-blocked-write.py](../../scripts/042-nfs-blocked-write.py)，仅用于专用 `kind-oryxos-042-nfs` 环境；运行期间不能有其他测试写者。原始日志 `/tmp/oryxos-042-nfs/blocked-write-fixed.log`。
+- **实际运行产物**：两个 Pod 均运行 `oryxos:042-nfs-guard`，镜像 ID `sha256:1347a713e8bf9f8ab20048bc5a2ae7b8bd8d5d7086fabcf74da5021a80b1a948`；JAR SHA-256 `d82bc0cbc5cf4507e13c2454214beaa15595f90770fd2eed9dc41a51d701cd6a`。Docker Hub 基础镜像元数据请求超时，故本地复测镜像基于此前验收的 `oryxos:042-acceptance`，只替换本次完整构建通过的 JAR；没有改动仓库 Dockerfile。
+
+保证范围是**存储快照已失效后新到达的管理请求**。探针尚未失效时的故障发现窗口、已经放行或进入内核的 I/O，不因本次准入检查自动取消；客户端断开也不能视为业务回滚。此测试不宣称所有运行时工具调用都有固定超时。

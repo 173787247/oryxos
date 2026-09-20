@@ -68,6 +68,7 @@ class WorkspaceHealthIndicatorTest {
       now.set(initial.plusSeconds(15));
       var expired = requestThread.submit(health::health).get(2, TimeUnit.SECONDS);
       assertEquals(Status.DOWN, expired.getStatus());
+      assertEquals(false, requestThread.submit(health::available).get(2, TimeUnit.SECONDS));
       assertEquals(false, expired.getDetails().get("storageAvailable"));
       assertEquals(2, checks.get(), "health requests must not launch additional storage probes");
 
@@ -75,6 +76,7 @@ class WorkspaceHealthIndicatorTest {
       blockedProbe.get(2, TimeUnit.SECONDS);
       var recovered = requestThread.submit(health::health).get(2, TimeUnit.SECONDS);
       assertEquals(Status.UP, recovered.getStatus());
+      assertEquals(true, requestThread.submit(health::available).get(2, TimeUnit.SECONDS));
       assertEquals(true, recovered.getDetails().get("storageAvailable"));
       try (var files = Files.list(root)) {
         assertEquals(0, files.count(), "completed probes must clean their temporary artifacts");
@@ -83,6 +85,28 @@ class WorkspaceHealthIndicatorTest {
       release.countDown();
       probeThread.shutdownNow();
       requestThread.shutdownNow();
+      health.stop();
+    }
+  }
+
+  @Test
+  void failedReloadDoesNotPreventRepairWhenStorageItselfIsHealthy() throws Exception {
+    var storage = new SharedPosixWorkspaceStorageProvider();
+    Files.writeString(root.resolve(".workspace-id"), "repair-test");
+    var poller = mock(WorkspaceVersionPoller.class);
+    when(poller.reloadFailures()).thenReturn(java.util.Map.of("agents", "invalid definition"));
+    when(poller.lastPollFailed()).thenReturn(true);
+    var factory = new DefaultListableBeanFactory();
+    factory.registerSingleton("poller", poller);
+    var health =
+        new WorkspaceHealthIndicator(
+            storage.open(root, "repair-test"),
+            factory.getBeanProvider(WorkspaceVersionPoller.class));
+    try {
+      health.probeOnce();
+      assertEquals(Status.DOWN, health.health().getStatus());
+      assertTrue(health.available(), "healthy storage must allow management repairs");
+    } finally {
       health.stop();
     }
   }

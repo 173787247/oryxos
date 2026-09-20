@@ -1,6 +1,7 @@
 package io.oryxos.web.workspace;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.workspace.WorkspaceAvailability;
 import io.oryxos.core.workspace.WorkspacePublication;
 import io.oryxos.core.workspace.WorkspaceStorage;
 import io.oryxos.web.common.ApiResponse;
@@ -21,11 +22,19 @@ public final class WorkspacePublicationFilter extends OncePerRequestFilter {
   private final WorkspaceStorage storage;
   private final WorkspacePublication publication;
   private final ObjectMapper mapper;
+  private final WorkspaceAvailability availability;
 
+  /** Compatibility constructor for standalone callers without a managed probe. */
   public WorkspacePublicationFilter(WorkspaceStorage storage, ObjectMapper mapper) {
+    this(storage, mapper, () -> true);
+  }
+
+  public WorkspacePublicationFilter(
+      WorkspaceStorage storage, ObjectMapper mapper, WorkspaceAvailability availability) {
     this.storage = storage;
     this.publication = new WorkspacePublication(storage.root());
     this.mapper = mapper;
+    this.availability = availability;
   }
 
   @Override
@@ -53,6 +62,11 @@ public final class WorkspacePublicationFilter extends OncePerRequestFilter {
     ContentCachingResponseWrapper buffered =
         read ? null : new ContentCachingResponseWrapper(response);
     try {
+      // Reject before any NFS syscall: hard mounts can block even the identity read.
+      if (!availability.available()) {
+        error(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "工作区健康检查未就绪，请稍后重试");
+        return;
+      }
       storage.checkHealth();
       if (read) {
         // Read before the handler: a concurrent writer makes this conservative (stale), never

@@ -121,3 +121,7 @@ Docker 验收 UI：`http://localhost:18042/admin/`，副本 B：`http://localhos
 ### 补充：已搭建真实 NFS 协议验收环境
 
 用户提出复用 Docker Desktop/kind 后，实际完成三节点 kind + NFSv4.1 + 双 worker 应用验证，见 [NFS 验收记录](kind-nfs-acceptance.md)。这补齐本地 NFS 协议验证，并缩小环境缺口；独立内核/物理故障域、生产 NFS 高可用及完整 T013 场景仍未验证。20 次运行注册表收敛最大 0.915 秒，NFS 暂停后约 14.1 秒 readiness 摘流、恢复后约 1 秒就绪；旧版本冲突、Skill/知识源共享及 worker A 暂停时 B 可读均通过。
+
+### NFS 阻塞直连管理写入补测与修复（2026-09-19）
+
+实际补测发现并修复 readiness 失效后直连 Pod 请求仍进入阻塞 I/O、恢复后延迟创建数据的问题。修复后的两个请求分别约 6.99/7.35 ms 返回 503，恢复后无延迟创建，正常对照写入 200。完整 clean verify：2079 项、0 失败/错误/跳过，质量门禁通过。详细范围、脚本、运行镜像与失败/成功证据见 [补充记录](kind-nfs-acceptance.md)。本次修复尚未推送或创建 PR，等待用户预览批准。

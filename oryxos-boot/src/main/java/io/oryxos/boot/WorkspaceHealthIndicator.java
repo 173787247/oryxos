@@ -1,6 +1,7 @@
 package io.oryxos.boot;
 
 import io.oryxos.core.cluster.WorkspaceVersionPoller;
+import io.oryxos.core.workspace.WorkspaceAvailability;
 import io.oryxos.core.workspace.WorkspaceStorage;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -24,7 +25,7 @@ import org.springframework.stereotype.Component;
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "EI_EXPOSE_REP2",
     justification = "Injected storage and poller are shared application services.")
-public final class WorkspaceHealthIndicator implements HealthIndicator {
+public final class WorkspaceHealthIndicator implements HealthIndicator, WorkspaceAvailability {
   private static final Duration MAX_AGE = Duration.ofSeconds(15);
   private final WorkspaceStorage storage;
   private final ObjectProvider<WorkspaceVersionPoller> poller;
@@ -84,6 +85,12 @@ public final class WorkspaceHealthIndicator implements HealthIndicator {
         .withDetail("reloadHealthy", reloadOk)
         .withDetail("notificationBusHealthy", busOk)
         .build();
+  }
+
+  @Override
+  public boolean available() {
+    Probe current = probe;
+    return current.available() && current.checkedAt().plus(MAX_AGE).isAfter(clock.instant());
   }
 
   @PreDestroy
