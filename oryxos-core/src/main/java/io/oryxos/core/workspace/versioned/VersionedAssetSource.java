@@ -39,6 +39,9 @@ public final class VersionedAssetSource {
   private final ClusterProperties cluster;
   private final WorkspaceVersionNotifier notifier;
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "ClusterProperties is a Spring-shared configuration bean by design.")
   public VersionedAssetSource(
       Path workspaceRoot,
       VersionedAssetPointerStore pointers,
@@ -198,7 +201,11 @@ public final class VersionedAssetSource {
         if (Files.isDirectory(path)) {
           Files.createDirectories(dest);
         } else if (Files.isRegularFile(path) && !Files.isSymbolicLink(path)) {
-          Files.createDirectories(dest.getParent());
+          Path parent = dest.getParent();
+          if (parent == null) {
+            throw new IOException("destination has no parent: " + dest);
+          }
+          Files.createDirectories(parent);
           Files.copy(path, dest, StandardCopyOption.REPLACE_EXISTING);
         }
       }
