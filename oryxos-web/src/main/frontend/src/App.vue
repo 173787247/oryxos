@@ -8,6 +8,7 @@ import LoginView from './views/LoginView.vue'
 import RunManagementView from './features/runs/RunManagementView.vue'
 import TeamsManagementView from './features/teams/TeamsManagementView.vue'
 import IdentityMappingsView from './features/identity-mappings/IdentityMappingsView.vue'
+import ApprovalsView from './features/approvals/ApprovalsView.vue'
 import GovernanceRevisionHistory from './features/governance/GovernanceRevisionHistory.vue'
 import { isNearBottom } from './chat-scroll.js'
 import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
@@ -85,6 +86,7 @@ const RUNTIME_NAV = [
   { key: 'identity-mappings', label: 'OIDC 映射' },
   { key: 'whitelist', label: 'SandBox 列表' },
   { key: 'tool-policy', label: '工具策略' },
+  { key: 'approvals', label: 'HITL 审批' },
   { key: 'exec-backend', label: '执行后端' },
 ]
 
@@ -230,6 +232,7 @@ function select(key, options = {}) {
   if (key === 'overview') { loadOverviewStats() }
   if (key === 'teams') { teamsViewRef.value?.load?.() }
   if (key === 'identity-mappings') { identityMappingsViewRef.value?.load?.() }
+  if (key === 'approvals') { approvalsViewRef.value?.load?.() }
   if (key === 'runs') {
     runViewRef.value?.load?.()
     if (!options.fromHash) writeRunHash(selectedRunId.value)
@@ -256,6 +259,7 @@ function refresh() {
   if (key === 'overview') { loadOverviewStats(); return }
   if (key === 'teams') { teamsViewRef.value?.load?.(); return }
   if (key === 'identity-mappings') { identityMappingsViewRef.value?.load?.(); return }
+  if (key === 'approvals') { approvalsViewRef.value?.load?.(); return }
   if (key === 'runs') { runViewRef.value?.load?.(); return }
   if (key === 'report') { loadReport(); return }
   if (NAV.find((n) => n.key === key)?.path) load(key)
@@ -696,6 +700,7 @@ const selectedRunId = ref(null)
 const runViewRef = ref(null)
 const teamsViewRef = ref(null)
 const identityMappingsViewRef = ref(null)
+const approvalsViewRef = ref(null)
 
 function writeRunHash(runId) {
   const next = runId ? runHash(runId) : runListHash()
@@ -2393,6 +2398,9 @@ const outputRows = computed(() =>
 
           <div v-if="active === 'identity-mappings'">
             <IdentityMappingsView ref="identityMappingsViewRef" />
+          </div>
+          <div v-if="active === 'approvals'">
+            <ApprovalsView ref="approvalsViewRef" />
           </div>
 
           <!-- 报表（016 审计看板）：KPI 汇总 + 分布条形图 + 明细下钻；时间窗三档 -->

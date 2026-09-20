@@ -113,6 +113,8 @@ oryxos:
     enabled: false
     # 043 / #465：true 时 REQUIRE_APPROVAL 耐久挂起；默认 false 保持 #464 stub 拒绝
     durable-suspend: false
+    # 044 / #466：管理台/IM 审批交互 API；默认关 → /api/v1/approvals 404
+    interaction-api-enabled: false
     policy-version: "1"
     default-ttl-seconds: 3600
     default-approvers: []

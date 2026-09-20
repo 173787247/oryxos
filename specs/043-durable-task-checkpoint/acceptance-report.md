@@ -6,4 +6,4 @@
 | Idempotent retry key | `retry_idempotentKey_returnsSameCheckpoint` |
 | Resume + replay from checkpoint | `resume_fromCheckpoint_replaysTool_idempotent`; `DurableSuspendInterceptTest` |
 
-Deferred to #466: admin/IM approve-deny UX, callback dedupe/expiry UI paths.
+Covered by #466 (044-approval-interaction).

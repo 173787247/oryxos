@@ -68,6 +68,8 @@ public class JpaTaskCheckpointStore implements TaskCheckpointStore {
         e.getRuleId(),
         e.getAttempt(),
         e.getLastError(),
+        e.getTtlSeconds(),
+        e.getExpiresAt(),
         e.getCreatedAt(),
         e.getUpdatedAt());
   }
@@ -88,6 +90,8 @@ public class JpaTaskCheckpointStore implements TaskCheckpointStore {
     e.setRuleId(cp.ruleId());
     e.setAttempt(cp.attempt());
     e.setLastError(cp.lastError());
+    e.setTtlSeconds(cp.ttlSeconds());
+    e.setExpiresAt(cp.expiresAt());
     e.setCreatedAt(cp.createdAt());
     e.setUpdatedAt(cp.updatedAt());
     return e;
