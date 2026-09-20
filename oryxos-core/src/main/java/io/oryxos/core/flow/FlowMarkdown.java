@@ -80,7 +80,12 @@ public final class FlowMarkdown {
     if (dependsOn.isEmpty()) {
       dependsOn = stringList(map.get("depends"));
     }
-    return new FlowNode(id, type, ref, inputs, outputs, dependsOn);
+    Integer timeoutSeconds =
+        intOrNull(
+            map.containsKey("timeoutSeconds") ? map.get("timeoutSeconds") : map.get("timeout"));
+    String compensate =
+        firstNonBlank(str(map.get("compensate")), str(map.get("onFailureCompensate")));
+    return new FlowNode(id, type, ref, inputs, outputs, dependsOn, timeoutSeconds, compensate);
   }
 
   @SuppressWarnings("unchecked")

@@ -3,7 +3,7 @@ package io.oryxos.core.flow;
 import java.time.Instant;
 import java.util.Objects;
 
-/** Persisted per-node step within a Flow run (046 / #468). */
+/** Persisted per-node step within a Flow run (046 / #468 + expiresAt for #469). */
 public record FlowStep(
     String id,
     String runId,
@@ -17,6 +17,7 @@ public record FlowStep(
     String error,
     Instant startedAt,
     Instant finishedAt,
+    Instant expiresAt,
     Instant createdAt,
     Instant updatedAt) {
 
@@ -38,6 +39,10 @@ public record FlowStep(
     return "flow:" + runId + ":" + nodeId;
   }
 
+  public static String compensateIdempotencyKey(String runId, String failedNodeId) {
+    return "flow:" + runId + ":" + failedNodeId + ":compensate";
+  }
+
   public FlowStep withState(FlowStepState next, Instant at) {
     return withState(next, at, error, outputsJson);
   }
@@ -50,7 +55,10 @@ public record FlowStep(
     if (next == FlowStepState.RUNNING) {
       finished = null;
     }
-    if (next.succeeded() || next == FlowStepState.FAILED || next == FlowStepState.SKIPPED) {
+    if (next.succeeded()
+        || next == FlowStepState.FAILED
+        || next == FlowStepState.SKIPPED
+        || next == FlowStepState.CANCELLED) {
       finished = at;
     }
     return new FlowStep(
@@ -66,6 +74,26 @@ public record FlowStep(
         nextError,
         startedAt == null && next == FlowStepState.RUNNING ? at : startedAt,
         finished,
+        expiresAt,
+        createdAt,
+        at);
+  }
+
+  public FlowStep withExpiresAt(Instant nextExpires, Instant at) {
+    return new FlowStep(
+        id,
+        runId,
+        nodeId,
+        nodeType,
+        state,
+        attempt,
+        idempotencyKey,
+        inputsJson,
+        outputsJson,
+        error,
+        startedAt,
+        finishedAt,
+        nextExpires,
         createdAt,
         at);
   }
@@ -84,6 +112,7 @@ public record FlowStep(
         error,
         startedAt,
         finishedAt,
+        expiresAt,
         createdAt,
         at);
   }
@@ -102,7 +131,12 @@ public record FlowStep(
         error,
         startedAt,
         finishedAt,
+        expiresAt,
         createdAt,
         at);
+  }
+
+  public boolean expiredAt(Instant now) {
+    return expiresAt != null && now != null && !now.isBefore(expiresAt);
   }
 }

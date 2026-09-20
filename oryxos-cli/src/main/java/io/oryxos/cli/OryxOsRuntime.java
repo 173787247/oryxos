@@ -1131,7 +1131,7 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.JpaFlowRunStore(runs, steps);
   }
 
-  /** 046 / #468：Markdown Flow 执行引擎（默认 oryxos.flow.engine-enabled=false）。 */
+  /** 046 / #468 + 047 / #469：Markdown Flow 执行引擎（engine/compensation 默认 false）。 */
   @Bean
   io.oryxos.core.flow.FlowEngine flowEngine(
       io.oryxos.core.flow.FlowRunStore flowRunStore,
@@ -1141,7 +1141,8 @@ public class OryxOsRuntime {
         new io.oryxos.core.flow.DefaultFlowNodeHandler(),
         java.time.Clock.systemUTC(),
         flowProperties.isEngineEnabled(),
-        flowProperties.getDefaultMaxRetries());
+        flowProperties.getDefaultMaxRetries(),
+        flowProperties.isCompensationEnabled());
   }
 
   /** 044 / #466：IM 回调收据；无 JPA 时进程内。 */
