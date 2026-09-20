@@ -174,7 +174,8 @@
     <build>
         <plugins>
 
-            <!-- #453：reactor aggregate coverage HTML/XML + LINE COVEREDRATIO gate -->
+            <!-- #453：reactor aggregate coverage HTML/XML + LINE COVEREDRATIO gate.
+                 Skip when -DskipTests (install/package jobs): no Surefire data → 0% aggregate. -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -185,6 +186,9 @@
                         <goals>
                             <goal>report-aggregate</goal>
                         </goals>
+                        <configuration>
+                            <skip>${skipTests}</skip>
+                        </configuration>
                     </execution>
                     <!--
                       jacoco:check is BUNDLE-scoped to this module. Boot LINE is ~95% tip, so the
@@ -199,6 +203,7 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <skip>${skipTests}</skip>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
@@ -227,6 +232,7 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
+                            <skip>${skipTests}</skip>
                             <executable>python3</executable>
                             <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
                             <arguments>
