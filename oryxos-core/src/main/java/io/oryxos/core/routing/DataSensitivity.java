@@ -1,5 +1,7 @@
 package io.oryxos.core.routing;
 
+import java.util.Locale;
+
 public enum DataSensitivity {
   NORMAL,
   SENSITIVE;
@@ -8,6 +10,6 @@ public enum DataSensitivity {
     if (raw == null || raw.isBlank()) {
       return null;
     }
-    return DataSensitivity.valueOf(raw.trim().toUpperCase());
+    return DataSensitivity.valueOf(raw.trim().toUpperCase(Locale.ROOT));
   }
 }

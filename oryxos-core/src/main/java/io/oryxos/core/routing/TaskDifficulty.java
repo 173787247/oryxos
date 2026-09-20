@@ -1,5 +1,7 @@
 package io.oryxos.core.routing;
 
+import java.util.Locale;
+
 public enum TaskDifficulty {
   LOW,
   MEDIUM,
@@ -9,6 +11,6 @@ public enum TaskDifficulty {
     if (raw == null || raw.isBlank()) {
       return null;
     }
-    return TaskDifficulty.valueOf(raw.trim().toUpperCase());
+    return TaskDifficulty.valueOf(raw.trim().toUpperCase(Locale.ROOT));
   }
 }
