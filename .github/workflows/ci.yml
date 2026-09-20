@@ -26,9 +26,10 @@ concurrency:
 jobs:
   # Long-lived PRs fail OWASP when main adds CVE suppressions they have not merged.
   # Fail fast if those files lag the PR base; other drift is still the author's call.
+  # On push to main (and other push branches): compare against the previous SHA so the
+  # job always runs (skipped ≠ pass for the all-success bar).
   owasp-baseline:
     name: OWASP baseline vs main
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -36,19 +37,50 @@ jobs:
         with:
           fetch-depth: 0
       - name: Compare suppressions and root POM to base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          git fetch origin "${{ github.base_ref }}"
-          base="origin/${{ github.base_ref }}"
+          zeros="0000000000000000000000000000000000000000"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_REF"
+            base="origin/${BASE_REF}"
+            base_label="$BASE_REF"
+          else
+            before="${BEFORE_SHA:-}"
+            if [ -z "$before" ] || [ "$before" = "$zeros" ]; then
+              if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+                before="$(git rev-parse HEAD~1)"
+              else
+                echo "No previous commit available; nothing to compare."
+                exit 0
+              fi
+            fi
+            if ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              git fetch --no-tags origin "$before" 2>/dev/null || true
+            fi
+            if ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+                before="$(git rev-parse HEAD~1)"
+              else
+                echo "Previous SHA unavailable; nothing to compare."
+                exit 0
+              fi
+            fi
+            base="$before"
+            base_label="$before"
+          fi
           if git merge-base --is-ancestor "$base" HEAD; then
-            echo "Branch already contains $base."
+            echo "Branch already contains $base_label."
             exit 0
           fi
-          echo "Branch is $(git rev-list --count HEAD.."$base") commit(s) behind $base."
+          echo "Branch is $(git rev-list --count HEAD.."$base") commit(s) behind $base_label."
           changed=0
           for f in config/dependency-check-suppressions.xml pom.xml; do
             if ! git diff --quiet "$base" -- "$f"; then
-              echo "::error file=$f::$f differs from ${{ github.base_ref }}. Merge main so OWASP suppressions stay in sync."
+              echo "::error file=$f::$f differs from ${base_label}. Merge main so OWASP suppressions stay in sync."
               git --no-pager diff --stat "$base" -- "$f"
               changed=1
             fi
@@ -57,7 +89,7 @@ jobs:
             echo "Run: make sync-upstream && mvn -B verify"
             exit 1
           fi
-          echo "Behind main, but OWASP/pom baseline files match."
+          echo "Behind $base_label, but OWASP/pom baseline files match."
 
   build:
     name: Build & quality gate

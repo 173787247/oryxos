@@ -1,12 +1,13 @@
 name: Release
 
-# 触发：以 "release:" 开头命名的 PR 被合入 main 时，自动切版本。
-# 版本号从 pom.xml 读（<artifactId>oryxos</artifactId> 之后的 <version>），
-# 打发行版 tar.gz（make release）并创建 GitHub Release 上传产物。
+# Trigger only on version tags. Creating a GitHub Release + GHCR/Helm artifacts.
+# Do NOT trigger on pull_request closed: that left SKIPPED check runs on every
+# non-release merge (skipped ≠ pass for the all-success bar).
+# After merging a release PR, push tag vX.Y.Z (matching pom version) to publish.
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
+  push:
+    tags:
+      - 'v*'
 
 # 创建 Release + tag 需要写 contents 权限；推镜像到 GHCR 需要写 packages 权限
 permissions:
@@ -14,23 +15,18 @@ permissions:
   packages: write
 
 concurrency:
-  group: release-${{ github.event.pull_request.number }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: Build & publish release
-    # 仅当 release: 开头的 PR 真正被 merge（而非 close 未合）才发版
-    if: >-
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.title, 'release:')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - name: Checkout main (含已合入代码)
+      - name: Checkout tagged commit
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
 
       - name: Set up JDK 21
@@ -40,9 +36,10 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Resolve version from pom.xml
+      - name: Resolve version from tag / pom.xml
         id: ver
         run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
           RAW=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
           if [ -z "$RAW" ] || [ "$RAW" = "null object or invalid expression" ]; then
             echo "::error::无法从 pom.xml 解析版本号"
@@ -50,9 +47,14 @@ jobs:
           fi
           # 剥离开发用 -SNAPSHOT 后缀；-RELEASE 等正式标签原样保留
           VERSION="${RAW%-SNAPSHOT}"
+          EXPECTED="v${VERSION}"
+          if [ "$TAG_NAME" != "$EXPECTED" ]; then
+            echo "::error::Tag ${TAG_NAME} 与 pom 版本不符（期望 ${EXPECTED}）"
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-          echo "解析到版本：$VERSION（tag v$VERSION）"
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "解析到版本：$VERSION（tag $TAG_NAME）"
 
       - name: Build release tarball (make release)
         run: make release
@@ -64,14 +66,11 @@ jobs:
           ls -la "$TARBALL"
 
       - name: Create GitHub Release & upload tarball
-        # 不受信输入（PR 标题等）一律走 env + 引号引用，绝不内插进 run 命令，防命令注入
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.ver.outputs.version }}
           TAG: ${{ steps.ver.outputs.tag }}
-          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           TARBALL="dist/oryxos-${VERSION}.tar.gz"
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -81,7 +80,7 @@ jobs:
             gh release create "$TAG" "$TARBALL" \
               --target "$TARGET_SHA" \
               --title "OryxOS ${VERSION}" \
-              --notes "Automated release from PR #${PR_NUMBER} — ${PR_TITLE}" \
+              --notes "Automated release from tag ${TAG}" \
               --generate-notes
           fi
           echo "已发布 $TAG，产物：$(basename "$TARBALL")"
@@ -120,6 +119,7 @@ jobs:
       - name: Package & upload Helm chart
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           bash scripts/install-k8s-tools.sh gate
           export PATH="$HOME/bin:$PATH"
