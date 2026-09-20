@@ -76,6 +76,8 @@ public final class DurableTaskService {
     }
 
     String id = "cp-" + UUID.randomUUID().toString().replace("-", "");
+    Integer ttl = decision == null ? null : decision.ttlSeconds();
+    Instant expiresAt = ttl == null || ttl <= 0 ? null : now.plusSeconds(ttl.longValue());
     TaskCheckpoint created =
         new TaskCheckpoint(
             id,
@@ -92,6 +94,8 @@ public final class DurableTaskService {
             decision == null ? null : decision.ruleId(),
             0,
             null,
+            ttl,
+            expiresAt,
             now,
             now);
     store.save(created);

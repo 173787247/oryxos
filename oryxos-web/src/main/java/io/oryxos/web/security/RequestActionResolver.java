@@ -95,6 +95,10 @@ public final class RequestActionResolver {
 
   private static final String PATH_IDENTITY_MAPPINGS = "/api/v1/identity-mappings";
 
+  private static final String PATH_APPROVALS = "/api/v1/approvals";
+
+  private static final String PATH_APPROVAL_CALLBACKS = "/api/v1/approvals/callbacks";
+
   private static final String PATH_USERS = "/api/v1/users";
 
   private static final String SEGMENT_TEAMS = "/teams";
@@ -135,7 +139,7 @@ public final class RequestActionResolver {
     if (isAlipayCompatGateway(m, p)) {
       return Resolution.skip();
     }
-    if (isUnder(p, PATH_CHANNELS_INBOUND)) {
+    if (isUnder(p, PATH_CHANNELS_INBOUND) || isUnder(p, PATH_APPROVAL_CALLBACKS)) {
       return Resolution.skip();
     }
     if (isUnder(p, PATH_ACTUATOR)) {
@@ -172,7 +176,7 @@ public final class RequestActionResolver {
     if (isChannelManagePath(p)) {
       return Resolution.of(Action.MANAGE_CHANNELS, ResourceRef.channel(null));
     }
-    if (isUnder(p, PATH_TOOL_POLICY) || isUnder(p, PATH_SANDBOX)) {
+    if (isUnder(p, PATH_TOOL_POLICY) || isUnder(p, PATH_SANDBOX) || isUnder(p, PATH_APPROVALS)) {
       return Resolution.of(Action.MANAGE_POLICIES, ResourceRef.policy());
     }
     if (isUnder(p, PATH_AUDIT)) {

@@ -54,6 +54,12 @@ public class DurableTaskCheckpointEntity {
   @Column(name = "last_error", length = 1024)
   private String lastError;
 
+  @Column(name = "ttl_seconds")
+  private Integer ttlSeconds;
+
+  @Column(name = "expires_at")
+  private Instant expiresAt;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
@@ -170,6 +176,22 @@ public class DurableTaskCheckpointEntity {
 
   public void setLastError(String lastError) {
     this.lastError = lastError;
+  }
+
+  public Integer getTtlSeconds() {
+    return ttlSeconds;
+  }
+
+  public void setTtlSeconds(Integer ttlSeconds) {
+    this.ttlSeconds = ttlSeconds;
+  }
+
+  public Instant getExpiresAt() {
+    return expiresAt;
+  }
+
+  public void setExpiresAt(Instant expiresAt) {
+    this.expiresAt = expiresAt;
   }
 
   public Instant getCreatedAt() {

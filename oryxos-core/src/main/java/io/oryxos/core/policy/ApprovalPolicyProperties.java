@@ -17,6 +17,9 @@ public class ApprovalPolicyProperties {
   /** 043 / #465：REQUIRE_APPROVAL 时是否耐久挂起（写检查点 + WAITING_APPROVAL）。默认 false 保持 #464 stub 拒绝语义。 */
   private boolean durableSuspend = false;
 
+  /** 044 / #466：管理台/IM 审批交互 API。默认 false → HTTP 404。 */
+  private boolean interactionApiEnabled = false;
+
   /** 策略版本（审计字段）。 */
   private String policyVersion = "1";
 
@@ -84,6 +87,14 @@ public class ApprovalPolicyProperties {
 
   public void setDurableSuspend(boolean durableSuspend) {
     this.durableSuspend = durableSuspend;
+  }
+
+  public boolean isInteractionApiEnabled() {
+    return interactionApiEnabled;
+  }
+
+  public void setInteractionApiEnabled(boolean interactionApiEnabled) {
+    this.interactionApiEnabled = interactionApiEnabled;
   }
 
   public String getPolicyVersion() {

@@ -1116,6 +1116,39 @@ public class OryxOsRuntime {
     return new io.oryxos.core.durable.DurableTaskReplay(durableTaskService, toolExecutor);
   }
 
+  /** 044 / #466：IM 回调收据；无 JPA 时进程内。 */
+  @Bean
+  io.oryxos.core.durable.ApprovalCallbackReceiptStore approvalCallbackReceiptStore(
+      org.springframework.beans.factory.ObjectProvider<
+              io.oryxos.storage.ApprovalCallbackReceiptRepository>
+          repository) {
+    io.oryxos.storage.ApprovalCallbackReceiptRepository repo = repository.getIfAvailable();
+    if (repo == null) {
+      return new io.oryxos.core.durable.InMemoryApprovalCallbackReceiptStore();
+    }
+    return new io.oryxos.storage.JpaApprovalCallbackReceiptStore(repo);
+  }
+
+  /** 044 / #466：管理台/IM 审批交互门面（默认 interaction-api-enabled=false）。 */
+  @Bean
+  io.oryxos.core.durable.ApprovalInteractionService approvalInteractionService(
+      io.oryxos.core.durable.DurableTaskService durableTaskService,
+      io.oryxos.core.durable.DurableTaskReplay durableTaskReplay,
+      io.oryxos.core.durable.TaskCheckpointStore taskCheckpointStore,
+      io.oryxos.core.durable.ApprovalCallbackReceiptStore approvalCallbackReceiptStore,
+      io.oryxos.core.policy.ApprovalAuditRecorder approvalAuditRecorder,
+      io.oryxos.core.policy.ApprovalPolicyProperties approvalProperties) {
+    boolean enabled = approvalProperties.isInteractionApiEnabled();
+    return new io.oryxos.core.durable.ApprovalInteractionService(
+        durableTaskService,
+        durableTaskReplay,
+        taskCheckpointStore,
+        approvalCallbackReceiptStore,
+        approvalAuditRecorder,
+        java.time.Clock.systemUTC(),
+        enabled);
+  }
+
   /**
    * 020：策略加载期告警（未知目标规则 / 有效集全空，WARN 不阻断）。仅 SERVLET 模式（serve/gateway）跑—— CLI 管理命令用
    * WebApplicationType.NONE，不受影响（镜像 018 ApiKeyStartupCheck 的条件口径）。

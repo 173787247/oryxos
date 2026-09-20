@@ -18,6 +18,8 @@ class RequestActionResolverTest {
     assertSkip("GET", "/actuator/health");
     assertSkip("GET", "/actuator/health/liveness");
     assertSkip("POST", "/api/v1/channels/inbound/feishu");
+    assertSkip("POST", "/api/v1/approvals/callbacks/feishu");
+    assertSkip("POST", "/api/v1/approvals/callbacks/wecom");
     assertSkip("POST", "/api/v1");
     assertSkip("POST", "/api/v1/");
   }
@@ -35,6 +37,8 @@ class RequestActionResolverTest {
   void policiesAndProfiles() {
     assertAction("GET", "/api/v1/tool-policy/rules", Action.MANAGE_POLICIES);
     assertAction("PUT", "/api/v1/sandbox/whitelist", Action.MANAGE_POLICIES);
+    assertAction("GET", "/api/v1/approvals", Action.MANAGE_POLICIES);
+    assertAction("POST", "/api/v1/approvals/cp-1/decide", Action.MANAGE_POLICIES);
     assertAction("GET", "/api/v1/profiles", Action.READ_WORKSPACE);
   }
 
