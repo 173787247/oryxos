@@ -115,6 +115,10 @@ oryxos:
     durable-suspend: false
     # 044 / #466：管理台/IM 审批交互 API；默认关 → /api/v1/approvals 404
     interaction-api-enabled: false
+  # 046 / #468：持久化 Flow 执行引擎。默认关=零行为变化；开启后可 start/resume Markdown Flow。
+  flow:
+    engine-enabled: false
+    default-max-retries: 0
     policy-version: "1"
     default-ttl-seconds: 3600
     default-approvers: []
