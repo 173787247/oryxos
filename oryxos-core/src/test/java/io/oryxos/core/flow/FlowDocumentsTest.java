@@ -31,6 +31,11 @@ class FlowDocumentsTest {
     assertExampleOk("flows/ticket-approve-apply.flow.md", "ticket-approve-apply");
   }
 
+  @Test
+  void rdopsApproveExec_example_validates() throws IOException {
+    assertExampleOk("flows/rdops-approve-exec.flow.md", "rdops-approve-exec");
+  }
+
   private static void assertExampleOk(String resource, String expectedId) throws IOException {
     String md;
     try (InputStream in = FlowDocumentsTest.class.getClassLoader().getResourceAsStream(resource)) {

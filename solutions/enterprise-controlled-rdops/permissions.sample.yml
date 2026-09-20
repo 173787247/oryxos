@@ -1,0 +1,21 @@
+# 受控研发运维场景工具权限样例（020 Tool Policy）
+# 导入方式：管理台策略页 / REST 写入 tool_policy_rules；本文件仅作 Git 可审阅样例。
+# 默认：无危险写权限。
+rules:
+  - rule_type: GLOBAL_DENY
+    pattern: shell
+    created_by: solution-480
+  - rule_type: GLOBAL_DENY
+    pattern: exec
+    created_by: solution-480
+  - rule_type: GLOBAL_DENY
+    pattern: write_file
+    created_by: solution-480
+  - rule_type: AGENT_DENY
+    agent_name: rdops-controlled
+    pattern: ops.exec
+    created_by: solution-480
+  - rule_type: AGENT_DENY
+    agent_name: rdops-controlled
+    pattern: ops.deploy
+    created_by: solution-480
