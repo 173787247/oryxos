@@ -1117,12 +1117,12 @@ public class OryxOsRuntime {
     return new io.oryxos.core.durable.DurableTaskReplay(durableTaskService, toolExecutor);
   }
 
-
   /** 046 / #468：Flow run 存储；无 JPA 时进程内。 */
   @Bean
   io.oryxos.core.flow.FlowRunStore flowRunStore(
       org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.FlowRunRepository> runRepo,
-      org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.FlowStepRepository> stepRepo) {
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.FlowStepRepository>
+          stepRepo) {
     io.oryxos.storage.FlowRunRepository runs = runRepo.getIfAvailable();
     io.oryxos.storage.FlowStepRepository steps = stepRepo.getIfAvailable();
     if (runs == null || steps == null) {

@@ -77,12 +77,12 @@ class MigrationEvolutionIT {
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
       assertNotNull(context.getBean(AgentScheduler.class));
     }
-    // 模拟执行中途被杀的落盘形态：最后一个迁移 V20（#466 审批交互，JavaMigration + CREATE TABLE）效果已在，但
+    // 模拟执行中途被杀的落盘形态：最后一个迁移 V21（#468 Flow runs，JavaMigration + CREATE TABLE）效果已在，但
     // history 未记成功——中断只可能发生在序列尾部，只删末版 history。
     try (Connection connection = DriverManager.getConnection(dbUrl);
         Statement statement = connection.createStatement()) {
       assertEquals(
-          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '20'"));
+          1, statement.executeUpdate("DELETE FROM flyway_schema_history WHERE version = '21'"));
     }
 
     try (ConfigurableApplicationContext context = boot(root, dbUrl, null)) {
@@ -92,9 +92,9 @@ class MigrationEvolutionIT {
         Statement statement = connection.createStatement();
         ResultSet rows =
             statement.executeQuery(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20' AND success = 1")) {
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '21' AND success = 1")) {
       assertTrue(rows.next());
-      assertEquals(1, rows.getLong(1), "V20 should have converged idempotently on restart");
+      assertEquals(1, rows.getLong(1), "V21 should have converged idempotently on restart");
     }
   }
 
