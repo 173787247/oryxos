@@ -19,6 +19,9 @@ import org.slf4j.LoggerFactory;
  *
  * <p>本刀不负责管理台/IM 回调（#466）；{@link #applyDecision} 供后续入口调用。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "CRLF_INJECTION_LOGS",
+    justification = "Log args are checkpoint ids / tool names sanitized via sanitize().")
 public final class DurableTaskService {
 
   private static final Logger LOG = LoggerFactory.getLogger(DurableTaskService.class);
@@ -92,7 +95,11 @@ public final class DurableTaskService {
             now,
             now);
     store.save(created);
-    LOG.info("耐久挂起 WAITING_APPROVAL checkpoint={} tool={} key={}", id, call.name(), idempotencyKey);
+    LOG.info(
+        "耐久挂起 WAITING_APPROVAL checkpoint={} tool={} key={}",
+        sanitize(id),
+        sanitize(call.name()),
+        sanitize(idempotencyKey));
     return new ApprovalSuspendedException(
         id, idempotencyKey, decision == null ? "等待人工审批" : decision.reason());
   }
@@ -199,5 +206,9 @@ public final class DurableTaskService {
     String sid = sessionId == null || sessionId.isBlank() ? "na" : sessionId;
     String tc = toolCallId == null || toolCallId.isBlank() ? "na" : toolCallId;
     return "exec:" + exec + "|session:" + sid + "|toolCall:" + tc + "|attempt:" + attempt;
+  }
+
+  private static String sanitize(String value) {
+    return value == null ? "" : value.replace('\r', '_').replace('\n', '_');
   }
 }
