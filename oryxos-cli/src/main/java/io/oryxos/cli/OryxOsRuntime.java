@@ -181,6 +181,7 @@ import org.springframework.web.context.WebApplicationContext;
   io.oryxos.core.cluster.ClusterProperties.class,
   io.oryxos.core.policy.ApprovalPolicyProperties.class,
   io.oryxos.core.flow.FlowEngineProperties.class,
+  io.oryxos.core.eval.EvalProperties.class,
   OtelProperties.class
 })
 public class OryxOsRuntime {

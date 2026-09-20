@@ -1,0 +1,41 @@
+{
+  "name": "regressing-suite",
+  "cases": [
+    {
+      "id": "agent-bad-tools",
+      "kind": "AGENT",
+      "name": "wrong tool choice",
+      "success": false,
+      "expectedTools": ["retrieve_knowledge"],
+      "actualTools": ["exec"],
+      "expectedCitations": ["ops-manual:runbook.md"],
+      "actualCitations": [],
+      "latencyMs": 5000,
+      "costMicros": 90000
+    },
+    {
+      "id": "flow-fail",
+      "kind": "FLOW",
+      "name": "flow failed",
+      "success": false,
+      "expectedTools": ["charge"],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 2000,
+      "costMicros": 0
+    }
+  ],
+  "baseline": {
+    "suiteName": "regressing-suite",
+    "capturedAt": "2026-09-01T00:00:00Z",
+    "metrics": {
+      "successRate": 1.0,
+      "toolAccuracy": 1.0,
+      "citationQuality": 1.0,
+      "latencyMsAvg": 500.0,
+      "costMicrosTotal": 10000,
+      "caseCount": 2
+    }
+  }
+}
