@@ -1087,6 +1087,35 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.JpaApprovalAuditRecorder(repo);
   }
 
+  /** 043 / #465：检查点存储；无 JPA 时进程内（测试/精简装配）。 */
+  @Bean
+  io.oryxos.core.durable.TaskCheckpointStore taskCheckpointStore(
+      org.springframework.beans.factory.ObjectProvider<
+              io.oryxos.storage.DurableTaskCheckpointRepository>
+          repository) {
+    io.oryxos.storage.DurableTaskCheckpointRepository repo = repository.getIfAvailable();
+    if (repo == null) {
+      return new io.oryxos.core.durable.InMemoryTaskCheckpointStore();
+    }
+    return new io.oryxos.storage.JpaTaskCheckpointStore(repo);
+  }
+
+  @Bean
+  io.oryxos.core.durable.DurableTaskService durableTaskService(
+      io.oryxos.core.durable.TaskCheckpointStore taskCheckpointStore,
+      io.oryxos.core.policy.ApprovalPolicyProperties approvalProperties,
+      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService) {
+    boolean enabled = approvalProperties.isEnabled() && approvalProperties.isDurableSuspend();
+    return new io.oryxos.core.durable.DurableTaskService(
+        taskCheckpointStore, java.time.Clock.systemUTC(), approvalPolicyService, enabled);
+  }
+
+  @Bean
+  io.oryxos.core.durable.DurableTaskReplay durableTaskReplay(
+      io.oryxos.core.durable.DurableTaskService durableTaskService, ToolExecutor toolExecutor) {
+    return new io.oryxos.core.durable.DurableTaskReplay(durableTaskService, toolExecutor);
+  }
+
   /**
    * 020：策略加载期告警（未知目标规则 / 有效集全空，WARN 不阻断）。仅 SERVLET 模式（serve/gateway）跑—— CLI 管理命令用
    * WebApplicationType.NONE，不受影响（镜像 018 ApiKeyStartupCheck 的条件口径）。
@@ -1151,6 +1180,7 @@ public class OryxOsRuntime {
       AgentRunEventPublisher agentRunEventPublisher,
       io.oryxos.core.policy.ToolPolicyService toolPolicyService,
       io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService,
+      io.oryxos.core.durable.DurableTaskService durableTaskService,
       org.springframework.beans.factory.ObjectProvider<io.oryxos.core.policy.AuthorizationService>
           authorizationService,
       io.oryxos.core.metrics.MetricsRecorder metricsRecorder,
@@ -1161,6 +1191,7 @@ public class OryxOsRuntime {
             tools, toolRegistry.mcpToolOwners(), profileRegistry, auditor, agentRunEventPublisher);
     executor.setToolPolicy(toolPolicyService); // 020：事中裁决——防幻觉调用与热更新窗口
     executor.setApprovalPolicy(approvalPolicyService); // 042: execution-side approval gate
+    executor.setDurableTaskService(durableTaskService); // 043: durable suspend
     // 039/#527：web 装配注入同一 decide；纯 CLI 无 Bean 时 ALLOW_ALL
     executor.setAuthorizationService(
         authorizationService.getIfAvailable(

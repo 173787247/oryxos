@@ -1,5 +1,6 @@
 package io.oryxos.core.agent;
 
+import io.oryxos.core.durable.ApprovalSuspendedException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -130,6 +131,10 @@ public class AgentExecutionService {
       if (runningThreads.containsKey(row.id())) {
         continue;
       }
+      if ("WAITING_APPROVAL".equals(row.status())) {
+        // 043 / #465：审批挂起必须跨重启保留
+        continue;
+      }
       if (store.tryFinish(
           row.id(),
           row.sessionId(),
@@ -203,6 +208,20 @@ public class AgentExecutionService {
         throw new RunCancelledException();
       }
       ok = true;
+    } catch (ApprovalSuspendedException e) {
+      store.markWaitingApproval(id, clock.instant());
+      publish(
+          id,
+          AgentRunEventTypes.RUN_WAITING_APPROVAL,
+          Map.of(
+              "checkpointId",
+              e.checkpointId() == null ? "" : e.checkpointId(),
+              "idempotencyKey",
+              e.idempotencyKey() == null ? "" : e.idempotencyKey(),
+              "message",
+              e.getMessage() == null ? "等待人工审批" : e.getMessage()));
+      LOG.info("Run {} 进入 WAITING_APPROVAL checkpoint={}", id, e.checkpointId());
+      return; // 非终态：不 finish
     } catch (RunCancelledException e) {
       cancelled = true;
       error = e.getMessage();

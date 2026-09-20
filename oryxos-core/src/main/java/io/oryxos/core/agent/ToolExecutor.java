@@ -6,6 +6,8 @@ import io.oryxos.core.OryxTool;
 import io.oryxos.core.ToolResult;
 import io.oryxos.core.auth.Principal;
 import io.oryxos.core.auth.PrincipalContext;
+import io.oryxos.core.durable.ApprovalGrantContext;
+import io.oryxos.core.durable.DurableTaskService;
 import io.oryxos.core.policy.Action;
 import io.oryxos.core.policy.AuthorizationService;
 import io.oryxos.core.policy.ResourceRef;
@@ -60,6 +62,9 @@ public class ToolExecutor {
   private io.oryxos.core.policy.ApprovalPolicyService approvalPolicy =
       io.oryxos.core.policy.ApprovalPolicyService.PASS_THROUGH;
 
+  /** 043 / #465：耐久挂起；未装配或未启用时 REQUIRE_APPROVAL 仍走 stub 拒绝。 */
+  private DurableTaskService durableTasks;
+
   /**
    * 039 / #527：运行时主体裁决。默认 {@link AuthorizationService#ALLOW_ALL}；仅当 {@link PrincipalContext} 有主体时才
    * decide（CLI/未装载路径零变化）。
@@ -86,6 +91,11 @@ public class ToolExecutor {
         approvalPolicy == null
             ? io.oryxos.core.policy.ApprovalPolicyService.PASS_THROUGH
             : approvalPolicy;
+  }
+
+  /** 装配期注入；未装配则 stub 拒绝路径不变。 */
+  public void setDurableTaskService(DurableTaskService durableTasks) {
+    this.durableTasks = durableTasks;
   }
 
   /** 装配期注入同一 {@link AuthorizationService} Bean；未装配保持 ALLOW_ALL。 */
@@ -174,19 +184,25 @@ public class ToolExecutor {
           POLICY_BLOCKED,
           startedAt);
     }
-    // 042 审批闸：与 PromptBuilder 同一 ApprovalPolicyService；REQUIRE_APPROVAL / DENY 均零执行（本刀 stub，#465
-    // 挂起）
-    var approvalDecision = approvalPolicy.evaluate(agentName, call.name(), call.argumentsJson());
-    if (!approvalDecision.allowed()) {
-      approvalPolicy.recordHit(sessionId, agentName, call.name(), approvalDecision);
-      String prefix = approvalDecision.requiresApproval() ? "需要人工审批：" : "被审批策略拒绝：";
-      return fail(
-          sessionId,
-          agentName,
-          call,
-          prefix + approvalDecision.reason(),
-          APPROVAL_BLOCKED,
-          startedAt);
+    // 042/043 审批闸：与 PromptBuilder 同一 ApprovalPolicyService。
+    // 恢复回放：ApprovalGrantContext 命中则跳过闸门。
+    // REQUIRE_APPROVAL + durable-suspend → 真实挂起；否则 stub 拒绝（#464）。
+    if (!ApprovalGrantContext.grants(call.name(), toolCallId)) {
+      var approvalDecision = approvalPolicy.evaluate(agentName, call.name(), call.argumentsJson());
+      if (!approvalDecision.allowed()) {
+        approvalPolicy.recordHit(sessionId, agentName, call.name(), approvalDecision);
+        if (approvalDecision.requiresApproval() && durableTasks != null && durableTasks.enabled()) {
+          throw durableTasks.suspendForApproval(sessionId, agentName, call, approvalDecision);
+        }
+        String prefix = approvalDecision.requiresApproval() ? "需要人工审批：" : "被审批策略拒绝：";
+        return fail(
+            sessionId,
+            agentName,
+            call,
+            prefix + approvalDecision.reason(),
+            APPROVAL_BLOCKED,
+            startedAt);
+      }
     }
     JsonNode input;
     try {

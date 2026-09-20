@@ -11,6 +11,10 @@ public final class AgentRunEventTypes {
   public static final String STEP_FINISHED = "STEP_FINISHED";
   public static final String RUN_FINISHED = "RUN_FINISHED";
   public static final String RUN_FAILED = "RUN_FAILED";
+
+  /** 043 / #465：等待人工审批（非终态）。 */
+  public static final String RUN_WAITING_APPROVAL = "RUN_WAITING_APPROVAL";
+
   public static final String RUN_CANCELLING = "RUN_CANCELLING";
   public static final String RUN_CANCELLED = "RUN_CANCELLED";
 
