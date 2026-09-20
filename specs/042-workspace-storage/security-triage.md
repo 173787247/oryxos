@@ -31,7 +31,7 @@ MCP code imports `io.modelcontextprotocol.*` only. `spring-ai-mcp` was therefore
 
 ## Genuine component mismatches: OpenTelemetry
 
-The observed Java purls are limited to the enumerated API/SDK/exporter/context modules at 1.44.1, API incubator 1.44.1-alpha, and proto 1.5.0-alpha. The following advisories explicitly concern different language implementations. Java protobuf message classes contain none of the named exporter/propagator implementations. Exclusions are exact purl/version plus CVE; no blanket OpenTelemetry product suppression was added.
+The initial Java findings covered enumerated API/SDK/exporter/context modules at 1.44.1, API incubator 1.44.1-alpha, and proto 1.5.0-alpha. After integration of main@9cc4290, the BOM selects 1.66.0; CI found CVE-2026-54285 only on opentelemetry-api@1.66.0. The obsolete 1.44.1 rule was replaced with that exact purl after rechecking the JS advisory; the proto rule remains scoped to 1.5.0-alpha. The following advisories explicitly concern different language implementations. Java protobuf message classes contain none of the named exporter/propagator implementations. Exclusions are exact purl/version plus CVE; no blanket OpenTelemetry product suppression was added.
 
 | CVE | Actual affected component and official source |
 | --- | --- |
@@ -104,3 +104,7 @@ The controller's first isolated scan (`/tmp/oryxos-042-delivery/target/dependenc
 This changes artifact matching only, not the assessed CVE lists or risk acceptance conditions. XML parsing and regex matching against the isolated report confirmed that the two new representative purls match. No JS filename/hash suppression was added. The controller installed the newly built internal modules and rescanned; the final result below confirms that stale Maven-local frontend jars were replaced.
 
 Central installed-artifact scan on 2026-09-18: 171 objects, 0 unsuppressed findings, 121 suppressed advisory records; `/tmp/oryxos-042-owasp-final.log` exits 0. Old frontend bundles are absent. This is a processed-finding result, not a claim that the unpatched Spring platform has no residual risk.
+
+## PR integration scan (2026-09-20 UTC)
+
+[CI run 35484593607](https://github.com/oryx-labs/oryxos/actions/runs/35484593607) used Dependency-Check 13.0.0 and scanned 169 objects after the main merge. It passed the existing severity threshold but still reported one medium finding: CVE-2026-54285 incorrectly matched the Java API 1.66.0 to npm @opentelemetry/core. The exact component/version exclusion has been corrected; the subsequent scan must confirm zero unsuppressed findings. The original 171/121 counts above are historical, not this merged dependency graph.
