@@ -121,6 +121,18 @@ jobs:
           path: "**/target/surefire-reports/TEST-*.xml,**/target/failsafe-reports/TEST-*.xml"
           reporter: java-junit
           fail-on-empty: "false"
+      # Artifact for test-report.yml (workflow_run): fork PRs get read-only
+      # GITHUB_TOKEN, so Checks must be published from a base-repo workflow.
+      - name: Upload Surefire / Failsafe JUnit XML
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: surefire-junit-xml
+          path: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload JaCoCo aggregate report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -311,6 +323,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: write # upload-artifact (IT JUnit XML)
       checks: write # dorny/test-reporter check run
       pull-requests: write # dorny/test-reporter PR annotations
     steps:
@@ -344,6 +357,14 @@ jobs:
           path: "**/target/surefire-reports/TEST-*.xml"
           reporter: java-junit
           fail-on-empty: "false"
+      - name: Upload IT JUnit XML
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: surefire-it-junit-xml
+          path: "**/target/surefire-reports/TEST-*.xml"
+          if-no-files-found: ignore
+          retention-days: 7
 
   helm:
     name: Helm chart lint + kind install smoke
