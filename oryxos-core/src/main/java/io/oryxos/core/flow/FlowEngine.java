@@ -148,14 +148,12 @@ public final class FlowEngine {
       throw new IllegalStateException("step is not WAITING: " + step.state());
     }
     Map<String, Object> out = outputs == null ? Map.of() : outputs;
-    step = store.saveStep(step.withState(FlowStepState.SUCCEEDED, now, null, FlowJson.write(out)));
+    store.saveStep(step.withState(FlowStepState.SUCCEEDED, now, null, FlowJson.write(out)));
     Map<String, Object> context = FlowJson.readMap(run.contextJson());
     mergeOutputs(context, nodeId, out);
-    run =
-        store.saveRun(
-            run.withContext(FlowJson.write(context), now)
-                .withState(FlowRunState.RUNNING, now, null));
-    return advance(run.id());
+    store.saveRun(
+        run.withContext(FlowJson.write(context), now).withState(FlowRunState.RUNNING, now, null));
+    return advance(runId);
   }
 
   public Optional<FlowRun> findRun(String runId) {
@@ -278,10 +276,8 @@ public final class FlowEngine {
       }
 
       if (outcome.waiting()) {
-        step =
-            store.saveStep(
-                step.withState(
-                    FlowStepState.WAITING, now, null, FlowJson.write(outcome.outputs())));
+        store.saveStep(
+            step.withState(FlowStepState.WAITING, now, null, FlowJson.write(outcome.outputs())));
         run =
             store.saveRun(
                 run.withCurrentNode(nodeId, now).withState(FlowRunState.WAITING, now, null));
@@ -304,10 +300,8 @@ public final class FlowEngine {
       }
 
       // succeeded
-      step =
-          store.saveStep(
-              step.withState(
-                  FlowStepState.SUCCEEDED, now, null, FlowJson.write(outcome.outputs())));
+      store.saveStep(
+          step.withState(FlowStepState.SUCCEEDED, now, null, FlowJson.write(outcome.outputs())));
       mergeOutputs(context, nodeId, outcome.outputs());
       String next = pickNext(definition, run, node, outcome.outputs());
       if (next == null) {
@@ -323,7 +317,7 @@ public final class FlowEngine {
             store.saveRun(run.withContext(FlowJson.write(context), now).withCurrentNode(next, now));
       }
     }
-    return store.findRun(runId).orElseThrow();
+    return run;
   }
 
   private void markSkippedBranches(

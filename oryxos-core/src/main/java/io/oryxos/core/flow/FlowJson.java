@@ -1,5 +1,6 @@
 package io.oryxos.core.flow;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
@@ -16,7 +17,7 @@ final class FlowJson {
   static String write(Map<String, Object> map) {
     try {
       return MAPPER.writeValueAsString(map == null ? Map.of() : map);
-    } catch (Exception e) {
+    } catch (JsonProcessingException e) {
       throw new IllegalStateException("Flow JSON serialize failed", e);
     }
   }
@@ -28,7 +29,7 @@ final class FlowJson {
     try {
       Map<String, Object> map = MAPPER.readValue(json, MAP_TYPE);
       return map == null ? new LinkedHashMap<>() : new LinkedHashMap<>(map);
-    } catch (Exception e) {
+    } catch (JsonProcessingException e) {
       throw new IllegalStateException("Flow JSON parse failed", e);
     }
   }
