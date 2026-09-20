@@ -188,11 +188,9 @@ public final class VersionedAssetSource {
           continue;
         }
         Path relative = source.relativize(path);
-        if (relative.startsWith(VERSIONS_DIR) || relative.toString().startsWith(".")) {
-          // skip nested version dirs and staging markers inside live trees
-          if (relative.getNameCount() > 0
-              && relative.getName(0).toString().startsWith(".")
-              && !relative.getName(0).toString().equals(".content-hash")) {
+        if (relative.getNameCount() > 0) {
+          String first = relative.getName(0).toString();
+          if (first.startsWith(".") && !".content-hash".equals(first)) {
             continue;
           }
         }
