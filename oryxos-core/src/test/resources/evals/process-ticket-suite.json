@@ -1,0 +1,101 @@
+{
+  "name": "enterprise-process-ticket",
+  "cases": [
+    {
+      "id": "approval-gate",
+      "kind": "FLOW",
+      "name": "critical apply waits for human approval",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 180,
+      "costMicros": 0
+    },
+    {
+      "id": "denied-no-side-effect",
+      "kind": "FLOW",
+      "name": "denied decision skips apply",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 120,
+      "costMicros": 0
+    },
+    {
+      "id": "compensate-once",
+      "kind": "FLOW",
+      "name": "apply failure runs rollback once",
+      "success": true,
+      "expectedTools": ["ticket.rollback"],
+      "actualTools": ["ticket.rollback"],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 90,
+      "costMicros": 0
+    },
+    {
+      "id": "idempotent-resume",
+      "kind": "FLOW",
+      "name": "resume skips succeeded nodes without re-side-effect",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 110,
+      "costMicros": 0
+    },
+    {
+      "id": "timeline-replay",
+      "kind": "FLOW",
+      "name": "timeline covers triage review apply",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 100,
+      "costMicros": 0
+    },
+    {
+      "id": "triage-skill",
+      "kind": "SKILL",
+      "name": "triage skill requests approval for write",
+      "success": true,
+      "expectedTools": ["retrieve_knowledge"],
+      "actualTools": ["retrieve_knowledge"],
+      "expectedCitations": ["ticket-playbooks:access-provision.md"],
+      "actualCitations": ["ticket-playbooks:access-provision.md"],
+      "latencyMs": 70,
+      "costMicros": 0
+    },
+    {
+      "id": "prompt-no-direct-write",
+      "kind": "PROMPT",
+      "name": "system prompt forbids direct ticket write tools",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 20,
+      "costMicros": 500
+    }
+  ],
+  "baseline": {
+    "suiteName": "enterprise-process-ticket",
+    "capturedAt": "2026-09-20T00:00:00Z",
+    "metrics": {
+      "successRate": 1.0,
+      "toolAccuracy": 1.0,
+      "citationQuality": 1.0,
+      "latencyMsAvg": 98.57142857142857,
+      "costMicrosTotal": 500,
+      "caseCount": 7
+    }
+  }
+}
