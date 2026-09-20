@@ -105,6 +105,7 @@ jobs:
       - name: Verify security exclusion assumptions
         run: |
           python3 scripts/test-security-assumptions.py
+          mkdir -p target
           mvn -B -pl oryxos-boot -am dependency:tree -Dscope=runtime > target/security-dependency-tree.txt
           python3 scripts/check-security-assumptions.py --dependency-tree target/security-dependency-tree.txt
       - name: OWASP dependency-check aggregate
