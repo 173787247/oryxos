@@ -76,6 +76,10 @@ final class WorkspaceFileSystem extends FileSystem {
   }
 
   @Override
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP",
+      justification =
+          "NIO requires the bound provider identity; its final delegates cannot be replaced by callers.")
   public FileSystemProvider provider() {
     return provider;
   }
