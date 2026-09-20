@@ -12,7 +12,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Static Flow graph validation (045 / #467): missing refs, type mismatch, cycles.
+ * Static Flow graph validation (045 / #467 + 047 / #469): missing refs, type mismatch, cycles,
+ * compensate targets.
  *
  * <p>Does not execute nodes; safe to run in CI before any durable engine (#468).
  */
@@ -88,6 +89,20 @@ public final class FlowValidator {
                   "dependsOn 引用了不存在的 node: " + dep));
         }
         d++;
+      }
+      if (node.compensate() != null && !flow.nodes().containsKey(node.compensate())) {
+        out.add(
+            FlowDiagnostic.error(
+                "UNKNOWN_NODE_REF",
+                "nodes." + node.id() + ".compensate",
+                "compensate 引用了不存在的 node: " + node.compensate()));
+      }
+      if (node.timeoutSeconds() != null && node.timeoutSeconds() < 0) {
+        out.add(
+            FlowDiagnostic.error(
+                "INVALID_TIMEOUT",
+                "nodes." + node.id() + ".timeoutSeconds",
+                "timeoutSeconds 不能为负"));
       }
       for (FlowPort port : node.inputs().values()) {
         String path = "nodes." + node.id() + ".inputs." + port.name();

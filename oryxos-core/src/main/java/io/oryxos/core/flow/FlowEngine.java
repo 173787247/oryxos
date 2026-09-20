@@ -3,8 +3,10 @@ package io.oryxos.core.flow;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -13,11 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Durable Markdown Flow execution engine (046 / #468): validate → persist run/steps → execute →
- * resume after restart; skip already-SUCCEEDED idempotent nodes.
- *
- * <p>HUMAN/APPROVAL enter {@link FlowRunState#WAITING}; callers use {@link #completeWaiting} (full
- * HITL UX is #469).
+ * Durable Markdown Flow execution engine (046 / #468 + 047 / #469): validate → persist → execute →
+ * resume; HUMAN/APPROVAL wait/timeout/cancel; optional compensate on failure; timeline replay.
  */
 @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
     value = "CRLF_INJECTION_LOGS",
@@ -32,9 +31,10 @@ public final class FlowEngine {
   private final Clock clock;
   private final boolean enabled;
   private final int defaultMaxRetries;
+  private final boolean compensationEnabled;
 
   public FlowEngine(FlowRunStore store, FlowNodeHandler handler, Clock clock, boolean enabled) {
-    this(store, handler, clock, enabled, 0);
+    this(store, handler, clock, enabled, 0, false);
   }
 
   public FlowEngine(
@@ -43,15 +43,30 @@ public final class FlowEngine {
       Clock clock,
       boolean enabled,
       int defaultMaxRetries) {
+    this(store, handler, clock, enabled, defaultMaxRetries, false);
+  }
+
+  public FlowEngine(
+      FlowRunStore store,
+      FlowNodeHandler handler,
+      Clock clock,
+      boolean enabled,
+      int defaultMaxRetries,
+      boolean compensationEnabled) {
     this.store = Objects.requireNonNull(store, "store");
     this.handler = Objects.requireNonNull(handler, "handler");
     this.clock = clock == null ? Clock.systemUTC() : clock;
     this.enabled = enabled;
     this.defaultMaxRetries = Math.max(0, defaultMaxRetries);
+    this.compensationEnabled = compensationEnabled;
   }
 
   public boolean enabled() {
     return enabled;
+  }
+
+  public boolean compensationEnabled() {
+    return compensationEnabled;
   }
 
   /** Start a validated Markdown Flow; returns the terminal or WAITING run snapshot. */
@@ -100,7 +115,8 @@ public final class FlowEngine {
   }
 
   /**
-   * Resume a RUNNING or WAITING run after process restart (WAITING needs {@link #completeWaiting}).
+   * Resume a RUNNING or WAITING run after process restart. WAITING with an expired deadline is
+   * auto-cancelled (#469); otherwise WAITING needs {@link #completeWaiting}.
    */
   public FlowRun resume(String runId) {
     requireEnabled();
@@ -112,7 +128,11 @@ public final class FlowEngine {
       return run;
     }
     if (run.state() == FlowRunState.WAITING) {
-      return run;
+      FlowRun expired = expireWaiting(runId);
+      if (expired.state().terminal()) {
+        return expired;
+      }
+      return expired;
     }
     if (run.state() == FlowRunState.QUEUED) {
       Instant now = clock.instant();
@@ -122,8 +142,8 @@ public final class FlowEngine {
   }
 
   /**
-   * Complete a WAITING human/approval step with outputs, then continue. Minimal hook for #468;
-   * compensation/timeline UI remain #469.
+   * Complete a WAITING human/approval step with outputs, then continue. Rejects expired waits
+   * (mirrors #466 decide safety).
    */
   public FlowRun completeWaiting(String runId, Map<String, Object> outputs) {
     requireEnabled();
@@ -147,6 +167,9 @@ public final class FlowEngine {
     if (step.state() != FlowStepState.WAITING) {
       throw new IllegalStateException("step is not WAITING: " + step.state());
     }
+    if (step.expiredAt(now)) {
+      return expireWaiting(runId);
+    }
     Map<String, Object> out = outputs == null ? Map.of() : outputs;
     store.saveStep(step.withState(FlowStepState.SUCCEEDED, now, null, FlowJson.write(out)));
     Map<String, Object> context = FlowJson.readMap(run.contextJson());
@@ -154,6 +177,91 @@ public final class FlowEngine {
     store.saveRun(
         run.withContext(FlowJson.write(context), now).withState(FlowRunState.RUNNING, now, null));
     return advance(runId);
+  }
+
+  /**
+   * Cancel a WAITING human/approval run. Idempotent when already terminal. Mirrors #466 cancel
+   * semantics at the Flow layer.
+   */
+  public FlowRun cancelWaiting(String runId, String reason) {
+    requireEnabled();
+    Instant now = clock.instant();
+    FlowRun run =
+        store
+            .findRun(runId)
+            .orElseThrow(() -> new IllegalArgumentException("unknown run: " + runId));
+    if (run.state().terminal()) {
+      return run;
+    }
+    if (run.state() != FlowRunState.WAITING) {
+      throw new IllegalStateException("run is not WAITING: " + run.state());
+    }
+    String msg = reason == null || reason.isBlank() ? "waiting cancelled" : reason.strip();
+    return cancelWaitingInternal(run, msg, now);
+  }
+
+  /**
+   * If the current WAITING step has passed {@code expiresAt}, cancel it with a timeout error;
+   * otherwise return the current snapshot unchanged.
+   */
+  public FlowRun expireWaiting(String runId) {
+    requireEnabled();
+    Instant now = clock.instant();
+    FlowRun run =
+        store
+            .findRun(runId)
+            .orElseThrow(() -> new IllegalArgumentException("unknown run: " + runId));
+    if (run.state() != FlowRunState.WAITING) {
+      return run;
+    }
+    String nodeId = run.currentNodeId();
+    if (nodeId == null || nodeId.isBlank()) {
+      return run;
+    }
+    Optional<FlowStep> stepOpt =
+        store.findStepByIdempotencyKey(FlowStep.idempotencyKeyFor(runId, nodeId));
+    if (stepOpt.isEmpty() || !stepOpt.get().expiredAt(now)) {
+      return run;
+    }
+    return cancelWaitingInternal(
+        run, "human/approval wait timed out at " + stepOpt.get().expiresAt(), now);
+  }
+
+  /** Full node timeline for replay (ordered by event time). */
+  public List<FlowTimelineEvent> timeline(String runId) {
+    requireEnabled();
+    List<FlowStep> steps = store.listSteps(runId);
+    List<FlowTimelineEvent> events = new ArrayList<>();
+    for (FlowStep step : steps) {
+      Instant start = step.startedAt() != null ? step.startedAt() : step.createdAt();
+      events.add(
+          new FlowTimelineEvent(
+              start,
+              step.runId(),
+              step.id(),
+              step.nodeId(),
+              step.nodeType(),
+              step.state() == FlowStepState.PENDING ? FlowStepState.PENDING : FlowStepState.RUNNING,
+              null,
+              "step entered"));
+      Instant end = step.finishedAt() != null ? step.finishedAt() : step.updatedAt();
+      String detail = timelineDetail(step);
+      events.add(
+          new FlowTimelineEvent(
+              end,
+              step.runId(),
+              step.id(),
+              step.nodeId(),
+              step.nodeType(),
+              step.state(),
+              step.error(),
+              detail));
+    }
+    events.sort(
+        Comparator.comparing(FlowTimelineEvent::at)
+            .thenComparing(FlowTimelineEvent::nodeId)
+            .thenComparing(FlowTimelineEvent::stepId));
+    return List.copyOf(events);
   }
 
   public Optional<FlowRun> findRun(String runId) {
@@ -166,6 +274,31 @@ public final class FlowEngine {
 
   public List<FlowRun> listWaiting() {
     return store.listRunsByState(FlowRunState.WAITING);
+  }
+
+  private FlowRun cancelWaitingInternal(FlowRun run, String message, Instant now) {
+    String nodeId = run.currentNodeId();
+    if (nodeId != null && !nodeId.isBlank()) {
+      Optional<FlowStep> stepOpt =
+          store.findStepByIdempotencyKey(FlowStep.idempotencyKeyFor(run.id(), nodeId));
+      if (stepOpt.isPresent() && stepOpt.get().state() == FlowStepState.WAITING) {
+        store.saveStep(
+            stepOpt
+                .get()
+                .withState(FlowStepState.CANCELLED, now, message, stepOpt.get().outputsJson()));
+      }
+    }
+    Optional<FlowRun> moved =
+        store.tryTransitionRun(
+            run.id(), FlowRunState.WAITING, run.withState(FlowRunState.CANCELLED, now, message));
+    FlowRun finalRun =
+        moved.orElseGet(
+            () ->
+                store
+                    .findRun(run.id())
+                    .orElse(run.withState(FlowRunState.CANCELLED, now, message)));
+    LOG.info("flow run cancelled id={} reason={}", finalRun.id(), message);
+    return finalRun;
   }
 
   private FlowRun advance(String runId) {
@@ -196,7 +329,6 @@ public final class FlowEngine {
       String idem = FlowStep.idempotencyKeyFor(run.id(), nodeId);
       Optional<FlowStep> existing = store.findStepByIdempotencyKey(idem);
       if (existing.isPresent() && existing.get().state().succeeded()) {
-        // Idempotent skip — do not re-execute successful nodes
         Map<String, Object> priorOut = FlowJson.readMap(existing.get().outputsJson());
         String next = pickNext(definition, run, node, priorOut);
         if (next == null) {
@@ -233,10 +365,11 @@ public final class FlowEngine {
                         msg,
                         now,
                         now,
+                        null,
                         now,
                         now));
         store.saveStep(failStep.withState(FlowStepState.FAILED, now, msg, "{}"));
-        run = store.saveRun(run.withState(FlowRunState.FAILED, now, msg));
+        run = failRunAfterNode(definition, run, node, now, msg);
         break;
       }
       final Map<String, Object> resolvedInputs = resolved;
@@ -254,6 +387,7 @@ public final class FlowEngine {
                       idem,
                       FlowJson.write(resolvedInputs),
                       "{}",
+                      null,
                       null,
                       null,
                       null,
@@ -276,12 +410,20 @@ public final class FlowEngine {
       }
 
       if (outcome.waiting()) {
-        store.saveStep(
-            step.withState(FlowStepState.WAITING, now, null, FlowJson.write(outcome.outputs())));
+        Instant expires = null;
+        if (node.timeoutSeconds() != null && node.timeoutSeconds() > 0) {
+          expires = now.plusSeconds(node.timeoutSeconds().longValue());
+        }
+        FlowStep waiting =
+            step.withState(FlowStepState.WAITING, now, null, FlowJson.write(outcome.outputs()));
+        if (expires != null) {
+          waiting = waiting.withExpiresAt(expires, now);
+        }
+        store.saveStep(waiting);
         run =
             store.saveRun(
                 run.withCurrentNode(nodeId, now).withState(FlowRunState.WAITING, now, null));
-        LOG.info("flow run waiting id={} node={}", run.id(), nodeId);
+        LOG.info("flow run waiting id={} node={} expiresAt={}", run.id(), nodeId, expires);
         break;
       }
 
@@ -291,15 +433,13 @@ public final class FlowEngine {
                 step.withState(
                     FlowStepState.FAILED, now, outcome.error(), FlowJson.write(outcome.outputs())));
         if (step.attempt() < defaultMaxRetries) {
-          // leave current node; loop will retry
           run = store.saveRun(run.withAttempt(run.attempt() + 1, now));
           continue;
         }
-        run = store.saveRun(run.withState(FlowRunState.FAILED, now, outcome.error()));
+        run = failRunAfterNode(definition, run, node, now, outcome.error());
         break;
       }
 
-      // succeeded
       store.saveStep(
           step.withState(FlowStepState.SUCCEEDED, now, null, FlowJson.write(outcome.outputs())));
       mergeOutputs(context, nodeId, outcome.outputs());
@@ -311,13 +451,106 @@ public final class FlowEngine {
                     .withCurrentNode(null, now)
                     .withState(FlowRunState.SUCCEEDED, now, null));
       } else {
-        // mark untaken branch targets as SKIPPED when siblings diverge
         markSkippedBranches(definition, run, node, next, now);
         run =
             store.saveRun(run.withContext(FlowJson.write(context), now).withCurrentNode(next, now));
       }
     }
     return run;
+  }
+
+  private FlowRun failRunAfterNode(
+      FlowDefinition definition, FlowRun run, FlowNode failedNode, Instant now, String error) {
+    if (compensationEnabled && failedNode.compensate() != null) {
+      runCompensate(definition, run, failedNode, now);
+      run = store.findRun(run.id()).orElse(run);
+    }
+    return store.saveRun(run.withState(FlowRunState.FAILED, now, error));
+  }
+
+  private void runCompensate(
+      FlowDefinition definition, FlowRun run, FlowNode failedNode, Instant now) {
+    String targetId = failedNode.compensate();
+    FlowNode target = definition.nodes().get(targetId);
+    if (target == null) {
+      LOG.warn(
+          "compensate target missing run={} node={} target={}",
+          run.id(),
+          failedNode.id(),
+          targetId);
+      return;
+    }
+    String key = FlowStep.compensateIdempotencyKey(run.id(), failedNode.id());
+    if (store.findStepByIdempotencyKey(key).isPresent()) {
+      return;
+    }
+    Map<String, Object> context = FlowJson.readMap(run.contextJson());
+    Map<String, Object> runInputs = FlowJson.readMap(run.inputsJson());
+    Map<String, Object> resolved;
+    try {
+      resolved = resolveInputs(target, context, runInputs);
+    } catch (RuntimeException ex) {
+      resolved = Map.of();
+    }
+
+    FlowStep step =
+        new FlowStep(
+            "fs-" + UUID.randomUUID().toString().replace("-", ""),
+            run.id(),
+            target.id(),
+            target.type(),
+            FlowStepState.RUNNING,
+            0,
+            key,
+            FlowJson.write(resolved),
+            "{}",
+            null,
+            now,
+            null,
+            null,
+            now,
+            now);
+    store.saveStep(step);
+
+    FlowNodeOutcome outcome;
+    try {
+      outcome = handler.execute(target, resolved, run);
+    } catch (RuntimeException ex) {
+      outcome =
+          FlowNodeOutcome.failed(
+              ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
+    }
+    Map<String, Object> out = new LinkedHashMap<>(outcome.outputs());
+    out.put("__compensatesFor", failedNode.id());
+    if (outcome.failed()) {
+      store.saveStep(
+          step.withState(FlowStepState.FAILED, now, outcome.error(), FlowJson.write(out)));
+    } else {
+      store.saveStep(step.withState(FlowStepState.SUCCEEDED, now, null, FlowJson.write(out)));
+      mergeOutputs(context, target.id(), out);
+      store.saveRun(run.withContext(FlowJson.write(context), now));
+    }
+    LOG.info(
+        "flow compensate run={} failedNode={} compensate={} state={}",
+        run.id(),
+        failedNode.id(),
+        target.id(),
+        outcome.failed() ? "FAILED" : "SUCCEEDED");
+  }
+
+  private static String timelineDetail(FlowStep step) {
+    if (step.state() == FlowStepState.WAITING) {
+      return step.expiresAt() == null ? "waiting" : "waiting until " + step.expiresAt();
+    }
+    if (step.state() == FlowStepState.CANCELLED) {
+      return "cancelled";
+    }
+    Map<String, Object> outs = FlowJson.readMap(step.outputsJson());
+    Object forNode = outs.get("__compensatesFor");
+    if (forNode != null) {
+      return "compensate for " + forNode;
+    }
+    return step.state().name().toLowerCase(Locale.ROOT);
   }
 
   private void markSkippedBranches(
@@ -349,6 +582,7 @@ public final class FlowEngine {
               "branch not taken",
               now,
               now,
+              null,
               now,
               now);
       store.saveStep(skipped);
@@ -385,7 +619,6 @@ public final class FlowEngine {
             "missing required input " + e.getKey() + " for " + node.id());
       }
     }
-    // allow undeclared run inputs passthrough for entry convenience
     if (resolved.isEmpty() && !runInputs.isEmpty() && node.inputs().isEmpty()) {
       resolved.putAll(runInputs);
     }
@@ -398,6 +631,9 @@ public final class FlowEngine {
       return;
     }
     for (Map.Entry<String, Object> e : outputs.entrySet()) {
+      if (e.getKey().startsWith("__")) {
+        continue;
+      }
       context.put(nodeId + "." + e.getKey(), e.getValue());
     }
   }
@@ -417,8 +653,6 @@ public final class FlowEngine {
       }
     }
     if (matched.isEmpty()) {
-      // no predicate matched — if any unconditional edge exists it would already be in matched;
-      // treat as end
       return null;
     }
     return matched.get(0).to();

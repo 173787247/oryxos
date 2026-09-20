@@ -48,6 +48,9 @@ public class FlowStepEntity {
   @Column(name = "finished_at")
   private Instant finishedAt;
 
+  @Column(name = "expires_at")
+  private Instant expiresAt;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
@@ -148,6 +151,14 @@ public class FlowStepEntity {
 
   public void setFinishedAt(Instant finishedAt) {
     this.finishedAt = finishedAt;
+  }
+
+  public Instant getExpiresAt() {
+    return expiresAt;
+  }
+
+  public void setExpiresAt(Instant expiresAt) {
+    this.expiresAt = expiresAt;
   }
 
   public Instant getCreatedAt() {

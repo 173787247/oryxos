@@ -122,6 +122,7 @@ public class JpaFlowRunStore implements FlowRunStore {
         e.getError(),
         e.getStartedAt(),
         e.getFinishedAt(),
+        e.getExpiresAt(),
         e.getCreatedAt(),
         e.getUpdatedAt());
   }
@@ -140,6 +141,7 @@ public class JpaFlowRunStore implements FlowRunStore {
     e.setError(step.error());
     e.setStartedAt(step.startedAt());
     e.setFinishedAt(step.finishedAt());
+    e.setExpiresAt(step.expiresAt());
     e.setCreatedAt(step.createdAt());
     e.setUpdatedAt(step.updatedAt());
     return e;
