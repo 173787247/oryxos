@@ -37,6 +37,10 @@ public class LlmPricing {
   @Column(name = "completion_price")
   private Double completionPrice;
 
+  /** 050 / #476: increments on each price update for ledger stamping. */
+  @Column(name = "price_version", nullable = false)
+  private long priceVersion = 1L;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
@@ -87,6 +91,18 @@ public class LlmPricing {
 
   public Double getCompletionPrice() {
     return completionPrice;
+  }
+
+  public long getPriceVersion() {
+    return priceVersion;
+  }
+
+  public void setPriceVersion(long priceVersion) {
+    this.priceVersion = priceVersion <= 0 ? 1L : priceVersion;
+  }
+
+  public void bumpPriceVersion() {
+    this.priceVersion = priceVersion <= 0 ? 2L : priceVersion + 1L;
   }
 
   public void setCompletionPrice(Double completionPrice) {

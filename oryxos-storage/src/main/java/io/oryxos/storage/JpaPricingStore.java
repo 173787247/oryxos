@@ -20,6 +20,10 @@ public class JpaPricingStore implements PricingStore {
         .map(
             e ->
                 new ModelPricing(
-                    e.getProvider(), e.getModel(), e.getPromptPrice(), e.getCompletionPrice()));
+                    e.getProvider(),
+                    e.getModel(),
+                    e.getPromptPrice(),
+                    e.getCompletionPrice(),
+                    e.getPriceVersion()));
   }
 }
