@@ -1,0 +1,89 @@
+{
+  "name": "enterprise-knowledge-support",
+  "cases": [
+    {
+      "id": "cite-password-reset",
+      "kind": "AGENT",
+      "name": "password reset cites FAQ",
+      "success": true,
+      "expectedTools": ["retrieve_knowledge"],
+      "actualTools": ["retrieve_knowledge"],
+      "expectedCitations": ["support-faq:password-reset.md"],
+      "actualCitations": ["support-faq:password-reset.md"],
+      "latencyMs": 640,
+      "costMicros": 12000
+    },
+    {
+      "id": "cite-vpn",
+      "kind": "AGENT",
+      "name": "VPN guide cites FAQ and follow-read",
+      "success": true,
+      "expectedTools": ["retrieve_knowledge", "read_file"],
+      "actualTools": ["retrieve_knowledge", "read_file"],
+      "expectedCitations": ["support-faq:vpn-access.md"],
+      "actualCitations": ["support-faq:vpn-access.md"],
+      "latencyMs": 900,
+      "costMicros": 18000
+    },
+    {
+      "id": "no-evidence-escalate",
+      "kind": "AGENT",
+      "name": "no evidence safe escalate without fake citations",
+      "success": true,
+      "expectedTools": ["retrieve_knowledge"],
+      "actualTools": ["retrieve_knowledge"],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 220,
+      "costMicros": 4000
+    },
+    {
+      "id": "cite-skill-template",
+      "kind": "SKILL",
+      "name": "cite-and-answer skill selects retrieve",
+      "success": true,
+      "expectedTools": ["retrieve_knowledge"],
+      "actualTools": ["retrieve_knowledge"],
+      "expectedCitations": ["support-faq:leave-policy.md"],
+      "actualCitations": ["support-faq:leave-policy.md"],
+      "latencyMs": 80,
+      "costMicros": 0
+    },
+    {
+      "id": "handoff-flow",
+      "kind": "FLOW",
+      "name": "knowledge-handoff reaches human on escalate",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 150,
+      "costMicros": 0
+    },
+    {
+      "id": "prompt-no-fabricate",
+      "kind": "PROMPT",
+      "name": "system prompt forbids fabricated citations",
+      "success": true,
+      "expectedTools": [],
+      "actualTools": [],
+      "expectedCitations": [],
+      "actualCitations": [],
+      "latencyMs": 20,
+      "costMicros": 500
+    }
+  ],
+  "baseline": {
+    "suiteName": "enterprise-knowledge-support",
+    "capturedAt": "2026-09-20T00:00:00Z",
+    "metrics": {
+      "successRate": 1.0,
+      "toolAccuracy": 1.0,
+      "citationQuality": 1.0,
+      "latencyMsAvg": 335.0,
+      "costMicrosTotal": 34500,
+      "caseCount": 6
+    }
+  }
+}

@@ -21,6 +21,11 @@ class FlowDocumentsTest {
     assertExampleOk("flows/branch-approve.flow.md", "branch-approve");
   }
 
+  @Test
+  void knowledgeHandoff_example_validates() throws IOException {
+    assertExampleOk("flows/knowledge-handoff.flow.md", "knowledge-handoff");
+  }
+
   private static void assertExampleOk(String resource, String expectedId) throws IOException {
     String md;
     try (InputStream in = FlowDocumentsTest.class.getClassLoader().getResourceAsStream(resource)) {
