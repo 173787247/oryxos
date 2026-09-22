@@ -146,7 +146,7 @@
         https://github.com/open-telemetry/opentelemetry-js/security/advisories/GHSA-8988-4f7v-96qf
         Exact observed Maven versions only; do not suppress unrelated Java advisories.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.opentelemetry/(opentelemetry-api|opentelemetry-common|opentelemetry-context|opentelemetry-exporter-common|opentelemetry-exporter-otlp|opentelemetry-exporter-otlp-common|opentelemetry-exporter-sender-okhttp|opentelemetry-sdk|opentelemetry-sdk-common|opentelemetry-sdk-logs|opentelemetry-sdk-metrics|opentelemetry-sdk-trace)@1\.66\.0$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry/(opentelemetry-api|opentelemetry-common|opentelemetry-context|opentelemetry-exporter-common|opentelemetry-exporter-otlp|opentelemetry-exporter-otlp-common|opentelemetry-exporter-sender-okhttp|opentelemetry-sdk|opentelemetry-sdk-common|opentelemetry-sdk-logs|opentelemetry-sdk-metrics|opentelemetry-sdk-trace|opentelemetry-extension-trace-propagators)@1\.66\.0$</packageUrl>
         <cve>CVE-2026-54285</cve>
     </suppress>
     <suppress until="2027-01-01Z">
@@ -160,7 +160,7 @@
         https://github.com/open-telemetry/opentelemetry-cpp/issues/3958
         https://github.com/open-telemetry/opentelemetry-js/security/advisories/GHSA-8988-4f7v-96qf
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.proto/opentelemetry-proto@1\.5\.0-alpha$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.proto/opentelemetry-proto@1\.(5|8)\.0-alpha$</packageUrl>
         <cve>CVE-2026-41078</cve>
         <cve>CVE-2026-39882</cve>
         <cve>CVE-2026-40894</cve>
