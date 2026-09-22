@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
-import org.springframework.boot.actuate.health.Status;
+import org.springframework.boot.health.contributor.Status;
 
 class WorkspaceHealthIndicatorTest {
   @TempDir Path root;
@@ -59,24 +59,24 @@ class WorkspaceHealthIndicatorTest {
       health.probeOnce();
       assertEquals(Status.UP, health.health().getStatus());
       block.set(true);
-      var blockedProbe = probeThread.submit(health::probeOnce);
+      var blockedProbe = probeThread.submit(() -> health.probeOnce());
       assertTrue(entered.await(2, TimeUnit.SECONDS), "probe must enter the blocked storage call");
 
       now.set(initial.plusSeconds(14));
       assertEquals(
-          Status.UP, requestThread.submit(health::health).get(2, TimeUnit.SECONDS).getStatus());
+          Status.UP, requestThread.submit(() -> health.health()).get(2, TimeUnit.SECONDS).getStatus());
       now.set(initial.plusSeconds(15));
-      var expired = requestThread.submit(health::health).get(2, TimeUnit.SECONDS);
+      var expired = requestThread.submit(() -> health.health()).get(2, TimeUnit.SECONDS);
       assertEquals(Status.DOWN, expired.getStatus());
-      assertEquals(false, requestThread.submit(health::available).get(2, TimeUnit.SECONDS));
+      assertEquals(false, requestThread.submit(() -> health.available()).get(2, TimeUnit.SECONDS));
       assertEquals(false, expired.getDetails().get("storageAvailable"));
       assertEquals(2, checks.get(), "health requests must not launch additional storage probes");
 
       release.countDown();
       blockedProbe.get(2, TimeUnit.SECONDS);
-      var recovered = requestThread.submit(health::health).get(2, TimeUnit.SECONDS);
+      var recovered = requestThread.submit(() -> health.health()).get(2, TimeUnit.SECONDS);
       assertEquals(Status.UP, recovered.getStatus());
-      assertEquals(true, requestThread.submit(health::available).get(2, TimeUnit.SECONDS));
+      assertEquals(true, requestThread.submit(() -> health.available()).get(2, TimeUnit.SECONDS));
       assertEquals(true, recovered.getDetails().get("storageAvailable"));
       try (var files = Files.list(root)) {
         assertEquals(0, files.count(), "completed probes must clean their temporary artifacts");

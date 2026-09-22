@@ -15,6 +15,17 @@
     <description>Command-line entry point: Picocli main, 12 subcommands, ConfigLoader</description>
 
     <dependencies>
+        <!-- Boot 4 spike: keep Jackson 2 ObjectMapper bean until codebase migrates to tools.jackson -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
+        </dependency>
+        <!-- Boot 4: modular OpenTelemetry (referenced by tracing/actuator auto-config) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.github.spotbugs</groupId>
             <artifactId>spotbugs-annotations</artifactId>

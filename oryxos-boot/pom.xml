@@ -15,6 +15,17 @@
     <description>Spring Boot startup module: main class, auto-configuration, dependency aggregation</description>
 
     <dependencies>
+        <!-- Boot 4 spike: keep Jackson 2 ObjectMapper bean until codebase migrates to tools.jackson -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
+        </dependency>
+        <!-- Boot 4: modular OpenTelemetry (referenced by tracing/actuator auto-config) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.github.spotbugs</groupId>
             <artifactId>spotbugs-annotations</artifactId>
@@ -160,6 +171,23 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Boot 4: TestRestTemplate moved to spring-boot-resttestclient -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-resttestclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Boot 4: @AutoConfigureMetrics (was AutoConfigureObservability) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-micrometer-metrics-test</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- 025：PG 全链路 smoke 的嵌入式 PG（research R5：本机与 CI 同构、零外部依赖） -->

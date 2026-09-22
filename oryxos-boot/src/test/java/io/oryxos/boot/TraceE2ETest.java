@@ -25,7 +25,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -38,6 +39,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * 021 端到端：mock provider（第一轮固定调 save_memory、第二轮收尾 = 每轮 2 次 LLM + 1 次工具）+ 真实 HTTP + SQLite——
  * 单轮全链路串联可回放（SC-002）、连续两轮各自成链、并发处理互不串号（SC-003）。无 key、无网络、gate 内可跑。
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
     classes = OryxOsRuntime.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

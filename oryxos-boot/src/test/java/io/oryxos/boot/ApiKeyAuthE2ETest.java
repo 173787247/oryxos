@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -31,6 +32,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * isEnabled()}，与生产开启态行为一致；启动时置 true 会被 012 AuthStartupCheck 无账号 fail-fast 拦下， 故账号就绪后再开），真实 HTTP 登录拿
  * {@code oryxos_session} cookie，仅凭 session 无 Key 调 REST 通过（SC-006）。 无 key、无网络、gate 内可跑。
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
     classes = OryxOsRuntime.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
