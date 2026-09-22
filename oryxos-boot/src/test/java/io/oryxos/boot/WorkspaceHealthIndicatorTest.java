@@ -64,7 +64,8 @@ class WorkspaceHealthIndicatorTest {
 
       now.set(initial.plusSeconds(14));
       assertEquals(
-          Status.UP, requestThread.submit(() -> health.health()).get(2, TimeUnit.SECONDS).getStatus());
+          Status.UP,
+          requestThread.submit(() -> health.health()).get(2, TimeUnit.SECONDS).getStatus());
       now.set(initial.plusSeconds(15));
       var expired = requestThread.submit(() -> health.health()).get(2, TimeUnit.SECONDS);
       assertEquals(Status.DOWN, expired.getStatus());

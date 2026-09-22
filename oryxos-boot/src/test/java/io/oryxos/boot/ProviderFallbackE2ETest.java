@@ -15,14 +15,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -132,8 +131,6 @@ class ProviderFallbackE2ETest {
     registry.add("oryxos.root", ROOT::toString);
   }
 
-  @Disabled(
-      "Boot4 + Spring AI 1.1.8: OpenAiApi hits NoSuchMethodError HttpHeaders.addAll(MultiValueMap) on Spring Framework 7; needs Spring AI 2.x")
   @Test
   @Order(1)
   void 主败备成_用户无感知_审计每尝试一条且trace同链() {
@@ -200,8 +197,6 @@ class ProviderFallbackE2ETest {
     assertTrue(round.stream().allMatch(LlmCall::isSuccess));
   }
 
-  @Disabled(
-      "Boot4 + Spring AI 1.1.8: OpenAiApi hits NoSuchMethodError HttpHeaders.addAll(MultiValueMap) on Spring Framework 7; needs Spring AI 2.x")
   @Test
   @Order(3)
   void 全部候选失败_报错且无成功行() {
@@ -221,8 +216,6 @@ class ProviderFallbackE2ETest {
     assertEquals(2, round.size(), "主 + 备各一次失败尝试（同一轮首个 LLM 调用即失败终止）");
   }
 
-  @Disabled(
-      "Boot4 + Spring AI 1.1.8: OpenAiApi hits NoSuchMethodError HttpHeaders.addAll(MultiValueMap) on Spring Framework 7; needs Spring AI 2.x")
   @Test
   @Order(4)
   void prometheus端点_五类业务指标在位且与审计口径对照一致() {

@@ -1,7 +1,11 @@
 package io.oryxos.provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.openai.errors.OpenAIIoException;
+import com.openai.errors.OpenAIServiceException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeoutException;
@@ -16,6 +20,12 @@ class FallbackClassifierTest {
   private static RestClientResponseException status(int code) {
     return new RestClientResponseException(
         "status " + code, code, "st", new HttpHeaders(), new byte[0], StandardCharsets.UTF_8);
+  }
+
+  private static OpenAIServiceException openaiStatus(int code) {
+    OpenAIServiceException ex = mock(OpenAIServiceException.class);
+    when(ex.statusCode()).thenReturn(code);
+    return ex;
   }
 
   @Test
@@ -37,9 +47,18 @@ class FallbackClassifierTest {
   }
 
   @Test
+  void OpenAI_SDK异常_按状态码判定() {
+    assertThat(FallbackClassifier.isSwitchable(openaiStatus(400))).isFalse();
+    assertThat(FallbackClassifier.isSwitchable(openaiStatus(401))).isTrue();
+    assertThat(FallbackClassifier.isSwitchable(openaiStatus(429))).isTrue();
+    assertThat(FallbackClassifier.isSwitchable(openaiStatus(502))).isTrue();
+  }
+
+  @Test
   void 网络与超时类_可切换() {
     assertThat(FallbackClassifier.isSwitchable(new ResourceAccessException("connect refused")))
         .isTrue();
+    assertThat(FallbackClassifier.isSwitchable(new OpenAIIoException("transport down"))).isTrue();
     assertThat(
             FallbackClassifier.isSwitchable(
                 new RuntimeException("wrapped", new TimeoutException("read timeout"))))
@@ -48,7 +67,6 @@ class FallbackClassifierTest {
 
   @Test
   void 异常链深埋_逐层提取() {
-    // 状态码埋在两层包装之下（Spring AI 常见包装形态）
     RuntimeException deep400 =
         new RuntimeException("outer", new IllegalStateException(status(400)));
     assertThat(FallbackClassifier.isSwitchable(deep400)).isFalse();
@@ -60,32 +78,5 @@ class FallbackClassifierTest {
   @Test
   void 无状态码的未知异常_宁多试一次() {
     assertThat(FallbackClassifier.isSwitchable(new IllegalStateException("who knows"))).isTrue();
-  }
-
-  @Test
-  void SpringAI包装形态_message前缀状态码判定() {
-    // 真机验证的形态：4xx 被包成 NonTransientAiException("400 - {json}")，cause 链无 RestClient 异常
-    assertThat(
-            FallbackClassifier.isSwitchable(
-                new org.springframework.ai.retry.NonTransientAiException(
-                    "400 - {\"error\":{\"message\":\"invalid request body\"}}")))
-        .isFalse();
-    assertThat(
-            FallbackClassifier.isSwitchable(
-                new org.springframework.ai.retry.NonTransientAiException("401 - unauthorized")))
-        .isTrue(); // 凭证问题换家有意义（R3）
-    assertThat(
-            FallbackClassifier.isSwitchable(
-                new org.springframework.ai.retry.TransientAiException("429 - rate limited")))
-        .isTrue();
-    // 无前缀码：信 Spring AI 的瞬时性分类
-    assertThat(
-            FallbackClassifier.isSwitchable(
-                new org.springframework.ai.retry.NonTransientAiException("schema mismatch")))
-        .isFalse();
-    assertThat(
-            FallbackClassifier.isSwitchable(
-                new org.springframework.ai.retry.TransientAiException("temporary hiccup")))
-        .isTrue();
   }
 }
