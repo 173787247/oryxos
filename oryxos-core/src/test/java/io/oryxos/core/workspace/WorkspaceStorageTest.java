@@ -246,7 +246,7 @@ class WorkspaceStorageTest {
     Files.writeString(storage.resolve("file"), "value");
     Path real = storage.resolve("file").toRealPath();
     assertThat(Files.readString(real)).isEqualTo("value");
-    assertThat(storage.nativePath(real)).isEqualTo(root.resolve("file"));
+    assertThat(storage.nativePath(real)).isEqualTo(root.resolve("file").toRealPath());
   }
 
   @Test
