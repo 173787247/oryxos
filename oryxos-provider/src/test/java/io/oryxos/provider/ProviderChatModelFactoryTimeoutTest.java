@@ -12,15 +12,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 
 /**
  * 超时回归：LLM 端点挂死时，单次 HTTP 调用必须在读取超时内失败，不能无限阻塞。
  *
- * <p>直接测 {@link ProviderChatModelFactory#timeoutFactory()} 装配出的客户端（buildOne 传给 OpenAiApi 的就是它）：走
- * ChatModel.call 会叠加 Spring AI 默认 RetryTemplate（对 ResourceAccessException 重试 10 次、 指数退避至
- * 180s），无法在单测时间预算内断言。
+ * <p>直接走 {@link ProviderChatModelFactory#buildOne} 产出的 ChatModel.call（AI 2.x /
+ * OkHttp，maxRetries=0）。
  */
 class ProviderChatModelFactoryTimeoutTest {
 
@@ -55,15 +54,10 @@ class ProviderChatModelFactoryTimeoutTest {
   void hangingEndpointFailsWithinReadTimeout() {
     System.setProperty(ProviderChatModelFactory.READ_TIMEOUT_PROP, "1");
     String baseUrl = "http://127.0.0.1:" + hangingServer.getAddress().getPort();
-    RestClient client =
-        RestClient.builder().requestFactory(ProviderChatModelFactory.timeoutFactory()).build();
+    ChatModel model = new ProviderChatModelFactory().buildOne("hang", "sk-test", baseUrl);
 
-    // 修复前：默认请求工厂无读取超时，这里会永久阻塞（preemptive 兜底 10 秒防测试挂死）
     assertTimeoutPreemptively(
         Duration.ofSeconds(10),
-        () ->
-            assertThrows(
-                ResourceAccessException.class,
-                () -> client.get().uri(baseUrl).retrieve().toEntity(String.class)));
+        () -> assertThrows(RuntimeException.class, () -> model.call(new Prompt("ping"))));
   }
 }

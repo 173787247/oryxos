@@ -16,8 +16,9 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -31,6 +32,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * GLOBAL_DENY 后事中拒绝 + 失败回填 + 审计 blocked_by='policy' 可筛（SC-002/SC-005）→ EXEMPT 仅对 登记 Agent 放行（US2）→
  * AGENT_DENY 最终收紧（三重叠加，SC-003）→ 删规则热更新即恢复（SC-004）。无 key、无网络、 gate 内可跑。
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
     classes = OryxOsRuntime.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

@@ -19,8 +19,9 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -34,9 +35,10 @@ import org.springframework.test.context.DynamicPropertySource;
  * 校验要能看到它）+ mock 备用；真实 HTTP + SQLite——主败备成用户无感知（SC-001）、 每尝试一条审计且 trace 同链（SC-003）、切换 WARN 带
  * traceId、零声明回归（SC-002）、全败上抛。 无 key、无网络、gate 内可跑。
  */
-// @AutoConfigureObservability：@SpringBootTest 默认禁用 metrics export（防测试打点外泄），
+// @AutoConfigureMetrics：@SpringBootTest 默认禁用 metrics export（防测试打点外泄），
 // 不加则 PrometheusMeterRegistry 不装配、/actuator/prometheus 404——真机 serve 不受此影响
-@org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
+@org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
     classes = OryxOsRuntime.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

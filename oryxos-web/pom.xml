@@ -21,6 +21,12 @@
     </properties>
 
     <dependencies>
+        <!-- Boot 4 spike: keep Jackson 2 ObjectMapper bean until codebase migrates to tools.jackson -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>io.oryxos</groupId>
             <artifactId>oryxos-core</artifactId>

@@ -17,8 +17,9 @@ import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -33,6 +34,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * <p>三处覆盖让它 hermetic：① 工作区指向临时目录（系统属性 {@code oryxos.root}，静态块里在类加载即设定， 早于 Spring 上下文构建）并预置一个 {@code
  * provider: mock} 的 Agent；② provider 用内置 mock（覆盖默认 deepseek）； ③ SQLite 指向临时库文件。
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
     classes = OryxOsRuntime.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

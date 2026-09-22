@@ -50,7 +50,7 @@ import org.springframework.util.MimeTypeUtils;
  * ChatModel，完成一次调用并落审计。
  *
  * <p>宪法 II/III：显式 name→ChatModel 映射、调用方式 {@code chatModel.call(new Prompt(...))}、 {@code
- * internalToolExecutionEnabled=false} 关闭框架自动工具执行——工具 schema 只翻译、tool call 原样透传。
+ * AI 2.x ChatModel 不再内建自动工具执行——工具 schema 只翻译、tool call 原样透传。
  */
 public class SpringAiProviderServiceImpl implements ProviderService {
 
@@ -679,8 +679,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   private Prompt buildPrompt(Profile profile, ProviderRequest request, String model) {
     OpenAiChatOptions.Builder options =
         OpenAiChatOptions.builder()
-            .model(model)
-            .internalToolExecutionEnabled(Boolean.FALSE); // 执行权只在 ToolExecutor（17 节）
+            .model(model); // AI 2.x：ChatModel 不再内建自动工具执行，执行权只在 ToolExecutor（17 节）
     if (profile.provider().temperature() != null) {
       options.temperature(profile.provider().temperature());
     }
@@ -868,56 +867,33 @@ public class SpringAiProviderServiceImpl implements ProviderService {
   private static boolean isClientError(RuntimeException e) {
     Throwable t = e;
     while (t != null) {
+      if (t instanceof com.openai.errors.OpenAIServiceException openai) {
+        return isClientHttpStatus(openai.statusCode());
+      }
       if (t instanceof org.springframework.web.client.RestClientResponseException rest) {
-        int code = rest.getStatusCode().value();
-        return code >= 400
-            && code < 500
-            && code != 401
-            && code != 403
-            && code != 408
-            && code != 429;
+        return isClientHttpStatus(rest.getStatusCode().value());
       }
       if (t
           instanceof
           org.springframework.web.reactive.function.client.WebClientResponseException web) {
-        int code = web.getStatusCode().value();
-        return code >= 400
-            && code < 500
-            && code != 401
-            && code != 403
-            && code != 408
-            && code != 429;
-      }
-      if (t instanceof org.springframework.ai.retry.NonTransientAiException
-          || t instanceof org.springframework.ai.retry.TransientAiException) {
-        Integer code = leadingHttpStatus(t.getMessage());
-        if (code != null) {
-          return code >= 400
-              && code < 500
-              && code != 401
-              && code != 403
-              && code != 408
-              && code != 429;
-        }
+        return isClientHttpStatus(web.getStatusCode().value());
       }
       t = t.getCause();
     }
     return false;
   }
 
-  private static Integer leadingHttpStatus(String message) {
-    if (message == null) {
-      return null;
-    }
-    java.util.regex.Matcher matcher =
-        java.util.regex.Pattern.compile("^(\\d{3}) - ").matcher(message);
-    return matcher.find() ? Integer.valueOf(matcher.group(1)) : null;
+  private static boolean isClientHttpStatus(int code) {
+    return code >= 400 && code < 500 && code != 401 && code != 403 && code != 408 && code != 429;
   }
 
   private static ProviderResponse toProviderResponse(ChatResponse response) {
     Generation generation = response.getResult();
+    if (generation == null) {
+      return new ProviderResponse("", List.of(), extractUsage(response));
+    }
     AssistantMessage output = generation.getOutput();
-    String text = output.getText();
+    String text = output.getText() == null ? "" : output.getText();
     List<ToolCallRequest> toolCalls =
         output.getToolCalls().stream()
             .map(call -> new ToolCallRequest(call.id(), call.name(), call.arguments()))

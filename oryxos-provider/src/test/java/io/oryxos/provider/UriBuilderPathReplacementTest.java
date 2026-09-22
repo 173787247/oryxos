@@ -27,7 +27,7 @@ class UriBuilderPathReplacementTest {
   @DisplayName("绝对 path /v1/chat/completions → 追加到 baseUrl /zen/go/v1 后 → 双 /v1（bug 根因）")
   void absolutePath_appendedToBaseUrlWithV1_yieldsDoubleV1() {
     String built =
-        UriComponentsBuilder.fromHttpUrl("https://opencode.ai/zen/go/v1")
+        UriComponentsBuilder.fromUriString("https://opencode.ai/zen/go/v1")
             .path("/v1/chat/completions")
             .build()
             .toUriString();
@@ -40,7 +40,7 @@ class UriBuilderPathReplacementTest {
   @DisplayName("修复方案：baseUrl 去掉 /v1 + 绝对 path /v1/chat/completions → 单 /v1 正确")
   void absolutePath_onBaseUrlWithoutV1_yieldsSingleV1() {
     String built =
-        UriComponentsBuilder.fromHttpUrl("https://opencode.ai/zen/go")
+        UriComponentsBuilder.fromUriString("https://opencode.ai/zen/go")
             .path("/v1/chat/completions")
             .build()
             .toUriString();
@@ -52,7 +52,7 @@ class UriBuilderPathReplacementTest {
   @DisplayName("deepseek baseUrl 无子路径，绝对 path 追加结果恰好 = 单 /v1（掩盖了 bug）")
   void absolutePath_onRootlessBaseUrl_works() {
     String built =
-        UriComponentsBuilder.fromHttpUrl("https://api.deepseek.com")
+        UriComponentsBuilder.fromUriString("https://api.deepseek.com")
             .path("/v1/chat/completions")
             .build()
             .toUriString();
@@ -64,7 +64,7 @@ class UriBuilderPathReplacementTest {
   @DisplayName("相对 path（无前导 /）不插分隔符 → 直接拼接，会咬字，不可用")
   void relativePath_noSeparatorInserted() {
     String built =
-        UriComponentsBuilder.fromHttpUrl("https://opencode.ai/zen/go")
+        UriComponentsBuilder.fromUriString("https://opencode.ai/zen/go")
             .path("v1/chat/completions")
             .build()
             .toUriString();
@@ -77,7 +77,7 @@ class UriBuilderPathReplacementTest {
   @DisplayName("modelsUrl 等价：baseUrl 含 /v1 + /models → 单次 /v1/models，与 Chat 调用对 /v1 的预期不一致")
   void modelsPath_onBaseUrlWithV1_yieldsSingleV1Models() {
     String built =
-        UriComponentsBuilder.fromHttpUrl("https://opencode.ai/zen/go/v1")
+        UriComponentsBuilder.fromUriString("https://opencode.ai/zen/go/v1")
             .path("/models")
             .build()
             .toUriString();

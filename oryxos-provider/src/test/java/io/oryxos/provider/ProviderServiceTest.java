@@ -113,7 +113,7 @@ class ProviderServiceTest {
   }
 
   @Test
-  void 带工具schema调用_请求里关闭了自动执行() {
+  void 带工具schema调用_请求里携带翻译后的callbacks() {
     when(deepseek.call(any(Prompt.class))).thenReturn(textResponse("ok"));
 
     service.chat(
@@ -122,8 +122,8 @@ class ProviderServiceTest {
     ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
     verify(deepseek).call(captor.capture());
     OpenAiChatOptions options = (OpenAiChatOptions) captor.getValue().getOptions();
-    assertFalse(options.getInternalToolExecutionEnabled()); // 坑二的回归：一旦有人改回自动执行，这里立刻红
-    assertFalse(options.getToolCallbacks().isEmpty()); // 翻译过的 schema 确实带上了
+    // AI 2.x：ChatModel 不再内建自动工具执行；回归钉死 schema 翻译仍挂上
+    assertFalse(options.getToolCallbacks().isEmpty());
     assertEquals("http_get", options.getToolCallbacks().get(0).getToolDefinition().name());
   }
 

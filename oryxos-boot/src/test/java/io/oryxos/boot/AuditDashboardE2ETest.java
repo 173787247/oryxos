@@ -14,8 +14,9 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,6 +30,7 @@ import org.springframework.test.context.DynamicPropertySource;
  *
  * <p>mock provider 不返回 usage，故成本为「未计量」（costMicros=null）；成本金额的精确换算由 CostComputeTest 覆盖。
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
     classes = OryxOsRuntime.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

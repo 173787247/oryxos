@@ -40,7 +40,7 @@ class ToolSchemaAdapterTest {
   void 翻译产物是纯描述_被调用执行时必须抛异常() {
     ToolCallback callback = adapter.toSpringAiTools(List.of(httpGetTool())).get(0);
 
-    // 第二道保险：即使有人绕过 internalToolExecutionEnabled=false，执行也走不通
+    // 第二道保险：回调本身不可执行（AI 2.x 亦不再内建自动工具执行）
     assertThrows(IllegalStateException.class, () -> callback.call("{\"url\":\"https://x\"}"));
   }
 

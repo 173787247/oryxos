@@ -82,7 +82,11 @@ public class MockChatModel implements ChatModel {
   @Override
   public reactor.core.publisher.Flux<ChatResponse> stream(Prompt prompt) {
     ChatResponse full = call(prompt);
-    AssistantMessage output = full.getResult().getOutput();
+    Generation generation = full.getResult();
+    if (generation == null) {
+      return reactor.core.publisher.Flux.just(full);
+    }
+    AssistantMessage output = generation.getOutput();
     String text = output.getText();
     if (!output.getToolCalls().isEmpty() || text == null || text.isEmpty()) {
       return reactor.core.publisher.Flux.just(full);
@@ -107,7 +111,7 @@ public class MockChatModel implements ChatModel {
     for (int i = messages.size() - 1; i >= 0; i--) {
       if (messages.get(i) instanceof UserMessage) {
         String text = ((UserMessage) messages.get(i)).getText();
-        return text.isBlank() ? "（空消息）" : text;
+        return text == null || text.isBlank() ? "（空消息）" : text;
       }
     }
     return "（无用户消息）";
