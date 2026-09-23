@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  * `.oryxos/agents/&lt;name&gt;/MEMORY.md`（这个 Agent 自己的成长记录，跟它的 AGENT.md/skills/ 同目录，合宪法四）；无上下文（非
  * Agent 触发的直接调用、单测）时回退全局 `.oryxos/memory/MEMORY.md`，保持向后兼容。Agent 名做安全校验，非法段一律回退全局，防目录穿越。
  *
- * <p>契约落地：load 每次 Files.readString 不缓存（契约一）；truncateIfNeeded 只接归档区那段字符串裁尾、
+ * <p>契约落地：load 每次读盘不缓存（契约一；超 10 MiB fail-loud）；truncateIfNeeded 只接归档区那段字符串裁尾、
  * 物理上碰不到核心区（契约二）；recallByKeyword 只搜归档区（契约四）。
  */
 public class MarkdownMemoryStore implements LongTermMemoryStore {
@@ -44,6 +44,10 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
   private static final Pattern ARCHIVE_HEADER_LINE =
       Pattern.compile("(?m)^" + Pattern.quote(ARCHIVE_HEADER) + "\\s*$");
   private static final int MAX_ARCHIVE_CHARS = 4000;
+
+  /** MEMORY.md 整文件上限（与 FileTools / workspace /file / ContextLoader 的 10 MiB 对齐）；超限 fail-loud。 */
+  static final long MAX_MEMORY_FILE_BYTES = 10L * 1024 * 1024;
+
   private static final Pattern SAFE_AGENT = Pattern.compile("[A-Za-z0-9_-]+");
   private static final DateTimeFormatter TIMESTAMP =
       DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -191,6 +195,16 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
       return "";
     }
     try {
+      long size = Files.size(file);
+      if (size > MAX_MEMORY_FILE_BYTES) {
+        throw new IllegalStateException(
+            "MEMORY.md 过大（"
+                + size
+                + " bytes），上限 "
+                + MAX_MEMORY_FILE_BYTES
+                + " bytes（10 MiB）: "
+                + file);
+      }
       return Files.readString(file);
     } catch (IOException e) {
       throw new UncheckedIOException("读取 MEMORY.md 失败", e);

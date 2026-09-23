@@ -2,6 +2,7 @@ package io.oryxos.memory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.core.memory.MemoryScope;
@@ -170,5 +171,27 @@ class MarkdownMemoryStoreTest {
     }
 
     assertEquals(200, memory.archivalEntries().size(), "load 截断只作用注入，取数口必须全量");
+  }
+
+  @Test
+  @DisplayName("MEMORY.md 超过 10 MiB → fail-loud，不先整文件读入再截断")
+  void oversizedMemoryFileFailsLoud() throws Exception {
+    Path file = root.resolve("memory").resolve("MEMORY.md");
+    java.nio.file.Files.createDirectories(file.getParent());
+    java.nio.file.Files.writeString(file, "## 核心记忆\n\n## 归档记忆\n");
+    long target = MarkdownMemoryStore.MAX_MEMORY_FILE_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out =
+        java.nio.file.Files.newOutputStream(file, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = java.nio.file.Files.size(file);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    MarkdownMemoryStore memory = new MarkdownMemoryStore(root);
+    IllegalStateException ex = assertThrows(IllegalStateException.class, memory::load);
+    assertTrue(ex.getMessage().contains("10 MiB"));
   }
 }
