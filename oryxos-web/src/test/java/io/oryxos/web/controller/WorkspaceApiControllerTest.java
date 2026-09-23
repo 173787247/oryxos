@@ -493,4 +493,26 @@ class WorkspaceApiControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value(400));
   }
+
+  @Test
+  @DisplayName("file 超过 10 MiB 文本上限 → 400，不整文件读入")
+  void file_oversizedText_returns400() throws Exception {
+    Path output = Files.createDirectories(oryxosRoot.resolve("output"));
+    Path big = output.resolve("huge.txt");
+    // 写 MAX+1 字节：不依赖稀疏文件，保证 Files.size 超限
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(big)) {
+      long written = 0;
+      long target = WorkspaceApiController.MAX_TEXT_READ_BYTES + 1;
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    mvc.perform(get("/api/v1/workspace/file").param("path", "output/huge.txt"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value(400))
+        .andExpect(jsonPath("$.message", containsString("10 MiB")));
+  }
 }
