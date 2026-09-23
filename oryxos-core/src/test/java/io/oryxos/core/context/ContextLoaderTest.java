@@ -2,6 +2,7 @@ package io.oryxos.core.context;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ch.qos.logback.classic.Logger;
@@ -286,5 +287,26 @@ class ContextLoaderTest {
 
   private AgentSkillBindingService bindingService() {
     return new AgentSkillBindingService(oryxosRoot, new SkillLoader(oryxosRoot.resolve("skills")));
+  }
+
+  @Test
+  @DisplayName("AGENT.md 超过 10 MiB → fail-loud，不整文件拼进 prompt")
+  void oversizedAgentMdFailsLoud() throws IOException {
+    Path agentMd = agentDir.resolve("AGENT.md");
+    Files.writeString(agentMd, "---\nname: ops-agent\n---\n");
+    long target = ContextLoader.MAX_CONTEXT_FILE_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(agentMd, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(agentMd);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    IllegalStateException ex =
+        assertThrows(IllegalStateException.class, () -> loader.load(profileWith(List.of())));
+    assertTrue(ex.getMessage().contains("10 MiB"));
+    assertTrue(ex.getMessage().contains("AGENT.md"));
   }
 }

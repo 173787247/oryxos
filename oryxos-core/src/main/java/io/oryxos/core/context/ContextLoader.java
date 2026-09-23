@@ -38,6 +38,9 @@ public class ContextLoader {
   private static final String AGENT_FILE = "AGENT.md";
   private static final String OUTPUT_DIR = "output";
 
+  /** AGENT.md / bootstrap 单文件上限（与 FileTools / workspace /file 的 10 MiB 对齐）。 */
+  static final long MAX_CONTEXT_FILE_BYTES = 10L * 1024 * 1024;
+
   /** 具备写盘能力的工具：任一在场就把该 Agent 的绝对产出目录告诉它（否则不加，省 prompt）。 */
   private static final Set<String> FILE_WRITE_TOOLS =
       Set.of("write_file", "append_file", "edit_file", "make_dir", "download_file", "shell");
@@ -186,6 +189,16 @@ public class ContextLoader {
 
   private static String read(Path file) {
     try {
+      long size = Files.size(file);
+      if (size > MAX_CONTEXT_FILE_BYTES) {
+        throw new IllegalStateException(
+            "上下文文件过大（"
+                + size
+                + " bytes），上限 "
+                + MAX_CONTEXT_FILE_BYTES
+                + " bytes（10 MiB）: "
+                + file.getFileName());
+      }
       return Files.readString(file);
     } catch (IOException e) {
       // 文件存在但读不出来（权限/编码）不属于"缺失可跳过"，必须显式失败
