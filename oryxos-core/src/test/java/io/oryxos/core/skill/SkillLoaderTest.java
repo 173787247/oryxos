@@ -115,4 +115,33 @@ class SkillLoaderTest {
       assertThrows(UncheckedIOException.class, loader::loadAll);
     }
   }
+
+  @Test
+  @DisplayName("SKILL.md 超过 10 MiB → IllegalArgumentException；loadAll 跳过不阻断")
+  void oversizedSkillMd_failsLoudAndLoadAllSkips() throws IOException {
+    Path huge = Files.createDirectories(root.resolve("huge"));
+    Path skillMd = huge.resolve("SKILL.md");
+    Files.writeString(skillMd, "---\nname: huge\ndescription: big\n---\nok");
+    long target = SkillLoader.MAX_SKILL_MD_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(skillMd, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(skillMd);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    Path ok = Files.createDirectories(root.resolve("ok-skill"));
+    Files.writeString(ok.resolve("SKILL.md"), "---\nname: ok-skill\ndescription: fine\n---\nbody");
+
+    SkillLoader loader = new SkillLoader(root);
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> loader.deriveSkill(huge));
+    assertTrue(ex.getMessage().contains("10 MiB"));
+
+    SkillRegistry reg = loader.loadAll();
+    assertFalse(reg.exists("huge"), "超限 Skill 应被跳过");
+    assertTrue(reg.exists("ok-skill"), "其它 Skill 不受阻断");
+  }
 }
