@@ -160,4 +160,32 @@ class AgentLoaderTest {
                         && e.getFormattedMessage().contains("ghost_tool"));
     assertTrue(warned, "引用未注册能力至少 WARN");
   }
+
+  @Test
+  @DisplayName("AGENT.md 超过 10 MiB → ProfileValidationException；loadAll 跳过不阻断")
+  void oversizedAgentMd_failsLoudAndLoadAllSkips() throws IOException {
+    Path dir =
+        writeAgent("huge", "name: huge\nprovider:\n  name: deepseek\n  model: deepseek-chat", "ok");
+    Path agentMd = dir.resolve("AGENT.md");
+    long target = AgentLoader.MAX_AGENT_MD_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(agentMd, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(agentMd);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    writeAgent(
+        "ok-agent", "name: ok-agent\nprovider:\n  name: deepseek\n  model: deepseek-chat", "fine");
+
+    ProfileValidationException ex =
+        assertThrows(ProfileValidationException.class, () -> loader(agentsDir).deriveProfile(dir));
+    assertTrue(ex.getMessage().contains("10 MiB"));
+
+    ProfileRegistry reg = loader(agentsDir).loadAll();
+    assertFalse(reg.get("huge").isPresent(), "超限 Agent 应被跳过");
+    assertTrue(reg.get("ok-agent").isPresent(), "其它 Agent 不受阻断");
+  }
 }

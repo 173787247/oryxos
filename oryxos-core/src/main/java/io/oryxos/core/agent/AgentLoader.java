@@ -27,6 +27,9 @@ public class AgentLoader {
   private static final Logger LOG = LoggerFactory.getLogger(AgentLoader.class);
   private static final String AGENT_FILE = "AGENT.md";
 
+  /** AGENT.md 整文件上限（与 ContextLoader 10 MiB 对齐）。 */
+  static final long MAX_AGENT_MD_BYTES = 10L * 1024 * 1024;
+
   private final Path agentsDir;
   private final Set<String> knownTools;
   private final ProfileLoader validator;
@@ -86,6 +89,16 @@ public class AgentLoader {
     }
     if (!attributes.isRegularFile()) {
       throw new ProfileValidationException("Agent 目录缺少 AGENT.md: " + agentDir.getFileName());
+    }
+    long size = attributes.size();
+    if (size > MAX_AGENT_MD_BYTES) {
+      throw new ProfileValidationException(
+          "AGENT.md 过大（"
+              + size
+              + " bytes），上限 "
+              + MAX_AGENT_MD_BYTES
+              + " bytes（10 MiB）: "
+              + agentDir.getFileName());
     }
     Profile profile = parse(Files.readString(agentMd), String.valueOf(agentDir.getFileName()));
     String dirName = String.valueOf(agentDir.getFileName());
