@@ -123,6 +123,7 @@ jobs:
         run: |
           bash scripts/install-k8s-tools.sh gate
           export PATH="$HOME/bin:$PATH"
-          helm package charts/oryxos --app-version "${VERSION}-RELEASE" -d dist/
+          # VERSION 已含正式后缀（如 0.1.6-RELEASE），与 pom / Chart.yaml appVersion 同口径，勿再拼 -RELEASE。
+          helm package charts/oryxos --app-version "${VERSION}" -d dist/
           gh release upload "v${VERSION}" dist/oryxos-*.tgz --clobber
           echo "已上传 chart 附件到 Release v${VERSION}"
