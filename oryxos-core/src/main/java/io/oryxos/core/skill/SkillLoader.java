@@ -25,6 +25,9 @@ public class SkillLoader {
   private static final Logger LOG = LoggerFactory.getLogger(SkillLoader.class);
   private static final String SKILL_FILE = "SKILL.md";
 
+  /** SKILL.md 整文件上限（与 AgentLoader / ContextLoader 的 10 MiB 对齐）。 */
+  static final long MAX_SKILL_MD_BYTES = 10L * 1024 * 1024;
+
   private final Path skillsDir;
 
   public SkillLoader(Path skillsDir) {
@@ -96,6 +99,16 @@ public class SkillLoader {
     }
     if (!attributes.isRegularFile()) {
       throw new IllegalArgumentException("Skill 目录缺少 SKILL.md: " + skillDir.getFileName());
+    }
+    long size = attributes.size();
+    if (size > MAX_SKILL_MD_BYTES) {
+      throw new IllegalArgumentException(
+          "SKILL.md 过大（"
+              + size
+              + " bytes），上限 "
+              + MAX_SKILL_MD_BYTES
+              + " bytes（10 MiB）: "
+              + skillDir.getFileName());
     }
     String dirName = String.valueOf(skillDir.getFileName());
     Skill skill = parse(read(skillMd), dirName);

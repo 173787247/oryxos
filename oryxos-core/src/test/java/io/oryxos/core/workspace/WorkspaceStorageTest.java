@@ -246,8 +246,7 @@ class WorkspaceStorageTest {
     Files.writeString(storage.resolve("file"), "value");
     Path real = storage.resolve("file").toRealPath();
     assertThat(Files.readString(real)).isEqualTo("value");
-    // Compare via isSameFile: macOS tmp roots may be /var vs /private/var.
-    assertThat(Files.isSameFile(storage.nativePath(real), root.resolve("file"))).isTrue();
+    assertThat(storage.nativePath(real)).isEqualTo(root.resolve("file").toRealPath());
   }
 
   @Test
