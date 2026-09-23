@@ -76,10 +76,23 @@ public final class DockerProcessStarter implements ProcessStarter {
           e);
     }
     CidfileProcessWrapper wrapper = new CidfileProcessWrapper(cli, cidFile, killer);
+    // 审计的容器 ID 惰性读取（FR-008）：审计发生在进程结束后——退出回调先「捕获 ID 再删临时文件」，
+    // 否则清理与审计读取竞态、审计读到的永远是空文件（真机验收实证过的 bug）。
+    java.util.concurrent.atomic.AtomicReference<String> containerIdRef =
+        new java.util.concurrent.atomic.AtomicReference<>();
     ToolExecutionContext.setExecution(
-        "docker", () -> CidfileProcessWrapper.readContainerId(cidFile));
-    // 容器退出后清理 cid 临时文件（--rm 已清理容器本体，这里只清本进程的临时文件）
-    wrapper.onExit().whenComplete((process, throwable) -> deleteCidFilesQuietly(cidFile));
+        "docker",
+        () -> {
+          String cached = containerIdRef.get();
+          return cached != null ? cached : CidfileProcessWrapper.readContainerId(cidFile);
+        });
+    wrapper
+        .onExit()
+        .whenComplete(
+            (process, throwable) -> {
+              containerIdRef.compareAndSet(null, CidfileProcessWrapper.readContainerId(cidFile));
+              deleteCidFilesQuietly(cidFile); // --rm 已清理容器本体，这里只清本进程的临时文件
+            });
     return wrapper;
   }
 
