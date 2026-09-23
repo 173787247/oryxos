@@ -46,6 +46,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/workspace")
 public class WorkspaceApiController {
 
+  /** 文本查看接口上限（与 FileTools #634 / #633 的 10 MiB 对齐）；超限拒读，提示改用 download。 */
+  static final long MAX_TEXT_READ_BYTES = 10L * 1024 * 1024;
+
   private static final String AGENT_FILE = "AGENT.md";
   private static final String AGENTS_DIR = "agents";
   private static final String SKILLS_DIR = "skills";
@@ -123,6 +126,16 @@ public class WorkspaceApiController {
       // 或换成仍在 root 内的保留文件
       target = resolveWithinRoot(path);
       AdminConfigFileGuard.rejectRead(target);
+      long size = Files.size(target);
+      if (size > MAX_TEXT_READ_BYTES) {
+        throw new IllegalArgumentException(
+            "文件过大（"
+                + size
+                + " bytes），文本查看上限 "
+                + MAX_TEXT_READ_BYTES
+                + " bytes（10 MiB）；请用 /api/v1/workspace/download 下载或缩小文件: "
+                + path);
+      }
       return ApiResponse.ok(Files.readString(target));
     } catch (IOException e) {
       throw new UncheckedIOException("读取文件失败: " + path, e);
