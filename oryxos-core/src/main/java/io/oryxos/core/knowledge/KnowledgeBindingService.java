@@ -1,5 +1,6 @@
 package io.oryxos.core.knowledge;
 
+import io.oryxos.core.agent.AgentLoader;
 import io.oryxos.core.fs.RealPathBoundary;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -437,6 +438,10 @@ public class KnowledgeBindingService {
       return fallback;
     }
     try {
+      long size = Files.size(file);
+      if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
+        return fallback;
+      }
       for (String line : Files.readAllLines(file)) {
         String stripped = line.strip();
         if (stripped.startsWith("name:")) {

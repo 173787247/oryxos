@@ -168,4 +168,27 @@ class KnowledgeBindingServiceTest {
     assertEquals("another", issues.get(0).agentName());
     assertEquals(KnowledgeBindingIssue.Type.DANGLING, issues.get(0).type());
   }
+
+  @Test
+  void oversizedAgentMarkdownFallsBackToDirectoryName() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
+    Path agentDir = KnowledgeWorkspaceFixture.agent(root, "huge");
+    Path markdown = agentDir.resolve("AGENT.md");
+    long over = io.oryxos.core.agent.AgentLoader.MAX_AGENT_MD_BYTES + 1;
+    try (var out = Files.newOutputStream(markdown)) {
+      byte[] chunk = new byte[1024 * 1024];
+      java.util.Arrays.fill(chunk, (byte) 'x');
+      long left = over;
+      while (left > 0) {
+        int n = (int) Math.min(left, chunk.length);
+        out.write(chunk, 0, n);
+        left -= n;
+      }
+    }
+    service.bind("huge", "ops");
+    List<KnowledgeReference> refs = service.references("ops");
+    assertEquals(1, refs.size());
+    // frontmatter name: unreachable when AGENT.md exceeds 10 MiB — fall back to directory name
+    assertEquals("huge", refs.get(0).agentName());
+  }
 }
