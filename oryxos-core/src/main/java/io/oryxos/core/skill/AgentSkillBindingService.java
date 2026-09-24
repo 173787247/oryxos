@@ -731,14 +731,19 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
 
   private record Move(Path original, Path temporary) {}
 
-  /** 巡检读 AGENT.md：先钉在工作区内，超限 fail 成 IOException，由调用方记 issue / 回退。 */
+  /** 巡检读 AGENT.md：真实路径钉在 root 内，超限 fail 成 IOException，由调用方记 issue / 回退。 */
   private String readAgentMarkdown(Path file) throws IOException {
     if (!AGENT_FILE.equals(String.valueOf(file.getFileName()))) {
       throw new IOException("不是 AGENT.md: " + file.getFileName());
     }
-    // Use the returned real path so CodeQL treats the read as boundary-sanitized.
-    Path safe = RealPathBoundary.requireWithin(root, file);
-    long size = Files.size(safe);
+    // Explicit toRealPath + startsWith so CodeQL models this as path-injection sanitizer
+    // (custom RealPathBoundary.requireWithin is not in the default sanitizer set).
+    Path rootReal = root.toRealPath();
+    Path fileReal = file.toRealPath();
+    if (!fileReal.startsWith(rootReal)) {
+      throw new IllegalArgumentException("真实路径越界，拒绝访问: " + file);
+    }
+    long size = Files.size(fileReal);
     if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
       throw new IOException(
           "AGENT.md 过大（"
@@ -747,6 +752,6 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
               + AgentLoader.MAX_AGENT_MD_BYTES
               + " bytes（10 MiB）");
     }
-    return Files.readString(safe);
+    return Files.readString(fileReal);
   }
 }
