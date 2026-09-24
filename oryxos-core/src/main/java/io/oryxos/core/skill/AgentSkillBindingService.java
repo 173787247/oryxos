@@ -733,11 +733,12 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
 
   /** 巡检读 AGENT.md：先钉在工作区内，超限 fail 成 IOException，由调用方记 issue / 回退。 */
   private String readAgentMarkdown(Path file) throws IOException {
-    RealPathBoundary.requireWithin(root, file);
     if (!AGENT_FILE.equals(String.valueOf(file.getFileName()))) {
       throw new IOException("不是 AGENT.md: " + file.getFileName());
     }
-    long size = Files.size(file);
+    // Use the returned real path so CodeQL treats the read as boundary-sanitized.
+    Path safe = RealPathBoundary.requireWithin(root, file);
+    long size = Files.size(safe);
     if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
       throw new IOException(
           "AGENT.md 过大（"
@@ -746,6 +747,6 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
               + AgentLoader.MAX_AGENT_MD_BYTES
               + " bytes（10 MiB）");
     }
-    return Files.readString(file);
+    return Files.readString(safe);
   }
 }
