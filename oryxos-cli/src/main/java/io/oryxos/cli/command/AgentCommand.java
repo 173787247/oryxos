@@ -6,6 +6,7 @@ import io.oryxos.core.agent.AgencyAgentsImporter;
 import io.oryxos.core.agent.AgencyAgentsParser;
 import io.oryxos.core.agent.AgencyAgentsParser.ParsedExpert;
 import io.oryxos.core.agent.AgentLifecycleService;
+import io.oryxos.core.agent.AgentLoader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -75,8 +76,19 @@ public class AgentCommand implements Runnable {
     }
   }
 
-  private static String readString(Path path) {
+  /** Package-visible for tests; rejects sources larger than AGENT.md 10 MiB gate. */
+  static String readString(Path path) {
     try {
+      long size = Files.size(path);
+      if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
+        throw new IllegalArgumentException(
+            "导入源文件过大（"
+                + size
+                + " bytes），上限 "
+                + AgentLoader.MAX_AGENT_MD_BYTES
+                + " bytes（10 MiB）: "
+                + path);
+      }
       return Files.readString(path);
     } catch (IOException e) {
       throw new UncheckedIOException("读取源文件失败: " + path, e);
