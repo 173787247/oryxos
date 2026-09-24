@@ -112,4 +112,25 @@ class AssetGovernanceStoreTest {
   private static ChannelConfig channel(String name) {
     return new ChannelConfig(name, "feishu", "app", "secret", "ops-agent", true);
   }
+
+  @Test
+  void oversizedGovernanceFile_returnsEmpty() throws Exception {
+    Path file = root.resolve("skills").resolve(NAME).resolve("GOVERNANCE.yml");
+    Files.createDirectories(file.getParent());
+    Files.writeString(file, "owner: alice\n");
+    long target = AssetGovernanceStore.MAX_GOVERNANCE_FILE_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(file, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(file);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+
+    AssetGovernance loaded = new AssetGovernanceStore(root).loadSkill(NAME);
+
+    assertThat(loaded.isPresent()).isFalse();
+  }
 }

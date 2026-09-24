@@ -35,6 +35,9 @@ public final class AssetGovernanceStore {
   /** 侧车文件名（常量：避免调用点散落字面量）。 */
   static final String FILE_NAME = "GOVERNANCE.yml";
 
+  /** 治理侧车 / channels.yaml 读上限（与其它工作区文本 10 MiB 对齐）；超限按未设治理处理。 */
+  static final long MAX_GOVERNANCE_FILE_BYTES = 10L * 1024 * 1024;
+
   private static final String DIR_AGENTS = "agents";
 
   private static final String DIR_SKILLS = "skills";
@@ -131,6 +134,10 @@ public final class AssetGovernanceStore {
       return AssetGovernance.empty();
     }
     try {
+      if (Files.size(file) > MAX_GOVERNANCE_FILE_BYTES) {
+        LOG.warn("channels.yaml 过大，按未设治理处理");
+        return AssetGovernance.empty();
+      }
       String yaml = Files.readString(file);
       if (yaml.isBlank()) {
         return AssetGovernance.empty();
@@ -174,6 +181,10 @@ public final class AssetGovernanceStore {
       return AssetGovernance.empty();
     }
     try {
+      if (Files.size(file) > MAX_GOVERNANCE_FILE_BYTES) {
+        LOG.warn("GOVERNANCE.yml 过大，按未设治理处理");
+        return AssetGovernance.empty();
+      }
       String text = Files.readString(file);
       if (text.isBlank()) {
         return AssetGovernance.empty();
