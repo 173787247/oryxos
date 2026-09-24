@@ -515,4 +515,20 @@ class WorkspaceApiControllerTest {
         .andExpect(jsonPath("$.code").value(400))
         .andExpect(jsonPath("$.message", containsString("10 MiB")));
   }
+
+  @Test
+  @DisplayName("writeFile 超过 10 MiB → 400，不落盘")
+  void writeFile_oversizedText_returns400() throws Exception {
+    String huge = "x".repeat((int) WorkspaceApiController.MAX_TEXT_READ_BYTES + 1);
+    String body =
+        new com.fasterxml.jackson.databind.ObjectMapper()
+            .writeValueAsString(java.util.Map.of("path", "output/huge.txt", "content", huge));
+    mvc.perform(
+            post("/api/v1/workspace/file").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value(400))
+        .andExpect(jsonPath("$.message", containsString("10 MiB")));
+    org.junit.jupiter.api.Assertions.assertFalse(
+        Files.exists(oryxosRoot.resolve("output/huge.txt")));
+  }
 }
