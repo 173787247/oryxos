@@ -1,5 +1,6 @@
 package io.oryxos.cli.command;
 
+import io.oryxos.core.agent.AgentLoader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -120,6 +121,16 @@ public class ProfileCommand implements Runnable {
         return;
       }
       try {
+        long size = Files.size(file);
+        if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
+          throw new IllegalArgumentException(
+              "AGENT.md 过大（"
+                  + size
+                  + " bytes），上限 "
+                  + AgentLoader.MAX_AGENT_MD_BYTES
+                  + " bytes（10 MiB）: "
+                  + name);
+        }
         System.out.println(Files.readString(file));
       } catch (IOException e) {
         throw new UncheckedIOException("读取 Agent 失败", e);
