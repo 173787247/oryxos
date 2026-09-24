@@ -58,6 +58,10 @@ public class KnowledgeApiController {
   private final KnowledgeBackendRegistry backendRegistry;
   private final KnowledgeBindingService bindingService;
   private final io.oryxos.web.knowledge.KnowledgeMetricsService metricsService;
+
+  /** 与 KnowledgeIndexService.MAX_FILE_BYTES 对齐：落盘/回滚备份前拒绝超限。 */
+  static final long MAX_DOCUMENT_UPLOAD_BYTES = 10L * 1024 * 1024;
+
   private final Path knowledgeRoot;
 
   private AssetBindGuard assetBindGuard;
@@ -232,6 +236,16 @@ public class KnowledgeApiController {
       throw new IllegalArgumentException("上传文件为空");
     }
     String fileName = safeFileName(file.getOriginalFilename());
+    long uploadSize = file.getSize();
+    if (uploadSize > MAX_DOCUMENT_UPLOAD_BYTES) {
+      throw new IllegalArgumentException(
+          "上传文件过大（"
+              + uploadSize
+              + " bytes），上限 "
+              + MAX_DOCUMENT_UPLOAD_BYTES
+              + " bytes（10 MiB）: "
+              + fileName);
+    }
     Path target =
         RealPathBoundary.requireWithin(
             knowledgeRoot, knowledgeRoot.resolve(name).resolve(fileName));
@@ -239,6 +253,16 @@ public class KnowledgeApiController {
     byte[] previous = null;
     try {
       if (existed) {
+        long existingSize = Files.size(target);
+        if (existingSize > MAX_DOCUMENT_UPLOAD_BYTES) {
+          throw new IllegalArgumentException(
+              "已有文档过大（"
+                  + existingSize
+                  + " bytes），无法安全回滚备份，上限 "
+                  + MAX_DOCUMENT_UPLOAD_BYTES
+                  + " bytes（10 MiB）: "
+                  + fileName);
+        }
         previous = Files.readAllBytes(target);
       }
       // 027 FR-004：原子改名落盘——共享卷上其他副本绝不读到半写文档

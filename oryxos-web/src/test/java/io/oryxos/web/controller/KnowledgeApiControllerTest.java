@@ -264,4 +264,40 @@ class KnowledgeApiControllerTest {
       return 8;
     }
   }
+
+  @Test
+  @DisplayName("上传超过 10 MiB → 400，不落盘")
+  void uploadRejectsOversizedMultipartBeforeWrite() throws Exception {
+    createBase("ops-manual", "运维手册");
+    byte[] payload = new byte[(int) (KnowledgeApiController.MAX_DOCUMENT_UPLOAD_BYTES + 1)];
+    mvc.perform(
+            multipart("/api/v1/knowledge/ops-manual/documents")
+                .file(new MockMultipartFile("file", "huge.md", "text/markdown", payload)))
+        .andExpect(status().isBadRequest());
+    assertFalse(Files.exists(kbRoot.resolve("ops-manual/huge.md")));
+  }
+
+  @Test
+  @DisplayName("盘上已有超限文档时覆盖上传 → 400，不 readAllBytes 备份")
+  void uploadRejectsWhenExistingDocumentExceedsLimit() throws Exception {
+    createBase("ops-manual", "运维手册");
+    Path existing = kbRoot.resolve("ops-manual/huge.md");
+    Files.createDirectories(existing.getParent());
+    long over = KnowledgeApiController.MAX_DOCUMENT_UPLOAD_BYTES + 1;
+    try (var out = Files.newOutputStream(existing)) {
+      byte[] chunk = new byte[1024 * 1024];
+      java.util.Arrays.fill(chunk, (byte) 'x');
+      long left = over;
+      while (left > 0) {
+        int n = (int) Math.min(left, chunk.length);
+        out.write(chunk, 0, n);
+        left -= n;
+      }
+    }
+    mvc.perform(
+            multipart("/api/v1/knowledge/ops-manual/documents")
+                .file(new MockMultipartFile("file", "huge.md", "text/markdown", "# ok".getBytes())))
+        .andExpect(status().isBadRequest());
+    assertEquals(over, Files.size(existing));
+  }
 }
