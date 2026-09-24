@@ -31,6 +31,9 @@ public class AgentStore {
   private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9_-]+");
   private static final String AGENT_FILE = "AGENT.md";
 
+  /** Agent 目录内单文件上限（与 AgentLoader / PersonaStore 的 10 MiB 对齐）。 */
+  static final long MAX_AGENT_FILE_BYTES = 10L * 1024 * 1024;
+
   private final Path agentsDir;
   private final Path archiveDir;
   private final Clock clock;
@@ -61,6 +64,16 @@ public class AgentStore {
       throw new IllegalStateException("Agent 目录缺少 AGENT.md: " + name);
     }
     try {
+      long size = Files.size(file);
+      if (size > MAX_AGENT_FILE_BYTES) {
+        throw new IllegalStateException(
+            "AGENT.md 过大（"
+                + size
+                + " bytes），上限 "
+                + MAX_AGENT_FILE_BYTES
+                + " bytes（10 MiB）: "
+                + name);
+      }
       return Files.readString(file);
     } catch (IOException e) {
       throw new UncheckedIOException("读取 Agent 目录失败: " + name, e);
@@ -84,9 +97,20 @@ public class AgentStore {
       Map<Path, byte[]> contents = new LinkedHashMap<>();
       for (Map.Entry<String, String> entry : files.entrySet()) {
         Path target = writableTarget(dir, entry.getKey());
-        if (contents.putIfAbsent(
-                target, entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8))
-            != null) {
+        byte[] bytes =
+            entry.getValue() == null
+                ? new byte[0]
+                : entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (bytes.length > MAX_AGENT_FILE_BYTES) {
+          throw new IllegalArgumentException(
+              "Agent 文件过大（"
+                  + bytes.length
+                  + " bytes），上限 "
+                  + MAX_AGENT_FILE_BYTES
+                  + " bytes（10 MiB）: "
+                  + entry.getKey());
+        }
+        if (contents.putIfAbsent(target, bytes) != null) {
           throw new IllegalArgumentException("重复文件路径: " + entry.getKey());
         }
       }

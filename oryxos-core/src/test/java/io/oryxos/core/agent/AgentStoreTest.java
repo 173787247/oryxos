@@ -139,4 +139,31 @@ class AgentStoreTest {
         IllegalArgumentException.class,
         () -> store.writeAll("demo", Map.of("Skills/report/SKILL.md", "copy")));
   }
+
+  @Test
+  @DisplayName("AGENT.md 超过 10 MiB → write 拒写；磁盘超限 → read fail-loud")
+  void oversizedAgentFile_failsLoudOnWriteAndRead() throws IOException {
+    String huge = "x".repeat((int) AgentStore.MAX_AGENT_FILE_BYTES + 1);
+    IllegalArgumentException writeEx =
+        assertThrows(IllegalArgumentException.class, () -> store.write("huge", huge));
+    assertTrue(writeEx.getMessage().contains("10 MiB"));
+    assertFalse(Files.exists(oryxosRoot.resolve("agents/huge/AGENT.md")));
+
+    Path dir = Files.createDirectories(oryxosRoot.resolve("agents/planted"));
+    Path agentMd = dir.resolve("AGENT.md");
+    Files.writeString(agentMd, "ok");
+    long target = AgentStore.MAX_AGENT_FILE_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(agentMd, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(agentMd);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    IllegalStateException readEx =
+        assertThrows(IllegalStateException.class, () -> store.read("planted"));
+    assertTrue(readEx.getMessage().contains("10 MiB"));
+  }
 }
