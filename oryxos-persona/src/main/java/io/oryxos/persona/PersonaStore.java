@@ -3,6 +3,7 @@ package io.oryxos.persona;
 import io.oryxos.core.fs.RealPathBoundary;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -24,6 +25,9 @@ public class PersonaStore {
   private static final String PERSONA_DIR = "personas";
   private static final String MARKDOWN_SUFFIX = ".md";
 
+  /** 自定义人格源文件上限（与 Agent/Skill/MEMORY 的 10 MiB 对齐）。 */
+  static final long MAX_PERSONA_FILE_BYTES = 10L * 1024 * 1024;
+
   private final Path personasDir;
 
   public PersonaStore(Path oryxosRoot) {
@@ -43,6 +47,11 @@ public class PersonaStore {
       throw new IllegalStateException("自定义人格不存在: " + key);
     }
     try {
+      long size = Files.size(file);
+      if (size > MAX_PERSONA_FILE_BYTES) {
+        throw new IllegalStateException(
+            "自定义人格过大（" + size + " bytes），上限 " + MAX_PERSONA_FILE_BYTES + " bytes（10 MiB）: " + key);
+      }
       return Files.readString(file);
     } catch (IOException e) {
       throw new UncheckedIOException("读取自定义人格失败: " + key, e);
@@ -52,6 +61,11 @@ public class PersonaStore {
   /** 写 {@code personas/<key>.md}（覆盖已有同名自定义）。 */
   public void write(String key, String content) {
     Path file = file(key);
+    long bytes = content == null ? 0L : content.getBytes(StandardCharsets.UTF_8).length;
+    if (bytes > MAX_PERSONA_FILE_BYTES) {
+      throw new IllegalArgumentException(
+          "自定义人格过大（" + bytes + " bytes），上限 " + MAX_PERSONA_FILE_BYTES + " bytes（10 MiB）: " + key);
+    }
     try {
       Files.createDirectories(personasDir);
       // 027 FR-004：原子改名落盘——共享卷上其他副本绝不读到半写人格文件

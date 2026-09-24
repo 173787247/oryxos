@@ -81,4 +81,33 @@ class PersonaStoreTest {
     assertTrue(store.entryExists("residue"));
     assertFalse(store.exists("residue"));
   }
+
+  @Test
+  @DisplayName("人格 md 超过 10 MiB → write 拒写；磁盘超限 → read fail-loud")
+  void oversizedPersona_failsLoudOnWriteAndRead() throws Exception {
+    PersonaStore store = store();
+    // UTF-8 单字节填充，长度即字节数
+    String huge = "x".repeat((int) PersonaStore.MAX_PERSONA_FILE_BYTES + 1);
+    IllegalArgumentException writeEx =
+        assertThrows(IllegalArgumentException.class, () -> store.write("huge", huge));
+    assertTrue(writeEx.getMessage().contains("10 MiB"));
+    assertFalse(store.exists("huge"), "超限不得落盘");
+
+    Path file = root.resolve("personas/planted.md");
+    Files.createDirectories(file.getParent());
+    Files.writeString(file, "ok");
+    long target = PersonaStore.MAX_PERSONA_FILE_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(file, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(file);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    IllegalStateException readEx =
+        assertThrows(IllegalStateException.class, () -> store.read("planted"));
+    assertTrue(readEx.getMessage().contains("10 MiB"));
+  }
 }
