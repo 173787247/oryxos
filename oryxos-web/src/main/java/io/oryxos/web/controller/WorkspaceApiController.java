@@ -46,7 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/workspace")
 public class WorkspaceApiController {
 
-  /** 文本查看接口上限（与 FileTools #634 / #633 的 10 MiB 对齐）；超限拒读，提示改用 download。 */
+  /** 文本读写接口上限（与 FileTools / AgentStore 的 10 MiB 对齐）；超限拒读/拒写。 */
   static final long MAX_TEXT_READ_BYTES = 10L * 1024 * 1024;
 
   private static final String AGENT_FILE = "AGENT.md";
@@ -211,6 +211,11 @@ public class WorkspaceApiController {
       throw new IllegalArgumentException("共享 Knowledge 实体只能通过 Knowledge 管理入口更新");
     }
     String content = req.content() == null ? "" : req.content();
+    long bytes = content.getBytes(StandardCharsets.UTF_8).length;
+    if (bytes > MAX_TEXT_READ_BYTES) {
+      throw new IllegalArgumentException(
+          "内容过大（" + bytes + " bytes），文本写入上限 " + MAX_TEXT_READ_BYTES + " bytes（10 MiB）: " + path);
+    }
     Path agentDir = agentDirOfAgentFile(target);
     if (agentDir != null) {
       // 改的是某个 Agent 的 AGENT.md：走 update（写 + 校验 + 重注册，schedules 变更先注销旧）——即时生效
