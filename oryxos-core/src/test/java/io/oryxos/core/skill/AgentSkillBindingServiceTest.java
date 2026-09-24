@@ -167,9 +167,11 @@ class AgentSkillBindingServiceTest {
   }
 
   @Test
-  @DisplayName("巡检读 AGENT.md 超过 10 MiB → IOException，不整文件进内存")
-  void readAgentMarkdown_rejectsOversized() throws IOException {
+  @DisplayName("巡检读 AGENT.md 超过 10 MiB → 记 INVALID_TARGET issue，不整文件进内存")
+  void inspect_oversizedAgentMd_recordsIssueWithoutLoading() throws IOException {
     Path agentMd = root.resolve("agents/ops/AGENT.md");
+    // 含旧版 skills 字段，触发 addLegacyIssue → readAgentMarkdown
+    Files.writeString(agentMd, "---\nname: ops\nskills: [x]\n---\nbody");
     long target = AgentLoader.MAX_AGENT_MD_BYTES + 1;
     byte[] chunk = new byte[1024 * 1024];
     try (var out = Files.newOutputStream(agentMd, java.nio.file.StandardOpenOption.APPEND)) {
@@ -180,8 +182,14 @@ class AgentSkillBindingServiceTest {
         written += n;
       }
     }
-    IOException ex =
-        assertThrows(IOException.class, () -> AgentSkillBindingService.readAgentMarkdown(agentMd));
-    assertTrue(ex.getMessage().contains("10 MiB"));
+    var inspection = bindings.inspect("ops");
+    assertTrue(
+        inspection.issues().stream()
+            .anyMatch(
+                i ->
+                    i.type() == SkillBindingIssue.Type.INVALID_TARGET
+                        && i.message() != null
+                        && i.message().contains("无法读取")),
+        "超限应走无法读取 Agent 定义的 issue 路径");
   }
 }

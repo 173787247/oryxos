@@ -610,7 +610,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     }
   }
 
-  private static String agentName(Path directory, String fallback) {
+  private String agentName(Path directory, String fallback) {
     Path file = directory.resolve(AGENT_FILE);
     if (!Files.isRegularFile(file)) {
       return fallback;
@@ -731,8 +731,12 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
 
   private record Move(Path original, Path temporary) {}
 
-  /** 巡检读 AGENT.md：超限 fail 成 IOException，由调用方记 issue / 回退，避免整文件进内存。 */
-  static String readAgentMarkdown(Path file) throws IOException {
+  /** 巡检读 AGENT.md：先钉在工作区内，超限 fail 成 IOException，由调用方记 issue / 回退。 */
+  private String readAgentMarkdown(Path file) throws IOException {
+    RealPathBoundary.requireWithin(root, file);
+    if (!AGENT_FILE.equals(String.valueOf(file.getFileName()))) {
+      throw new IOException("不是 AGENT.md: " + file.getFileName());
+    }
     long size = Files.size(file);
     if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
       throw new IOException(
