@@ -1,5 +1,6 @@
 package io.oryxos.core.skill;
 
+import io.oryxos.core.agent.AgentLoader;
 import io.oryxos.core.agent.AgentMarkdown;
 import io.oryxos.core.fs.RealPathBoundary;
 import java.io.IOException;
@@ -520,7 +521,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
       return;
     }
     try {
-      if (AgentMarkdown.split(Files.readString(markdown))
+      if (AgentMarkdown.split(readAgentMarkdown(markdown))
           .frontmatter()
           .containsKey(LEGACY_SKILLS_FIELD)) {
         issues.add(
@@ -615,7 +616,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
       return fallback;
     }
     try {
-      Object name = AgentMarkdown.split(Files.readString(file)).frontmatter().get("name");
+      Object name = AgentMarkdown.split(readAgentMarkdown(file)).frontmatter().get("name");
       return name == null || String.valueOf(name).isBlank() ? fallback : String.valueOf(name);
     } catch (IOException | RuntimeException e) {
       return fallback;
@@ -729,4 +730,18 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
   }
 
   private record Move(Path original, Path temporary) {}
+
+  /** 巡检读 AGENT.md：超限 fail 成 IOException，由调用方记 issue / 回退，避免整文件进内存。 */
+  static String readAgentMarkdown(Path file) throws IOException {
+    long size = Files.size(file);
+    if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
+      throw new IOException(
+          "AGENT.md 过大（"
+              + size
+              + " bytes），上限 "
+              + AgentLoader.MAX_AGENT_MD_BYTES
+              + " bytes（10 MiB）");
+    }
+    return Files.readString(file);
+  }
 }
