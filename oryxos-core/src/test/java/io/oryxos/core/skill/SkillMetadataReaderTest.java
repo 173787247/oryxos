@@ -2,6 +2,7 @@ package io.oryxos.core.skill;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -53,5 +54,25 @@ class SkillMetadataReaderTest {
     Path unreadable = Files.createDirectories(root.resolve("unreadable"));
     Files.write(unreadable.resolve("SKILL.md"), new byte[] {(byte) 0xC3, (byte) 0x28});
     assertThrows(UncheckedIOException.class, () -> new SkillMetadataReader().read(unreadable));
+  }
+
+  @Test
+  void rejectsOversizedSkillMd() throws IOException {
+    Path huge = Files.createDirectories(root.resolve("huge"));
+    Path skillMd = huge.resolve("SKILL.md");
+    Files.writeString(skillMd, "---\nname: huge\ndescription: big\n---\nok");
+    long target = SkillMetadataReader.MAX_SKILL_MD_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(skillMd, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(skillMd);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> new SkillMetadataReader().read(huge));
+    assertTrue(ex.getMessage().contains("10 MiB"));
   }
 }
