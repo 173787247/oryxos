@@ -100,4 +100,29 @@ class AgentSkillMigrationServiceTest {
                     issue.agentName().equals("bad")
                         && issue.type() == SkillBindingIssue.Type.STALE_REFERENCE));
   }
+
+  @Test
+  void oversizedAgentMarkdownFailsWithoutReadingWholeFile() throws Exception {
+    SkillWorkspaceFixture fixture = new SkillWorkspaceFixture(root);
+    Path agent = fixture.agent("huge", "description: x\n");
+    Path markdown = agent.resolve("AGENT.md");
+    long over = io.oryxos.core.agent.AgentLoader.MAX_AGENT_MD_BYTES + 1;
+    try (var out = Files.newOutputStream(markdown)) {
+      byte[] chunk = new byte[1024 * 1024];
+      java.util.Arrays.fill(chunk, (byte) 'x');
+      long left = over;
+      while (left > 0) {
+        int n = (int) Math.min(left, chunk.length);
+        out.write(chunk, 0, n);
+        left -= n;
+      }
+    }
+    AgentSkillMigrationService.MigrationResult result =
+        new AgentSkillMigrationService(
+                root, new AgentSkillBindingService(root, new SkillMetadataReader()))
+            .migrate(agent);
+    assertEquals(AgentSkillMigrationService.Status.FAILED, result.status());
+    assertTrue(result.message().contains("10 MiB"));
+    assertEquals(over, Files.size(markdown));
+  }
 }

@@ -1,5 +1,6 @@
 package io.oryxos.core.skill;
 
+import io.oryxos.core.agent.AgentLoader;
 import io.oryxos.core.agent.AgentMarkdown;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -60,6 +61,17 @@ public final class AgentSkillMigrationService {
     byte[] original;
     String text;
     try {
+      long size = Files.size(markdown);
+      if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
+        return new MigrationResult(
+            agent,
+            Status.FAILED,
+            "AGENT.md 过大（"
+                + size
+                + " bytes），上限 "
+                + AgentLoader.MAX_AGENT_MD_BYTES
+                + " bytes（10 MiB）");
+      }
       original = Files.readAllBytes(markdown);
       text = new String(original, java.nio.charset.StandardCharsets.UTF_8);
     } catch (IOException e) {
@@ -96,7 +108,8 @@ public final class AgentSkillMigrationService {
       }
       try {
         Files.deleteIfExists(temporary);
-        if (!java.util.Arrays.equals(original, Files.readAllBytes(markdown))) {
+        if (Files.size(markdown) <= AgentLoader.MAX_AGENT_MD_BYTES
+            && !java.util.Arrays.equals(original, Files.readAllBytes(markdown))) {
           Files.write(markdown, original);
         }
       } catch (IOException ignored) {
