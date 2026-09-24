@@ -28,7 +28,7 @@ public class AgentLoader {
   private static final String AGENT_FILE = "AGENT.md";
 
   /** AGENT.md 整文件上限（与 ContextLoader 10 MiB 对齐）。 */
-  static final long MAX_AGENT_MD_BYTES = 10L * 1024 * 1024;
+  public static final long MAX_AGENT_MD_BYTES = 10L * 1024 * 1024;
 
   private final Path agentsDir;
   private final Set<String> knownTools;

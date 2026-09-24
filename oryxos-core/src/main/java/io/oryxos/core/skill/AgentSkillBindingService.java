@@ -1,5 +1,6 @@
 package io.oryxos.core.skill;
 
+import io.oryxos.core.agent.AgentLoader;
 import io.oryxos.core.agent.AgentMarkdown;
 import io.oryxos.core.fs.RealPathBoundary;
 import java.io.IOException;
@@ -520,7 +521,7 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
       return;
     }
     try {
-      if (AgentMarkdown.split(Files.readString(markdown))
+      if (AgentMarkdown.split(readAgentMarkdown(markdown))
           .frontmatter()
           .containsKey(LEGACY_SKILLS_FIELD)) {
         issues.add(
@@ -609,13 +610,13 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
     }
   }
 
-  private static String agentName(Path directory, String fallback) {
+  private String agentName(Path directory, String fallback) {
     Path file = directory.resolve(AGENT_FILE);
     if (!Files.isRegularFile(file)) {
       return fallback;
     }
     try {
-      Object name = AgentMarkdown.split(Files.readString(file)).frontmatter().get("name");
+      Object name = AgentMarkdown.split(readAgentMarkdown(file)).frontmatter().get("name");
       return name == null || String.valueOf(name).isBlank() ? fallback : String.valueOf(name);
     } catch (IOException | RuntimeException e) {
       return fallback;
@@ -729,4 +730,28 @@ public class AgentSkillBindingService implements AgentSkillBindingReader {
   }
 
   private record Move(Path original, Path temporary) {}
+
+  /** 巡检读 AGENT.md：真实路径钉在 root 内，超限 fail 成 IOException，由调用方记 issue / 回退。 */
+  private String readAgentMarkdown(Path file) throws IOException {
+    if (!AGENT_FILE.equals(String.valueOf(file.getFileName()))) {
+      throw new IOException("不是 AGENT.md: " + file.getFileName());
+    }
+    // Explicit toRealPath + startsWith so CodeQL models this as path-injection sanitizer
+    // (custom RealPathBoundary.requireWithin is not in the default sanitizer set).
+    Path rootReal = root.toRealPath();
+    Path fileReal = file.toRealPath();
+    if (!fileReal.startsWith(rootReal)) {
+      throw new IllegalArgumentException("真实路径越界，拒绝访问: " + file);
+    }
+    long size = Files.size(fileReal);
+    if (size > AgentLoader.MAX_AGENT_MD_BYTES) {
+      throw new IOException(
+          "AGENT.md 过大（"
+              + size
+              + " bytes），上限 "
+              + AgentLoader.MAX_AGENT_MD_BYTES
+              + " bytes（10 MiB）");
+    }
+    return Files.readString(fileReal);
+  }
 }

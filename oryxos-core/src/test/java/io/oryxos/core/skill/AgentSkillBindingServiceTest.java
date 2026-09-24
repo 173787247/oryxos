@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.oryxos.core.agent.AgentLoader;
 import io.oryxos.core.testing.SymlinkAssumptions;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -163,5 +164,32 @@ class AgentSkillBindingServiceTest {
     assertEquals(1, references.size());
     assertEquals(SkillReference.AgentState.ARCHIVED, references.get(0).state());
     assertEquals("ops", references.get(0).agentName());
+  }
+
+  @Test
+  @DisplayName("巡检读 AGENT.md 超过 10 MiB → 记 INVALID_TARGET issue，不整文件进内存")
+  void inspect_oversizedAgentMd_recordsIssueWithoutLoading() throws IOException {
+    Path agentMd = root.resolve("agents/ops/AGENT.md");
+    // 含旧版 skills 字段，触发 addLegacyIssue → readAgentMarkdown
+    Files.writeString(agentMd, "---\nname: ops\nskills: [x]\n---\nbody");
+    long target = AgentLoader.MAX_AGENT_MD_BYTES + 1;
+    byte[] chunk = new byte[1024 * 1024];
+    try (var out = Files.newOutputStream(agentMd, java.nio.file.StandardOpenOption.APPEND)) {
+      long written = Files.size(agentMd);
+      while (written < target) {
+        int n = (int) Math.min(chunk.length, target - written);
+        out.write(chunk, 0, n);
+        written += n;
+      }
+    }
+    var inspection = bindings.inspect("ops");
+    assertTrue(
+        inspection.issues().stream()
+            .anyMatch(
+                i ->
+                    i.type() == SkillBindingIssue.Type.INVALID_TARGET
+                        && i.message() != null
+                        && i.message().contains("无法读取")),
+        "超限应走无法读取 Agent 定义的 issue 路径");
   }
 }
