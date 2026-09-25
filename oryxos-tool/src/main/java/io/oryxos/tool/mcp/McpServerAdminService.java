@@ -106,12 +106,13 @@ public class McpServerAdminService implements McpServerAdmin {
       if (config.command() == null || config.command().isBlank()) {
         throw new IllegalArgumentException("stdio server 缺少 command: " + config.name());
       }
-    } else if (McpServerConfig.TRANSPORT_HTTP.equals(transport)) {
+    } else if (McpServerConfig.isRemoteHttp(transport)) {
       if (config.url() == null || config.url().isBlank()) {
-        throw new IllegalArgumentException("http server 缺少 url: " + config.name());
+        throw new IllegalArgumentException(transport + " server 缺少 url: " + config.name());
       }
     } else {
-      throw new IllegalArgumentException("未知 transport（仅支持 stdio/http）: " + config.transport());
+      throw new IllegalArgumentException(
+          "未知 transport（仅支持 stdio/http/sse/streamable）: " + config.transport());
     }
   }
 }

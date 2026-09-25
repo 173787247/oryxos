@@ -7,10 +7,10 @@ import java.util.Map;
  * 一个外部 MCP server 的连接配置（{@code .oryxos/mcp_servers.yaml} 条目）。定义在 core：Web 层按依赖倒置只认这个契约，具体连接
  * 实现（stdio 子进程 / 远程 http）留给 oryxos-tool。
  *
- * <p>{@code transport} 目前支持 {@code stdio}（本地子进程，用 {@code command}/{@code env}）与 {@code http}（远程
- * server，用 {@code url}/{@code headers}）；其余值一律跳过并 WARN（未知传输不拖垮启动）。{@code headers} 同 {@code env} 支持
- * {@code ${ENV}} 占位——鉴权 token 走环境变量，不明文落盘（宪法：敏感配置走环境变量）。{@code requestTimeoutSeconds} 为单 server
- * 请求超时，缺省 30 秒。
+ * <p>{@code transport} 目前支持 {@code stdio}（本地子进程，用 {@code command}/{@code env}）、{@code http}/{@code
+ * sse} （远程 SSE，用 {@code url}/{@code headers}）与 {@code streamable}（Streamable HTTP，同样用 {@code
+ * url}/{@code headers}）； 其余值一律跳过并 WARN（未知传输不拖垮启动）。{@code headers} 同 {@code env} 支持 {@code ${ENV}}
+ * 占位——鉴权 token 走环境变量，不明文落盘（宪法：敏感配置走环境变量）。{@code requestTimeoutSeconds} 为单 server 请求超时，缺省 30 秒。
  */
 public record McpServerConfig(
     String name,
@@ -58,5 +58,26 @@ public record McpServerConfig(
   }
 
   public static final String TRANSPORT_STDIO = "stdio";
+
+  /** Remote SSE; historical name {@code http}. {@link #TRANSPORT_SSE} is an alias. */
   public static final String TRANSPORT_HTTP = "http";
+
+  /** Remote SSE; alias of {@link #TRANSPORT_HTTP}. */
+  public static final String TRANSPORT_SSE = "sse";
+
+  /** Remote Streamable HTTP (current MCP recommended transport). */
+  public static final String TRANSPORT_STREAMABLE = "streamable";
+
+  public static boolean isHttpSse(String transport) {
+    return TRANSPORT_HTTP.equals(transport) || TRANSPORT_SSE.equals(transport);
+  }
+
+  public static boolean isStreamable(String transport) {
+    return TRANSPORT_STREAMABLE.equals(transport);
+  }
+
+  /** HTTP-family transports that require {@code url}. */
+  public static boolean isRemoteHttp(String transport) {
+    return isHttpSse(transport) || isStreamable(transport);
+  }
 }

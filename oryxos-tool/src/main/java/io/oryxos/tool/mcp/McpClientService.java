@@ -3,6 +3,7 @@ package io.oryxos.tool.mcp;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
+import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
 import io.modelcontextprotocol.json.McpJsonDefaults;
@@ -29,7 +30,8 @@ import org.slf4j.LoggerFactory;
  * 循环由此对来源无感知）。管理台 CRUD（31 节）新增/删除一个 server 也走同一段 {@link #connect}/{@link #disconnect}，不需要重启。
  *
  * <p>失联的 server 只 WARN 跳过——外部依赖的可用性不是自己的可用性，不能变成自己的启动故障。 连接工厂构造可注入（测试替身），生产默认按 transport 分派：{@code
- * stdio} 起本地子进程，{@code http} 连远程 SSE server，并透传配置的请求头。其余 transport 一律跳过。
+ * stdio} 起本地子进程，{@code http}/{@code sse} 连远程 SSE，{@code streamable} 连 Streamable HTTP，并透传配置的请求头。其余
+ * transport 一律跳过。
  */
 public class McpClientService {
 
@@ -39,7 +41,11 @@ public class McpClientService {
   private static final Duration MAX_CONNECT_PROBE_TIMEOUT = Duration.ofSeconds(60);
 
   private static final Set<String> SUPPORTED_TRANSPORTS =
-      Set.of(McpServerConfig.TRANSPORT_STDIO, McpServerConfig.TRANSPORT_HTTP);
+      Set.of(
+          McpServerConfig.TRANSPORT_STDIO,
+          McpServerConfig.TRANSPORT_HTTP,
+          McpServerConfig.TRANSPORT_SSE,
+          McpServerConfig.TRANSPORT_STREAMABLE);
 
   private final McpConfigLoader configLoader;
   private final Function<McpServerConfig, McpSyncClient> clientFactory;
@@ -168,9 +174,13 @@ public class McpClientService {
   }
 
   private static McpSyncClient connectDefault(McpServerConfig config) {
-    return McpServerConfig.TRANSPORT_HTTP.equals(config.transport())
-        ? connectHttp(config)
-        : connectStdio(config);
+    if (McpServerConfig.isStreamable(config.transport())) {
+      return connectStreamable(config);
+    }
+    if (McpServerConfig.isHttpSse(config.transport())) {
+      return connectHttpSse(config);
+    }
+    return connectStdio(config);
   }
 
   private static McpSyncClient connectStdio(McpServerConfig config) {
@@ -185,10 +195,21 @@ public class McpClientService {
         .build();
   }
 
-  /** 远程 http server：用 SDK 自带的 SSE 客户端连接 {@code url}，并把配置请求头应用到每次请求。 */
-  private static McpSyncClient connectHttp(McpServerConfig config) {
+  /** Remote SSE ({@code http}/{@code sse}): SDK SSE client to {@code url}, with headers. */
+  private static McpSyncClient connectHttpSse(McpServerConfig config) {
     HttpClientSseClientTransport.Builder transport =
         HttpClientSseClientTransport.builder(config.url());
+    if (!config.headers().isEmpty()) {
+      transport.httpRequestCustomizer(
+          (request, method, uri, body, context) -> config.headers().forEach(request::header));
+    }
+    return McpClient.sync(transport.build()).requestTimeout(config.requestTimeout()).build();
+  }
+
+  /** Remote Streamable HTTP ({@code streamable}): SDK Streamable client to {@code url}. */
+  private static McpSyncClient connectStreamable(McpServerConfig config) {
+    HttpClientStreamableHttpTransport.Builder transport =
+        HttpClientStreamableHttpTransport.builder(config.url());
     if (!config.headers().isEmpty()) {
       transport.httpRequestCustomizer(
           (request, method, uri, body, context) -> config.headers().forEach(request::header));

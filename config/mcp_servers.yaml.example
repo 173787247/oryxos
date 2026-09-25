@@ -13,7 +13,7 @@
 # SCHEMA (exactly what McpConfigLoader parses — do not add other fields)
 #   servers:
 #     - name:      <string>   # unique id for this server
-#       transport: stdio      # "stdio" (command/env) or "http" (url/headers)
+#       transport: stdio      # "stdio" | "http"|"sse" (SSE url/headers) | "streamable" (Streamable HTTP url/headers)
 #       command:   <string>   # ONE line. It is split on whitespace: the first
 #                             # token is the executable, the rest are its args.
 #                             # There is NO separate `args:` field.
@@ -66,8 +66,12 @@ servers:
   # Archived reference server (still installable). Reads its token from env.
   # Official replacement: github/github-mcp-server (Go binary /
   # ghcr.io/github/github-mcp-server Docker image, and a hosted remote server).
-  # The hosted server requires Streamable HTTP; OryxOS's current `http`
-  # transport is legacy SSE, so the hosted variant is not usable yet.
+  # The hosted server requires Streamable HTTP - use transport: streamable:
+  # - name: github-hosted
+  #   transport: streamable
+  #   url: https://api.githubcopilot.com/mcp/
+  #   headers:
+  #     Authorization: Bearer ${GITHUB_TOKEN}
   # - name: github
   #   transport: stdio
   #   command: npx -y @modelcontextprotocol/server-github
@@ -195,12 +199,17 @@ servers:
   # ---------------------------------------------------------------------------
   # Sentry — inspect issues and error events
   # ---------------------------------------------------------------------------
-  # Sentry's official offering is now a REMOTE (HTTP) server at
-  # https://mcp.sentry.dev — requires Streamable HTTP, which is not supported yet.
+  # Sentry's official offering is a REMOTE Streamable HTTP server at
+  # https://mcp.sentry.dev - prefer that with transport: streamable:
+  # - name: sentry
+  #   transport: streamable
+  #   url: https://mcp.sentry.dev/mcp
+  #   headers:
+  #     Authorization: Bearer ${SENTRY_ACCESS_TOKEN}
+  #
   # The archived stdio server (Python) takes the auth token as a command
   # argument, which ${ENV} does NOT expand, so it cannot receive the secret
-  # safely through this file. Left here for reference only; prefer the remote
-  # server once OryxOS gains Streamable HTTP transport support:
+  # safely through this file. Left for reference only:
   # - name: sentry
   #   transport: stdio
   #   command: uvx mcp-server-sentry --auth-token PUT_TOKEN_ON_HOST_NOT_HERE
