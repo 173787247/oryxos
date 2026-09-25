@@ -129,6 +129,16 @@ public class AgentStore {
       for (String relativePath : relativePaths) {
         Path target = writableTarget(dir, relativePath);
         if (Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+          long size = Files.size(target);
+          if (size > MAX_AGENT_FILE_BYTES) {
+            throw new IllegalStateException(
+                "Agent 快照文件过大（"
+                    + size
+                    + " bytes），上限 "
+                    + MAX_AGENT_FILE_BYTES
+                    + " bytes（10 MiB）: "
+                    + relativePath);
+          }
           existing.put(relativePath, Files.readAllBytes(target));
         } else {
           absent.add(relativePath);

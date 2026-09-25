@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -165,5 +166,25 @@ class AgentStoreTest {
     IllegalStateException readEx =
         assertThrows(IllegalStateException.class, () -> store.read("planted"));
     assertTrue(readEx.getMessage().contains("10 MiB"));
+  }
+
+  @Test
+  void snapshotRejectsOversizedExistingFile() throws IOException {
+    store.write("ops", "---\nname: ops\n---\nok\n");
+    Path side = oryxosRoot.resolve("agents/ops/notes.txt");
+    long over = AgentStore.MAX_AGENT_FILE_BYTES + 1;
+    try (var out = Files.newOutputStream(side)) {
+      byte[] chunk = new byte[1024 * 1024];
+      java.util.Arrays.fill(chunk, (byte) 'x');
+      long left = over;
+      while (left > 0) {
+        int n = (int) Math.min(left, chunk.length);
+        out.write(chunk, 0, n);
+        left -= n;
+      }
+    }
+    IllegalStateException ex =
+        assertThrows(IllegalStateException.class, () -> store.snapshot("ops", Set.of("notes.txt")));
+    assertTrue(ex.getMessage().contains("10 MiB"));
   }
 }
