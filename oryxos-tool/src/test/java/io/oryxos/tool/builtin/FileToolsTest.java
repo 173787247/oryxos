@@ -935,4 +935,29 @@ class FileToolsTest {
     assertThrows(SandboxViolationException.class, () -> guarded.glob("*", dir.toString()));
     assertEquals("original", Files.readString(file), "校验不过，文件不该被编辑");
   }
+
+  @Test
+  @DisplayName("write_file 拒绝超过大小上限的内容")
+  void writeFileRejectsOversizedContent() {
+    String huge = "x".repeat((int) FileTools.MAX_READ_BYTES + 1);
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> tools.writeFile(dir.resolve("out/huge.txt").toString(), huge));
+    assertTrue(ex.getMessage().contains("huge.txt"), ex.getMessage());
+    assertFalse(Files.exists(dir.resolve("out/huge.txt")));
+  }
+
+  @Test
+  @DisplayName("append_file 拒绝追加后将超过上限")
+  void appendFileRejectsGrowthPastLimit() throws IOException {
+    Path f = dir.resolve("grow.log");
+    byte[] existing = new byte[(int) FileTools.MAX_READ_BYTES - 10];
+    Files.write(f, existing);
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class, () -> tools.appendFile(f.toString(), "0123456789abc"));
+    assertTrue(ex.getMessage().contains("grow.log"), ex.getMessage());
+    assertEquals(FileTools.MAX_READ_BYTES - 10, Files.size(f));
+  }
 }
