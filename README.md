@@ -134,6 +134,8 @@ Modules are decoupled through interfaces. Adding a new Channel or Tool requires 
 
 **Prerequisites**: Java 21, Maven 3.9+, and an LLM API key (DeepSeek / Qwen / OpenAI / Ollama). The Maven build installs a local Node.js on first run to bundle the admin UI — no global Node.js required.
 
+**Windows**: Built-in workspace storage requires a native POSIX filesystem, so start the server inside WSL2 (Ubuntu). Clone into the Linux home directory, for example `~/oryxos`, then build and run there. A checkout on a Windows drive such as `/mnt/d/...` is still NTFS and fails the same startup check. Docker on WSL2 is the other supported path.
+
 ### 1 · Build
 
 ```bash
