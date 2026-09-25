@@ -11,6 +11,7 @@ import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.SandboxAction;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -143,6 +144,14 @@ public class FileTools {
     }
   }
 
+  private static void rejectOversizedWriteContent(String path, String content) {
+    int bytes = content == null ? 0 : content.getBytes(StandardCharsets.UTF_8).length;
+    if (bytes > MAX_READ_BYTES) {
+      throw new IllegalArgumentException(
+          "写入内容超过上限 (" + (MAX_READ_BYTES / 1024 / 1024) + " MiB)，请缩小内容或分段写入: " + path);
+    }
+  }
+
   @Tool(name = "write_file", description = "把内容写入指定路径的文件（覆盖写）")
   public String writeFile(
       @ToolParam(description = "要写入的文件路径") String path,
@@ -161,6 +170,7 @@ public class FileTools {
       // 写前复检：与 download_file / grep 同款——防首次校验到 writeString 间路径被换成外向软链
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       rejectReservedFileWrites(path);
+      rejectOversizedWriteContent(path, content);
       AtomicFiles.writeString(file, content);
       return "已写入: " + path;
     } catch (IOException e) {
@@ -389,6 +399,15 @@ public class FileTools {
       }
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       rejectReservedFileWrites(path);
+      rejectOversizedWriteContent(path, content);
+      if (Files.isRegularFile(file)) {
+        long existing = Files.size(file);
+        int incoming = content == null ? 0 : content.getBytes(StandardCharsets.UTF_8).length;
+        if (existing + (long) incoming > MAX_READ_BYTES) {
+          throw new IllegalArgumentException(
+              "追加后将超过上限 (" + (MAX_READ_BYTES / 1024 / 1024) + " MiB)，请缩小内容或改用 write_file: " + path);
+        }
+      }
       if (storage != null
           && storage.capabilities().contains(io.oryxos.core.workspace.WorkspaceCapability.SHARED)
           && isManaged(storage, path)) {
