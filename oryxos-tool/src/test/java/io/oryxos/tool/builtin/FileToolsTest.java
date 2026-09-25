@@ -299,6 +299,45 @@ class FileToolsTest {
   }
 
   @Test
+  @DisplayName("read_file 拒绝超过大小上限的文本并点名路径")
+  void readFileRejectsOversizedText() throws IOException {
+    Path big = dir.resolve("big.log");
+    Files.write(big, new byte[(int) (FileTools.MAX_READ_BYTES + 1)]);
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> tools.readFile(big.toString()));
+    assertTrue(ex.getMessage().contains("big.log"), ex.getMessage());
+  }
+
+  @Test
+  @DisplayName("edit_file 拒绝超过大小上限的文本")
+  void editFileRejectsOversizedText() throws IOException {
+    Path big = dir.resolve("big.json");
+    Files.write(big, new byte[(int) (FileTools.MAX_READ_BYTES + 1)]);
+
+    assertThrows(IllegalArgumentException.class, () -> tools.editFile(big.toString(), "x", "y"));
+  }
+
+  @Test
+  @DisplayName("grep 跳过超过大小上限的文件（与二进制同款）")
+  void grepSkipsOversizedFiles() throws IOException {
+    byte[] bigContent = new byte[(int) (FileTools.MAX_READ_BYTES + 1)];
+    bigContent[0] = 'n';
+    bigContent[1] = 'e';
+    bigContent[2] = 'e';
+    bigContent[3] = 'd';
+    bigContent[4] = 'l';
+    bigContent[5] = 'e';
+    Files.write(dir.resolve("big.log"), bigContent);
+    Files.writeString(dir.resolve("a.txt"), "needle here\n");
+
+    String result = tools.grep("needle", dir.toString());
+
+    assertTrue(result.contains("a.txt:1:needle here"), result);
+    assertFalse(result.contains("big.log"), "超大文件不得被读入搜索: " + result);
+  }
+
+  @Test
   @DisplayName("write_file 写入成功且可回读")
   void writeFilePersistsContent() throws IOException {
     tools.writeFile(dir.resolve("out/b.txt").toString(), "written");

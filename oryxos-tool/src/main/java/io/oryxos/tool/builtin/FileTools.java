@@ -35,6 +35,9 @@ public class FileTools {
   /** grep / glob 单次返回上限，防超大目录撑爆上下文。 */
   private static final int MAX_MATCHES = 200;
 
+  /** 纯文本读取上限（read_file / edit_file 拒绝、grep 跳过），防超大文件撑爆堆内存与上下文。 */
+  static final long MAX_READ_BYTES = 10L * 1024 * 1024;
+
   /** glob 递归前缀；Java PathMatcher 对根下单段路径需去掉后再匹配。 */
   private static final String GLOB_RECURSIVE_PREFIX = "**/";
 
@@ -122,6 +125,13 @@ public class FileTools {
       if (InboundMediaExt.hasPdfExtension(file) || InboundMediaExt.isPdfMagic(file)) {
         return PdfTextExtractor.extract(file);
       }
+      if (Files.size(file) > MAX_READ_BYTES) {
+        throw new IllegalArgumentException(
+            "文件超过 read_file 读取上限 ("
+                + (MAX_READ_BYTES / 1024 / 1024)
+                + " MiB)，可先用 grep 定位: "
+                + path);
+      }
       return Files.readString(file);
     } catch (IOException e) {
       String detail = e.getMessage();
@@ -196,6 +206,10 @@ public class FileTools {
     try {
       // 读前复检：与 read_file 同款——防首次校验到 readString 间路径被换成外向软链读出白名单
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
+      if (Files.size(file) > MAX_READ_BYTES) {
+        throw new IllegalArgumentException(
+            "文件超过 edit_file 读取上限 (" + (MAX_READ_BYTES / 1024 / 1024) + " MiB)，请改用分段写回: " + path);
+      }
       String content = Files.readString(file);
       int first = content.indexOf(oldString);
       if (first < 0) {
@@ -319,6 +333,10 @@ public class FileTools {
 
   private void appendMatches(Path file, Pattern regex, List<String> matches) {
     try {
+      // 超大文件与二进制同款跳过：不整文件载入内存
+      if (Files.size(file) > MAX_READ_BYTES) {
+        return;
+      }
       List<String> lines = Files.readAllLines(file);
       for (int i = 0; i < lines.size() && matches.size() < MAX_MATCHES; i++) {
         if (regex.matcher(lines.get(i)).find()) {
