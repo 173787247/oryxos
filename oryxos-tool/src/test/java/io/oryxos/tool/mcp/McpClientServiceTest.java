@@ -235,14 +235,45 @@ class McpClientServiceTest {
   }
 
   @Test
-  @DisplayName("transport 非 stdio 跳过不注册")
+  @DisplayName("unknown transport is skipped")
   void unsupportedTransportIsSkipped() throws IOException {
     McpConfigLoader loader =
-        loaderWith("servers:\n  - name: sse-server\n    transport: sse\n    command: c\n");
+        loaderWith("servers:\n  - name: ws-server\n    transport: websocket\n    command: c\n");
     ToolRegistry registry = new ToolRegistry();
 
     new McpClientService(loader, config -> goodClient()).connectAll(registry);
 
     assertTrue(registry.all().isEmpty());
+  }
+
+  @Test
+  @DisplayName("sse and streamable transports connect via factory")
+  void sseAndStreamableTransportsAreConnected() throws IOException {
+    McpConfigLoader loader =
+        loaderWith(
+            """
+            servers:
+              - name: sse-server
+                transport: sse
+                url: https://example.com/sse
+              - name: streamable-server
+                transport: streamable
+                url: https://example.com/mcp
+            """);
+    Function<McpServerConfig, McpSyncClient> factory =
+        config -> {
+          McpSyncClient client = mock(McpSyncClient.class);
+          when(client.listTools())
+              .thenReturn(
+                  new McpSchema.ListToolsResult(
+                      List.of(mcpTool(config.name().replace('-', '_') + "_tool", "ok")), null));
+          return client;
+        };
+    ToolRegistry registry = new ToolRegistry();
+
+    new McpClientService(loader, factory).connectAll(registry);
+
+    assertTrue(registry.contains("sse_server_tool"));
+    assertTrue(registry.contains("streamable_server_tool"));
   }
 }

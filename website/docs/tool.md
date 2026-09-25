@@ -113,11 +113,18 @@ servers:
     request_timeout: 300
     headers:
       Authorization: Bearer ${INTERNAL_API_TOKEN}
+
+  - name: github-hosted
+    transport: streamable
+    url: https://api.githubcopilot.com/mcp/
+    request_timeout: 120
+    headers:
+      Authorization: Bearer ${GITHUB_TOKEN}
 ```
 
-OryxOS connects each MCP server at startup: `stdio` launches a local subprocess, while `http` connects to a remote server. Tools exposed by the server are registered in `ToolRegistry` under their declared names.
+OryxOS connects each MCP server at startup: `stdio` launches a local subprocess; `http` / `sse` connect to a remote SSE server; `streamable` connects via Streamable HTTP. Tools exposed by the server are registered in `ToolRegistry` under their declared names.
 
-> **Config schema.** `McpConfigLoader` parses a top-level `servers:` list. Each entry has `name` and `transport`, plus `command`/`env` for `stdio` or `url`/`headers` for `http` (currently legacy SSE, so `url` must identify the SSE endpoint). `command` is a single whitespace-split string; there is **no separate `args:` field**. Optional `request_timeout` is an integer number of seconds from 1 to 3600 and defaults to 30; a non-integer or out-of-range value is a configuration error that prevents startup. It controls regular requests such as `tools/call`, but does not change the SDK's separate 20-second initialization timeout. The startup/admin `tools/list` connection probe waits at most `min(request_timeout, 60)` seconds so an unhealthy server cannot block the control plane for an hour. `${ENV_VAR}` placeholders are resolved only in `env` and `headers` values, so secrets must not be embedded in `command` or `url`.
+> **Config schema.** `McpConfigLoader` parses a top-level `servers:` list. Each entry has `name` and `transport`, plus `command`/`env` for `stdio` or `url`/`headers` for remote HTTP transports (`http`/`sse` = legacy SSE endpoint; `streamable` = Streamable HTTP endpoint). `command` is a single whitespace-split string; there is **no separate `args:` field**. Optional `request_timeout` is an integer number of seconds from 1 to 3600 and defaults to 30; a non-integer or out-of-range value is a configuration error that prevents startup. It controls regular requests such as `tools/call`, but does not change the SDK's separate 20-second initialization timeout. The startup/admin `tools/list` connection probe waits at most `min(request_timeout, 60)` seconds so an unhealthy server cannot block the control plane for an hour. `${ENV_VAR}` placeholders are resolved only in `env` and `headers` values, so secrets must not be embedded in `command` or `url`.
 
 ## Recommended MCP servers
 
@@ -136,7 +143,7 @@ To make this concrete, OryxOS ships a curated, ready-to-copy catalog at **`confi
 | Web search | Brave Search |
 | Observability | Sentry |
 
-Each entry carries comments on prerequisites (Node.js/`npx` or `uv`/`uvx` on the host), credential handling, and whether the vendor now ships an official replacement. The current `http` transport uses legacy SSE; remote servers that expose only Streamable HTTP remain unavailable until that transport is added. Where an exact package name may have changed, the catalog says so in a comment rather than guessing.
+Each entry carries comments on prerequisites (Node.js/`npx` or `uv`/`uvx` on the host), credential handling, and whether the vendor now ships an official replacement. Use `transport: streamable` for remote servers that speak Streamable HTTP (for example GitHub's hosted MCP and Sentry's remote MCP); keep `http`/`sse` for legacy SSE endpoints. Where an exact package name may have changed, the catalog says so in a comment rather than guessing.
 
 ## Sandbox
 
