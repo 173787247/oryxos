@@ -232,7 +232,9 @@ public class FileTools {
       // 写前复检：与 write_file 同款
       sandbox.enforce(new SandboxAction(ActionType.FILE_WRITE, path));
       rejectReservedFileWrites(path);
-      AtomicFiles.writeString(file, content.replace(oldString, newString));
+      String updated = content.replace(oldString, newString);
+      rejectOversizedWriteContent(path, updated);
+      AtomicFiles.writeString(file, updated);
       return "已编辑: " + path;
     } catch (IOException e) {
       throw new UncheckedIOException("编辑文件失败: " + path, e);

@@ -960,4 +960,17 @@ class FileToolsTest {
     assertTrue(ex.getMessage().contains("grow.log"), ex.getMessage());
     assertEquals(FileTools.MAX_READ_BYTES - 10, Files.size(f));
   }
+
+  @Test
+  @DisplayName("edit_file 拒绝替换后超过大小上限的结果")
+  void editFileRejectsOversizedReplacement() throws IOException {
+    Path f = dir.resolve("edit-me.txt");
+    Files.writeString(f, "seed");
+    String huge = "x".repeat((int) FileTools.MAX_READ_BYTES + 1);
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class, () -> tools.editFile(f.toString(), "seed", huge));
+    assertTrue(ex.getMessage().contains("edit-me.txt"), ex.getMessage());
+    assertEquals("seed", Files.readString(f));
+  }
 }
