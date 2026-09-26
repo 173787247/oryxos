@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,5 +107,47 @@ class A2aMessageServiceTest {
     ObjectNode resp = svc.handle(req);
     assertEquals(A2aJsonRpcError.INVALID_PARAMS, resp.path("error").path("code").asInt());
     assertTrue(resp.path("error").path("message").asText().contains("unknown agent"));
+  }
+
+  @Test
+  @DisplayName("message/stream emits one Message then empty Optional")
+  void messageStream_emitsOneMessage() {
+    A2aProperties props =
+        new A2aProperties(true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "writer");
+    A2aMessageService svc =
+        new A2aMessageService(
+            props, (a, m) -> "streamed:" + m, () -> List.of(new A2aAgentRef("writer", "")));
+    ObjectNode req = MAPPER.createObjectNode();
+    req.put("jsonrpc", "2.0");
+    req.put("id", 9);
+    req.put("method", "message/stream");
+    ObjectNode message = req.putObject("params").putObject("message");
+    message.put("role", "user");
+    message.putArray("parts").addObject().put("kind", "text").put("text", "hi");
+
+    List<ObjectNode> frames = new ArrayList<>();
+    Optional<ObjectNode> early = svc.stream(req, frames::add);
+    assertTrue(early.isEmpty());
+    assertEquals(1, frames.size());
+    assertEquals(9, frames.get(0).path("id").asInt());
+    assertEquals(
+        "streamed:hi", frames.get(0).path("result").path("parts").get(0).path("text").asText());
+  }
+
+  @Test
+  @DisplayName("message/stream validation error before emit")
+  void messageStream_validationError() {
+    A2aMessageService svc =
+        new A2aMessageService(A2aProperties.disabled(), (a, m) -> "x", List::of);
+    ObjectNode req = MAPPER.createObjectNode();
+    req.put("jsonrpc", "2.0");
+    req.put("id", 1);
+    req.put("method", "message/stream");
+    // missing params
+    List<ObjectNode> frames = new ArrayList<>();
+    Optional<ObjectNode> early = svc.stream(req, frames::add);
+    assertTrue(early.isPresent());
+    assertTrue(frames.isEmpty());
+    assertEquals(A2aJsonRpcError.INVALID_PARAMS, early.get().path("error").path("code").asInt());
   }
 }

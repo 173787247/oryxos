@@ -10,8 +10,8 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
- * Builds an A2A Agent Card from local agents (one skill per agent). Discovery only — does not send
- * A2A messages.
+ * Builds an A2A Agent Card from local agents (one skill per agent). Advertises streaming for local
+ * {@code message/stream}.
  */
 public final class A2aAgentCardService {
 
@@ -54,7 +54,7 @@ public final class A2aAgentCardService {
         "JSONRPC",
         new Provider("oryx-labs", "https://github.com/oryx-labs/oryxos"),
         properties.version(),
-        Capabilities.none(),
+        Capabilities.withStreaming(),
         List.of("text/plain"),
         List.of("text/plain"),
         skills);

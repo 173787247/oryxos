@@ -26,6 +26,7 @@ class A2aAgentCardServiceTest {
     assertEquals("agent:researcher", card.skills().get(0).id());
     assertEquals("agent:writer", card.skills().get(1).id());
     assertTrue(card.skills().get(0).tags().contains("oryxos"));
+    assertTrue(card.capabilities().streaming());
   }
 
   @Test
