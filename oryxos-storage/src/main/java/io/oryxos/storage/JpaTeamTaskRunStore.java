@@ -1,5 +1,6 @@
 package io.oryxos.storage;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.task.TeamTaskResult;
@@ -73,7 +74,7 @@ public class JpaTeamTaskRunStore implements TeamTaskRunStore {
         rows.add(row);
       }
       return mapper.writeValueAsString(rows);
-    } catch (Exception ex) {
+    } catch (JsonProcessingException ex) {
       throw new IllegalStateException("serialize team-task workers", ex);
     }
   }
@@ -92,7 +93,7 @@ public class JpaTeamTaskRunStore implements TeamTaskRunStore {
                 row.get("agent"), row.get("message"), row.get("reply"), row.get("error")));
       }
       return out;
-    } catch (Exception ex) {
+    } catch (JsonProcessingException ex) {
       throw new IllegalStateException("deserialize team-task workers", ex);
     }
   }
