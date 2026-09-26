@@ -2,6 +2,9 @@ package io.oryxos.cli;
 
 import io.oryxos.channel.cli.CliChannel;
 import io.oryxos.core.OryxTool;
+import io.oryxos.core.a2a.A2aAgentCardService;
+import io.oryxos.core.a2a.A2aAgentRef;
+import io.oryxos.core.a2a.A2aProperties;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentExecutionStore;
 import io.oryxos.core.agent.AgentLifecycleService;
@@ -190,6 +193,7 @@ import org.springframework.web.context.WebApplicationContext;
   DelegateAgentProperties.class,
   SshExecutionProperties.class,
   TeamTaskProperties.class,
+  A2aProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
   io.oryxos.core.policy.ApprovalPolicyProperties.class,
   io.oryxos.core.flow.FlowEngineProperties.class,
@@ -1113,6 +1117,29 @@ public class OryxOsRuntime {
   }
 
   /** 31 节：MCP server 管理台 CRUD 落地实现——core 契约 {@code McpServerAdmin}，web 层只认接口不认这个类。 */
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+      prefix = "oryxos.a2a",
+      name = "enabled",
+      havingValue = "true")
+  A2aAgentCardService a2aAgentCardService(
+      A2aProperties a2aProperties,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.agent.AgentLifecycleService>
+          lifecycleProvider) {
+    return new A2aAgentCardService(
+        a2aProperties,
+        () -> {
+          io.oryxos.core.agent.AgentLifecycleService life = lifecycleProvider.getIfAvailable();
+          if (life == null) {
+            return java.util.List.of();
+          }
+          return life.list().stream()
+              .map(p -> new A2aAgentRef(p.name(), p.description() == null ? "" : p.description()))
+              .sorted(java.util.Comparator.comparing(A2aAgentRef::name))
+              .toList();
+        });
+  }
+
   @Bean
   @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
       prefix = "oryxos.task.team",
