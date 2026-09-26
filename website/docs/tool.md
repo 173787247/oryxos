@@ -169,6 +169,10 @@ file:
 
 Adding a shell interpreter or language runtime is an explicit administrator grant of code-execution authority: the model can run code with the OS identity of the OryxOS process. Direct argv execution prevents shell-syntax injection, but it does not isolate the interpreter's file or network effects. Use the container-backed `execute_code` tool (`oryxos.tool.execute-code.enabled=true` and `oryxos.sandbox.execution.backend=docker`, reusing the short-lived docker ProcessStarter; fail-loud with no silent local fallback when docker is unavailable).
 
+### `delegate_agent` (in-process handoff)
+
+Hand a subtask to another Agent in an isolated stateless session (`processStateless`). This is not the A2A network protocol. Self-delegation is rejected; nest depth defaults to 3 (`oryxos.tool.delegate-agent.max-depth`). Disable with `oryxos.tool.delegate-agent.enabled=false` (enabled by default).
+
 ```yaml
 shell:
   allowed_commands:

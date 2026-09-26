@@ -91,6 +91,8 @@ import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserRepository;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.tool.ToolRegistry;
+import io.oryxos.tool.builtin.DelegateAgentProperties;
+import io.oryxos.tool.builtin.DelegateAgentTools;
 import io.oryxos.tool.builtin.ExecuteCodeProperties;
 import io.oryxos.tool.builtin.ExecuteCodeTools;
 import io.oryxos.tool.builtin.FileTools;
@@ -185,6 +187,7 @@ import org.springframework.web.context.WebApplicationContext;
   SmtpSandboxProperties.class,
   ExecutionBackendProperties.class,
   ExecuteCodeProperties.class,
+  DelegateAgentProperties.class,
   SshExecutionProperties.class,
   TeamTaskProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
@@ -1029,7 +1032,9 @@ public class OryxOsRuntime {
       ExecutionBackendProperties executionBackendProperties,
       ExecuteCodeProperties executeCodeProperties,
       SshExecutionProperties sshExecutionProperties,
-      org.springframework.beans.factory.ObjectProvider<ProfileRegistry> profileRegistryProvider) {
+      DelegateAgentProperties delegateAgentProperties,
+      org.springframework.beans.factory.ObjectProvider<ProfileRegistry> profileRegistryProvider,
+      org.springframework.beans.factory.ObjectProvider<AgentService> agentServiceProvider) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
     registry.registerAnnotated(
@@ -1059,6 +1064,14 @@ public class OryxOsRuntime {
     registry.registerAnnotated(
         new ExecuteCodeTools(
             sandbox, shellStarter, executionBackendProperties, executeCodeProperties.enabled()));
+    registry.registerAnnotated(
+        new DelegateAgentTools(
+            (agent, msg) -> {
+              AgentService svc = agentServiceProvider.getObject();
+              return svc.processStateless(agent, msg);
+            },
+            delegateAgentProperties.enabled(),
+            delegateAgentProperties.maxDepth()));
     registry.registerAnnotated(
         new HttpTools(
             sandbox, restClient, workspaceStorage)); // + http_request/fetch_webpage/download_file
