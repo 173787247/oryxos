@@ -41,6 +41,8 @@ import io.oryxos.core.skill.SkillLoader;
 import io.oryxos.core.skill.SkillRegistry;
 import io.oryxos.core.skill.SkillService;
 import io.oryxos.core.skill.SkillStore;
+import io.oryxos.core.task.TeamTaskOrchestrator;
+import io.oryxos.core.task.TeamTaskProperties;
 import io.oryxos.memory.LongTermMemoryStore;
 import io.oryxos.memory.MarkdownMemoryStore;
 import io.oryxos.memory.Mem0MemoryStore;
@@ -184,6 +186,7 @@ import org.springframework.web.context.WebApplicationContext;
   ExecutionBackendProperties.class,
   ExecuteCodeProperties.class,
   SshExecutionProperties.class,
+  TeamTaskProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
   io.oryxos.core.policy.ApprovalPolicyProperties.class,
   io.oryxos.core.flow.FlowEngineProperties.class,
@@ -1097,6 +1100,19 @@ public class OryxOsRuntime {
   }
 
   /** 31 节：MCP server 管理台 CRUD 落地实现——core 契约 {@code McpServerAdmin}，web 层只认接口不认这个类。 */
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+      prefix = "oryxos.task.team",
+      name = "enabled",
+      havingValue = "true")
+  TeamTaskOrchestrator teamTaskOrchestrator(
+      AgentService agentService, TeamTaskProperties teamTaskProperties) {
+    return new TeamTaskOrchestrator(
+        agentService::processStateless,
+        teamTaskProperties.coordinator(),
+        teamTaskProperties.maxSubtasks());
+  }
+
   @Bean
   io.oryxos.core.mcp.McpServerAdmin mcpServerAdmin(
       McpConfigLoader mcpConfigLoader,
