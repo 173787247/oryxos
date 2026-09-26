@@ -48,7 +48,7 @@ public class DelegateAgentTools {
     }
     String target = agent.strip();
     String caller = currentCaller();
-    if (caller != null && caller.equalsIgnoreCase(target)) {
+    if (caller != null && caller.equals(target)) {
       throw new IllegalArgumentException(
           "delegate_agent refuses self-delegation to '" + target + "'");
     }
