@@ -4,6 +4,7 @@ import io.oryxos.channel.cli.CliChannel;
 import io.oryxos.core.OryxTool;
 import io.oryxos.core.a2a.A2aAgentCardService;
 import io.oryxos.core.a2a.A2aAgentRef;
+import io.oryxos.core.a2a.A2aMessageService;
 import io.oryxos.core.a2a.A2aProperties;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentExecutionStore;
@@ -1128,6 +1129,31 @@ public class OryxOsRuntime {
           lifecycleProvider) {
     return new A2aAgentCardService(
         a2aProperties,
+        () -> {
+          io.oryxos.core.agent.AgentLifecycleService life = lifecycleProvider.getIfAvailable();
+          if (life == null) {
+            return java.util.List.of();
+          }
+          return life.list().stream()
+              .map(p -> new A2aAgentRef(p.name(), p.description() == null ? "" : p.description()))
+              .sorted(java.util.Comparator.comparing(A2aAgentRef::name))
+              .toList();
+        });
+  }
+
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+      prefix = "oryxos.a2a",
+      name = "enabled",
+      havingValue = "true")
+  A2aMessageService a2aMessageService(
+      A2aProperties a2aProperties,
+      AgentService agentService,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.agent.AgentLifecycleService>
+          lifecycleProvider) {
+    return new A2aMessageService(
+        a2aProperties,
+        agentService::processStateless,
         () -> {
           io.oryxos.core.agent.AgentLifecycleService life = lifecycleProvider.getIfAvailable();
           if (life == null) {
