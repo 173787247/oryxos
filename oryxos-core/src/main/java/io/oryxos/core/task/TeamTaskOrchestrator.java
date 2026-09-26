@@ -7,13 +7,17 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Direction I: coordinator agent produces a JSON plan, then specialists run in sequence (bounded).
- * No A2A; fail-loud on empty plan / missing coordinator. Persists when a {@link TeamTaskRunStore}
- * is provided.
+ * Direction I: coordinator agent produces a JSON plan, then specialists run (bounded). Fan-out is
+ * parallel by default (virtual threads); set parallel=false for sequential. No A2A; fail-loud on
+ * empty plan / missing coordinator. Persists when a {@link TeamTaskRunStore} is provided.
  */
 public final class TeamTaskOrchestrator {
 
@@ -24,11 +28,12 @@ public final class TeamTaskOrchestrator {
   private final TeamAgentRunner runner;
   private final String defaultCoordinator;
   private final int maxSubtasks;
+  private final boolean parallel;
   private final TeamTaskRunStore runStore;
   private final TeamAgentCatalog agentCatalog;
 
   public TeamTaskOrchestrator(TeamAgentRunner runner, String defaultCoordinator, int maxSubtasks) {
-    this(runner, defaultCoordinator, maxSubtasks, null, null);
+    this(runner, defaultCoordinator, maxSubtasks, true, null, null);
   }
 
   public TeamTaskOrchestrator(
@@ -37,12 +42,23 @@ public final class TeamTaskOrchestrator {
       int maxSubtasks,
       TeamTaskRunStore runStore,
       TeamAgentCatalog agentCatalog) {
+    this(runner, defaultCoordinator, maxSubtasks, true, runStore, agentCatalog);
+  }
+
+  public TeamTaskOrchestrator(
+      TeamAgentRunner runner,
+      String defaultCoordinator,
+      int maxSubtasks,
+      boolean parallel,
+      TeamTaskRunStore runStore,
+      TeamAgentCatalog agentCatalog) {
     this.runner = Objects.requireNonNull(runner, "runner");
     this.defaultCoordinator =
         defaultCoordinator == null || defaultCoordinator.isBlank()
             ? "coordinator"
             : defaultCoordinator.strip();
     this.maxSubtasks = maxSubtasks <= 0 ? 4 : Math.min(maxSubtasks, 16);
+    this.parallel = parallel;
     this.runStore = runStore;
     this.agentCatalog = agentCatalog;
   }
@@ -81,21 +97,24 @@ public final class TeamTaskOrchestrator {
             .goal(goal.strip())
             .coordinator(coordinator)
             .planRaw(planRaw);
-    List<String> resultBlocks = new ArrayList<>();
+    List<TeamTaskPlan.SubTask> work = new ArrayList<>();
     int n = 0;
     for (TeamTaskPlan.SubTask sub : plan.subtasks()) {
       if (n >= maxSubtasks) {
         break;
       }
       n++;
-      try {
-        String reply = runner.run(sub.agent(), sub.message());
-        out.addWorker(new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), reply, null));
-        resultBlocks.add(sub.agent() + ": " + reply);
-      } catch (RuntimeException e) {
-        String err = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-        out.addWorker(new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), "", err));
-        resultBlocks.add(sub.agent() + " FAILED: " + err);
+      work.add(sub);
+    }
+    List<TeamTaskResult.WorkerResult> workerResults =
+        parallel ? runParallel(work) : runSequential(work);
+    List<String> resultBlocks = new ArrayList<>();
+    for (TeamTaskResult.WorkerResult wr : workerResults) {
+      out.addWorker(wr);
+      if (wr.failed()) {
+        resultBlocks.add(wr.agent() + " FAILED: " + wr.error());
+      } else {
+        resultBlocks.add(wr.agent() + ": " + wr.reply());
       }
     }
     String summaryPrompt =
@@ -127,6 +146,57 @@ public final class TeamTaskOrchestrator {
       return "(none listed — use agent names that exist in this workspace)";
     }
     return String.join(", ", names);
+  }
+
+  private List<TeamTaskResult.WorkerResult> runSequential(List<TeamTaskPlan.SubTask> work) {
+    List<TeamTaskResult.WorkerResult> out = new ArrayList<>(work.size());
+    for (TeamTaskPlan.SubTask sub : work) {
+      out.add(runOne(sub));
+    }
+    return out;
+  }
+
+  @SuppressWarnings("PMD.ThreadPoolCreationRule")
+  private List<TeamTaskResult.WorkerResult> runParallel(List<TeamTaskPlan.SubTask> work) {
+    if (work.isEmpty()) {
+      return List.of();
+    }
+    if (work.size() == 1) {
+      return List.of(runOne(work.get(0)));
+    }
+    List<TeamTaskResult.WorkerResult> out = new ArrayList<>(work.size());
+    try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
+      List<Future<TeamTaskResult.WorkerResult>> futures = new ArrayList<>(work.size());
+      for (TeamTaskPlan.SubTask sub : work) {
+        futures.add(pool.submit(() -> runOne(sub)));
+      }
+      for (int i = 0; i < futures.size(); i++) {
+        TeamTaskPlan.SubTask sub = work.get(i);
+        try {
+          out.add(futures.get(i).get());
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          out.add(
+              new TeamTaskResult.WorkerResult(
+                  sub.agent(), sub.message(), "", "interrupted: " + e.getClass().getSimpleName()));
+        } catch (ExecutionException e) {
+          Throwable c = e.getCause() == null ? e : e.getCause();
+          String err = c.getMessage() == null ? c.getClass().getSimpleName() : c.getMessage();
+          out.add(new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), "", err));
+        }
+      }
+    }
+    return out;
+  }
+
+  private TeamTaskResult.WorkerResult runOne(TeamTaskPlan.SubTask sub) {
+    try {
+      String reply = runner.run(sub.agent(), sub.message());
+      return new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), reply, null);
+    } catch (RuntimeException e) {
+      String err = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+      return new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), "", err);
+    }
   }
 
   static TeamTaskPlan parsePlan(String raw) {

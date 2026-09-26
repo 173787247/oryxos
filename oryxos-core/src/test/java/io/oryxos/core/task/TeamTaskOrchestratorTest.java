@@ -98,4 +98,42 @@ class TeamTaskOrchestratorTest {
     assertEquals(result.id(), orch.find(result.id()).orElseThrow().id());
     assertTrue(orch.find("missing").isEmpty());
   }
+
+  @Test
+  @DisplayName("parallel fan-out overlaps specialist work")
+  void parallel_overlaps() throws Exception {
+    java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(2);
+    java.util.concurrent.atomic.AtomicInteger maxInFlight =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger inFlight =
+        new java.util.concurrent.atomic.AtomicInteger();
+    TeamAgentRunner runner =
+        (agent, msg) -> {
+          if (msg.contains("ONLY a JSON")) {
+            return "{\"subtasks\":[{\"agent\":\"a1\",\"message\":\"1\"},{\"agent\":\"a2\",\"message\":\"2\"}]}";
+          }
+          if (msg.startsWith("Summarize")) {
+            return "DONE";
+          }
+          int now = inFlight.incrementAndGet();
+          maxInFlight.updateAndGet(m -> Math.max(m, now));
+          started.countDown();
+          try {
+            started.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            Thread.sleep(80);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          } finally {
+            inFlight.decrementAndGet();
+          }
+          return "ok:" + agent;
+        };
+    TeamTaskResult r = new TeamTaskOrchestrator(runner, "c", 4, true, null, null).run("goal");
+    assertEquals(2, r.workers().size());
+    assertEquals("a1", r.workers().get(0).agent());
+    assertEquals("a2", r.workers().get(1).agent());
+    assertTrue(
+        maxInFlight.get() >= 2,
+        "expected overlapping specialists, maxInFlight=" + maxInFlight.get());
+  }
 }

@@ -1145,6 +1145,7 @@ public class OryxOsRuntime {
         agentService::processStateless,
         teamTaskProperties.coordinator(),
         teamTaskProperties.maxSubtasks(),
+        teamTaskProperties.parallel(),
         teamTaskRunStore,
         catalog);
   }
