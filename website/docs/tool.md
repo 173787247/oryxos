@@ -167,7 +167,7 @@ file:
 }
 ```
 
-Adding a shell interpreter or language runtime is an explicit administrator grant of code-execution authority: the model can run code with the OS identity of the OryxOS process. Direct argv execution prevents shell-syntax injection, but it does not isolate the interpreter's file or network effects. Use a container/MicroVM-backed `execute_code` runner for untrusted or multi-tenant code; that runner is planned, not implemented yet.
+Adding a shell interpreter or language runtime is an explicit administrator grant of code-execution authority: the model can run code with the OS identity of the OryxOS process. Direct argv execution prevents shell-syntax injection, but it does not isolate the interpreter's file or network effects. Use the container-backed `execute_code` tool (`oryxos.tool.execute-code.enabled=true` and `oryxos.sandbox.execution.backend=docker`, reusing the short-lived docker ProcessStarter; fail-loud with no silent local fallback when docker is unavailable).
 
 ```yaml
 shell:

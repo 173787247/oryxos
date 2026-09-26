@@ -167,7 +167,7 @@ file:
 }
 ```
 
-将 Shell 解释器或语言运行时加入白名单，是管理员对代码执行权限的显式授予：模型可按 OryxOS 进程所属的操作系统身份运行代码。argv 直传能防止 Shell 语法注入，但不隔离解释器的文件或网络影响。对不可信或多租户代码，应使用基于容器/MicroVM 的 `execute_code` Runner；该 Runner 仍处于规划阶段，尚未实现。
+将 Shell 解释器或语言运行时加入白名单，是管理员对代码执行权限的显式授予：模型可按 OryxOS 进程所属的操作系统身份运行代码。argv 直传能防止 Shell 语法注入，但不隔离解释器的文件或网络影响。对不可信或多租户代码，应使用基于容器的 `execute_code` Runner（`oryxos.tool.execute-code.enabled=true` 且 `oryxos.sandbox.execution.backend=docker`，复用短命 docker ProcessStarter；无 docker 时 fail-loud，不静默回落 local）。
 
 ```yaml
 shell:
