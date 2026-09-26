@@ -5,12 +5,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Direction I MVP: coordinator agent produces a JSON plan, then specialists run in sequence
- * (bounded). No A2A; fail-loud on empty plan / missing coordinator.
+ * Direction I: coordinator agent produces a JSON plan, then specialists run in sequence (bounded).
+ * No A2A; fail-loud on empty plan / missing coordinator. Persists when a {@link TeamTaskRunStore}
+ * is provided.
  */
 public final class TeamTaskOrchestrator {
 
@@ -21,14 +24,27 @@ public final class TeamTaskOrchestrator {
   private final TeamAgentRunner runner;
   private final String defaultCoordinator;
   private final int maxSubtasks;
+  private final TeamTaskRunStore runStore;
+  private final TeamAgentCatalog agentCatalog;
 
   public TeamTaskOrchestrator(TeamAgentRunner runner, String defaultCoordinator, int maxSubtasks) {
+    this(runner, defaultCoordinator, maxSubtasks, null, null);
+  }
+
+  public TeamTaskOrchestrator(
+      TeamAgentRunner runner,
+      String defaultCoordinator,
+      int maxSubtasks,
+      TeamTaskRunStore runStore,
+      TeamAgentCatalog agentCatalog) {
     this.runner = Objects.requireNonNull(runner, "runner");
     this.defaultCoordinator =
         defaultCoordinator == null || defaultCoordinator.isBlank()
             ? "coordinator"
             : defaultCoordinator.strip();
     this.maxSubtasks = maxSubtasks <= 0 ? 4 : Math.min(maxSubtasks, 16);
+    this.runStore = runStore;
+    this.agentCatalog = agentCatalog;
   }
 
   public TeamTaskResult run(String goal) {
@@ -39,6 +55,7 @@ public final class TeamTaskOrchestrator {
     if (goal == null || goal.isBlank()) {
       throw new IllegalArgumentException("goal must not be blank");
     }
+    String taskId = UUID.randomUUID().toString();
     String coordinator =
         coordinatorOverride == null || coordinatorOverride.isBlank()
             ? defaultCoordinator
@@ -48,15 +65,22 @@ public final class TeamTaskOrchestrator {
         You are the team coordinator. For the user goal below, reply with ONLY a JSON object:
         {"subtasks":[{"agent":"<existing-agent-name>","message":"<concrete subtask>"}]}
         At most MAX_SUBTASKS subtasks. Use real agent directory names the platform already has.
+        Known agents:
+        KNOWN_AGENTS
         Goal:
         GOAL_TEXT
         """
             .replace("MAX_SUBTASKS", Integer.toString(maxSubtasks))
+            .replace("KNOWN_AGENTS", formatKnownAgents())
             .replace("GOAL_TEXT", goal.strip());
     String planRaw = runner.run(coordinator, planPrompt);
     TeamTaskPlan plan = parsePlan(planRaw);
     TeamTaskResult.Builder out =
-        TeamTaskResult.builder().goal(goal.strip()).coordinator(coordinator).planRaw(planRaw);
+        TeamTaskResult.builder()
+            .id(taskId)
+            .goal(goal.strip())
+            .coordinator(coordinator)
+            .planRaw(planRaw);
     List<String> resultBlocks = new ArrayList<>();
     int n = 0;
     for (TeamTaskPlan.SubTask sub : plan.subtasks()) {
@@ -80,7 +104,29 @@ public final class TeamTaskOrchestrator {
             + "\nWorker results:\n"
             + String.join("\n---\n", resultBlocks);
     String summary = runner.run(coordinator, summaryPrompt);
-    return out.summary(summary).build();
+    TeamTaskResult result = out.summary(summary).build();
+    if (runStore != null) {
+      runStore.save(result);
+    }
+    return result;
+  }
+
+  public Optional<TeamTaskResult> find(String taskId) {
+    if (runStore == null) {
+      return Optional.empty();
+    }
+    return runStore.find(taskId);
+  }
+
+  private String formatKnownAgents() {
+    if (agentCatalog == null) {
+      return "(none listed — use agent names that exist in this workspace)";
+    }
+    List<String> names = agentCatalog.names();
+    if (names == null || names.isEmpty()) {
+      return "(none listed — use agent names that exist in this workspace)";
+    }
+    return String.join(", ", names);
   }
 
   static TeamTaskPlan parsePlan(String raw) {

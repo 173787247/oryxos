@@ -1105,12 +1105,35 @@ public class OryxOsRuntime {
       prefix = "oryxos.task.team",
       name = "enabled",
       havingValue = "true")
+  io.oryxos.core.task.TeamTaskRunStore teamTaskRunStore() {
+    return new io.oryxos.core.task.InMemoryTeamTaskRunStore();
+  }
+
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+      prefix = "oryxos.task.team",
+      name = "enabled",
+      havingValue = "true")
   TeamTaskOrchestrator teamTaskOrchestrator(
-      AgentService agentService, TeamTaskProperties teamTaskProperties) {
+      AgentService agentService,
+      TeamTaskProperties teamTaskProperties,
+      io.oryxos.core.task.TeamTaskRunStore teamTaskRunStore,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.agent.AgentLifecycleService>
+          lifecycleProvider) {
+    io.oryxos.core.task.TeamAgentCatalog catalog =
+        () -> {
+          io.oryxos.core.agent.AgentLifecycleService life = lifecycleProvider.getIfAvailable();
+          if (life == null) {
+            return java.util.List.of();
+          }
+          return life.list().stream().map(io.oryxos.core.profile.Profile::name).sorted().toList();
+        };
     return new TeamTaskOrchestrator(
         agentService::processStateless,
         teamTaskProperties.coordinator(),
-        teamTaskProperties.maxSubtasks());
+        teamTaskProperties.maxSubtasks(),
+        teamTaskRunStore,
+        catalog);
   }
 
   @Bean

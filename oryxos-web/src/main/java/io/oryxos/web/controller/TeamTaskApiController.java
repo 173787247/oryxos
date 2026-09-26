@@ -5,8 +5,11 @@ import io.oryxos.core.task.TeamTaskResult;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.TeamTaskRequest;
 import io.oryxos.web.controller.dto.TeamTaskView;
+import io.oryxos.web.error.ResourceNotFoundException;
 import java.util.Objects;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,5 +37,14 @@ public class TeamTaskApiController {
     }
     TeamTaskResult result = orchestrator.run(req.goal(), req.coordinator());
     return ApiResponse.ok(TeamTaskView.from(result));
+  }
+
+  @GetMapping("/{id}")
+  public ApiResponse<TeamTaskView> get(@PathVariable("id") String id) {
+    return ApiResponse.ok(
+        TeamTaskView.from(
+            orchestrator
+                .find(id)
+                .orElseThrow(() -> new ResourceNotFoundException("team-task not found: " + id))));
   }
 }

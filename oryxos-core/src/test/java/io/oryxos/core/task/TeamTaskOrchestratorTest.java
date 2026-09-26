@@ -78,4 +78,24 @@ class TeamTaskOrchestratorTest {
     assertEquals(2, r.workers().size());
     assertEquals(List.of("a1", "a2"), workers);
   }
+
+  @Test
+  @DisplayName("persist assigns id and find returns it")
+  void persist_and_find() {
+    InMemoryTeamTaskRunStore store = new InMemoryTeamTaskRunStore();
+    TeamAgentRunner runner =
+        (agent, msg) -> {
+          if (msg.contains("ONLY a JSON")) {
+            return "{\"subtasks\":[{\"agent\":\"writer\",\"message\":\"draft\"}]}";
+          }
+          return "ok";
+        };
+    TeamTaskOrchestrator orch =
+        new TeamTaskOrchestrator(
+            runner, "coordinator", 4, store, () -> java.util.List.of("writer"));
+    TeamTaskResult result = orch.run("Ship");
+    assertTrue(result.id() != null && !result.id().isBlank());
+    assertEquals(result.id(), orch.find(result.id()).orElseThrow().id());
+    assertTrue(orch.find("missing").isEmpty());
+  }
 }
