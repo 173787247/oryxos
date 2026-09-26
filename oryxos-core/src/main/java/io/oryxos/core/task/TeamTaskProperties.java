@@ -1,10 +1,12 @@
 package io.oryxos.core.task;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 
-/** {@code oryxos.task.team.*} — Direction I MVP switches. */
+/** {@code oryxos.task.team.*} — Direction I switches. */
 @ConfigurationProperties(prefix = "oryxos.task.team")
-public record TeamTaskProperties(boolean enabled, String coordinator, int maxSubtasks) {
+public record TeamTaskProperties(
+    boolean enabled, String coordinator, int maxSubtasks, @DefaultValue("true") boolean parallel) {
 
   public TeamTaskProperties {
     coordinator =
@@ -13,6 +15,6 @@ public record TeamTaskProperties(boolean enabled, String coordinator, int maxSub
   }
 
   public static TeamTaskProperties disabled() {
-    return new TeamTaskProperties(false, "coordinator", 4);
+    return new TeamTaskProperties(false, "coordinator", 4, true);
   }
 }
