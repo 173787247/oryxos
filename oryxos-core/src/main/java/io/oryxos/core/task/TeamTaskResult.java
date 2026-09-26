@@ -4,11 +4,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Result of one Direction I MVP team run. */
+/** Result of one Direction I team run. */
 public record TeamTaskResult(
-    String goal, String coordinator, String planRaw, List<WorkerResult> workers, String summary) {
+    String id,
+    String goal,
+    String coordinator,
+    String planRaw,
+    List<WorkerResult> workers,
+    String summary) {
 
   public TeamTaskResult {
+    Objects.requireNonNull(id, "id");
     Objects.requireNonNull(goal, "goal");
     Objects.requireNonNull(coordinator, "coordinator");
     workers = workers == null ? List.of() : List.copyOf(workers);
@@ -32,11 +38,17 @@ public record TeamTaskResult(
   }
 
   public static final class Builder {
+    private String id;
     private String goal;
     private String coordinator;
     private String planRaw;
     private final List<WorkerResult> workers = new ArrayList<>();
     private String summary;
+
+    public Builder id(String id) {
+      this.id = id;
+      return this;
+    }
 
     public Builder goal(String goal) {
       this.goal = goal;
@@ -64,7 +76,7 @@ public record TeamTaskResult(
     }
 
     public TeamTaskResult build() {
-      return new TeamTaskResult(goal, coordinator, planRaw, workers, summary);
+      return new TeamTaskResult(id, goal, coordinator, planRaw, workers, summary);
     }
   }
 }
