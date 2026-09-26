@@ -133,7 +133,7 @@ public final class A2aMessageService {
       return true;
     }
     for (A2aAgentRef ref : refs) {
-      if (agent.equalsIgnoreCase(ref.name())) {
+      if (agent.equals(ref.name())) {
         return true;
       }
     }
