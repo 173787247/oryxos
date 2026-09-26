@@ -1182,7 +1182,8 @@ public class OryxOsRuntime {
   A2aRemoteClient a2aRemoteClient(A2aProperties a2aProperties) {
     return A2aRemoteClient.create(
         java.time.Duration.ofSeconds(a2aProperties.clientTimeoutSeconds()),
-        uri -> a2aProperties.isRemoteHostAllowed(uri.getHost()));
+        uri -> a2aProperties.isRemoteHostAllowed(uri.getHost()),
+        a2aProperties::sharedToken);
   }
 
   @Bean

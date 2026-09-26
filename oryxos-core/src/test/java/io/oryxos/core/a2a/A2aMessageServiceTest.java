@@ -24,7 +24,7 @@ class A2aMessageServiceTest {
     AtomicReference<String> seenMsg = new AtomicReference<>();
     A2aProperties props =
         new A2aProperties(
-            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "fallback", "", 30);
+            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "fallback", "", 30, "");
     A2aMessageService svc =
         new A2aMessageService(
             props,
@@ -76,7 +76,7 @@ class A2aMessageServiceTest {
   void defaultAgent() {
     A2aProperties props =
         new A2aProperties(
-            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "writer", "", 30);
+            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "writer", "", 30, "");
     A2aMessageService svc =
         new A2aMessageService(
             props, (a, m) -> a + ":" + m, () -> List.of(new A2aAgentRef("writer", "")));
@@ -96,7 +96,7 @@ class A2aMessageServiceTest {
   void unknownAgent() {
     A2aProperties props =
         new A2aProperties(
-            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "", "", 30);
+            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "", "", 30, "");
     A2aMessageService svc =
         new A2aMessageService(props, (a, m) -> "x", () -> List.of(new A2aAgentRef("writer", "")));
     ObjectNode req = MAPPER.createObjectNode();
@@ -116,7 +116,7 @@ class A2aMessageServiceTest {
   void messageStream_emitsOneMessage() {
     A2aProperties props =
         new A2aProperties(
-            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "writer", "", 30);
+            true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "writer", "", 30, "");
     A2aMessageService svc =
         new A2aMessageService(
             props, (a, m) -> "streamed:" + m, () -> List.of(new A2aAgentRef("writer", "")));

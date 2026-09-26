@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -101,6 +102,9 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
   /** Session→组织声明（#560）；缺省空。 */
   private final SessionOrgIdsCache orgIdsCache;
+
+  /** When true, {@code /api/v1/a2a} is gated by A2aAuthFilter shared token — exempt API Key. */
+  private final BooleanSupplier a2aSharedTokenProtects;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -212,6 +216,34 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
       SessionTeamIdsCache teamIdsCache,
       PrincipalTeamIdsMerger teamIdsMerger,
       SessionOrgIdsCache orgIdsCache) {
+    this(
+        apiKeyService,
+        sessionService,
+        userService,
+        properties,
+        objectMapper,
+        rbacEnforcer,
+        teamIdsCache,
+        teamIdsMerger,
+        orgIdsCache,
+        () -> false);
+  }
+
+  /** Full constructor + A2A shared-token exempt for {@code /api/v1/a2a}. */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "BooleanSupplier closes over Spring A2aProperties singleton.")
+  public ApiKeyAuthFilter(
+      ApiKeyService apiKeyService,
+      WebSessionService sessionService,
+      io.oryxos.storage.WebUserService userService,
+      WebApiKeyProperties properties,
+      ObjectMapper objectMapper,
+      RbacEnforcer rbacEnforcer,
+      SessionTeamIdsCache teamIdsCache,
+      PrincipalTeamIdsMerger teamIdsMerger,
+      SessionOrgIdsCache orgIdsCache,
+      BooleanSupplier a2aSharedTokenProtects) {
     this.apiKeyService = apiKeyService;
     this.sessionService = sessionService;
     this.userService = userService;
@@ -221,6 +253,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     this.teamIdsCache = teamIdsCache == null ? new SessionTeamIdsCache() : teamIdsCache;
     this.teamIdsMerger = teamIdsMerger;
     this.orgIdsCache = orgIdsCache == null ? new SessionOrgIdsCache() : orgIdsCache;
+    this.a2aSharedTokenProtects =
+        a2aSharedTokenProtects == null ? () -> false : a2aSharedTokenProtects;
   }
 
   @Override
@@ -299,11 +333,14 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     return Principal.user(username, username, roles, teams, orgs);
   }
 
-  private static boolean isExempt(HttpServletRequest request) {
+  private boolean isExempt(HttpServletRequest request) {
     if (HttpMethod.OPTIONS.matches(request.getMethod())) {
       return true;
     }
     String uri = request.getRequestURI();
+    if (A2aAuthFilter.A2A_PATH.equals(uri) && a2aSharedTokenProtects.getAsBoolean()) {
+      return true;
+    }
     return HEALTH_PATH.equals(uri)
         || ACTUATOR_HEALTH_PATH.equals(uri)
         || (uri != null && uri.startsWith(ACTUATOR_HEALTH_PREFIX))

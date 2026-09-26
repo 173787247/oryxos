@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.a2a.A2aProperties;
 import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserService;
@@ -36,7 +37,8 @@ class ApiKeyFilterConfigTest {
             null,
             null,
             null,
-            null);
+            null,
+            A2aProperties.disabled());
 
     assertThat(registration.getUrlPatterns())
         .containsExactlyInAnyOrder("/api/v1/*", "/api/v2/*", "/actuator/*");
