@@ -3,7 +3,7 @@ package io.oryxos.core.a2a;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
-/** {@code oryxos.a2a.*} — Agent Card discovery (Direction C / I). Default off. */
+/** {@code oryxos.a2a.*} — A2A discovery + message/send (Direction C / I). Default off. */
 @ConfigurationProperties(prefix = "oryxos.a2a")
 public record A2aProperties(
     boolean enabled,
@@ -12,7 +12,9 @@ public record A2aProperties(
         String description,
     @DefaultValue("http://localhost:8080") String publicBaseUrl,
     @DefaultValue("0.1.6-RELEASE") String version,
-    @DefaultValue("0.3.0") String protocolVersion) {
+    @DefaultValue("0.3.0") String protocolVersion,
+    /** Default local agent when params.metadata.agent is omitted. */
+    @DefaultValue("") String defaultAgent) {
 
   public A2aProperties {
     name = name == null || name.isBlank() ? "OryxOS" : name.strip();
@@ -27,6 +29,7 @@ public record A2aProperties(
     version = version == null || version.isBlank() ? "0.1.6-RELEASE" : version.strip();
     protocolVersion =
         protocolVersion == null || protocolVersion.isBlank() ? "0.3.0" : protocolVersion.strip();
+    defaultAgent = defaultAgent == null ? "" : defaultAgent.strip();
   }
 
   public static A2aProperties disabled() {
@@ -36,10 +39,10 @@ public record A2aProperties(
         "OryxOS Agent Harness — local agents advertised for A2A discovery",
         "http://localhost:8080",
         "0.1.6-RELEASE",
-        "0.3.0");
+        "0.3.0",
+        "");
   }
 
-  /** Future JSON-RPC / message endpoint (not implemented in discovery knife). */
   public String a2aServiceUrl() {
     return publicBaseUrl + "/api/v1/a2a";
   }
