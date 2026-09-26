@@ -1152,6 +1152,8 @@ public class OryxOsRuntime {
         teamTaskProperties.coordinator(),
         teamTaskProperties.maxSubtasks(),
         teamTaskProperties.parallel(),
+        teamTaskProperties.replanOnFailure(),
+        teamTaskProperties.maxReplanRounds(),
         teamTaskRunStore,
         catalog);
   }

@@ -1,5 +1,6 @@
 package io.oryxos.core.task;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -16,8 +17,9 @@ import java.util.regex.Pattern;
 
 /**
  * Direction I: coordinator agent produces a JSON plan, then specialists run (bounded). Fan-out is
- * parallel by default (virtual threads); set parallel=false for sequential. No A2A; fail-loud on
- * empty plan / missing coordinator. Persists when a {@link TeamTaskRunStore} is provided.
+ * parallel by default (virtual threads); set parallel=false for sequential. On worker failure,
+ * optional bounded replan asks the coordinator for replacement subtasks (Vision「有界迭代」). No A2A.
+ * Persists when a {@link TeamTaskRunStore} is provided.
  */
 public final class TeamTaskOrchestrator {
 
@@ -29,11 +31,13 @@ public final class TeamTaskOrchestrator {
   private final String defaultCoordinator;
   private final int maxSubtasks;
   private final boolean parallel;
+  private final boolean replanOnFailure;
+  private final int maxReplanRounds;
   private final TeamTaskRunStore runStore;
   private final TeamAgentCatalog agentCatalog;
 
   public TeamTaskOrchestrator(TeamAgentRunner runner, String defaultCoordinator, int maxSubtasks) {
-    this(runner, defaultCoordinator, maxSubtasks, true, null, null);
+    this(runner, defaultCoordinator, maxSubtasks, true, true, 1, null, null);
   }
 
   public TeamTaskOrchestrator(
@@ -42,7 +46,7 @@ public final class TeamTaskOrchestrator {
       int maxSubtasks,
       TeamTaskRunStore runStore,
       TeamAgentCatalog agentCatalog) {
-    this(runner, defaultCoordinator, maxSubtasks, true, runStore, agentCatalog);
+    this(runner, defaultCoordinator, maxSubtasks, true, true, 1, runStore, agentCatalog);
   }
 
   public TeamTaskOrchestrator(
@@ -52,6 +56,18 @@ public final class TeamTaskOrchestrator {
       boolean parallel,
       TeamTaskRunStore runStore,
       TeamAgentCatalog agentCatalog) {
+    this(runner, defaultCoordinator, maxSubtasks, parallel, true, 1, runStore, agentCatalog);
+  }
+
+  public TeamTaskOrchestrator(
+      TeamAgentRunner runner,
+      String defaultCoordinator,
+      int maxSubtasks,
+      boolean parallel,
+      boolean replanOnFailure,
+      int maxReplanRounds,
+      TeamTaskRunStore runStore,
+      TeamAgentCatalog agentCatalog) {
     this.runner = Objects.requireNonNull(runner, "runner");
     this.defaultCoordinator =
         defaultCoordinator == null || defaultCoordinator.isBlank()
@@ -59,6 +75,8 @@ public final class TeamTaskOrchestrator {
             : defaultCoordinator.strip();
     this.maxSubtasks = maxSubtasks <= 0 ? 4 : Math.min(maxSubtasks, 16);
     this.parallel = parallel;
+    this.replanOnFailure = replanOnFailure;
+    this.maxReplanRounds = maxReplanRounds <= 0 ? 0 : Math.min(maxReplanRounds, 3);
     this.runStore = runStore;
     this.agentCatalog = agentCatalog;
   }
@@ -91,26 +109,37 @@ public final class TeamTaskOrchestrator {
             .replace("GOAL_TEXT", goal.strip());
     String planRaw = runner.run(coordinator, planPrompt);
     TeamTaskPlan plan = parsePlan(planRaw);
-    TeamTaskResult.Builder out =
-        TeamTaskResult.builder()
-            .id(taskId)
-            .goal(goal.strip())
-            .coordinator(coordinator)
-            .planRaw(planRaw);
-    List<TeamTaskPlan.SubTask> work = new ArrayList<>();
-    int n = 0;
-    for (TeamTaskPlan.SubTask sub : plan.subtasks()) {
-      if (n >= maxSubtasks) {
+
+    List<TeamTaskResult.WorkerResult> allWorkers = new ArrayList<>();
+    List<TeamTaskPlan.SubTask> work = takeBounded(plan.subtasks(), maxSubtasks);
+    List<TeamTaskResult.WorkerResult> roundResults =
+        parallel ? runParallel(work) : runSequential(work);
+    allWorkers.addAll(roundResults);
+
+    int rounds = 0;
+    while (replanOnFailure
+        && rounds < maxReplanRounds
+        && roundResults.stream().anyMatch(TeamTaskResult.WorkerResult::failed)) {
+      rounds++;
+      List<TeamTaskResult.WorkerResult> failed =
+          roundResults.stream().filter(TeamTaskResult.WorkerResult::failed).toList();
+      String replanRaw = runner.run(coordinator, buildReplanPrompt(goal.strip(), failed));
+      TeamTaskPlan replan;
+      try {
+        replan = parsePlan(replanRaw);
+      } catch (IllegalStateException e) {
         break;
       }
-      n++;
-      work.add(sub);
+      List<TeamTaskPlan.SubTask> replacements = takeBounded(replan.subtasks(), maxSubtasks);
+      if (replacements.isEmpty()) {
+        break;
+      }
+      roundResults = parallel ? runParallel(replacements) : runSequential(replacements);
+      allWorkers.addAll(roundResults);
     }
-    List<TeamTaskResult.WorkerResult> workerResults =
-        parallel ? runParallel(work) : runSequential(work);
+
     List<String> resultBlocks = new ArrayList<>();
-    for (TeamTaskResult.WorkerResult wr : workerResults) {
-      out.addWorker(wr);
+    for (TeamTaskResult.WorkerResult wr : allWorkers) {
       if (wr.failed()) {
         resultBlocks.add(wr.agent() + " FAILED: " + wr.error());
       } else {
@@ -123,7 +152,18 @@ public final class TeamTaskOrchestrator {
             + "\nWorker results:\n"
             + String.join("\n---\n", resultBlocks);
     String summary = runner.run(coordinator, summaryPrompt);
-    TeamTaskResult result = out.summary(summary).build();
+
+    TeamTaskResult.Builder out =
+        TeamTaskResult.builder()
+            .id(taskId)
+            .goal(goal.strip())
+            .coordinator(coordinator)
+            .planRaw(planRaw)
+            .summary(summary);
+    for (TeamTaskResult.WorkerResult wr : allWorkers) {
+      out.addWorker(wr);
+    }
+    TeamTaskResult result = out.build();
     if (runStore != null) {
       runStore.save(result);
     }
@@ -135,6 +175,49 @@ public final class TeamTaskOrchestrator {
       return Optional.empty();
     }
     return runStore.find(taskId);
+  }
+
+  private String buildReplanPrompt(String goal, List<TeamTaskResult.WorkerResult> failed) {
+    StringBuilder failures = new StringBuilder();
+    for (TeamTaskResult.WorkerResult f : failed) {
+      failures
+          .append("- agent=")
+          .append(f.agent())
+          .append(" message=")
+          .append(f.message())
+          .append(" error=")
+          .append(f.error())
+          .append('\n');
+    }
+    return """
+        Some specialist subtasks failed. Reply with ONLY a JSON object of replacement subtasks
+        (different agents and/or clearer messages):
+        {"subtasks":[{"agent":"<existing-agent-name>","message":"<concrete subtask>"}]}
+        At most MAX_SUBTASKS subtasks. Known agents:
+        KNOWN_AGENTS
+        Goal:
+        GOAL_TEXT
+        Failures:
+        FAILURES
+        """
+        .replace("MAX_SUBTASKS", Integer.toString(maxSubtasks))
+        .replace("KNOWN_AGENTS", formatKnownAgents())
+        .replace("GOAL_TEXT", goal)
+        .replace("FAILURES", failures.toString().strip());
+  }
+
+  private static List<TeamTaskPlan.SubTask> takeBounded(
+      List<TeamTaskPlan.SubTask> subtasks, int max) {
+    List<TeamTaskPlan.SubTask> work = new ArrayList<>();
+    int n = 0;
+    for (TeamTaskPlan.SubTask sub : subtasks) {
+      if (n >= max) {
+        break;
+      }
+      n++;
+      work.add(sub);
+    }
+    return work;
   }
 
   private String formatKnownAgents() {
@@ -225,9 +308,9 @@ public final class TeamTaskOrchestrator {
       return new TeamTaskPlan(list);
     } catch (IllegalStateException e) {
       throw e;
-    } catch (Exception e) {
+    } catch (JsonProcessingException e) {
       throw new IllegalStateException(
-          "failed to parse coordinator plan JSON: " + e.getMessage(), e);
+          "failed to parse coordinator plan JSON: " + e.getOriginalMessage(), e);
     }
   }
 

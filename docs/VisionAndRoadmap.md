@@ -204,7 +204,7 @@ OryxOS 是**企业自己的 Agent 运行底座（Agent Harness OS）**。
 | **审计 → 数据飞轮（评测 / 蒸馏 / RL）** | ⚠️ 审计 trace→EvalCase 导出已落地；蒸馏/RL 仍规划中 | **H** |
 | **成本治理 + 弹性休眠** | 🔜 规划中 | **H** |
 | **智能模型路由（选型 / fallback / 负载均衡）** | ⚠️ 部分（023/051，默认关） | **H** |
-| **任务发布 + 多 Agent 自组织交付（Agent 团队）** | ⚠️ MVP+taskId/GET+并行 fan-out+JPA；A2A/自组织续刀 | **I** |
+| **任务发布 + 多 Agent 自组织交付（Agent 团队）** | ⚠️ MVP+并行+JPA+有界失败重规划；A2A 续刀 | **I** |
 
 ---
 
