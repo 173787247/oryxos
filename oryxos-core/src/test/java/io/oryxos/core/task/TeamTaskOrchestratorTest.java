@@ -1,6 +1,7 @@
 package io.oryxos.core.task;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -135,5 +136,63 @@ class TeamTaskOrchestratorTest {
     assertTrue(
         maxInFlight.get() >= 2,
         "expected overlapping specialists, maxInFlight=" + maxInFlight.get());
+  }
+
+  @Test
+  @DisplayName("replan runs replacement after specialist failure")
+  void replan_onFailure() {
+    AtomicInteger coordPlans = new AtomicInteger();
+    TeamAgentRunner runner =
+        (agent, msg) -> {
+          if (msg.contains("ONLY a JSON") && msg.contains("team coordinator")) {
+            coordPlans.incrementAndGet();
+            return "{\"subtasks\":[{\"agent\":\"flaky\",\"message\":\"do work\"}]}";
+          }
+          if (msg.contains("Some specialist subtasks failed")) {
+            coordPlans.incrementAndGet();
+            return "{\"subtasks\":[{\"agent\":\"backup\",\"message\":\"retry work\"}]}";
+          }
+          if (msg.startsWith("Summarize")) {
+            return "DONE";
+          }
+          if ("flaky".equals(agent)) {
+            throw new IllegalStateException("boom");
+          }
+          return "ok:" + agent;
+        };
+    TeamTaskResult r =
+        new TeamTaskOrchestrator(runner, "c", 4, true, true, 1, null, null).run("goal");
+    assertEquals(2, r.workers().size());
+    assertTrue(r.workers().get(0).failed());
+    assertEquals("flaky", r.workers().get(0).agent());
+    assertFalse(r.workers().get(1).failed());
+    assertEquals("backup", r.workers().get(1).agent());
+    assertEquals("DONE", r.summary());
+    assertTrue(coordPlans.get() >= 2);
+  }
+
+  @Test
+  @DisplayName("replanOnFailure=false keeps failed workers only")
+  void replan_disabled() {
+    AtomicInteger replanCalls = new AtomicInteger();
+    TeamAgentRunner runner =
+        (agent, msg) -> {
+          if (msg.contains("ONLY a JSON")) {
+            return "{\"subtasks\":[{\"agent\":\"flaky\",\"message\":\"do work\"}]}";
+          }
+          if (msg.contains("Some specialist subtasks failed")) {
+            replanCalls.incrementAndGet();
+            return "{\"subtasks\":[{\"agent\":\"backup\",\"message\":\"retry\"}]}";
+          }
+          if (msg.startsWith("Summarize")) {
+            return "DONE";
+          }
+          throw new IllegalStateException("boom");
+        };
+    TeamTaskResult r =
+        new TeamTaskOrchestrator(runner, "c", 4, true, false, 1, null, null).run("goal");
+    assertEquals(1, r.workers().size());
+    assertTrue(r.workers().get(0).failed());
+    assertEquals(0, replanCalls.get());
   }
 }
