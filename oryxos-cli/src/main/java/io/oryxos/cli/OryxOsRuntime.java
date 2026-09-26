@@ -89,6 +89,8 @@ import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserRepository;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.tool.ToolRegistry;
+import io.oryxos.tool.builtin.ExecuteCodeProperties;
+import io.oryxos.tool.builtin.ExecuteCodeTools;
 import io.oryxos.tool.builtin.FileTools;
 import io.oryxos.tool.builtin.FormatTools;
 import io.oryxos.tool.builtin.HttpTools;
@@ -178,6 +180,7 @@ import org.springframework.web.context.WebApplicationContext;
   HttpSandboxProperties.class,
   SmtpSandboxProperties.class,
   ExecutionBackendProperties.class,
+  ExecuteCodeProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
   io.oryxos.core.policy.ApprovalPolicyProperties.class,
   io.oryxos.core.flow.FlowEngineProperties.class,
@@ -1018,6 +1021,7 @@ public class OryxOsRuntime {
       UserInteraction userInteraction,
       io.oryxos.core.knowledge.KnowledgeService knowledgeService,
       ExecutionBackendProperties executionBackendProperties,
+      ExecuteCodeProperties executeCodeProperties,
       org.springframework.beans.factory.ObjectProvider<ProfileRegistry> profileRegistryProvider) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
@@ -1044,6 +1048,9 @@ public class OryxOsRuntime {
                     new WorkspacePathMapper(nativeWorkspaceRoot()),
                     CidfileProcessWrapper.dockerCliKiller()));
     registry.registerAnnotated(new ShellTools(sandbox, shellStarter, workspaceStorage));
+    registry.registerAnnotated(
+        new ExecuteCodeTools(
+            sandbox, shellStarter, executionBackendProperties, executeCodeProperties.enabled()));
     registry.registerAnnotated(
         new HttpTools(
             sandbox, restClient, workspaceStorage)); // + http_request/fetch_webpage/download_file
