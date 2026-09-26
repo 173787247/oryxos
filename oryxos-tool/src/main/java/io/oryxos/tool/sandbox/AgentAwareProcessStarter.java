@@ -22,32 +22,51 @@ public final class AgentAwareProcessStarter implements ProcessStarter {
   private final Function<String, Profile.Sandbox> agentSandboxLookup;
   private final ProcessStarter local;
   private final Function<ExecutionBackendProperties, ProcessStarter> dockerFactory;
+  private final java.util.function.Supplier<ProcessStarter> sshFactory;
 
   public AgentAwareProcessStarter(
       ExecutionBackendProperties global,
       Function<String, Profile.Sandbox> agentSandboxLookup,
       ProcessStarter local,
       Function<ExecutionBackendProperties, ProcessStarter> dockerFactory) {
+    this(global, agentSandboxLookup, local, dockerFactory, null);
+  }
+
+  public AgentAwareProcessStarter(
+      ExecutionBackendProperties global,
+      Function<String, Profile.Sandbox> agentSandboxLookup,
+      ProcessStarter local,
+      Function<ExecutionBackendProperties, ProcessStarter> dockerFactory,
+      java.util.function.Supplier<ProcessStarter> sshFactory) {
     this.global = Objects.requireNonNull(global, "global 不能为空");
     this.agentSandboxLookup = Objects.requireNonNull(agentSandboxLookup, "agentSandboxLookup 不能为空");
     this.local = Objects.requireNonNull(local, "local 不能为空");
     this.dockerFactory = Objects.requireNonNull(dockerFactory, "dockerFactory 不能为空");
+    this.sshFactory = sshFactory;
   }
 
   @Override
   public Process start(List<String> command) throws IOException {
-    ExecutionBackendProperties effective = resolve(ToolExecutionContext.agentName());
-    return effective.isDocker()
-        ? dockerFactory.apply(effective).start(command)
-        : local.start(command);
+    return select(resolve(ToolExecutionContext.agentName())).start(command);
   }
 
   @Override
   public Process start(List<String> command, Path workingDirectory) throws IOException {
-    ExecutionBackendProperties effective = resolve(ToolExecutionContext.agentName());
-    return effective.isDocker()
-        ? dockerFactory.apply(effective).start(command, workingDirectory)
-        : local.start(command, workingDirectory);
+    return select(resolve(ToolExecutionContext.agentName())).start(command, workingDirectory);
+  }
+
+  private ProcessStarter select(ExecutionBackendProperties effective) throws IOException {
+    if (effective.isDocker()) {
+      return dockerFactory.apply(effective);
+    }
+    if (effective.isSsh()) {
+      if (sshFactory == null) {
+        throw new IOException(
+            "ssh execution backend selected but SshProcessStarter is not wired (fail-loud)");
+      }
+      return sshFactory.get();
+    }
+    return local;
   }
 
   /**

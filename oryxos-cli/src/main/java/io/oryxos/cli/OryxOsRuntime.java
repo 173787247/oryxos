@@ -131,6 +131,8 @@ import io.oryxos.tool.sandbox.ProcessStarter;
 import io.oryxos.tool.sandbox.Sandbox;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.SmtpSandboxProperties;
+import io.oryxos.tool.sandbox.SshExecutionProperties;
+import io.oryxos.tool.sandbox.SshProcessStarter;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
 import io.oryxos.tool.sandbox.WorkspacePathMapper;
 import io.oryxos.tool.web.DuckDuckGoSearchProvider;
@@ -181,6 +183,7 @@ import org.springframework.web.context.WebApplicationContext;
   SmtpSandboxProperties.class,
   ExecutionBackendProperties.class,
   ExecuteCodeProperties.class,
+  SshExecutionProperties.class,
   io.oryxos.core.cluster.ClusterProperties.class,
   io.oryxos.core.policy.ApprovalPolicyProperties.class,
   io.oryxos.core.flow.FlowEngineProperties.class,
@@ -1022,6 +1025,7 @@ public class OryxOsRuntime {
       io.oryxos.core.knowledge.KnowledgeService knowledgeService,
       ExecutionBackendProperties executionBackendProperties,
       ExecuteCodeProperties executeCodeProperties,
+      SshExecutionProperties sshExecutionProperties,
       org.springframework.beans.factory.ObjectProvider<ProfileRegistry> profileRegistryProvider) {
     ToolRegistry registry = new ToolRegistry();
     // 内置工具走 @Tool 注解管道（schema 自动生成，宪法 II 第二件事）
@@ -1046,7 +1050,8 @@ public class OryxOsRuntime {
                 new DockerProcessStarter(
                     effective,
                     new WorkspacePathMapper(nativeWorkspaceRoot()),
-                    CidfileProcessWrapper.dockerCliKiller()));
+                    CidfileProcessWrapper.dockerCliKiller()),
+            () -> new SshProcessStarter(sshExecutionProperties));
     registry.registerAnnotated(new ShellTools(sandbox, shellStarter, workspaceStorage));
     registry.registerAnnotated(
         new ExecuteCodeTools(

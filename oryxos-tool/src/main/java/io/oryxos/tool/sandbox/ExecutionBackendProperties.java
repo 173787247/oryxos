@@ -23,6 +23,8 @@ public record ExecutionBackendProperties(
   public static final String DEFAULT_USER = "65534:65534";
   public static final String DOCKER_BACKEND = "docker";
 
+  public static final String SSH_BACKEND = "ssh";
+
   public ExecutionBackendProperties {
     backend = normalize(backend, DEFAULT_BACKEND);
     image = normalize(image, "");
@@ -35,6 +37,10 @@ public record ExecutionBackendProperties(
   /** docker 档判断的唯一权威口径（装配与启动校验共用，避免字符串散落）。 */
   public boolean isDocker() {
     return DOCKER_BACKEND.equals(backend);
+  }
+
+  public boolean isSsh() {
+    return SSH_BACKEND.equals(backend);
   }
 
   private static String normalize(String value, String fallback) {
