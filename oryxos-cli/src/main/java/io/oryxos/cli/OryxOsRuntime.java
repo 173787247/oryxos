@@ -1217,10 +1217,15 @@ public class OryxOsRuntime {
   @Bean
   io.oryxos.core.flow.FlowEngine flowEngine(
       io.oryxos.core.flow.FlowRunStore flowRunStore,
-      io.oryxos.core.flow.FlowEngineProperties flowProperties) {
+      io.oryxos.core.flow.FlowEngineProperties flowProperties,
+      AgentService agentService) {
+    // #684 handler + #689 Boot 接线：AGENT 节点委托 AgentService.processStateless；其余节点仍走 Default。
+    io.oryxos.core.flow.FlowNodeHandler nodes =
+        new io.oryxos.core.flow.AgentAwareFlowNodeHandler(
+            new io.oryxos.core.flow.DefaultFlowNodeHandler(), agentService::processStateless);
     return new io.oryxos.core.flow.FlowEngine(
         flowRunStore,
-        new io.oryxos.core.flow.DefaultFlowNodeHandler(),
+        nodes,
         java.time.Clock.systemUTC(),
         flowProperties.isEngineEnabled(),
         flowProperties.getDefaultMaxRetries(),
