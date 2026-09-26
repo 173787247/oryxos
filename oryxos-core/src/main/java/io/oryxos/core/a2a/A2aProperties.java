@@ -1,9 +1,15 @@
 package io.oryxos.core.a2a;
 
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
-/** {@code oryxos.a2a.*} — A2A discovery + message/send (Direction C / I). Default off. */
+/**
+ * {@code oryxos.a2a.*} — A2A discovery + message + outbound client (Direction C / I). Default off.
+ */
 @ConfigurationProperties(prefix = "oryxos.a2a")
 public record A2aProperties(
     boolean enabled,
@@ -14,7 +20,13 @@ public record A2aProperties(
     @DefaultValue("0.1.6-RELEASE") String version,
     @DefaultValue("0.3.0") String protocolVersion,
     /** Default local agent when params.metadata.agent is omitted. */
-    @DefaultValue("") String defaultAgent) {
+    @DefaultValue("") String defaultAgent,
+    /**
+     * Comma-separated hosts allowed for outbound A2A (SSRF gate). Empty = no remote calls. Example:
+     * {@code peer.example,10.0.0.5,127.0.0.1}.
+     */
+    @DefaultValue("") String remoteHosts,
+    @DefaultValue("30") int clientTimeoutSeconds) {
 
   public A2aProperties {
     name = name == null || name.isBlank() ? "OryxOS" : name.strip();
@@ -30,6 +42,13 @@ public record A2aProperties(
     protocolVersion =
         protocolVersion == null || protocolVersion.isBlank() ? "0.3.0" : protocolVersion.strip();
     defaultAgent = defaultAgent == null ? "" : defaultAgent.strip();
+    remoteHosts = remoteHosts == null ? "" : remoteHosts.strip();
+    if (clientTimeoutSeconds <= 0) {
+      clientTimeoutSeconds = 30;
+    }
+    if (clientTimeoutSeconds > 300) {
+      clientTimeoutSeconds = 300;
+    }
   }
 
   public static A2aProperties disabled() {
@@ -40,10 +59,27 @@ public record A2aProperties(
         "http://localhost:8080",
         "0.1.6-RELEASE",
         "0.3.0",
-        "");
+        "",
+        "",
+        30);
   }
 
   public String a2aServiceUrl() {
     return publicBaseUrl + "/api/v1/a2a";
+  }
+
+  /** Host allow check for outbound A2A (case-insensitive exact host match). */
+  public boolean isRemoteHostAllowed(String host) {
+    if (host == null || host.isBlank() || remoteHosts.isBlank()) {
+      return false;
+    }
+    String h = host.strip().toLowerCase(Locale.ROOT);
+    Set<String> allowed =
+        Arrays.stream(remoteHosts.split(","))
+            .map(String::strip)
+            .filter(s -> !s.isEmpty())
+            .map(s -> s.toLowerCase(Locale.ROOT))
+            .collect(Collectors.toSet());
+    return allowed.contains(h);
   }
 }

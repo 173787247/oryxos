@@ -6,6 +6,7 @@ import io.oryxos.core.a2a.A2aAgentCardService;
 import io.oryxos.core.a2a.A2aAgentRef;
 import io.oryxos.core.a2a.A2aMessageService;
 import io.oryxos.core.a2a.A2aProperties;
+import io.oryxos.core.a2a.A2aRemoteClient;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentExecutionStore;
 import io.oryxos.core.agent.AgentLifecycleService;
@@ -95,6 +96,7 @@ import io.oryxos.storage.WebSessionService;
 import io.oryxos.storage.WebUserRepository;
 import io.oryxos.storage.WebUserService;
 import io.oryxos.tool.ToolRegistry;
+import io.oryxos.tool.builtin.A2aSendTools;
 import io.oryxos.tool.builtin.DelegateAgentProperties;
 import io.oryxos.tool.builtin.DelegateAgentTools;
 import io.oryxos.tool.builtin.ExecuteCodeProperties;
@@ -1038,6 +1040,8 @@ public class OryxOsRuntime {
       ExecuteCodeProperties executeCodeProperties,
       SshExecutionProperties sshExecutionProperties,
       DelegateAgentProperties delegateAgentProperties,
+      A2aProperties a2aProperties,
+      org.springframework.beans.factory.ObjectProvider<A2aRemoteClient> a2aRemoteClientProvider,
       org.springframework.beans.factory.ObjectProvider<ProfileRegistry> profileRegistryProvider,
       org.springframework.beans.factory.ObjectProvider<AgentService> agentServiceProvider) {
     ToolRegistry registry = new ToolRegistry();
@@ -1077,6 +1081,10 @@ public class OryxOsRuntime {
             },
             delegateAgentProperties.enabled(),
             delegateAgentProperties.maxDepth()));
+    A2aRemoteClient a2aRemote = a2aRemoteClientProvider.getIfAvailable();
+    if (a2aRemote != null) {
+      registry.registerAnnotated(new A2aSendTools(a2aRemote, a2aProperties.enabled()));
+    }
     registry.registerAnnotated(
         new HttpTools(
             sandbox, restClient, workspaceStorage)); // + http_request/fetch_webpage/download_file
@@ -1164,6 +1172,17 @@ public class OryxOsRuntime {
               .sorted(java.util.Comparator.comparing(A2aAgentRef::name))
               .toList();
         });
+  }
+
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+      prefix = "oryxos.a2a",
+      name = "enabled",
+      havingValue = "true")
+  A2aRemoteClient a2aRemoteClient(A2aProperties a2aProperties) {
+    return A2aRemoteClient.create(
+        java.time.Duration.ofSeconds(a2aProperties.clientTimeoutSeconds()),
+        uri -> a2aProperties.isRemoteHostAllowed(uri.getHost()));
   }
 
   @Bean
