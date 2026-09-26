@@ -1118,8 +1118,14 @@ public class OryxOsRuntime {
       prefix = "oryxos.task.team",
       name = "enabled",
       havingValue = "true")
-  io.oryxos.core.task.TeamTaskRunStore teamTaskRunStore() {
-    return new io.oryxos.core.task.InMemoryTeamTaskRunStore();
+  io.oryxos.core.task.TeamTaskRunStore teamTaskRunStore(
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.storage.TeamTaskRunRepository>
+          teamTaskRunRepository) {
+    io.oryxos.storage.TeamTaskRunRepository repo = teamTaskRunRepository.getIfAvailable();
+    if (repo == null) {
+      return new io.oryxos.core.task.InMemoryTeamTaskRunStore();
+    }
+    return new io.oryxos.storage.JpaTeamTaskRunStore(repo);
   }
 
   @Bean
