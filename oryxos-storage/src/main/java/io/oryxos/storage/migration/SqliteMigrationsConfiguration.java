@@ -126,4 +126,9 @@ public class SqliteMigrationsConfiguration {
   CostLedgerMigration costLedgerMigration() {
     return new CostLedgerMigration();
   }
+
+  @Bean
+  TeamTaskRunsMigration teamTaskRunsMigration() {
+    return new TeamTaskRunsMigration();
+  }
 }
