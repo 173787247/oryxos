@@ -45,6 +45,11 @@ public record A2aAgentCard(
     public static Capabilities none() {
       return new Capabilities(false, false, false);
     }
+
+    /** Local message/stream (SSE) supported; push/history still off. */
+    public static Capabilities withStreaming() {
+      return new Capabilities(true, false, false);
+    }
   }
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
