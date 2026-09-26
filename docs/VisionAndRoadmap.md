@@ -58,7 +58,7 @@ OryxOS 是**企业自己的 Agent 运行底座（Agent Harness OS）**。
 
 ## 三、第一阶段做成了什么
 
-北极星公式的 **7 个要素，已经交付 6 个**；底座跑通了「业务系统通过 API / 一句话 / 直接丢目录动态管理一个 Agent 并让它定时自动运行」的完整闭环。
+北极星公式的 **7 个要素，已经交付 7 个**（知识库已补齐）；底座跑通了「业务系统通过 API / 一句话 / 直接丢目录动态管理一个 Agent 并让它定时自动运行」的完整闭环。
 
 | 公式要素 | 状态 | 落地形态 |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ OryxOS 是**企业自己的 Agent 运行底座（Agent Harness OS）**。
 | MCP / Connector | ✅ | MCP Client + `mcp_servers.yaml` + 精选目录 |
 | Skill | ✅ | 全局 Skill 库，Agent 按名引用、`ContextLoader` 注入约束 |
 | Notify | ✅ | 飞书 / 企业微信 / 钉钉 / webhook |
-| **知识库** | ❌ | 仅占位——这是公式里唯一还缺的一块（见方向 B） |
+| **知识库** | ✅ | `retrieve_knowledge`（规格 014 / oryxos-knowledge）；向量默认 BLOB+Java 余弦，pgvector 仍为后续 |
 
 底座本身的成熟度：
 
@@ -80,7 +80,7 @@ OryxOS 是**企业自己的 Agent 运行底座（Agent Harness OS）**。
 - **Web 管理台**（Vue）：Agent 管理、创建即生成、文件浏览器、Markdown 渲染、Skill 详情、沙箱管理。
 - **工程化**：Makefile / `oryx-server` 启停脚本 / GitHub 自动发版（`release:` PR 触发）/ VitePress 双语文档站。
 
-**一句话总结**：公式 6/7 跑通，底座从「能启动」走到了「能被动态管理、定时自跑」的完整闭环。下一阶段 = **补齐知识库 + 把单机底座升级成企业级分布式底座 + 让 Agent 越用越聪明**。
+**一句话总结**：公式 7/7 已齐；分布式地基与渠道/HITL/可观测等多方向已从「规划中」推进到可用（常默认关）。下一阶段重心 = **方向 I 团队交付做厚 + A2A/自我进化/主体画像等硬缺口**。
 
 ---
 
@@ -182,29 +182,29 @@ OryxOS 是**企业自己的 Agent 运行底座（Agent Harness OS）**。
 
 | 能力 | 状态 | 方向 |
 | --- | --- | --- |
-| 存储切 MySQL / PostgreSQL | 🔜 规划中 | A |
-| 基于 DB 的分布式（xxl-job 式） | 🔜 规划中 | A |
-| 知识库 + 向量检索 | 🔜 规划中 | B |
-| 语义记忆（mem0 / Letta 式） | 🔜 规划中 | B |
+| 存储切 MySQL / PostgreSQL | ✅ PG 已落地（025）；MySQL 规格选择不做 | A |
+| 基于 DB 的分布式（xxl-job 式） | ✅ 调度抢锁+多副本协调（026）+ Helm（039） | A |
+| 知识库 + 向量检索 | ✅ 知识库已落地；向量非 pgvector（BLOB） | B |
+| 语义记忆（mem0 / Letta 式） | ✅ 015 语义召回 / 可选 Mem0 | B |
 | 主体画像记忆（Honcho 式用户 / 团队建模） | 🔜 规划中 | B |
-| Flow 声明式编排 | 🔜 规划中 | C |
+| Flow 声明式编排 | ✅ DSL+引擎（045–047）；AGENT 真委托见续 PR | C |
 | 子 Agent 委托 / A2A | 🔜 规划中 | C |
-| `execute_code` 代码化编排（降本） | 🔜 规划中 | C |
+| `execute_code` 代码化编排（降本） | 🔜 PR 推进中（docker Runner） | C |
 | 自动沉淀 Skill（自我进化） | 🔜 规划中 | D |
 | 开放标准 Skill 生态（agentskills.io / Hub） | 🔜 规划中 | D / G |
-| 多渠道（国内优先：飞书 / 企微 / 钉钉 / 微信 / QQ …） | 🔜 规划中 | E |
+| 多渠道（国内优先：飞书 / 企微 / 钉钉 / 微信 / QQ …） | ✅ 大量 oryxos-channel-* 已落地 | E |
 | 多模态（浏览器 / 视觉 / 图像 / TTS） | 🔜 规划中 | E |
 | 实时语音模式 | 🔜 规划中 | E |
-| SSE 流式响应 | 🔜 规划中 | E |
-| 容器级沙箱（Docker / SSH） | 🔜 规划中 | F |
-| 多租户 / SSO / RBAC | 🔜 规划中 | G |
-| 可观测性（成本看板 / tracing / 审计 UI） | 🔜 规划中 | G |
+| SSE 流式响应 | ✅ 019 | E |
+| 容器级沙箱（Docker / SSH） | ✅ Docker 已落地；SSH 见续 PR | F |
+| 多租户 / SSO / RBAC | ⚠️ 部分（OIDC/RBAC 默认关；完整三级租户仍 deferred） | G |
+| 可观测性（成本看板 / tracing / 审计 UI） | ✅ OTel + 审计/成本报表 | G |
 | 能力市场（Connector / Skill / KB） | 🔜 规划中 | G |
-| **人在回路 / 分级授权（HITL 审批）** | 🔜 规划中 | **H** |
+| **人在回路 / 分级授权（HITL 审批）** | ✅ 042–044 | **H** |
 | **审计 → 数据飞轮（评测 / 蒸馏 / RL）** | 🔜 规划中 | **H** |
 | **成本治理 + 弹性休眠** | 🔜 规划中 | **H** |
-| **智能模型路由（选型 / fallback / 负载均衡）** | 🔜 规划中 | **H** |
-| **任务发布 + 多 Agent 自组织交付（Agent 团队）** | 🔜 规划中 | **I** |
+| **智能模型路由（选型 / fallback / 负载均衡）** | ⚠️ 部分（023/051，默认关） | **H** |
+| **任务发布 + 多 Agent 自组织交付（Agent 团队）** | 🔜 MVP PR 推进中（team-tasks API） | **I** |
 
 ---
 

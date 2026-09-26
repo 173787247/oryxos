@@ -20,7 +20,7 @@ Get the five core capabilities working on a single node:
 
 **Goal**: single-node running and managing a fleet of agents — actually usable, not a prototype.
 
-## Phase 2 — Distributed Foundation *(planned)*
+## Phase 2 — Distributed Foundation *(partially landed; docs catching up)*
 
 Make the runtime horizontally scalable:
 
@@ -50,11 +50,11 @@ These capabilities are built incrementally alongside the main phases:
 | Notify channels CRUD | Done |
 | Scheduled task management | Done |
 | Workspace file browser | Done |
-| Multi-tenancy | Planned |
-| SSO / authentication | Planned |
-| Complete audit UI | Planned |
-| Tool policies and RBAC | Planned |
-| Observability (metrics, tracing) | Planned |
-| SSE streaming responses | Planned |
-| Episodic memory with vector search | Planned |
+| Multi-tenancy | Partial (org/team ACLs; full tenancy deferred) |
+| SSO / authentication | Partial (OIDC, default off) |
+| Complete audit UI | Done (016 reports) |
+| Tool policies and RBAC | Partial (020 + 039, default off) |
+| Observability (metrics, tracing) | Done (OTel/OTLP) |
+| SSE streaming responses | Done (019) |
+| Episodic memory with vector search | Partial (015 semantic recall) |
 | WebSocket channel | Planned |
