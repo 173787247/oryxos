@@ -1,6 +1,7 @@
 package io.oryxos.web.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.a2a.A2aProperties;
 import io.oryxos.storage.ApiKeyService;
 import io.oryxos.storage.WebSessionService;
 import io.oryxos.web.security.ApiKeyAuthFilter;
@@ -40,7 +41,8 @@ public class ApiKeyFilterConfig {
       RbacEnforcer rbacEnforcer,
       io.oryxos.web.security.SessionTeamIdsCache sessionTeamIdsCache,
       io.oryxos.web.security.PrincipalTeamIdsMerger principalTeamIdsMerger,
-      io.oryxos.web.security.SessionOrgIdsCache sessionOrgIdsCache) {
+      io.oryxos.web.security.SessionOrgIdsCache sessionOrgIdsCache,
+      A2aProperties a2aProperties) {
     FilterRegistrationBean<ApiKeyAuthFilter> registration = new FilterRegistrationBean<>();
     registration.setFilter(
         new ApiKeyAuthFilter(
@@ -52,7 +54,8 @@ public class ApiKeyFilterConfig {
             rbacEnforcer,
             sessionTeamIdsCache,
             principalTeamIdsMerger,
-            sessionOrgIdsCache));
+            sessionOrgIdsCache,
+            a2aProperties::hasSharedToken));
     registration.addUrlPatterns(PROTECTED_URL_PATTERNS);
     registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 11);
     return registration;

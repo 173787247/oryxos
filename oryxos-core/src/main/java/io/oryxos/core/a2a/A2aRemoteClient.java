@@ -13,31 +13,46 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Outbound A2A client (cross-node): fetch Agent Card + JSON-RPC {@code message/send}. No redirects;
- * every request URI must pass the host allow predicate (SSRF gate). Streaming / push out of scope.
+ * every request URI must pass the host allow predicate (SSRF gate). Optional Bearer from shared
+ * token. Streaming / push out of scope.
  */
 public final class A2aRemoteClient {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String WELL_KNOWN = "/.well-known/agent-card.json";
+  private static final String BEARER_PREFIX = "Bearer ";
 
   private final HttpClient http;
   private final Duration timeout;
   private final Predicate<URI> hostAllowed;
+  private final Supplier<String> bearerToken;
 
   public A2aRemoteClient(HttpClient http, Duration timeout, Predicate<URI> hostAllowed) {
+    this(http, timeout, hostAllowed, () -> "");
+  }
+
+  public A2aRemoteClient(
+      HttpClient http, Duration timeout, Predicate<URI> hostAllowed, Supplier<String> bearerToken) {
     this.http = Objects.requireNonNull(http, "http");
     this.timeout =
         timeout == null || timeout.isNegative() || timeout.isZero()
             ? Duration.ofSeconds(30)
             : timeout;
     this.hostAllowed = Objects.requireNonNull(hostAllowed, "hostAllowed");
+    this.bearerToken = bearerToken == null ? () -> "" : bearerToken;
   }
 
   /** Build a no-redirect client with connect timeout = request timeout. */
   public static A2aRemoteClient create(Duration timeout, Predicate<URI> hostAllowed) {
+    return create(timeout, hostAllowed, () -> "");
+  }
+
+  public static A2aRemoteClient create(
+      Duration timeout, Predicate<URI> hostAllowed, Supplier<String> bearerToken) {
     Duration t =
         timeout == null || timeout.isZero() || timeout.isNegative()
             ? Duration.ofSeconds(30)
@@ -47,21 +62,22 @@ public final class A2aRemoteClient {
             .connectTimeout(t)
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
-    return new A2aRemoteClient(http, t, hostAllowed);
+    return new A2aRemoteClient(http, t, hostAllowed, bearerToken);
   }
 
   /** GET Agent Card from {@code baseUrl} (origin or full card URL). */
   public A2aAgentCard fetchCard(URI baseUrl) throws IOException, InterruptedException {
     URI cardUri = resolveCardUri(baseUrl);
     requireAllowed(cardUri);
-    HttpRequest request =
+    HttpRequest.Builder builder =
         HttpRequest.newBuilder()
             .uri(cardUri)
             .timeout(timeout)
             .GET()
-            .header("Accept", "application/json")
-            .build();
-    HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            .header("Accept", "application/json");
+    applyAuth(builder);
+    HttpResponse<String> response =
+        http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     int code = response.statusCode();
     if (code < 200 || code >= 300) {
       throw new IOException("A2A card HTTP " + code + " for " + sanitize(cardUri));
@@ -101,15 +117,16 @@ public final class A2aRemoteClient {
     part.put("text", text.strip());
     params.putObject("metadata").put("agent", agent.strip());
 
-    HttpRequest request =
+    HttpRequest.Builder builder =
         HttpRequest.newBuilder()
             .uri(a2aUrl)
             .timeout(timeout)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(req)))
-            .build();
-    HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(req)));
+    applyAuth(builder);
+    HttpResponse<String> response =
+        http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     int code = response.statusCode();
     if (code < 200 || code >= 300) {
       throw new IOException("A2A message/send HTTP " + code + " for " + sanitize(a2aUrl));
@@ -169,6 +186,13 @@ public final class A2aRemoteClient {
       }
     }
     return sb.toString();
+  }
+
+  private void applyAuth(HttpRequest.Builder builder) {
+    String token = bearerToken.get();
+    if (token != null && !token.isBlank()) {
+      builder.header("Authorization", BEARER_PREFIX + token.strip());
+    }
   }
 
   private void requireAllowed(URI uri) {

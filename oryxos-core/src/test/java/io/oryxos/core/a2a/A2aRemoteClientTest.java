@@ -23,6 +23,7 @@ class A2aRemoteClientTest {
   private HttpServer server;
   private String origin;
   private final AtomicReference<String> lastBody = new AtomicReference<>();
+  private final AtomicReference<String> lastAuth = new AtomicReference<>();
 
   @BeforeEach
   void start() throws IOException {
@@ -32,6 +33,10 @@ class A2aRemoteClientTest {
     server.createContext(
         "/.well-known/agent-card.json",
         ex -> {
+          lastAuth.set(
+              ex.getRequestHeaders().getFirst("Authorization") == null
+                  ? ""
+                  : ex.getRequestHeaders().getFirst("Authorization"));
           byte[] body =
               ("""
               {"protocolVersion":"0.3.0","name":"Peer","description":"t","url":"%s/api/v1/a2a",\
@@ -50,6 +55,10 @@ class A2aRemoteClientTest {
     server.createContext(
         "/api/v1/a2a",
         ex -> {
+          lastAuth.set(
+              ex.getRequestHeaders().getFirst("Authorization") == null
+                  ? ""
+                  : ex.getRequestHeaders().getFirst("Authorization"));
           lastBody.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
           byte[] body =
               """
@@ -90,6 +99,16 @@ class A2aRemoteClientTest {
     assertTrue(lastBody.get().contains("message/send"));
     assertTrue(lastBody.get().contains("writer"));
     assertTrue(lastBody.get().contains("hello"));
+  }
+
+  @Test
+  @DisplayName("shared bearer sent on message/send")
+  void bearerSent() throws Exception {
+    A2aRemoteClient c =
+        A2aRemoteClient.create(
+            Duration.ofSeconds(5), uri -> "127.0.0.1".equals(uri.getHost()), () -> "tok-1");
+    c.messageSend(URI.create(origin + "/api/v1/a2a"), "writer", "hi");
+    assertEquals("Bearer tok-1", lastAuth.get());
   }
 
   @Test

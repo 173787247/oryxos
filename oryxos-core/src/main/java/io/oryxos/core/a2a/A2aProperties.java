@@ -1,5 +1,7 @@
 package io.oryxos.core.a2a;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
@@ -8,7 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * {@code oryxos.a2a.*} — A2A discovery + message + outbound client (Direction C / I). Default off.
+ * {@code oryxos.a2a.*} — A2A discovery + message + outbound client + optional shared bearer
+ * (Direction C / I). Default off.
  */
 @ConfigurationProperties(prefix = "oryxos.a2a")
 public record A2aProperties(
@@ -26,7 +29,12 @@ public record A2aProperties(
      * {@code peer.example,10.0.0.5,127.0.0.1}.
      */
     @DefaultValue("") String remoteHosts,
-    @DefaultValue("30") int clientTimeoutSeconds) {
+    @DefaultValue("30") int clientTimeoutSeconds,
+    /**
+     * Shared bearer for inbound {@code /api/v1/a2a} and outbound client. Empty = no A2A-specific
+     * auth (platform API Key rules still apply when enabled).
+     */
+    @DefaultValue("") String sharedToken) {
 
   public A2aProperties {
     name = name == null || name.isBlank() ? "OryxOS" : name.strip();
@@ -49,6 +57,7 @@ public record A2aProperties(
     if (clientTimeoutSeconds > 300) {
       clientTimeoutSeconds = 300;
     }
+    sharedToken = sharedToken == null ? "" : sharedToken.strip();
   }
 
   public static A2aProperties disabled() {
@@ -61,11 +70,16 @@ public record A2aProperties(
         "0.3.0",
         "",
         "",
-        30);
+        30,
+        "");
   }
 
   public String a2aServiceUrl() {
     return publicBaseUrl + "/api/v1/a2a";
+  }
+
+  public boolean hasSharedToken() {
+    return !sharedToken.isBlank();
   }
 
   /** Host allow check for outbound A2A (case-insensitive exact host match). */
@@ -81,5 +95,15 @@ public record A2aProperties(
             .map(s -> s.toLowerCase(Locale.ROOT))
             .collect(Collectors.toSet());
     return allowed.contains(h);
+  }
+
+  /** Constant-time compare of presented bearer vs configured shared token. */
+  public boolean matchesSharedToken(String presented) {
+    if (!hasSharedToken() || presented == null || presented.isBlank()) {
+      return false;
+    }
+    byte[] expected = sharedToken.getBytes(StandardCharsets.UTF_8);
+    byte[] actual = presented.strip().getBytes(StandardCharsets.UTF_8);
+    return MessageDigest.isEqual(expected, actual);
   }
 }
