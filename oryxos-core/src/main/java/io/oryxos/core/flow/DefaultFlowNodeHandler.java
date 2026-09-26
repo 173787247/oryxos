@@ -8,6 +8,10 @@ import java.util.function.Function;
 /**
  * Default node handler (046 / #468): HUMAN/APPROVAL enter WAITING; AGENT/TOOL/NOTIFY use optional
  * per-node scripts or a type-level fallback that echoes inputs into declared outputs.
+ *
+ * <p>To invoke real Agents on {@link FlowNodeType#AGENT} nodes, wrap with {@link
+ * AgentAwareFlowNodeHandler} and supply a {@link FlowAgentRunner} (boot typically binds {@code
+ * AgentService#processStateless}). Without a runner, AGENT nodes stay echo stubs.
  */
 public final class DefaultFlowNodeHandler implements FlowNodeHandler {
 
