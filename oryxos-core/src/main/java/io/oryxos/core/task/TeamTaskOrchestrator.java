@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.a2a.A2aRemoteClient;
 import io.oryxos.core.cost.CostContext;
+import io.oryxos.core.policy.ApprovalPolicyService;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +25,8 @@ import java.util.regex.Pattern;
  * optional bounded replan asks the coordinator for replacement subtasks (Vision「有界迭代」). Subtasks
  * may set {@code remote} (peer base URL) to run via {@link A2aRemoteClient}. Persists when a {@link
  * TeamTaskRunStore} is provided. Opens {@link CostContext} for the run so LLM/tool costs attribute
- * to the team-task id (and team bucket {@code team-task}).
+ * to the team-task id (and team bucket {@code team-task}). Optional {@link TeamTaskApprovalGate}
+ * runs before planning when an {@link ApprovalPolicyService} is set.
  */
 public final class TeamTaskOrchestrator {
 
@@ -45,6 +47,7 @@ public final class TeamTaskOrchestrator {
   private final TeamAgentCatalog agentCatalog;
   private final A2aRemoteClient remoteClient;
   private final List<TeamRemotePeer> remotePeers;
+  private ApprovalPolicyService approvalPolicy = ApprovalPolicyService.PASS_THROUGH;
 
   public TeamTaskOrchestrator(TeamAgentRunner runner, String defaultCoordinator, int maxSubtasks) {
     this(runner, defaultCoordinator, maxSubtasks, true, true, 1, null, null);
@@ -139,6 +142,12 @@ public final class TeamTaskOrchestrator {
     this.remotePeers = remotePeers == null ? List.of() : List.copyOf(remotePeers);
   }
 
+  /** Optional HITL gate (default {@link ApprovalPolicyService#PASS_THROUGH}). */
+  public void setApprovalPolicy(ApprovalPolicyService approvalPolicy) {
+    this.approvalPolicy =
+        approvalPolicy == null ? ApprovalPolicyService.PASS_THROUGH : approvalPolicy;
+  }
+
   public TeamTaskResult run(String goal) {
     return run(goal, null);
   }
@@ -152,6 +161,7 @@ public final class TeamTaskOrchestrator {
         coordinatorOverride == null || coordinatorOverride.isBlank()
             ? defaultCoordinator
             : coordinatorOverride.strip();
+    new TeamTaskApprovalGate(approvalPolicy).check(coordinator, goal.strip());
     // Attribute coordinator / summary LLM (and sequential workers) to this team-task id.
     // Parallel workers open their own CostContext in runOne (ThreadLocal does not hop).
     try (CostContext.Scope ignored = CostContext.open(taskId, COST_TEAM_ID, taskId)) {
