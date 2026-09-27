@@ -1231,7 +1231,8 @@ public class OryxOsRuntime {
         teamTaskProperties.maxReplanRounds(),
         teamTaskRunStore,
         catalog,
-        a2aRemoteClientProvider.getIfAvailable());
+        a2aRemoteClientProvider.getIfAvailable(),
+        teamTaskProperties.parsedRemotePeers());
   }
 
   @Bean

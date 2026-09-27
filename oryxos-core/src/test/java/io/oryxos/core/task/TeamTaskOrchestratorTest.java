@@ -291,4 +291,25 @@ class TeamTaskOrchestratorTest {
     assertTrue(r.workers().get(0).failed());
     assertTrue(r.workers().get(0).error().contains("A2A client"));
   }
+
+  @Test
+  @DisplayName("coordinator prompt lists remote peers")
+  void remote_peers_in_prompt() {
+    java.util.concurrent.atomic.AtomicReference<String> planPrompt =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    TeamAgentRunner runner =
+        (agent, msg) -> {
+          if (msg.contains("ONLY a JSON")) {
+            planPrompt.set(msg);
+            return "{\"subtasks\":[{\"agent\":\"writer\",\"message\":\"x\"}]}";
+          }
+          return "ok";
+        };
+    List<TeamRemotePeer> peers = TeamRemotePeer.parse("edge=http://127.0.0.1:9");
+    new TeamTaskOrchestrator(
+            runner, "c", 4, true, false, 0, null, () -> List.of("writer"), null, peers)
+        .run("goal");
+    assertTrue(planPrompt.get().contains("edge=http://127.0.0.1:9"));
+    assertTrue(planPrompt.get().contains("remote peers"));
+  }
 }
