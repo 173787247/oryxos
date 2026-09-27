@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.core.a2a.A2aRemoteClient;
+import io.oryxos.core.cost.CostContext;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -311,5 +312,35 @@ class TeamTaskOrchestratorTest {
         .run("goal");
     assertTrue(planPrompt.get().contains("edge=http://127.0.0.1:9"));
     assertTrue(planPrompt.get().contains("remote peers"));
+  }
+
+  @Test
+  @DisplayName("run opens CostContext for coordinator and parallel workers")
+  void run_attributesCostContext() {
+    java.util.concurrent.ConcurrentLinkedQueue<CostContext.State> seen =
+        new java.util.concurrent.ConcurrentLinkedQueue<>();
+    TeamAgentRunner runner =
+        (agent, msg) -> {
+          CostContext.State s = CostContext.current();
+          if (s != null) {
+            seen.add(s);
+          }
+          if (msg.contains("ONLY a JSON")) {
+            return "{\"subtasks\":[{\"agent\":\"researcher\",\"message\":\"find\"},{\"agent\":\"writer\",\"message\":\"write\"}]}";
+          }
+          if (msg.startsWith("Summarize")) {
+            return "DONE";
+          }
+          return "ok";
+        };
+    TeamTaskResult result = new TeamTaskOrchestrator(runner, "coordinator", 4).run("Ship");
+    assertFalse(seen.isEmpty());
+    for (CostContext.State s : seen) {
+      assertEquals(result.id(), s.taskId());
+      assertEquals(TeamTaskOrchestrator.COST_TEAM_ID, s.teamId());
+      assertEquals(result.id(), s.runId());
+    }
+    // coordinator plan + 2 workers + summary at minimum
+    assertTrue(seen.size() >= 4);
   }
 }

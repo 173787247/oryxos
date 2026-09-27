@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.a2a.A2aRemoteClient;
+import io.oryxos.core.cost.CostContext;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,13 +23,17 @@ import java.util.regex.Pattern;
  * parallel by default (virtual threads); set parallel=false for sequential. On worker failure,
  * optional bounded replan asks the coordinator for replacement subtasks (Vision「有界迭代」). Subtasks
  * may set {@code remote} (peer base URL) to run via {@link A2aRemoteClient}. Persists when a {@link
- * TeamTaskRunStore} is provided.
+ * TeamTaskRunStore} is provided. Opens {@link CostContext} for the run so LLM/tool costs attribute
+ * to the team-task id (and team bucket {@code team-task}).
  */
 public final class TeamTaskOrchestrator {
 
   private static final Pattern JSON_BLOCK =
       Pattern.compile("\\{[\\s\\S]*\"subtasks\"[\\s\\S]*\\}", Pattern.MULTILINE);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  /** Cost ledger team bucket for Direction I team-task runs (#476 CostContext). */
+  static final String COST_TEAM_ID = "team-task";
 
   private final TeamAgentRunner runner;
   private final String defaultCoordinator;
@@ -147,81 +152,86 @@ public final class TeamTaskOrchestrator {
         coordinatorOverride == null || coordinatorOverride.isBlank()
             ? defaultCoordinator
             : coordinatorOverride.strip();
-    String planPrompt =
-        """
-        You are the team coordinator. For the user goal below, reply with ONLY a JSON object:
-        {"subtasks":[{"agent":"<agent-name>","message":"<concrete subtask>","remote":"<optional-peer-base-url>"}]}
-        At most MAX_SUBTASKS subtasks. Omit remote for local agents; set remote to a peer base URL
-        (http://host:port) for cross-node A2A when that host is allowlisted.
-        Known agents:
-        KNOWN_AGENTS
-        Goal:
-        GOAL_TEXT
-        """
-            .replace("MAX_SUBTASKS", Integer.toString(maxSubtasks))
-            .replace("KNOWN_AGENTS", formatKnownAgents())
-            .replace("GOAL_TEXT", goal.strip());
-    String planRaw = runner.run(coordinator, planPrompt);
-    TeamTaskPlan plan = parsePlan(planRaw);
+    // Attribute coordinator / summary LLM (and sequential workers) to this team-task id.
+    // Parallel workers open their own CostContext in runOne (ThreadLocal does not hop).
+    try (CostContext.Scope ignored = CostContext.open(taskId, COST_TEAM_ID, taskId)) {
+      String planPrompt =
+          """
+          You are the team coordinator. For the user goal below, reply with ONLY a JSON object:
+          {"subtasks":[{"agent":"<agent-name>","message":"<concrete subtask>","remote":"<optional-peer-base-url>"}]}
+          At most MAX_SUBTASKS subtasks. Omit remote for local agents; set remote to a peer base URL
+          (http://host:port) for cross-node A2A when that host is allowlisted.
+          Known agents:
+          KNOWN_AGENTS
+          Goal:
+          GOAL_TEXT
+          """
+              .replace("MAX_SUBTASKS", Integer.toString(maxSubtasks))
+              .replace("KNOWN_AGENTS", formatKnownAgents())
+              .replace("GOAL_TEXT", goal.strip());
+      String planRaw = runner.run(coordinator, planPrompt);
+      TeamTaskPlan plan = parsePlan(planRaw);
 
-    List<TeamTaskResult.WorkerResult> allWorkers = new ArrayList<>();
-    List<TeamTaskPlan.SubTask> work = takeBounded(plan.subtasks(), maxSubtasks);
-    List<TeamTaskResult.WorkerResult> roundResults =
-        parallel ? runParallel(work) : runSequential(work);
-    allWorkers.addAll(roundResults);
-
-    int rounds = 0;
-    while (replanOnFailure
-        && rounds < maxReplanRounds
-        && roundResults.stream().anyMatch(TeamTaskResult.WorkerResult::failed)) {
-      rounds++;
-      List<TeamTaskResult.WorkerResult> failed =
-          roundResults.stream().filter(TeamTaskResult.WorkerResult::failed).toList();
-      String replanRaw = runner.run(coordinator, buildReplanPrompt(goal.strip(), failed));
-      TeamTaskPlan replan;
-      try {
-        replan = parsePlan(replanRaw);
-      } catch (IllegalStateException e) {
-        break;
-      }
-      List<TeamTaskPlan.SubTask> replacements = takeBounded(replan.subtasks(), maxSubtasks);
-      if (replacements.isEmpty()) {
-        break;
-      }
-      roundResults = parallel ? runParallel(replacements) : runSequential(replacements);
+      List<TeamTaskResult.WorkerResult> allWorkers = new ArrayList<>();
+      List<TeamTaskPlan.SubTask> work = takeBounded(plan.subtasks(), maxSubtasks);
+      List<TeamTaskResult.WorkerResult> roundResults =
+          parallel ? runParallel(taskId, work) : runSequential(taskId, work);
       allWorkers.addAll(roundResults);
-    }
 
-    List<String> resultBlocks = new ArrayList<>();
-    for (TeamTaskResult.WorkerResult wr : allWorkers) {
-      if (wr.failed()) {
-        resultBlocks.add(wr.agent() + " FAILED: " + wr.error());
-      } else {
-        resultBlocks.add(wr.agent() + ": " + wr.reply());
+      int rounds = 0;
+      while (replanOnFailure
+          && rounds < maxReplanRounds
+          && roundResults.stream().anyMatch(TeamTaskResult.WorkerResult::failed)) {
+        rounds++;
+        List<TeamTaskResult.WorkerResult> failed =
+            roundResults.stream().filter(TeamTaskResult.WorkerResult::failed).toList();
+        String replanRaw = runner.run(coordinator, buildReplanPrompt(goal.strip(), failed));
+        TeamTaskPlan replan;
+        try {
+          replan = parsePlan(replanRaw);
+        } catch (IllegalStateException e) {
+          break;
+        }
+        List<TeamTaskPlan.SubTask> replacements = takeBounded(replan.subtasks(), maxSubtasks);
+        if (replacements.isEmpty()) {
+          break;
+        }
+        roundResults =
+            parallel ? runParallel(taskId, replacements) : runSequential(taskId, replacements);
+        allWorkers.addAll(roundResults);
       }
-    }
-    String summaryPrompt =
-        "Summarize the team delivery for the goal.\nGoal: "
-            + goal.strip()
-            + "\nWorker results:\n"
-            + String.join("\n---\n", resultBlocks);
-    String summary = runner.run(coordinator, summaryPrompt);
 
-    TeamTaskResult.Builder out =
-        TeamTaskResult.builder()
-            .id(taskId)
-            .goal(goal.strip())
-            .coordinator(coordinator)
-            .planRaw(planRaw)
-            .summary(summary);
-    for (TeamTaskResult.WorkerResult wr : allWorkers) {
-      out.addWorker(wr);
+      List<String> resultBlocks = new ArrayList<>();
+      for (TeamTaskResult.WorkerResult wr : allWorkers) {
+        if (wr.failed()) {
+          resultBlocks.add(wr.agent() + " FAILED: " + wr.error());
+        } else {
+          resultBlocks.add(wr.agent() + ": " + wr.reply());
+        }
+      }
+      String summaryPrompt =
+          "Summarize the team delivery for the goal.\nGoal: "
+              + goal.strip()
+              + "\nWorker results:\n"
+              + String.join("\n---\n", resultBlocks);
+      String summary = runner.run(coordinator, summaryPrompt);
+
+      TeamTaskResult.Builder out =
+          TeamTaskResult.builder()
+              .id(taskId)
+              .goal(goal.strip())
+              .coordinator(coordinator)
+              .planRaw(planRaw)
+              .summary(summary);
+      for (TeamTaskResult.WorkerResult wr : allWorkers) {
+        out.addWorker(wr);
+      }
+      TeamTaskResult result = out.build();
+      if (runStore != null) {
+        runStore.save(result);
+      }
+      return result;
     }
-    TeamTaskResult result = out.build();
-    if (runStore != null) {
-      runStore.save(result);
-    }
-    return result;
   }
 
   public Optional<TeamTaskResult> find(String taskId) {
@@ -295,27 +305,29 @@ public final class TeamTaskOrchestrator {
     return sb.toString();
   }
 
-  private List<TeamTaskResult.WorkerResult> runSequential(List<TeamTaskPlan.SubTask> work) {
+  private List<TeamTaskResult.WorkerResult> runSequential(
+      String taskId, List<TeamTaskPlan.SubTask> work) {
     List<TeamTaskResult.WorkerResult> out = new ArrayList<>(work.size());
     for (TeamTaskPlan.SubTask sub : work) {
-      out.add(runOne(sub));
+      out.add(runOne(taskId, sub));
     }
     return out;
   }
 
   @SuppressWarnings("PMD.ThreadPoolCreationRule")
-  private List<TeamTaskResult.WorkerResult> runParallel(List<TeamTaskPlan.SubTask> work) {
+  private List<TeamTaskResult.WorkerResult> runParallel(
+      String taskId, List<TeamTaskPlan.SubTask> work) {
     if (work.isEmpty()) {
       return List.of();
     }
     if (work.size() == 1) {
-      return List.of(runOne(work.get(0)));
+      return List.of(runOne(taskId, work.get(0)));
     }
     List<TeamTaskResult.WorkerResult> out = new ArrayList<>(work.size());
     try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
       List<Future<TeamTaskResult.WorkerResult>> futures = new ArrayList<>(work.size());
       for (TeamTaskPlan.SubTask sub : work) {
-        futures.add(pool.submit(() -> runOne(sub)));
+        futures.add(pool.submit(() -> runOne(taskId, sub)));
       }
       for (int i = 0; i < futures.size(); i++) {
         TeamTaskPlan.SubTask sub = work.get(i);
@@ -336,13 +348,17 @@ public final class TeamTaskOrchestrator {
     return out;
   }
 
-  private TeamTaskResult.WorkerResult runOne(TeamTaskPlan.SubTask sub) {
-    try {
-      String reply = invoke(sub);
-      return new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), reply, null);
-    } catch (RuntimeException e) {
-      String err = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-      return new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), "", err);
+  private TeamTaskResult.WorkerResult runOne(String taskId, TeamTaskPlan.SubTask sub) {
+    // Virtual-thread workers need their own Scope; sequential inherits outer but nested open is
+    // fine.
+    try (CostContext.Scope ignored = CostContext.open(taskId, COST_TEAM_ID, taskId)) {
+      try {
+        String reply = invoke(sub);
+        return new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), reply, null);
+      } catch (RuntimeException e) {
+        String err = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        return new TeamTaskResult.WorkerResult(sub.agent(), sub.message(), "", err);
+      }
     }
   }
 
