@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * {@code oryxos.a2a.*} — A2A discovery + message + outbound client + optional shared bearer
+ * {@code oryxos.a2a.*} — A2A discovery + message + outbound client + shared bearer + hop limit
  * (Direction C / I). Default off.
  */
 @ConfigurationProperties(prefix = "oryxos.a2a")
@@ -34,7 +34,9 @@ public record A2aProperties(
      * Shared bearer for inbound {@code /api/v1/a2a} and outbound client. Empty = no A2A-specific
      * auth (platform API Key rules still apply when enabled).
      */
-    @DefaultValue("") String sharedToken) {
+    @DefaultValue("") String sharedToken,
+    /** Max {@code X-A2A-Hop} value accepted inbound / emitted outbound (anti loop). */
+    @DefaultValue("3") int maxHops) {
 
   public A2aProperties {
     name = name == null || name.isBlank() ? "OryxOS" : name.strip();
@@ -58,6 +60,12 @@ public record A2aProperties(
       clientTimeoutSeconds = 300;
     }
     sharedToken = sharedToken == null ? "" : sharedToken.strip();
+    if (maxHops <= 0) {
+      maxHops = 3;
+    }
+    if (maxHops > 16) {
+      maxHops = 16;
+    }
   }
 
   public static A2aProperties disabled() {
@@ -71,7 +79,8 @@ public record A2aProperties(
         "",
         "",
         30,
-        "");
+        "",
+        3);
   }
 
   public String a2aServiceUrl() {

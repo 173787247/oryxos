@@ -30,13 +30,23 @@ public final class A2aRemoteClient {
   private final Duration timeout;
   private final Predicate<URI> hostAllowed;
   private final Supplier<String> bearerToken;
+  private final int maxHops;
 
   public A2aRemoteClient(HttpClient http, Duration timeout, Predicate<URI> hostAllowed) {
-    this(http, timeout, hostAllowed, () -> "");
+    this(http, timeout, hostAllowed, () -> "", 3);
   }
 
   public A2aRemoteClient(
       HttpClient http, Duration timeout, Predicate<URI> hostAllowed, Supplier<String> bearerToken) {
+    this(http, timeout, hostAllowed, bearerToken, 3);
+  }
+
+  public A2aRemoteClient(
+      HttpClient http,
+      Duration timeout,
+      Predicate<URI> hostAllowed,
+      Supplier<String> bearerToken,
+      int maxHops) {
     this.http = Objects.requireNonNull(http, "http");
     this.timeout =
         timeout == null || timeout.isNegative() || timeout.isZero()
@@ -44,15 +54,21 @@ public final class A2aRemoteClient {
             : timeout;
     this.hostAllowed = Objects.requireNonNull(hostAllowed, "hostAllowed");
     this.bearerToken = bearerToken == null ? () -> "" : bearerToken;
+    this.maxHops = maxHops <= 0 ? 3 : Math.min(maxHops, 16);
   }
 
   /** Build a no-redirect client with connect timeout = request timeout. */
   public static A2aRemoteClient create(Duration timeout, Predicate<URI> hostAllowed) {
-    return create(timeout, hostAllowed, () -> "");
+    return create(timeout, hostAllowed, () -> "", 3);
   }
 
   public static A2aRemoteClient create(
       Duration timeout, Predicate<URI> hostAllowed, Supplier<String> bearerToken) {
+    return create(timeout, hostAllowed, bearerToken, 3);
+  }
+
+  public static A2aRemoteClient create(
+      Duration timeout, Predicate<URI> hostAllowed, Supplier<String> bearerToken, int maxHops) {
     Duration t =
         timeout == null || timeout.isZero() || timeout.isNegative()
             ? Duration.ofSeconds(30)
@@ -62,7 +78,7 @@ public final class A2aRemoteClient {
             .connectTimeout(t)
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
-    return new A2aRemoteClient(http, t, hostAllowed, bearerToken);
+    return new A2aRemoteClient(http, t, hostAllowed, bearerToken, maxHops);
   }
 
   /** GET Agent Card from {@code baseUrl} (origin or full card URL). */
@@ -193,6 +209,12 @@ public final class A2aRemoteClient {
     if (token != null && !token.isBlank()) {
       builder.header("Authorization", BEARER_PREFIX + token.strip());
     }
+    int nextHop = A2aHopContext.current() + 1;
+    if (nextHop > maxHops) {
+      throw new IllegalStateException(
+          "A2A hop limit exceeded (next=" + nextHop + ", max=" + maxHops + ")");
+    }
+    builder.header(A2aHopContext.HOP_HEADER, Integer.toString(nextHop));
   }
 
   private void requireAllowed(URI uri) {

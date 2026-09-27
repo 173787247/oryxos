@@ -24,6 +24,7 @@ class A2aRemoteClientTest {
   private String origin;
   private final AtomicReference<String> lastBody = new AtomicReference<>();
   private final AtomicReference<String> lastAuth = new AtomicReference<>();
+  private final AtomicReference<String> lastHop = new AtomicReference<>();
 
   @BeforeEach
   void start() throws IOException {
@@ -59,6 +60,10 @@ class A2aRemoteClientTest {
               ex.getRequestHeaders().getFirst("Authorization") == null
                   ? ""
                   : ex.getRequestHeaders().getFirst("Authorization"));
+          lastHop.set(
+              ex.getRequestHeaders().getFirst(A2aHopContext.HOP_HEADER) == null
+                  ? ""
+                  : ex.getRequestHeaders().getFirst(A2aHopContext.HOP_HEADER));
           lastBody.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
           byte[] body =
               """
@@ -124,5 +129,33 @@ class A2aRemoteClientTest {
     assertEquals(
         URI.create("http://peer.example/.well-known/agent-card.json"),
         A2aRemoteClient.resolveCardUri(URI.create("http://peer.example")));
+  }
+
+  @Test
+  @DisplayName("outbound sends X-A2A-Hop = inbound+1")
+  void hopHeaderSent() throws Exception {
+    A2aHopContext.set(1);
+    try {
+      client().messageSend(URI.create(origin + "/api/v1/a2a"), "writer", "hi");
+      assertEquals("2", lastHop.get());
+    } finally {
+      A2aHopContext.clear();
+    }
+  }
+
+  @Test
+  @DisplayName("outbound refuses when next hop exceeds max")
+  void hopLimitBlocksOutbound() {
+    A2aRemoteClient c =
+        A2aRemoteClient.create(
+            Duration.ofSeconds(5), uri -> "127.0.0.1".equals(uri.getHost()), () -> "", 2);
+    A2aHopContext.set(2);
+    try {
+      assertThrows(
+          IllegalStateException.class,
+          () -> c.messageSend(URI.create(origin + "/api/v1/a2a"), "writer", "hi"));
+    } finally {
+      A2aHopContext.clear();
+    }
   }
 }
