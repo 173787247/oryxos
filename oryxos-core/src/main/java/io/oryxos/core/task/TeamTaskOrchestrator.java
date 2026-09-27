@@ -39,6 +39,7 @@ public final class TeamTaskOrchestrator {
   private final TeamTaskRunStore runStore;
   private final TeamAgentCatalog agentCatalog;
   private final A2aRemoteClient remoteClient;
+  private final List<TeamRemotePeer> remotePeers;
 
   public TeamTaskOrchestrator(TeamAgentRunner runner, String defaultCoordinator, int maxSubtasks) {
     this(runner, defaultCoordinator, maxSubtasks, true, true, 1, null, null);
@@ -94,6 +95,30 @@ public final class TeamTaskOrchestrator {
       TeamTaskRunStore runStore,
       TeamAgentCatalog agentCatalog,
       A2aRemoteClient remoteClient) {
+    this(
+        runner,
+        defaultCoordinator,
+        maxSubtasks,
+        parallel,
+        replanOnFailure,
+        maxReplanRounds,
+        runStore,
+        agentCatalog,
+        remoteClient,
+        List.of());
+  }
+
+  public TeamTaskOrchestrator(
+      TeamAgentRunner runner,
+      String defaultCoordinator,
+      int maxSubtasks,
+      boolean parallel,
+      boolean replanOnFailure,
+      int maxReplanRounds,
+      TeamTaskRunStore runStore,
+      TeamAgentCatalog agentCatalog,
+      A2aRemoteClient remoteClient,
+      List<TeamRemotePeer> remotePeers) {
     this.runner = Objects.requireNonNull(runner, "runner");
     this.defaultCoordinator =
         defaultCoordinator == null || defaultCoordinator.isBlank()
@@ -106,6 +131,7 @@ public final class TeamTaskOrchestrator {
     this.runStore = runStore;
     this.agentCatalog = agentCatalog;
     this.remoteClient = remoteClient;
+    this.remotePeers = remotePeers == null ? List.of() : List.copyOf(remotePeers);
   }
 
   public TeamTaskResult run(String goal) {
@@ -249,14 +275,24 @@ public final class TeamTaskOrchestrator {
   }
 
   private String formatKnownAgents() {
+    StringBuilder sb = new StringBuilder();
     if (agentCatalog == null) {
-      return "(none listed — use agent names that exist in this workspace)";
+      sb.append("(no local agents listed)");
+    } else {
+      List<String> names = agentCatalog.names();
+      if (names == null || names.isEmpty()) {
+        sb.append("(no local agents listed)");
+      } else {
+        sb.append("local: ").append(String.join(", ", names));
+      }
     }
-    List<String> names = agentCatalog.names();
-    if (names == null || names.isEmpty()) {
-      return "(none listed — use agent names that exist in this workspace)";
+    if (!remotePeers.isEmpty()) {
+      sb.append("\nremote peers (set JSON remote to peer name or base URL):");
+      for (TeamRemotePeer peer : remotePeers) {
+        sb.append("\n- ").append(peer.name()).append("=").append(peer.baseUrl());
+      }
     }
-    return String.join(", ", names);
+    return sb.toString();
   }
 
   private List<TeamTaskResult.WorkerResult> runSequential(List<TeamTaskPlan.SubTask> work) {
@@ -319,7 +355,8 @@ public final class TeamTaskOrchestrator {
           "remote subtask requires A2A client; set oryxos.a2a.enabled=true");
     }
     try {
-      return remoteClient.sendToBase(URI.create(sub.remote()), sub.agent(), sub.message());
+      String base = TeamRemotePeer.resolveBaseUrl(remotePeers, sub.remote());
+      return remoteClient.sendToBase(URI.create(base), sub.agent(), sub.message());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("remote A2A interrupted", e);
