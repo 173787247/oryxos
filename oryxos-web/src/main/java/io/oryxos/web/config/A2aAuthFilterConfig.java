@@ -2,6 +2,7 @@ package io.oryxos.web.config;
 
 import io.oryxos.core.a2a.A2aProperties;
 import io.oryxos.web.security.A2aAuthFilter;
+import io.oryxos.web.security.A2aHopFilter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -19,6 +20,15 @@ public class A2aAuthFilterConfig {
     registration.setFilter(new A2aAuthFilter(a2aProperties));
     registration.addUrlPatterns("/api/v1/a2a");
     registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
+    return registration;
+  }
+
+  @Bean
+  FilterRegistrationBean<A2aHopFilter> a2aHopFilter(A2aProperties a2aProperties) {
+    FilterRegistrationBean<A2aHopFilter> registration = new FilterRegistrationBean<>();
+    registration.setFilter(new A2aHopFilter(a2aProperties));
+    registration.addUrlPatterns("/api/v1/a2a");
+    registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 9);
     return registration;
   }
 }

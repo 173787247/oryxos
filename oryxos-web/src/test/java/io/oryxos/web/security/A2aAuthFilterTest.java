@@ -16,7 +16,7 @@ class A2aAuthFilterTest {
 
   private static A2aProperties withToken(String token) {
     return new A2aProperties(
-        true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "", "", 30, token);
+        true, "OryxOS", "d", "http://localhost:8080", "0.1.6", "0.3.0", "", "", 30, token, 3);
   }
 
   @Test
