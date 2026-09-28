@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 
 /** {@link TeamTaskRunStore} 的 JPA 实现（Direction I）。 */
@@ -48,6 +49,14 @@ public class JpaTeamTaskRunStore implements TeamTaskRunStore {
       return Optional.empty();
     }
     return repository.findById(taskId.strip()).map(this::toDomain);
+  }
+
+  @Override
+  public List<TeamTaskResult> listRecent(int limit) {
+    int n = limit <= 0 ? 20 : Math.min(limit, 100);
+    return repository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, n)).stream()
+        .map(this::toDomain)
+        .toList();
   }
 
   private TeamTaskResult toDomain(TeamTaskRunEntity e) {

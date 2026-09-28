@@ -259,6 +259,14 @@ public final class TeamTaskOrchestrator {
     return runStore.find(taskId);
   }
 
+  /** Newest-first recent runs from the store (empty if no store). */
+  public List<TeamTaskResult> listRecent(int limit) {
+    if (runStore == null) {
+      return List.of();
+    }
+    return runStore.listRecent(limit);
+  }
+
   private String buildReplanPrompt(String goal, List<TeamTaskResult.WorkerResult> failed) {
     StringBuilder failures = new StringBuilder();
     for (TeamTaskResult.WorkerResult f : failed) {
