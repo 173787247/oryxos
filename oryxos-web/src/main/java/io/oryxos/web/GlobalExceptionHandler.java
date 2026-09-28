@@ -1,5 +1,6 @@
 package io.oryxos.web;
 
+import io.oryxos.core.durable.ApprovalSuspendedException;
 import io.oryxos.core.profile.ProfileValidationException;
 import io.oryxos.core.session.SessionUpdateConflictException;
 import io.oryxos.core.skill.SkillReferencedException;
@@ -97,6 +98,20 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN)
         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.FORBIDDEN.value(), ex.getMessage()));
+  }
+
+  /** 202 — 耐久挂起 WAITING_APPROVAL（043）；team-task / 工具共用。 */
+  @ExceptionHandler(ApprovalSuspendedException.class)
+  public ResponseEntity<ApiResponse<java.util.Map<String, String>>> handleApprovalSuspended(
+      ApprovalSuspendedException ex) {
+    LOG.info("Approval suspended checkpoint={}", sanitize(ex.checkpointId()));
+    java.util.Map<String, String> data = new java.util.LinkedHashMap<>();
+    data.put("checkpointId", ex.checkpointId() == null ? "" : ex.checkpointId());
+    data.put("idempotencyKey", ex.idempotencyKey() == null ? "" : ex.idempotencyKey());
+    data.put("status", "WAITING_APPROVAL");
+    return ResponseEntity.status(HttpStatus.ACCEPTED)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+        .body(new ApiResponse<>(HttpStatus.ACCEPTED.value(), ex.getMessage(), data));
   }
 
   /** 503 — a downstream dependency (provider, tool, storage) is unavailable. */
