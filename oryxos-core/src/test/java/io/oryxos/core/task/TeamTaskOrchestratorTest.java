@@ -10,7 +10,6 @@ import io.oryxos.core.cost.CostContext;
 import io.oryxos.core.policy.ApprovalOutcome;
 import io.oryxos.core.policy.ApprovalPolicyDecision;
 import io.oryxos.core.policy.HighRiskActionType;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -65,7 +64,8 @@ class TeamTaskOrchestratorTest {
   @Test
   @DisplayName("maxSubtasks caps fan-out")
   void maxCaps() {
-    List<String> workers = new ArrayList<>();
+    // Parallel fan-out: concurrent set (ArrayList loses adds under race).
+    java.util.Set<String> workers = java.util.concurrent.ConcurrentHashMap.newKeySet();
     TeamAgentRunner runner =
         (agent, msg) -> {
           if (msg.contains("ONLY a JSON")) {
@@ -82,7 +82,7 @@ class TeamTaskOrchestratorTest {
         };
     TeamTaskResult r = new TeamTaskOrchestrator(runner, "c", 2).run("goal");
     assertEquals(2, r.workers().size());
-    assertEquals(List.of("a1", "a2"), workers);
+    assertEquals(java.util.Set.of("a1", "a2"), workers);
   }
 
   @Test
