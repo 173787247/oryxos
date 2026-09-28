@@ -2,6 +2,8 @@ package io.oryxos.core.flow;
 
 import io.oryxos.core.agent.AgentMarkdown;
 import io.oryxos.core.agent.AgentMarkdown.Parsed;
+import io.oryxos.core.capability.CapabilityKind;
+import io.oryxos.core.capability.CapabilityRef;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -85,7 +87,52 @@ public final class FlowMarkdown {
             map.containsKey("timeoutSeconds") ? map.get("timeoutSeconds") : map.get("timeout"));
     String compensate =
         firstNonBlank(str(map.get("compensate")), str(map.get("onFailureCompensate")));
-    return new FlowNode(id, type, ref, inputs, outputs, dependsOn, timeoutSeconds, compensate);
+    List<CapabilityRef> capabilities = parseCapabilities(map);
+    return new FlowNode(
+        id, type, ref, inputs, outputs, dependsOn, timeoutSeconds, compensate, capabilities);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<CapabilityRef> parseCapabilities(Map<String, Object> map) {
+    Object raw = map.get("capabilities");
+    if (raw == null) {
+      raw = map.get("uses");
+    }
+    if (raw == null) {
+      raw = map.get("requires");
+    }
+    if (raw == null) {
+      return List.of();
+    }
+    if (raw instanceof String s) {
+      if (s.isBlank()) {
+        return List.of();
+      }
+      return List.of(CapabilityRef.parse(s));
+    }
+    if (!(raw instanceof List<?> list)) {
+      throw new IllegalArgumentException("capabilities 必须是列表或 kind:name 字符串");
+    }
+    List<CapabilityRef> out = new ArrayList<>();
+    for (Object item : list) {
+      if (item == null) {
+        continue;
+      }
+      if (item instanceof String s) {
+        out.add(CapabilityRef.parse(s));
+        continue;
+      }
+      if (item instanceof Map<?, ?> m) {
+        CapabilityKind kind =
+            CapabilityKind.parse(
+                firstNonBlank(str(m.get("kind")), str(m.get("type")), str(m.get("capability"))));
+        String name = firstNonBlank(str(m.get("name")), str(m.get("id")), str(m.get("ref")));
+        out.add(new CapabilityRef(kind, name));
+        continue;
+      }
+      throw new IllegalArgumentException("capabilities 条目须为字符串或 {kind,name} 映射");
+    }
+    return List.copyOf(out);
   }
 
   @SuppressWarnings("unchecked")

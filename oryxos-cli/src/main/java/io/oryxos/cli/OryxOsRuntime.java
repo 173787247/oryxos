@@ -1360,6 +1360,48 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.JpaFlowRunStore(runs, steps);
   }
 
+  /** Direction C：装配层统一能力目录（tools / mcp / skills / knowledge / memory）。 */
+  @Bean
+  io.oryxos.core.capability.CapabilityCatalog capabilityCatalog(
+      java.util.Map<String, io.oryxos.core.OryxTool> tools,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.skill.SkillRegistry>
+          skillRegistry,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.knowledge.KnowledgeService>
+          knowledgeService,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.mcp.McpServerAdmin>
+          mcpAdmin) {
+    io.oryxos.core.capability.InMemoryCapabilityCatalog catalog =
+        new io.oryxos.core.capability.InMemoryCapabilityCatalog();
+    if (tools != null) {
+      tools.keySet().stream()
+          .filter(n -> n != null && !n.isBlank())
+          .forEach(n -> catalog.add(io.oryxos.core.capability.CapabilityRef.tool(n)));
+    }
+    io.oryxos.core.skill.SkillRegistry skills = skillRegistry.getIfAvailable();
+    if (skills != null) {
+      skills
+          .all()
+          .forEach(s -> catalog.add(io.oryxos.core.capability.CapabilityRef.skill(s.name())));
+    }
+    io.oryxos.core.knowledge.KnowledgeService knowledge = knowledgeService.getIfAvailable();
+    if (knowledge != null) {
+      knowledge
+          .listBases()
+          .forEach(b -> catalog.add(io.oryxos.core.capability.CapabilityRef.knowledge(b.name())));
+    }
+    io.oryxos.core.mcp.McpServerAdmin mcp = mcpAdmin.getIfAvailable();
+    if (mcp != null) {
+      mcp.status().stream()
+          .filter(io.oryxos.core.mcp.McpServerStatus::connected)
+          .forEach(s -> catalog.add(io.oryxos.core.capability.CapabilityRef.mcp(s.name())));
+    }
+    // Memory 能力名约定：semantic / episodic / keyword（与 015 召回形态对齐，先占位可引用）
+    catalog.add(io.oryxos.core.capability.CapabilityRef.memory("semantic"));
+    catalog.add(io.oryxos.core.capability.CapabilityRef.memory("episodic"));
+    catalog.add(io.oryxos.core.capability.CapabilityRef.memory("keyword"));
+    return catalog;
+  }
+
   /** Direction C：自然语言 → Flow Markdown 草稿（需 oryxos.author.model）。 */
   @Bean
   io.oryxos.core.flow.FlowDraftAuthor flowDraftAuthor(

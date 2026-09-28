@@ -1,5 +1,6 @@
 package io.oryxos.core.flow;
 
+import io.oryxos.core.capability.CapabilityCatalog;
 import java.util.List;
 import java.util.Objects;
 
@@ -20,7 +21,11 @@ public final class FlowDocuments {
   }
 
   public static Result parseAndValidate(String markdown) {
+    return parseAndValidate(markdown, null);
+  }
+
+  public static Result parseAndValidate(String markdown, CapabilityCatalog catalog) {
     FlowDefinition definition = FlowMarkdown.parse(markdown);
-    return new Result(definition, FlowValidator.validate(definition));
+    return new Result(definition, FlowValidator.validate(definition, catalog));
   }
 }
