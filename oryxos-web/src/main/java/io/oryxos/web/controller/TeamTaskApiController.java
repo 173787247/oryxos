@@ -6,6 +6,7 @@ import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.TeamTaskRequest;
 import io.oryxos.web.controller.dto.TeamTaskView;
 import io.oryxos.web.error.ResourceNotFoundException;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Direction I MVP: natural-language goal → coordinator plan → specialist fan-out. */
@@ -37,6 +39,14 @@ public class TeamTaskApiController {
     }
     TeamTaskResult result = orchestrator.run(req.goal(), req.coordinator());
     return ApiResponse.ok(TeamTaskView.from(result));
+  }
+
+  @GetMapping
+  public ApiResponse<List<TeamTaskView>> list(
+      @RequestParam(name = "limit", defaultValue = "20") int limit) {
+    List<TeamTaskView> views =
+        orchestrator.listRecent(limit).stream().map(TeamTaskView::from).toList();
+    return ApiResponse.ok(views);
   }
 
   @GetMapping("/{id}")

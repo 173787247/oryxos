@@ -52,4 +52,15 @@ class JpaTeamTaskRunStoreTest {
     assertEquals("timeout", loaded.workers().get(1).error());
     assertTrue(store.find("missing").isEmpty());
   }
+
+  @Test
+  void listRecent_newestFirst() {
+    JpaTeamTaskRunStore store = new JpaTeamTaskRunStore(repository);
+    store.save(TeamTaskResult.builder().id("t1").goal("g1").coordinator("c").summary("s1").build());
+    store.save(TeamTaskResult.builder().id("t2").goal("g2").coordinator("c").summary("s2").build());
+    var recent = store.listRecent(10);
+    assertEquals(2, recent.size());
+    assertEquals("t2", recent.get(0).id());
+    assertEquals("t1", recent.get(1).id());
+  }
 }
