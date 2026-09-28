@@ -1214,7 +1214,9 @@ public class OryxOsRuntime {
       org.springframework.beans.factory.ObjectProvider<io.oryxos.core.agent.AgentLifecycleService>
           lifecycleProvider,
       org.springframework.beans.factory.ObjectProvider<A2aRemoteClient> a2aRemoteClientProvider,
-      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService) {
+      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService,
+      io.oryxos.core.durable.DurableTaskService durableTaskService,
+      io.oryxos.core.durable.DurableTaskReplay durableTaskReplay) {
     io.oryxos.core.task.TeamAgentCatalog catalog =
         () -> {
           io.oryxos.core.agent.AgentLifecycleService life = lifecycleProvider.getIfAvailable();
@@ -1236,6 +1238,25 @@ public class OryxOsRuntime {
             a2aRemoteClientProvider.getIfAvailable(),
             teamTaskProperties.parsedRemotePeers());
     orch.setApprovalPolicy(approvalPolicyService);
+    orch.setDurableTasks(durableTaskService);
+    durableTaskReplay.setTeamTaskResumer(
+        (agentName, argumentsJson) -> {
+          String goal = io.oryxos.core.task.TeamTaskApprovalGate.goalFromArgs(argumentsJson);
+          if (goal == null || goal.isBlank()) {
+            return io.oryxos.core.ToolResult.error("team_task resume missing goal", false);
+          }
+          String coordinator =
+              io.oryxos.core.task.TeamTaskApprovalGate.coordinatorFromArgs(argumentsJson);
+          try {
+            io.oryxos.core.task.TeamTaskResult result = orch.run(goal, coordinator);
+            String summary = result.summary() == null ? "" : result.summary();
+            return io.oryxos.core.ToolResult.ok(
+                "team-task id=" + result.id() + " summary=" + summary);
+          } catch (RuntimeException e) {
+            String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            return io.oryxos.core.ToolResult.error("team_task resume failed: " + msg, false);
+          }
+        });
     return orch;
   }
 

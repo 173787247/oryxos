@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.a2a.A2aRemoteClient;
 import io.oryxos.core.cost.CostContext;
+import io.oryxos.core.durable.DurableTaskService;
 import io.oryxos.core.policy.ApprovalPolicyService;
 import java.net.URI;
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ public final class TeamTaskOrchestrator {
   private final A2aRemoteClient remoteClient;
   private final List<TeamRemotePeer> remotePeers;
   private ApprovalPolicyService approvalPolicy = ApprovalPolicyService.PASS_THROUGH;
+  private DurableTaskService durableTasks;
 
   public TeamTaskOrchestrator(TeamAgentRunner runner, String defaultCoordinator, int maxSubtasks) {
     this(runner, defaultCoordinator, maxSubtasks, true, true, 1, null, null);
@@ -148,6 +150,11 @@ public final class TeamTaskOrchestrator {
         approvalPolicy == null ? ApprovalPolicyService.PASS_THROUGH : approvalPolicy;
   }
 
+  /** Optional durable suspend for REQUIRE_APPROVAL (043). Null / disabled → stub 403. */
+  public void setDurableTasks(DurableTaskService durableTasks) {
+    this.durableTasks = durableTasks;
+  }
+
   public TeamTaskResult run(String goal) {
     return run(goal, null);
   }
@@ -161,7 +168,7 @@ public final class TeamTaskOrchestrator {
         coordinatorOverride == null || coordinatorOverride.isBlank()
             ? defaultCoordinator
             : coordinatorOverride.strip();
-    new TeamTaskApprovalGate(approvalPolicy).check(coordinator, goal.strip());
+    new TeamTaskApprovalGate(approvalPolicy, durableTasks).check(coordinator, goal.strip());
     // Attribute coordinator / summary LLM (and sequential workers) to this team-task id.
     // Parallel workers open their own CostContext in runOne (ThreadLocal does not hop).
     try (CostContext.Scope ignored = CostContext.open(taskId, COST_TEAM_ID, taskId)) {
