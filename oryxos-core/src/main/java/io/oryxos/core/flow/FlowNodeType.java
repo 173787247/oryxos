@@ -14,7 +14,9 @@ public enum FlowNodeType {
   TOOL,
   NOTIFY,
   HUMAN,
-  APPROVAL;
+  APPROVAL,
+  /** Direction I：跑一轮 TeamTaskOrchestrator（goal 来自输入）。 */
+  TEAM_TASK;
 
   public static FlowNodeType parse(String raw) {
     if (raw == null || raw.isBlank()) {
@@ -26,6 +28,7 @@ public enum FlowNodeType {
       case "notify", "notification" -> NOTIFY;
       case "human", "hitl" -> HUMAN;
       case "approval" -> APPROVAL;
+      case "team_task", "team-task", "teamtask" -> TEAM_TASK;
       default -> throw new IllegalArgumentException("未知 Flow node type: " + raw);
     };
   }
