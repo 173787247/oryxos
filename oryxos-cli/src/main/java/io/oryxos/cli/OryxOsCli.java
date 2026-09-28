@@ -11,6 +11,7 @@ import io.oryxos.cli.command.ServeCommand;
 import io.oryxos.cli.command.SessionListCommand;
 import io.oryxos.cli.command.StatusCommand;
 import io.oryxos.cli.command.TeamCommand;
+import io.oryxos.cli.command.TeamTaskCommand;
 import io.oryxos.cli.command.ToolListCommand;
 import io.oryxos.cli.command.UserCommand;
 import picocli.CommandLine;
@@ -42,6 +43,7 @@ import picocli.CommandLine.IVersionProvider;
       UserCommand.class,
       OrgCommand.class,
       TeamCommand.class,
+      TeamTaskCommand.class,
       io.oryxos.cli.command.ApiKeyCommand.class,
       AgentCommand.class
     })
