@@ -1365,11 +1365,17 @@ public class OryxOsRuntime {
   io.oryxos.core.flow.FlowEngine flowEngine(
       io.oryxos.core.flow.FlowRunStore flowRunStore,
       io.oryxos.core.flow.FlowEngineProperties flowProperties,
-      AgentService agentService) {
-    // #684 handler + #689 Boot 接线：AGENT 节点委托 AgentService.processStateless；其余节点仍走 Default。
+      AgentService agentService,
+      org.springframework.beans.factory.ObjectProvider<io.oryxos.core.task.TeamTaskOrchestrator>
+          teamTaskOrchestrator) {
+    // #684 AGENT → AgentService；Direction I TEAM_TASK → TeamTaskOrchestrator（若启用）。
     io.oryxos.core.flow.FlowNodeHandler nodes =
         new io.oryxos.core.flow.AgentAwareFlowNodeHandler(
             new io.oryxos.core.flow.DefaultFlowNodeHandler(), agentService::processStateless);
+    io.oryxos.core.task.TeamTaskOrchestrator orch = teamTaskOrchestrator.getIfAvailable();
+    if (orch != null) {
+      nodes = new io.oryxos.core.flow.TeamTaskAwareFlowNodeHandler(nodes, orch::run);
+    }
     return new io.oryxos.core.flow.FlowEngine(
         flowRunStore,
         nodes,
