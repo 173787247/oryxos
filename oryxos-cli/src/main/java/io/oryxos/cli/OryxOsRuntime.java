@@ -1360,6 +1360,46 @@ public class OryxOsRuntime {
     return new io.oryxos.storage.JpaFlowRunStore(runs, steps);
   }
 
+  /** Direction C：自然语言 → Flow Markdown 草稿（需 oryxos.author.model）。 */
+  @Bean
+  io.oryxos.core.flow.FlowDraftAuthor flowDraftAuthor(
+      io.oryxos.core.provider.ProviderService providerService,
+      ProfileRegistry profileRegistry,
+      @Value("${oryxos.author.provider:}") String authorProvider,
+      @Value("${oryxos.author.model:}") String authorModel,
+      @Value("${oryxos.provider.default:deepseek}") String defaultProvider) {
+    String genProvider =
+        authorProvider == null || authorProvider.isBlank() ? defaultProvider : authorProvider;
+    return new io.oryxos.core.flow.FlowDraftAuthor(
+        prompt -> {
+          if (authorModel == null || authorModel.isBlank()) {
+            throw new IllegalStateException("未配置生成用模型（oryxos.author.model），无法生成 Flow 草稿");
+          }
+          io.oryxos.core.profile.Profile genProfile =
+              new io.oryxos.core.profile.Profile(
+                  "flow-author",
+                  null,
+                  null,
+                  new io.oryxos.core.profile.Profile.ProviderRef(genProvider, authorModel, null),
+                  java.util.List.of(),
+                  java.util.List.of(),
+                  java.util.List.of(),
+                  java.util.List.of(),
+                  java.util.List.of(),
+                  java.util.List.of(),
+                  io.oryxos.core.profile.Profile.Settings.defaults());
+          io.oryxos.core.provider.ProviderResponse resp =
+              providerService.chat(
+                  "flow-author", genProfile, io.oryxos.core.provider.ProviderRequest.of(prompt));
+          return resp == null ? null : resp.text();
+        },
+        () ->
+            profileRegistry.all().stream()
+                .map(io.oryxos.core.profile.Profile::name)
+                .sorted()
+                .toList());
+  }
+
   /** 046 / #468 + 047 / #469：Markdown Flow 执行引擎（engine/compensation 默认 false）。 */
   @Bean
   io.oryxos.core.flow.FlowEngine flowEngine(
