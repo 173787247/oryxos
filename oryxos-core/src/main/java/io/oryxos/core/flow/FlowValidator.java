@@ -1,5 +1,7 @@
 package io.oryxos.core.flow;
 
+import io.oryxos.core.capability.CapabilityCatalog;
+import io.oryxos.core.capability.CapabilityRef;
 import io.oryxos.core.flow.FlowPort.WireRef;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,6 +27,14 @@ public final class FlowValidator {
   private FlowValidator() {}
 
   public static List<FlowDiagnostic> validate(FlowDefinition flow) {
+    return validate(flow, null);
+  }
+
+  /**
+   * Validate graph shape; when {@code catalog} is non-null also require each node capability ref to
+   * exist in the catalog (UNKNOWN_CAPABILITY).
+   */
+  public static List<FlowDiagnostic> validate(FlowDefinition flow, CapabilityCatalog catalog) {
     Objects.requireNonNull(flow, "flow");
     List<FlowDiagnostic> out = new ArrayList<>();
 
@@ -52,7 +62,27 @@ public final class FlowValidator {
     checkEdges(flow, out);
     checkDependsAndWires(flow, out);
     checkCycles(flow, out);
+    if (catalog != null) {
+      checkCapabilities(flow, catalog, out);
+    }
     return List.copyOf(out);
+  }
+
+  private static void checkCapabilities(
+      FlowDefinition flow, CapabilityCatalog catalog, List<FlowDiagnostic> out) {
+    for (FlowNode node : flow.nodes().values()) {
+      int i = 0;
+      for (CapabilityRef ref : node.capabilities()) {
+        if (!catalog.contains(ref)) {
+          out.add(
+              FlowDiagnostic.error(
+                  "UNKNOWN_CAPABILITY",
+                  "nodes." + node.id() + ".capabilities[" + i + "]",
+                  "未知能力引用: " + ref.describe()));
+        }
+        i++;
+      }
+    }
   }
 
   public static boolean hasErrors(List<FlowDiagnostic> diagnostics) {
