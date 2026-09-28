@@ -22,6 +22,9 @@ public enum HighRiskActionType {
   /** MCP 工具调用（按注册归属判定）。 */
   MCP,
 
+  /** Direction I：发布 / 执行团队任务（合成工具名 {@code team_task}）。 */
+  TEAM_TASK,
+
   /** 规则显式声明、分类器未覆盖的自定义动作。 */
   CUSTOM
 }

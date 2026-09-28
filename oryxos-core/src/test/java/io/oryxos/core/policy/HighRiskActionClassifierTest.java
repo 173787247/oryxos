@@ -14,6 +14,7 @@ class HighRiskActionClassifierTest {
   @DisplayName("内置工具分类")
   void builtins() {
     assertThat(classifier.classify("shell")).contains(HighRiskActionType.SHELL);
+    assertThat(classifier.classify("team_task")).contains(HighRiskActionType.TEAM_TASK);
     assertThat(classifier.classify("notify")).contains(HighRiskActionType.EXTERNAL_SEND);
     assertThat(classifier.classify("write_file")).contains(HighRiskActionType.FILE_MUTATION);
     assertThat(classifier.classify("read_file")).isEmpty();

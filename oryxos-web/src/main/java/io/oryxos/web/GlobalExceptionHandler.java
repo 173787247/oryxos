@@ -3,6 +3,7 @@ package io.oryxos.web;
 import io.oryxos.core.profile.ProfileValidationException;
 import io.oryxos.core.session.SessionUpdateConflictException;
 import io.oryxos.core.skill.SkillReferencedException;
+import io.oryxos.core.task.TeamTaskApprovalRequiredException;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.SkillReferenceConflictView;
 import io.oryxos.web.error.AgentTimeoutException;
@@ -83,6 +84,16 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleAssetGovernanceDenied(
       AssetGovernanceAccessException ex) {
     LOG.warn("Asset governance denied: {}", sanitize(ex.getMessage()));
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+        .body(ApiResponse.error(HttpStatus.FORBIDDEN.value(), ex.getMessage()));
+  }
+
+  /** 403 — Direction I：团队任务被审批策略拦住（REQUIRE_APPROVAL / DENY）。 */
+  @ExceptionHandler(TeamTaskApprovalRequiredException.class)
+  public ResponseEntity<ApiResponse<Void>> handleTeamTaskApprovalRequired(
+      TeamTaskApprovalRequiredException ex) {
+    LOG.warn("Team-task approval required: {}", sanitize(ex.getMessage()));
     return ResponseEntity.status(HttpStatus.FORBIDDEN)
         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
         .body(ApiResponse.error(HttpStatus.FORBIDDEN.value(), ex.getMessage()));

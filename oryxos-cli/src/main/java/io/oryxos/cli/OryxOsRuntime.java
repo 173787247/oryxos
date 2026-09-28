@@ -1213,7 +1213,8 @@ public class OryxOsRuntime {
       io.oryxos.core.task.TeamTaskRunStore teamTaskRunStore,
       org.springframework.beans.factory.ObjectProvider<io.oryxos.core.agent.AgentLifecycleService>
           lifecycleProvider,
-      org.springframework.beans.factory.ObjectProvider<A2aRemoteClient> a2aRemoteClientProvider) {
+      org.springframework.beans.factory.ObjectProvider<A2aRemoteClient> a2aRemoteClientProvider,
+      io.oryxos.core.policy.ApprovalPolicyService approvalPolicyService) {
     io.oryxos.core.task.TeamAgentCatalog catalog =
         () -> {
           io.oryxos.core.agent.AgentLifecycleService life = lifecycleProvider.getIfAvailable();
@@ -1222,17 +1223,20 @@ public class OryxOsRuntime {
           }
           return life.list().stream().map(io.oryxos.core.profile.Profile::name).sorted().toList();
         };
-    return new TeamTaskOrchestrator(
-        agentService::processStateless,
-        teamTaskProperties.coordinator(),
-        teamTaskProperties.maxSubtasks(),
-        teamTaskProperties.parallel(),
-        teamTaskProperties.replanOnFailure(),
-        teamTaskProperties.maxReplanRounds(),
-        teamTaskRunStore,
-        catalog,
-        a2aRemoteClientProvider.getIfAvailable(),
-        teamTaskProperties.parsedRemotePeers());
+    TeamTaskOrchestrator orch =
+        new TeamTaskOrchestrator(
+            agentService::processStateless,
+            teamTaskProperties.coordinator(),
+            teamTaskProperties.maxSubtasks(),
+            teamTaskProperties.parallel(),
+            teamTaskProperties.replanOnFailure(),
+            teamTaskProperties.maxReplanRounds(),
+            teamTaskRunStore,
+            catalog,
+            a2aRemoteClientProvider.getIfAvailable(),
+            teamTaskProperties.parsedRemotePeers());
+    orch.setApprovalPolicy(approvalPolicyService);
+    return orch;
   }
 
   @Bean

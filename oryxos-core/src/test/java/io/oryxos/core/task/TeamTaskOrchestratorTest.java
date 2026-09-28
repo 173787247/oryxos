@@ -7,7 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.core.a2a.A2aRemoteClient;
 import io.oryxos.core.cost.CostContext;
-import java.util.ArrayList;
+import io.oryxos.core.policy.ApprovalOutcome;
+import io.oryxos.core.policy.ApprovalPolicyDecision;
+import io.oryxos.core.policy.HighRiskActionType;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -62,7 +64,8 @@ class TeamTaskOrchestratorTest {
   @Test
   @DisplayName("maxSubtasks caps fan-out")
   void maxCaps() {
-    List<String> workers = new ArrayList<>();
+    // Parallel fan-out: concurrent set (ArrayList loses adds under race).
+    java.util.Set<String> workers = java.util.concurrent.ConcurrentHashMap.newKeySet();
     TeamAgentRunner runner =
         (agent, msg) -> {
           if (msg.contains("ONLY a JSON")) {
@@ -79,7 +82,7 @@ class TeamTaskOrchestratorTest {
         };
     TeamTaskResult r = new TeamTaskOrchestrator(runner, "c", 2).run("goal");
     assertEquals(2, r.workers().size());
-    assertEquals(List.of("a1", "a2"), workers);
+    assertEquals(java.util.Set.of("a1", "a2"), workers);
   }
 
   @Test
@@ -342,5 +345,29 @@ class TeamTaskOrchestratorTest {
     }
     // coordinator plan + 2 workers + summary at minimum
     assertTrue(seen.size() >= 4);
+  }
+
+  @Test
+  @DisplayName("run blocked by approval policy before fan-out")
+  void run_blockedByApproval() {
+    AtomicInteger calls = new AtomicInteger();
+    TeamAgentRunner runner =
+        (agent, msg) -> {
+          calls.incrementAndGet();
+          return "should-not-run";
+        };
+    TeamTaskOrchestrator orch = new TeamTaskOrchestrator(runner, "coordinator", 4);
+    orch.setApprovalPolicy(
+        (agent, tool, args) ->
+            new ApprovalPolicyDecision(
+                ApprovalOutcome.REQUIRE_APPROVAL,
+                "1",
+                "team-rule",
+                HighRiskActionType.TEAM_TASK,
+                List.of("ops"),
+                120,
+                "confirm team run"));
+    assertThrows(TeamTaskApprovalRequiredException.class, () -> orch.run("Ship"));
+    assertEquals(0, calls.get());
   }
 }

@@ -10,6 +10,8 @@ public final class HighRiskActionClassifier {
 
   private static final Set<String> SHELL = Set.of("shell");
 
+  private static final Set<String> TEAM_TASK = Set.of("team_task");
+
   private static final Set<String> EXTERNAL_SEND =
       Set.of("http_post", "http_request", "notify", "fetch_webpage", "web_search");
 
@@ -44,6 +46,9 @@ public final class HighRiskActionClassifier {
     String lower = name.toLowerCase(Locale.ROOT);
     if (SHELL.contains(lower)) {
       return Optional.of(HighRiskActionType.SHELL);
+    }
+    if (TEAM_TASK.contains(lower)) {
+      return Optional.of(HighRiskActionType.TEAM_TASK);
     }
     if (EXTERNAL_SEND.contains(lower)) {
       return Optional.of(HighRiskActionType.EXTERNAL_SEND);
