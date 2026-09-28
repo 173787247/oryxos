@@ -9,9 +9,11 @@ import io.oryxos.core.durable.DurableTaskService;
 import io.oryxos.core.policy.ApprovalPolicyService;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -175,9 +177,10 @@ public final class TeamTaskOrchestrator {
       String planPrompt =
           """
           You are the team coordinator. For the user goal below, reply with ONLY a JSON object:
-          {"subtasks":[{"agent":"<agent-name>","message":"<concrete subtask>","remote":"<optional-peer-base-url>"}]}
+          {"subtasks":[{"agent":"<agent-name>","message":"<concrete subtask>","remote":"<optional-peer-base-url>","after":["<optional-prior-agent>"]}]}
           At most MAX_SUBTASKS subtasks. Omit remote for local agents; set remote to a peer base URL
           (http://host:port) for cross-node A2A when that host is allowlisted.
+          Set after to prior agent names that must finish before this subtask (wave order).
           Known agents:
           KNOWN_AGENTS
           Goal:
@@ -191,8 +194,7 @@ public final class TeamTaskOrchestrator {
 
       List<TeamTaskResult.WorkerResult> allWorkers = new ArrayList<>();
       List<TeamTaskPlan.SubTask> work = takeBounded(plan.subtasks(), maxSubtasks);
-      List<TeamTaskResult.WorkerResult> roundResults =
-          parallel ? runParallel(taskId, work) : runSequential(taskId, work);
+      List<TeamTaskResult.WorkerResult> roundResults = runWaves(taskId, work);
       allWorkers.addAll(roundResults);
 
       int rounds = 0;
@@ -213,8 +215,7 @@ public final class TeamTaskOrchestrator {
         if (replacements.isEmpty()) {
           break;
         }
-        roundResults =
-            parallel ? runParallel(taskId, replacements) : runSequential(taskId, replacements);
+        roundResults = runWaves(taskId, replacements);
         allWorkers.addAll(roundResults);
       }
 
@@ -273,7 +274,7 @@ public final class TeamTaskOrchestrator {
     return """
         Some specialist subtasks failed. Reply with ONLY a JSON object of replacement subtasks
         (different agents and/or clearer messages):
-        {"subtasks":[{"agent":"<agent-name>","message":"<concrete subtask>","remote":"<optional-peer-base-url>"}]}
+        {"subtasks":[{"agent":"<agent-name>","message":"<concrete subtask>","remote":"<optional-peer-base-url>","after":["<optional-prior-agent>"]}]}
         At most MAX_SUBTASKS subtasks. Known agents:
         KNOWN_AGENTS
         Goal:
@@ -320,6 +321,55 @@ public final class TeamTaskOrchestrator {
       }
     }
     return sb.toString();
+  }
+
+  /**
+   * Run subtasks in dependency waves: a subtask starts only after every {@code after} agent in the
+   * same plan has finished (success or failure). Cycles / unknown deps flush remaining as one wave.
+   */
+  private List<TeamTaskResult.WorkerResult> runWaves(
+      String taskId, List<TeamTaskPlan.SubTask> work) {
+    if (work == null || work.isEmpty()) {
+      return List.of();
+    }
+    List<TeamTaskResult.WorkerResult> all = new ArrayList<>();
+    for (List<TeamTaskPlan.SubTask> wave : scheduleWaves(work)) {
+      List<TeamTaskResult.WorkerResult> wr =
+          parallel ? runParallel(taskId, wave) : runSequential(taskId, wave);
+      all.addAll(wr);
+    }
+    return all;
+  }
+
+  /** Package-visible for tests. */
+  static List<List<TeamTaskPlan.SubTask>> scheduleWaves(List<TeamTaskPlan.SubTask> work) {
+    List<List<TeamTaskPlan.SubTask>> waves = new ArrayList<>();
+    if (work == null || work.isEmpty()) {
+      return waves;
+    }
+    List<TeamTaskPlan.SubTask> remaining = new ArrayList<>(work);
+    Set<String> done = new HashSet<>();
+    int guard = 0;
+    int limit = work.size() + 1;
+    while (!remaining.isEmpty() && guard < limit) {
+      guard++;
+      List<TeamTaskPlan.SubTask> wave = new ArrayList<>();
+      for (TeamTaskPlan.SubTask sub : remaining) {
+        if (done.containsAll(sub.after())) {
+          wave.add(sub);
+        }
+      }
+      if (wave.isEmpty()) {
+        waves.add(List.copyOf(remaining));
+        break;
+      }
+      waves.add(List.copyOf(wave));
+      remaining.removeAll(wave);
+      for (TeamTaskPlan.SubTask sub : wave) {
+        done.add(sub.agent());
+      }
+    }
+    return waves;
   }
 
   private List<TeamTaskResult.WorkerResult> runSequential(
@@ -421,7 +471,7 @@ public final class TeamTaskOrchestrator {
         if (remote.isBlank()) {
           remote = text(n, "remoteBaseUrl");
         }
-        list.add(new TeamTaskPlan.SubTask(agent, message, remote));
+        list.add(new TeamTaskPlan.SubTask(agent, message, remote, parseAfter(n)));
       }
       if (list.isEmpty()) {
         throw new IllegalStateException("plan subtasks had no usable agent entries");
@@ -445,6 +495,37 @@ public final class TeamTaskOrchestrator {
       return m.group();
     }
     throw new IllegalStateException("coordinator reply contained no JSON plan object");
+  }
+
+  static List<String> parseAfter(JsonNode n) {
+    if (n == null) {
+      return List.of();
+    }
+    JsonNode a = n.get("after");
+    if (a == null || a.isNull()) {
+      a = n.get("dependsOn");
+    }
+    if (a == null || a.isNull()) {
+      return List.of();
+    }
+    if (a.isTextual()) {
+      String t = a.asText("").strip();
+      return t.isEmpty() ? List.of() : List.of(t);
+    }
+    if (!a.isArray()) {
+      return List.of();
+    }
+    List<String> out = new ArrayList<>();
+    for (JsonNode x : a) {
+      if (x == null || x.isNull()) {
+        continue;
+      }
+      String t = x.asText("").strip();
+      if (!t.isEmpty()) {
+        out.add(t);
+      }
+    }
+    return List.copyOf(out);
   }
 
   private static String text(JsonNode n, String field) {
