@@ -80,7 +80,7 @@ OryxOS 是**企业自己的 Agent 运行底座（Agent Harness OS）**。
 - **Web 管理台**（Vue）：Agent 管理、创建即生成、文件浏览器、Markdown 渲染、Skill 详情、沙箱管理。
 - **工程化**：Makefile / `oryx-server` 启停脚本 / GitHub 自动发版（`release:` PR 触发）/ VitePress 双语文档站。
 
-**一句话总结**：公式 7/7 已齐；分布式地基与渠道/HITL/可观测等多方向已从「规划中」推进到可用（常默认关）。下一阶段重心 = **方向 I 团队交付做厚 + A2A/自我进化/主体画像等硬缺口**。
+**一句话总结**：公式 7/7 已齐；分布式地基与渠道/HITL/可观测等多方向已从「规划中」推进到可用（常默认关）。下一阶段重心 = **方向 C 能力统一 / A2A 收尾 + 自我进化 / 主体画像等硬缺口**（I 主线已齐）。
 
 ---
 
@@ -188,7 +188,7 @@ OryxOS 是**企业自己的 Agent 运行底座（Agent Harness OS）**。
 | 语义记忆（mem0 / Letta 式） | ✅ 015 语义召回 / 可选 Mem0 | B |
 | 主体画像记忆（Honcho 式用户 / 团队建模） | 🔜 规划中 | B |
 | Flow 声明式编排 | ✅ DSL+引擎（045–047）；AGENT→processStateless 已 Boot 接线 | C |
-| 子 Agent 委托 / A2A | ⚠️ delegate_agent + Card/send/stream/a2a_send/token/remote/hop + peer + Flow TEAM_TASK；续刀 | C |
+| 子 Agent 委托 / A2A | ⚠️ delegate_agent + Card/send/stream/a2a_send/token/remote/hop + peer + Flow TEAM_TASK + NL→Flow 草稿；能力统一续刀 | C |
 | `execute_code` 代码化编排（降本） | ✅ docker ProcessStarter Runner（默认关） | C |
 | 自动沉淀 Skill（自我进化） | 🔜 规划中 | D |
 | 开放标准 Skill 生态（agentskills.io / Hub） | 🔜 规划中 | D / G |
