@@ -134,4 +134,47 @@ class DingTalkMessageSenderTest {
     exchange.getResponseBody().write(bytes);
     exchange.close();
   }
+
+  @Test
+  @DisplayName("业务失败时日志里不得出现 sessionWebhook 的会话能力令牌")
+  void businessFailureDoesNotLeakTheSessionToken() {
+    String webhook =
+        "https://oapi.dingtalk.com/robot/sendBySession?session=66d7c695a9e1f18782a7cba1d9deb885";
+    String body = "{\"errcode\":310000,\"errmsg\":\"keywords not in content\"}";
+
+    IllegalStateException e =
+        org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> DingTalkMessageSender.rejectBusinessError(body, webhook));
+
+    // 异常文案会被 safeReply / 进度流兜底打进 WARN/ERROR，所以它本身不能带凭证
+    org.assertj.core.api.Assertions.assertThat(e.getMessage())
+        .as("官方文档形态的会话能力（?session=<32 位十六进制>）可让持有者以机器人身份发消息，不能进日志")
+        .doesNotContain("66d7c695a9e1f18782a7cba1d9deb885")
+        .doesNotContain("session=");
+    // 但排查仍要能看出是哪个端点
+    org.assertj.core.api.Assertions.assertThat(e.getMessage())
+        .contains("sendBySession")
+        .contains("310000");
+  }
+
+  @Test
+  @DisplayName("日志安全的 URL 外形：去掉 query / fragment / userinfo，保留 scheme+host+path")
+  void sanitizedUrlKeepsOnlyTheEndpoint() {
+    // 通过一个必然失败的业务响应来观察异常文案里的 URL 外形
+    String body = "{\"errcode\":1}";
+    String withUserInfo =
+        "https://user:pass@oapi.dingtalk.com/robot/sendBySession?session=abc#frag";
+    String msg =
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalStateException.class,
+                () -> DingTalkMessageSender.rejectBusinessError(body, withUserInfo))
+            .getMessage();
+
+    org.assertj.core.api.Assertions.assertThat(msg)
+        .contains("oapi.dingtalk.com/robot/sendBySession")
+        .doesNotContain("user:pass")
+        .doesNotContain("session=abc")
+        .doesNotContain("frag");
+  }
 }
