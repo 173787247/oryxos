@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -241,9 +242,27 @@ public final class InboundMediaJanitor {
       if (hours <= 0) {
         return DEFAULT_TTL;
       }
-      return Duration.ofHours(hours);
-    } catch (NumberFormatException e) {
+      Duration ttl = Duration.ofHours(hours);
+      return subtractableFromNow(ttl) ? ttl : DEFAULT_TTL;
+    } catch (NumberFormatException | ArithmeticException | DateTimeException e) {
       return DEFAULT_TTL;
+    }
+  }
+
+  /**
+   * 这个 TTL 能不能拿去做清理时的 {@code now.minus(ttl)}。
+   *
+   * <p>构造得出来不等于能用：超出 {@code Instant} 可表示范围时那一步会抛 {@code DateTimeException}， 被 {@code sweepIfDue}
+   * 吞成一条 warn —— 表现是清理每 60s 失败一次、永远不生效，而进程照跑。 用它做配置期校验，把这种情况挡在启动时。
+   */
+  private static boolean subtractableFromNow(Duration ttl) {
+    try {
+      Instant cutoff = Instant.now().minus(ttl);
+      // 正的 TTL 必然落在过去。这里比较一次，是为了让这次运算的结果真的被用上 ——
+      // PMD 的 UnusedReturnValue 不接受「为了让它抛而调用、随即丢弃结果」。
+      return !cutoff.isAfter(Instant.now());
+    } catch (ArithmeticException | DateTimeException e) {
+      return false;
     }
   }
 
@@ -257,10 +276,19 @@ public final class InboundMediaJanitor {
       if (mb < 0) {
         return DEFAULT_MAX_BYTES;
       }
-      return mb * 1024L * 1024L;
-    } catch (NumberFormatException e) {
+      return megabytesToBytes(mb);
+    } catch (NumberFormatException | ArithmeticException e) {
       return DEFAULT_MAX_BYTES;
     }
+  }
+
+  /**
+   * MB → 字节，溢出即抛。
+   *
+   * <p>普通乘法溢出会绕成一个负数或恰好 0，而 0 在本类里是「显式关闭配额」的哨兵 （见类注释）—— 溢出与故意关闭就分不出来了，配额会被静默关掉。 调用方在溢出时回退默认值。
+   */
+  static long megabytesToBytes(long mb) {
+    return Math.multiplyExact(Math.multiplyExact(mb, 1024L), 1024L);
   }
 
   private record DirStat(Path path, long bytes, Instant newestMtime) {}
