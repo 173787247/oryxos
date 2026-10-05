@@ -117,9 +117,9 @@ Maven 多模块单体，涉及 oryxos-core / oryxos-storage / oryxos-web / oryxo
 **Purpose**: 文档同步、全量门禁与真机走查落卷
 
 - [X] T040 [P] 在 `config/application.yml.example` 增加 `oryxos.web.rbac.*` 注释段（默认关、认证开才有授权对象、`roles` 两个默认值的过渡口径与「API Key 即使给 ADMIN 也不得改治理」的上限说明）
-- [ ] T041 [P] 更新 `CLAUDE.md`：配置段（`oryxos.web.rbac.*`）+ 授权口径（唯一决策点、三档矩阵、Key 上限、`/admin/**` 不裁决）
-- [ ] T042 [P] 更新 `docs/CliGuide.md`：`oryxos user role <username> <VIEWER|EDITOR|ADMIN>` 与 `user list` 的 ROLE 列
-- [ ] T043 [P] 更新 `website/docs/` 与 `website/zh/docs/` 中认证/权限相关页面（成对更新）：如何开启 RBAC、三档能做什么、Key 主体的边界
+- [X] T041 [P] 更新 `CLAUDE.md`：配置段（`oryxos.web.rbac.*`）+ 授权口径（唯一决策点、三档矩阵、Key 上限、`/admin/**` 不裁决）
+- [X] T042 [P] 更新 `docs/CliGuide.md`：`oryxos user role <username> <VIEWER|EDITOR|ADMIN>` 与 `user list` 的 ROLE 列
+- [X] T043 [P] 更新 `website/docs/` 与 `website/zh/docs/` 中认证/权限相关页面（成对更新）：如何开启 RBAC、三档能做什么、Key 主体的边界
 - [ ] T044 `mvn -q spotless:apply && mvn verify` 全量质量门禁全绿（Spotless + P3C + Checkstyle + SpotBugs/FindSecBugs + OWASP；P3C 若对实现类命名报红，按 020 先例改名并同步全部文档，见 spec.md §Clarifications 第 5 条）
 - [ ] T045 按 quickstart.md 完整走查 V1~V6 并落卷 `specs/039-identity-authorization/acceptance-report.md`（SC-001~SC-007 逐项对照；未走通项如实标注原因与复测计划）
 - [ ] T046 [P] 覆盖率与开销实测：矩阵/映射表用例计数分套件落卷；`decide` 单次耗时与每请求角色解析次数（SC-006）以微基准或日志计时记录
