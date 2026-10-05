@@ -351,7 +351,7 @@ interface OryxTool {
 | `GET` | `/health` | 健康检查 |
 | `GET` | `/info` | 运行信息 + Provider 状态 |
 
-**核心阶段不做**：认证（假设内网）、SSE 流式、WebSocket、限流、RBAC。
+**核心阶段不做**（历史口径——此后已分别补齐：认证 012、REST API Key 018、资源授权 039〔见「配置加载规则」〕、SSE 019）：限流、WebSocket 仍属扩展阶段。
 
 ---
 
@@ -415,6 +415,17 @@ turn 根 spanId = traceId 前 16 hex 确定性父子。门禁：`make helm-lint`
 ci helm job 的 kind 安装冒烟；mock provider 可 `-Doryxos.mock.latency-ms` 注入固定时延供吞吐压测。
 
 落库凭证（providers.api_key、notify_channels.config 敏感项）经主密钥 AES-GCM 加密存储（022，`enc:v1:` 前缀）：`ORYXOS_MASTER_KEY` 环境变量优先，缺省 `.oryxos/master.key` 首启自动生成；密钥不匹配启动即拒并指路恢复。
+
+资源授权（039）：`oryxos.web.rbac.enabled=true`（默认 false=不装授权层，行为与引入前逐字节一致）后，两扇认证
+Filter 在认证成功时把主体交给唯一决策点 `AuthorizationService`：按 `RequestActionResolver` 的路径→动作全表映射，
+**未登记路径 fail-closed**；拒绝即 403（与 401 区分）+ 结构化 WARN + `authz_events` 落库（写库失败不改变裁决）。
+三档逐级包含 VIEWER ⊆ EDITOR ⊆ ADMIN（只读 / 干活与管资产 / 管成员·渠道·策略·工作区设置），**API Key 主体另有
+上限**：即使授予 ADMIN 也不得 `MANAGE_MEMBERS`/`MANAGE_POLICIES`；主体自带角色优先，不取并集（防提权）。默认档
+`oryxos.web.rbac.roles.default-user-roles`/`default-api-key-roles` 均为空=无角色即拒绝（前缀必须与
+`oryxos.web.rbac` 分开，同前缀会绑定冲突）；`deny-anonymous` 默认 true。开关关系是**认证开 → 授权才有对象**：
+`web.auth` 与 `web.apikey` 都关时没有门产出主体，请求恒为匿名，授权不会把单机零配置部署锁死。误配拒启
+（`RbacStartupCheck`）：开 rbac 但 apikey 未开、或库中无 ADMIN 账号 → 启动即拒并指路 `oryxos user role
+<name> ADMIN`；auth 未开只 WARN。渠道入站、审批回调、健康检查与 `/api/v1/auth/**` 只认证不裁决。
 
 ---
 
