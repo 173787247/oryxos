@@ -67,6 +67,53 @@ public record ChannelView(
     return Map.copyOf(masked);
   }
 
+  /**
+   * 回写路径：把等于掩码的字段按「不改该字段」处理，用 {@code stored} 里的真实值顶上。
+   *
+   * <p>列表回显的就是掩码，而 {@code add}/{@code update} 收的正是同一个 DTO —— 不这样处理的话，「取回 → 改 → 存」会把 channels.yaml
+   * 里的真实凭证静默改成 {@code ******}（渠道随后带着假凭证上线）。
+   */
+  public ChannelConfig toConfigKeepingMasked(ChannelConfig stored) {
+    ChannelConfig incoming = toConfig();
+    if (stored == null) {
+      return incoming;
+    }
+    return new ChannelConfig(
+        incoming.name(),
+        incoming.type(),
+        incoming.appId(),
+        keepIfMasked(incoming.appSecret(), stored.appSecret()),
+        incoming.agent(),
+        incoming.enabled(),
+        mergeExtraKeepingMasked(incoming.extra(), stored.extra()),
+        incoming.governance());
+  }
+
+  private static String keepIfMasked(String incoming, String stored) {
+    return MASK.equals(incoming) ? stored : incoming;
+  }
+
+  private static Map<String, String> mergeExtraKeepingMasked(
+      Map<String, String> incoming, Map<String, String> stored) {
+    if (incoming.isEmpty()) {
+      return incoming;
+    }
+    java.util.LinkedHashMap<String, String> merged = new java.util.LinkedHashMap<>(incoming);
+    for (java.util.Map.Entry<String, String> entry : merged.entrySet()) {
+      if (!MASK.equals(entry.getValue())) {
+        continue;
+      }
+      String previous = stored.get(entry.getKey());
+      if (previous == null) {
+        // 掩码含义是「这个字段不改」，原配置里没有该字段时无从取值：点名报错，不静默落盘一个掩码。
+        throw new IllegalArgumentException(
+            "extra." + entry.getKey() + " 提交的是掩码 " + MASK + "，但原配置里没有该字段，请提交真实值或 ${ENV} 占位");
+      }
+      entry.setValue(previous);
+    }
+    return merged;
+  }
+
   /** 未设或空治理不回显对象，避免把「没元数据」写成全空块。 */
   private static AssetGovernanceView toView(AssetGovernance governance) {
     if (governance == null || !governance.isPresent()) {
