@@ -325,6 +325,27 @@ class ChannelConfigLoaderTest {
   }
 
   @Test
+  @DisplayName("extra 的空值（YAML null）点名报错，不是 NPE 让整份 channels.yaml 加载失败")
+  void extraNullValueIsNamedNotNpe() throws Exception {
+    write(
+        """
+        channels:
+          - name: ops-teams
+            type: teams
+            app_id: a
+            app_secret: b
+            agent: ops-agent
+            extra:
+              tenant_id:
+        """);
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> new ChannelConfigLoader(configFile()).loadRaw());
+    assertTrue(e.getMessage().contains("ops-teams"), e.getMessage());
+    assertTrue(e.getMessage().contains("tenant_id"), e.getMessage());
+  }
+
+  @Test
   @DisplayName("resolve 不把 governance 当凭证：块内 ${ENV} 原样保留")
   void resolveDoesNotTreatGovernanceAsCredentials() throws Exception {
     write(
