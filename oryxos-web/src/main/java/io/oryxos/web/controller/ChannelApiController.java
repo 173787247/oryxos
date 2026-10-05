@@ -194,12 +194,13 @@ public class ChannelApiController {
   @PutMapping("/{name}")
   public ApiResponse<ChannelView> update(
       HttpServletRequest request, @PathVariable String name, @RequestBody ChannelView req) {
-    requireExists(name);
+    ChannelConfig stored = requireConfig(name);
     if (req == null) {
       throw new IllegalArgumentException("渠道定义为空"); // → 400
     }
     requireChannelManage(request, name);
-    return ApiResponse.ok(ChannelView.from(admin.update(name, req.toConfig())));
+    // 回显的是掩码，回写时按「该字段不改」处理（否则真实凭证被 ****** 顶掉）
+    return ApiResponse.ok(ChannelView.from(admin.update(name, req.toConfigKeepingMasked(stored))));
   }
 
   @DeleteMapping("/{name}")
