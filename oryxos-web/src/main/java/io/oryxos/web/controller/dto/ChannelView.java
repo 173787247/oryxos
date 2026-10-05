@@ -3,6 +3,7 @@ package io.oryxos.web.controller.dto;
 import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.policy.AssetGovernance;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 渠道配置视图（017）：出参 appSecret 永不回显明文——${ENV} 字面量原样保留（不含敏感），明文值以 ****** 掩码。
@@ -38,11 +39,21 @@ public record ChannelView(
 
   private static final String MASK = "******";
 
+  /**
+   * app_id 装的是令牌的渠道类型：这些渠道的令牌就写在 {@code app_id}（见 {@code docs/*ChannelSetup.md}，例如 {@code app_id:
+   * ${SLACK_BOT_TOKEN}}），回显必须与 app_secret 同口径掩码。其余类型的 app_id 是公开标识（飞书 cli_xxx、企微 corpid、QQ AppID
+   * 等），掩掉反而让管理台认不出绑的是哪个应用。
+   *
+   * <p>★ 新增渠道类型若把凭证放进 app_id，必须把类型加进这张表。
+   */
+  private static final Set<String> APP_ID_IS_CREDENTIAL =
+      Set.of("telegram", "slack", "discord", "whatsapp");
+
   public static ChannelView from(ChannelConfig config) {
     return new ChannelView(
         config.name(),
         config.type(),
-        config.appId(),
+        maskAppId(config.type(), config.appId()),
         mask(config.appSecret()),
         config.agent(),
         config.enabled(),
@@ -67,6 +78,10 @@ public record ChannelView(
     return Map.copyOf(masked);
   }
 
+  private static String maskAppId(String type, String appId) {
+    return APP_ID_IS_CREDENTIAL.contains(type) ? mask(appId) : appId;
+  }
+
   /**
    * 回写路径：把等于掩码的字段按「不改该字段」处理，用 {@code stored} 里的真实值顶上。
    *
@@ -81,7 +96,7 @@ public record ChannelView(
     return new ChannelConfig(
         incoming.name(),
         incoming.type(),
-        incoming.appId(),
+        keepIfMasked(incoming.appId(), stored.appId()),
         keepIfMasked(incoming.appSecret(), stored.appSecret()),
         incoming.agent(),
         incoming.enabled(),

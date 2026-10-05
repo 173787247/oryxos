@@ -42,7 +42,9 @@ class ChannelMaskRoundTripTest {
     ProfileRegistry profiles = mock(ProfileRegistry.class);
     when(profiles.get("ops-agent")).thenReturn(Optional.of(mock(Profile.class)));
     Map<String, Function<ChannelConfig, InboundChannelAdapter>> factories =
-        Map.of("stub", c -> new StubChannelAdapter(c.name(), c.agent()));
+        Map.of(
+            "stub", c -> new StubChannelAdapter(c.name(), c.agent()),
+            "telegram", c -> new StubChannelAdapter(c.name(), c.agent()));
     ChannelAdminService admin =
         new ChannelAdminService(loader, new InboundChannelRegistry(), profiles, factories);
     mvc =
@@ -66,6 +68,25 @@ class ChannelMaskRoundTripTest {
         .andExpect(status().isOk());
 
     assertEquals("real-secret", loader.loadRaw().get(0).appSecret());
+  }
+
+  @Test
+  @DisplayName("PUT 回写列表里的 ******，不得把 app_id 里的令牌顶成掩码")
+  void maskedAppIdIsNotWrittenBack() throws Exception {
+    loader.save(
+        List.of(
+            new ChannelConfig(
+                "ops-tg", "telegram", "123456:AAH-real-bot-token", "ops_bot", "ops-agent", true)));
+
+    mvc.perform(
+            put("/api/v1/channels/ops-tg")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"ops-tg\",\"type\":\"telegram\",\"appId\":\"******\","
+                        + "\"appSecret\":\"ops_bot\",\"agent\":\"ops-agent\",\"enabled\":true}"))
+        .andExpect(status().isOk());
+
+    assertEquals("123456:AAH-real-bot-token", loader.loadRaw().get(0).appId());
   }
 
   @Test
