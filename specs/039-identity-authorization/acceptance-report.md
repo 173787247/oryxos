@@ -89,7 +89,7 @@ mvn -B clean verify -pl oryxos-web -am \
 | SC-004 不泄露/不混淆 | 403 统一信封、无权与不存在不可区分 | ⏳ 待验收 | 部分：`RbacEnforcerTest` 已断言拒绝不带 HTML 内容类型；统一信封与「不可区分」需 T026 用例与真机走查 |
 | SC-005 端点覆盖 100% | 启动期枚举 + 遗漏即拒 | ⏳ 待验收 | 依赖差距 4 |
 | SC-006 开销 | `decide` ≤0.1ms、每请求 ≤1 次索引查询、p99 <1% | ⏳ 待验收 | 未实测 |
-| SC-007 文档同步 | CLAUDE.md / application.yml.example / CliGuide / website 中英文 | ⚠️ 部分 | `application.yml.example` 已改；其余四项待办（T041~T043） |
+| SC-007 文档同步 | CLAUDE.md / application.yml.example / CliGuide / website 中英文 | ✅ 已落地 | 四处全部同步（T040~T043）：配置段、`oryxos user role` 与 `user list` 的 ROLE 列、网站中英文授权说明成对更新；见 #826（合并 `ab3596b8`，CI 四条全绿） |
 
 ## 实现与设计偏差（未实现清单，按阻断程度排序）
 
