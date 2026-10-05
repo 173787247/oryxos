@@ -73,7 +73,7 @@ curl http://localhost:8080/api/v1/health
 
 ## Account management
 
-See the [`oryxos user` CLI reference](./cli.md#user-management) for `add`, `list`, `passwd`, `disable`, and `delete`.
+See the [`oryxos user` CLI reference](./cli.md#user-management) for `add`, `list`, `role`, `passwd`, `disable`, and `delete`.
 
 - `list` **never prints passwords or hashes**.
 - `disable` keeps the row but blocks login (returns 401). `delete` removes it permanently.
@@ -105,8 +105,58 @@ curl -H "Authorization: Bearer oryx_..." http://localhost:8080/api/v1/profiles
 curl http://localhost:8080/api/v1/health
 ```
 
+## Authorization (RBAC)
+
+Authentication answers "who are you"; authorization answers "what may you do". They are independent switches — **authorization only has a subject once authentication is on**: with both `web.auth` and `web.apikey` off, no gate produces a principal, every request stays anonymous, and authorization will not lock you out of a zero-config single-machine deployment (deliberate).
+
+```yaml
+oryxos:
+  web:
+    rbac:
+      enabled: true          # default false — no authorization layer, behavior unchanged
+      deny-anonymous: true   # default true; reject unauthenticated subjects once RBAC is on
+      roles:
+        default-user-roles: []      # default empty — no role means denied
+        default-api-key-roles: []   # default empty — no default rights for machine credentials
+```
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `oryxos.web.rbac.enabled` | `false` | Master switch. `true` = decide every `/api/v1/**` and `/admin/**` subject by role. |
+| `oryxos.web.rbac.deny-anonymous` | `true` | Whether to reject unauthenticated subjects outright. |
+| `oryxos.web.rbac.roles.default-user-roles` | empty | Fallback for accounts that carry no role of their own; **empty means denied**. |
+| `oryxos.web.rbac.roles.default-api-key-roles` | empty | Fallback for API keys; by default a machine credential gets no rights at all. |
+
+Once on, each request's principal goes to a **single decision point**, `AuthorizationService`, which maps the path to an action and decides; **an unmapped protected path is denied (fail-closed)**. A denial returns **403** (distinct from the 401 of failed authentication), leaves a structured log line, and is written to the `authz_events` table for filtering. Channel inbound webhooks, approval callbacks, health probes and `/api/v1/auth/**` are authenticated only, never adjudicated.
+
+### What the three roles may do
+
+| Role | What it may do |
+| --- | --- |
+| `VIEWER` | Read-only: see the workspace and the audit trail. |
+| `EDITOR` | Above VIEWER, may do work: run Agents, manage Agents / knowledge / Skills / its own sessions. |
+| `ADMIN` | Above EDITOR, manages the boundaries themselves: members, channels, policies, workspace settings. |
+
+They nest (VIEWER ⊆ EDITOR ⊆ ADMIN). **API keys have a hard ceiling of their own**: even with `ADMIN` granted, a key may not change members or policies — a key is a long-lived machine credential that can be copied into any environment, so it does not share the human account's permission ceiling. A principal's own roles win and are **never unioned** with the fallback (otherwise a VIEWER account could escalate through the key role carried by the same request).
+
+```bash
+oryxos user role admin ADMIN   # set the role (replaces, does not append)
+oryxos user list               # the ROLE column shows the current tier
+```
+
+New accounts default to `VIEWER`; doing real work requires an explicit promotion. Roles are re-resolved from the database on every request with no caching, so **a change or revocation takes effect on the very next request**.
+
+### Startup checks (refuses to boot on misconfiguration)
+
+With `rbac.enabled=true`, startup runs two checks and **refuses to start** when either fails, naming the fix:
+
+- **API key auth is off** — no gate would produce a principal, so authorization would silently fail open;
+- **no ADMIN account exists** — governance would be locked out; the error points at `oryxos user role <name> ADMIN`.
+
+`web.auth.enabled=false` only warns (console data pages would have no session credential to use).
+
 ## Design notes
 
-- **No Spring Security full stack**: only `spring-security-crypto` (the password-hashing jar) is used — no filter chain, no autoconfig, no RBAC. The `BasicAuthFilter` is a plain `OncePerRequestFilter` registered via a `FilterRegistrationBean` scoped to `/admin/**`.
-- **What this is not**: this is not SSO, RBAC, multi-tenancy, or session-based login with logout. Those are extension-phase capabilities. Password hashing with a delegating encoder leaves an upgrade path to Argon2 without migration.
-- **HTTP Basic has no logout** — clearing credentials is browser-controlled. For richer session semantics, a future feature can add a login page backed by the same `web_users` table.
+- **No Spring Security full stack**: only `spring-security-crypto` (the password-hashing jar) is used — no filter chain, no autoconfig. The `BasicAuthFilter` is a plain `OncePerRequestFilter` registered via a `FilterRegistrationBean` scoped to `/admin/**`; authorization (RBAC) likewise does not go through Spring Security but through 039's own `RbacEnforcer` + `AuthorizationService`.
+- **Scope**: this page covers authentication only. SSO/OIDC (040) and authorization RBAC (039, see above) are built in; the console also has session-based login with logout (012, `POST /api/v1/auth/logout`). Password hashing with a delegating encoder leaves an upgrade path to Argon2 without migration.
+- **HTTP Basic itself has no logout** — clearing Basic credentials is browser-controlled. The console additionally has a session login page (`/admin/login`) backed by the same `web_users` table, where `POST /api/v1/auth/logout` clears the session and its cookie (idempotent).

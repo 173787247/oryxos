@@ -282,10 +282,27 @@ oryxos user list
 ```
 
 ```text
-USERNAME                ENABLED  CREATED_AT
-admin                   true     2026-07-22T10:30:00Z
-alice                   true     2026-07-22T11:00:00Z
+USERNAME                 ENABLED  ROLE             CREATED_AT
+admin                    true     VIEWER           2026-07-22T10:30:00Z
+alice                    true     EDITOR           2026-07-22T11:00:00Z
 ```
+
+The `ROLE` column (039 authorization) is the account's current role; an account holding several roles shows them comma-separated, and an empty role field shows `-`.
+
+### user role
+
+Set an account's role (039 authorization): `VIEWER` (read-only) / `EDITOR` (do work and manage assets) / `ADMIN` (manage members, channels, policies, workspace settings). They nest, and the value is case-insensitive. The command **replaces** the role — one role per invocation, never appended; an invalid role name fails with a clear error.
+
+```bash
+oryxos user role <username> <VIEWER|EDITOR|ADMIN>
+```
+
+```bash
+oryxos user role admin ADMIN
+# Role of 'admin' set to ADMIN
+```
+
+New accounts default to `VIEWER`, so doing real work requires an explicit promotion. Roles are re-resolved from the database on every request with no caching, so a change or revocation takes effect on the **very next request**. For how to turn authorization on, what each tier may do, and the permission ceiling on API keys, see the "Authorization (RBAC)" section of [Authentication](./auth.md).
 
 ### user passwd
 

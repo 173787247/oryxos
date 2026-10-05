@@ -72,6 +72,8 @@ oryxos chat --profile weather      # ⑤ 开聊
 | `oryxos apikey add <name>` | 轻 | 生成 REST API Key（明文仅显示一次） |
 | `oryxos apikey list` | 轻 | 列出 API Key（前缀/状态/最近使用，无明文） |
 | `oryxos apikey revoke <name>` | 轻 | 吊销 API Key（即时生效） |
+| `oryxos user list` | 轻 | 列出管理台账号（USERNAME / ENABLED / ROLE / CREATED_AT） |
+| `oryxos user role <name> <VIEWER\|EDITOR\|ADMIN>` | 轻 | 设置账号角色（039 授权；新建账号默认 VIEWER） |
 
 **轻/重的区别**：轻命令直接读写文件或只读查库，**不启动 Spring**、秒级返回（实测约 0.35s）；重命令要调模型、跑引擎，才付出 2~4 秒的完整运行时启动代价。判断标准就一条：这个命令要不要调模型/跑引擎。
 
@@ -212,6 +214,33 @@ Agent 的 `AGENT.md` provider 节可声明 `fallback:` 有序备用列表（每�
 - 参数（有安全默认，一般不用动）：`lease-ttl` 30s / `heartbeat-interval` TTL/3 / `poll-interval` 500ms / `wait-timeout` 120s / `workspace-poll-interval` 1s（027）。
 - **文件面（027）**：`.oryxos/` 工作区放共享卷（NFS / K8s RWX PVC，支持矩阵见 `docs/SharedVolumeGuide.md`）——任一副本上建/改/删 Agent、Skill、人格，其余副本 ≤3s 生效（DB 版本号总线，集群档不再依赖 inotify）；知识索引重建跨副本恰好一次（认领冲突返回 409「构建进行中」，执行副本崩溃 30s 后可接管）；运维直接改盘后调 `POST /api/v1/workspace/refresh` 触发全副本重载。
 - **K8s 一条命令部署（039）**：`helm install oryxos charts/oryxos --set database.existingSecret=… --set masterKey.existingSecret=…`——双副本默认档、滚动升级零失败（就绪门控 + preStop 优雅期 + 停机即释放渠道属主租约）、可选 `otel.endpoint` 把每轮 trace 接进 Jaeger/Tempo（与 `/api/v1/audit/trace/{id}` 同源互查）。安装/升级/排查见 `docs/K8sDeployGuide.md`；裸机与 compose 形态零变化（`bin/stop.sh` 宽限统一为 40s，对齐实测优雅停机口径）。
+
+### 4.13 账号与角色（012 / 039）——管理台账号与授权三档
+
+管理台账号（012 认证）与资源授权（039）的账号面。只读写库、不调模型；`user list` **绝不打印密码或哈希**。
+
+```bash
+oryxos user add admin                      # 交互输两遍密码（≥8 字符）；新建账号默认 VIEWER
+oryxos user list                           # USERNAME / ENABLED / ROLE / CREATED_AT
+oryxos user role admin ADMIN               # 设角色：VIEWER | EDITOR | ADMIN（大小写不敏感）
+oryxos user passwd admin                   # 改密码（交互输新密码）
+oryxos user disable admin                  # 禁用：保留行，登录即 401；enable 反向
+oryxos user enable admin
+oryxos user delete admin
+oryxos user oidc-map admin <issuer> <sub>  # 040：把 OIDC 外源主体映射到本地账号
+```
+
+- **`user role` 每次设一个角色**：覆盖式（不是追加），非法角色名清晰报错并给非零退出码。角色每请求从库重解析、不缓存——**改档或撤权在下一次请求即生效**，无需重启。
+- **`user list` 的 ROLE 列**：一账号多角色时以逗号分隔；角色字段为空显示 `-`。
+- **三档能做什么**（逐级包含，定义在 `AuthorizationService` 的唯一决策点，不在 Filter/Controller 里比角色）：
+  - `VIEWER` —— 只读：看工作区与审计。
+  - `EDITOR` —— 在 VIEWER 之上可干活：跑 Agent，管 Agent / 知识库 / Skill / 自己的会话。
+  - `ADMIN` —— 在 EDITOR 之上管边界：成员、渠道、策略、工作区设置。
+- **API Key 主体另有硬上限**：即使给它 `ADMIN`，也不得改成员与策略（Key 是长期有效、可复制到任意环境的机器凭证，不与人账号同权限上限）。
+- **开启授权**（`oryxos.web.rbac.enabled=true`，默认 false）后启动做两项校验，**误配即拒启并指路**：apikey 认证未开（没有门产出主体，授权会静默失效）、或库中没有任何 ADMIN 账号（治理面会锁死，报错直接提示 `oryxos user role <name> ADMIN`）→ 均拒绝启动；`oryxos.web.auth.enabled=false` 只告警（管理台数据页将无 session 可用）。开关关系是**认证开 → 授权才有对象**。
+- **拒绝留痕**：越权请求返回 403（与认证失败的 401 区分），结构化 WARN 入日志，并落 `authz_events` 表可筛；未登记的受保护路径 fail-closed 拒绝。外部回调面（渠道入站、审批回调等）与健康检查、`/api/v1/auth/**` 只认证不裁决。
+
+面向使用者的授权说明见网站文档「认证 → 授权（RBAC）」一节。
 
 ## 5. 配置与凭证
 
