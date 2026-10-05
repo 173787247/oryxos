@@ -98,7 +98,7 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
       throw new IllegalArgumentException(
           "渠道 " + config.name() + " 绑定的 Agent " + config.agent() + " 不存在");
     }
-    String probe = trimSlash(apiBase) + "/bot" + config.appId() + "/getMe";
+    String probe = tokenUrl("/getMe");
     guard.check(probe);
     running = true;
     offset = 0;
@@ -197,8 +197,7 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
   }
 
   private JsonNode getUpdates() throws Exception {
-    String url =
-        trimSlash(apiBase) + "/bot" + config.appId() + "/getUpdates?timeout=25&offset=" + offset;
+    String url = tokenUrl("/getUpdates?timeout=25&offset=" + offset);
     guard.check(url);
     HttpRequest request =
         HttpRequest.newBuilder().uri(URI.create(url)).timeout(POLL_TIMEOUT).GET().build();
@@ -224,6 +223,27 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
   private static String trimSlash(String base) {
     String s = base.strip();
     return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
+  }
+
+  /**
+   * Bot API 地址：token（{@code app_id}）进路径，本类所有带凭证的地址都由这里拼。
+   *
+   * <p>先确认拼出来的地址能被解析。token 含空白（{@code .env} / 带引号 YAML 的粘贴事故）时 {@link URI#create}
+   * 抛错，而这条链路上唯一的捕获点是沙箱守卫——它的「非法 URL」文案会**回带整条地址**， 随后经 {@code ChannelStatus.error} 出现在 {@code GET
+   * /api/v1/channels/status}（core-stage 默认无鉴权） 与 {@code LOG.error} 上。所以在这里先失败，并且不把 token 写进文案。
+   *
+   * <p>判据就是 {@link URI#create} 本身：守卫能接受的地址这里一律放行，这里拦下的都是守卫会回带的那一类， 因此不额外规定 token 的格式（本仓测试夹具用的
+   * {@code app-id} 一类占位同样放行）。
+   */
+  private String tokenUrl(String path) {
+    String url = trimSlash(apiBase) + "/bot" + config.appId() + path;
+    try {
+      URI.create(url);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "渠道 " + config.name() + " 的 app_id 含不能用于 URL 路径的字符（空白/换行等），请检查配置");
+    }
+    return url;
   }
 
   private static String sanitize(String value) {
