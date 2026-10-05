@@ -48,6 +48,10 @@ public class InboundMessageService {
   static final String NEW_SESSION_REPLY = "已开启新会话，之前的对话上下文已清空。";
   static final String STOP_REPLY = "已发送停止信号，正在执行的任务将在下一轮停止。";
   static final String STOP_NO_SESSION_REPLY = "当前没有正在执行的任务。";
+
+  /** 集群档专用：本副本没在跑这个会话，但另一个副本可能正在跑 —— 不能回 {@link #STOP_NO_SESSION_REPLY}（那是"没有正在执行的任务"，与事实不符）。 */
+  static final String STOP_ELSEWHERE_REPLY = "本副本没有在跑这个会话的推理；它可能在另一个副本上。";
+
   private static final String NEW_SESSION_COMMAND = "/new";
 
   /** 飞书等可能对同一意图连推多条不同 message_id；短窗内只确认一次。 */
@@ -61,6 +65,10 @@ public class InboundMessageService {
   private final ProfileRegistry profileRegistry;
   private final AgentExecutionService executionService;
   private final MessageDeduplicator deduplicator;
+
+  /** 集群档只读租约查询；默认 NONE（单机档语义不变）。 */
+  private TurnLeaseLookup turnLeaseLookup = TurnLeaseLookup.NONE;
+
   private final InboundMediaEnricher mediaEnricher;
   private final Duration processingNoticeDelay;
   private final InterruptManager interruptManager;
@@ -318,6 +326,15 @@ public class InboundMessageService {
     return false;
   }
 
+  /**
+   * 接线只读的租约查询（集群档）。默认 {@link TurnLeaseLookup#NONE}，即单机档行为不变。
+   *
+   * <p>用 setter 而非构造参数是为了不动既有构造点；若要更严的依赖表达，改成构造注入亦可。
+   */
+  public void setTurnLeaseLookup(TurnLeaseLookup lookup) {
+    this.turnLeaseLookup = lookup == null ? TurnLeaseLookup.NONE : lookup;
+  }
+
   private void handleStopCommand(
       InboundMessage msg, InboundChannelAdapter replyVia, String replyTo) {
     if (interruptManager == null) {
@@ -327,7 +344,15 @@ public class InboundMessageService {
     String chatKey = ActiveRunRegistry.chatKey(msg.channelType(), msg.chatId());
     String sessionId = activeRuns.current(chatKey).orElse(null);
     if (sessionId == null) {
-      safeReply(replyVia, msg.chatId(), STOP_NO_SESSION_REPLY, replyTo);
+      // 本地登记为空不等于"没有在跑"：集群档下推理可能在另一个副本上（平台随机投一型渠道）。
+      // 只读地问一次会话 id，再问一次租约；两问都成立才改回话 —— 都是只读，不改任何状态。
+      String elsewhere =
+          sessionManager
+              .findSessionId(msg.channelType(), msg.userId(), replyVia.boundAgent())
+              .filter(turnLeaseLookup::heldByAnotherReplica)
+              .map(id -> STOP_ELSEWHERE_REPLY)
+              .orElse(STOP_NO_SESSION_REPLY);
+      safeReply(replyVia, msg.chatId(), elsewhere, replyTo);
       return;
     }
     interruptManager.interrupt(sessionId);

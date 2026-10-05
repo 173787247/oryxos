@@ -16,6 +16,12 @@ public interface SessionManager {
 
   Optional<Session> get(String sessionId);
 
+  /**
+   * 只读查询：三元组对应的会话若已存在则返回，不存在返回空 —— 与 {@link #getOrCreate} 不同， 它【不会创建】任何东西。集群档下用它把 chatId 侧的请求换算成
+   * sessionId（会话不存在时 就不该去谈「别的副本在不在跑」）。
+   */
+  Optional<String> findSessionId(String channel, String userId, String profileName);
+
   void save(Session session);
 
   /**

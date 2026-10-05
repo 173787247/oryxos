@@ -48,6 +48,13 @@ public class JpaSessionManager implements SessionManager {
   }
 
   @Override
+  public Optional<String> findSessionId(String channel, String userId, String profileName) {
+    // 复用与 getOrCreate 同一个私有算法：拼接只在这一处发生（接口注释的要求）
+    String id = sessionId(channel, userId, profileName);
+    return repository.findById(id).map(Session::getSessionId);
+  }
+
+  @Override
   public Optional<io.oryxos.core.session.Session> get(String sessionId) {
     return repository.findById(sessionId).map(this::restore);
   }
