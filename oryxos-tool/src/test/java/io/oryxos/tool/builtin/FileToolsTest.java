@@ -13,6 +13,7 @@ import io.oryxos.tool.sandbox.FileSandboxProperties;
 import io.oryxos.tool.sandbox.HttpSandboxProperties;
 import io.oryxos.tool.sandbox.PermissiveSandbox;
 import io.oryxos.tool.sandbox.Sandbox;
+import io.oryxos.tool.sandbox.SandboxAction;
 import io.oryxos.tool.sandbox.SandboxViolationException;
 import io.oryxos.tool.sandbox.ShellSandboxProperties;
 import io.oryxos.tool.sandbox.WhitelistSandbox;
@@ -972,5 +973,42 @@ class FileToolsTest {
             IllegalArgumentException.class, () -> tools.editFile(f.toString(), "seed", huge));
     assertTrue(ex.getMessage().contains("edit-me.txt"), ex.getMessage());
     assertEquals("seed", Files.readString(f));
+  }
+
+  @Test
+  @DisplayName("白名单根里的 link/.. 不能把读写指到白名单外")
+  void externalWhitelistedAliasWithParentSegmentCannotEscape() throws IOException {
+    Path workspace = Files.createDirectories(dir.resolve("ws"));
+    Path ext = Files.createDirectories(dir.resolve("ext"));
+    Path outside = Files.createDirectories(dir.resolve("outside"));
+    Files.createDirectories(outside.resolve("sub"));
+    Files.writeString(outside.resolve("secret.txt"), "TOP-SECRET");
+    try {
+      Files.createSymbolicLink(ext.resolve("link"), outside.resolve("sub"));
+    } catch (IOException | UnsupportedOperationException e) {
+      Assumptions.assumeTrue(false, "本机无法创建符号链接，跳过: " + e.getMessage());
+    }
+    var storage =
+        new io.oryxos.core.workspace.LocalWorkspaceStorageProvider().open(workspace, null);
+    Sandbox whitelist =
+        new WhitelistSandbox(
+            new FileSandboxProperties(List.of(workspace.toString(), ext.toString())),
+            new ShellSandboxProperties(List.of()),
+            new HttpSandboxProperties(List.of()));
+    FileTools guarded = new FileTools(whitelist, storage);
+    String escaped = ext.resolve("link/../secret.txt").toString();
+
+    assertThrows(
+        SandboxViolationException.class,
+        () -> whitelist.enforce(new SandboxAction(ActionType.FILE_READ, escaped)));
+    assertThrows(SandboxViolationException.class, () -> guarded.readFile(escaped));
+    assertEquals("TOP-SECRET", Files.readString(outside.resolve("secret.txt")));
+
+    String escapedWrite = ext.resolve("link/../victim.txt").toString();
+    assertThrows(
+        SandboxViolationException.class,
+        () -> whitelist.enforce(new SandboxAction(ActionType.FILE_WRITE, escapedWrite)));
+    assertThrows(SandboxViolationException.class, () -> guarded.writeFile(escapedWrite, "PWNED"));
+    assertFalse(Files.exists(outside.resolve("victim.txt")));
   }
 }
