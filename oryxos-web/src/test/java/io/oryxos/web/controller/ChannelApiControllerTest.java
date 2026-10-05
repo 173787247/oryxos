@@ -74,6 +74,41 @@ class ChannelApiControllerTest {
   }
 
   @Test
+  @DisplayName("list：app_id 装令牌的类型（telegram/slack/discord/whatsapp）同样掩码；公开标识不掩码")
+  void listMasksTokenBearingAppId() throws Exception {
+    when(admin.listRaw())
+        .thenReturn(
+            List.of(
+                new ChannelConfig(
+                    "ops-tg",
+                    "telegram",
+                    "123456:AAH-real-bot-token",
+                    "hook-secret",
+                    "ops-agent",
+                    true),
+                new ChannelConfig(
+                    "ops-slack",
+                    "slack",
+                    "xoxb-real-bot-token",
+                    "xapp-real-app-token",
+                    "ops-agent",
+                    true),
+                new ChannelConfig(
+                    "ops-feishu",
+                    "feishu",
+                    "cli_public_app_id",
+                    "real-secret",
+                    "ops-agent",
+                    true)));
+
+    mvc.perform(get("/api/v1/channels"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].appId").value("******"))
+        .andExpect(jsonPath("$.data[1].appId").value("******"))
+        .andExpect(jsonPath("$.data[2].appId").value("cli_public_app_id"));
+  }
+
+  @Test
   @DisplayName("status：呈现渠道在线状态与点名错误原因（FR-014/SC-008）")
   void statusShowsStateAndError() throws Exception {
     when(admin.status())
