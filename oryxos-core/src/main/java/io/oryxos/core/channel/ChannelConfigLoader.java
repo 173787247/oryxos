@@ -235,8 +235,8 @@ public class ChannelConfigLoader {
     if (value == null) {
       return Map.of();
     }
+    String who = channelName == null || channelName.isBlank() ? "渠道" : "渠道 " + channelName;
     if (!(value instanceof Map<?, ?> raw)) {
-      String who = channelName == null || channelName.isBlank() ? "渠道" : "渠道 " + channelName;
       throw new IllegalArgumentException(who + " 的 extra 必须是字符串映射");
     }
     Map<String, String> extra = new LinkedHashMap<>();
@@ -244,7 +244,13 @@ public class ChannelConfigLoader {
       if (entry.getKey() == null) {
         continue;
       }
-      extra.put(String.valueOf(entry.getKey()), asString(entry.getValue()));
+      String key = String.valueOf(entry.getKey());
+      if (entry.getValue() == null) {
+        // 空值（`key:` / `key: ~`）不是字符串：Map.copyOf 会在这里抛 NPE，
+        // 而 NPE 不点名渠道与字段，还会让整份 channels.yaml 判为不可加载。
+        throw new IllegalArgumentException(who + " 的 extra." + key + " 不能为空（空值请写 \"\" 或删除该行）");
+      }
+      extra.put(key, asString(entry.getValue()));
     }
     return extra;
   }
