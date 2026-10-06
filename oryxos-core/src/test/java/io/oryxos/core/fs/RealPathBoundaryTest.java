@@ -54,6 +54,22 @@ class RealPathBoundaryTest {
   }
 
   @Test
+  void parentSegmentAfterSymlinkResolvesThroughTheLink() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(temp);
+    Path allowed = Files.createDirectories(temp.resolve("allowed"));
+    Path outside = Files.createDirectories(temp.resolve("outside"));
+    Files.createDirectories(outside.resolve("sub"));
+    Files.writeString(outside.resolve("secret.txt"), "secret");
+    Files.createSymbolicLink(allowed.resolve("link"), outside.resolve("sub"));
+
+    // The kernel resolves the link before "..", so this lands in outside/secret.txt — not in
+    // allowed/. A lexical normalize() first would project it to allowed/secret.txt and let it in.
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RealPathBoundary.requireWithin(allowed, allowed.resolve("link/../secret.txt")));
+  }
+
+  @Test
   void rootMayItselfBeASymlink() throws Exception {
     SymlinkAssumptions.assumeSymlinksSupported(temp);
     Path actual = Files.createDirectories(temp.resolve("actual"));

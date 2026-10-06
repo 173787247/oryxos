@@ -21,7 +21,9 @@ public final class RealPathBoundary {
     if (input == null) {
       throw new IllegalArgumentException("路径不能为空");
     }
-    Path absolute = input.toAbsolutePath().normalize();
+    // Deliberately not normalized first: "link/.." is resolved by the kernel as "link's target's
+    // parent", so lexical normalization would project a different path than the one opened later.
+    Path absolute = input.toAbsolutePath();
     Path cursor = absolute;
     Deque<Path> suffix = new ArrayDeque<>();
     while (cursor != null && !Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
@@ -44,7 +46,7 @@ public final class RealPathBoundary {
     for (Path segment : suffix) {
       projected = projected.resolve(segment.toString());
     }
-    return new Projection(absolute, ancestorReal, projected.normalize());
+    return new Projection(absolute.normalize(), ancestorReal, projected.normalize());
   }
 
   /** Returns the projected real path when it is inside the projected root, otherwise rejects it. */
