@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.oryxos.core.mcp.McpCatalog;
 import io.oryxos.core.mcp.McpServerAdmin;
 import io.oryxos.core.mcp.McpServerConfig;
 import io.oryxos.web.GlobalExceptionHandler;
@@ -216,5 +217,25 @@ class McpApiControllerTest {
                 .content("{\"transport\":\"stdio\",\"command\":\"x\"}"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value(404));
+  }
+
+  @Test
+  @DisplayName("catalog 一键启用 github_生成 streamable + Authorization 头_不退化成 stdio 空配置")
+  void catalogEnable_githubBuildsStreamableRemoteConfig() throws Exception {
+    when(admin.catalog()).thenReturn(McpCatalog.all());
+    when(admin.add(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    mvc.perform(
+            post("/api/v1/mcp-servers/catalog/github/enable")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"gh\",\"credentials\":{\"GITHUB_TOKEN\":\"ghp_x\"}}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.transport").value("streamable"))
+        .andExpect(jsonPath("$.data.url").value("https://api.githubcopilot.com/mcp/"));
+
+    ArgumentCaptor<McpServerConfig> captor = ArgumentCaptor.forClass(McpServerConfig.class);
+    verify(admin).add(captor.capture());
+    Assertions.assertEquals("streamable", captor.getValue().transport());
+    Assertions.assertEquals("Bearer ghp_x", captor.getValue().headers().get("Authorization"));
   }
 }

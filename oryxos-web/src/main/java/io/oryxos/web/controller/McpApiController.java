@@ -110,10 +110,16 @@ public class McpApiController {
     return ApiResponse.ok(null);
   }
 
-  /** 目录模板 + 用户凭证 -> 一份可直接 add 的 config。http 传输目前只有 github 这一条，直接拼 Bearer header。 */
+  /**
+   * 目录模板 + 用户凭证 -> 一份可直接 add 的 config。远程条目（{@code http}/{@code sse}/{@code streamable}/{@code
+   * auto}） 走 url + Authorization 头，stdio 条目走 command + env。
+   *
+   * <p>判据用 {@link McpServerConfig#isRemoteHttp}，不是 {@code TRANSPORT_HTTP.equals(...)}：后者只是 SSE
+   * 的别名，会把 streamable 条目错判成 stdio，生成一份 command/url 都为 null 的配置。
+   */
   private static McpServerConfig fromCatalog(
       McpCatalogEntry entry, String name, Map<String, String> credentials) {
-    if (McpServerConfig.TRANSPORT_HTTP.equals(entry.transport())) {
+    if (McpServerConfig.isRemoteHttp(entry.transport())) {
       Map<String, String> headers = new LinkedHashMap<>();
       if (!entry.requiredEnv().isEmpty()) {
         String token = credentials.get(entry.requiredEnv().get(0));

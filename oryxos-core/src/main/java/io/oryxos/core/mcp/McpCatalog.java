@@ -6,8 +6,10 @@ import java.util.List;
  * 内置的业界公开 MCP server 目录（静态数据，不依赖网络）。条目均取自 {@code config/mcp_servers.yaml.example} 里已核实的社区/官方
  * server（npx/uvx 可直接起的 stdio server，或有据可查的官方远程 endpoint），不臆造未经证实的地址。
  *
- * <p>{@code http} 传输的一个已知限制：核心阶段的 SSE 客户端传输不支持自定义请求头（见 {@code McpClientService} 注释），因此需要
- * Authorization 头鉴权的远程 server 目前连不上鉴权网关——目录里仍收录它们，标注这个限制，等 SDK 传输层升级后再补全。
+ * <p><b>远程条目的 transport 必须按对端实际协议写。</b>本仓沿用历史命名：{@link McpServerConfig#TRANSPORT_HTTP}（{@code
+ * http}） 是 SSE 的别名，{@link McpServerConfig#TRANSPORT_STREAMABLE}（{@code streamable}）才是 Streamable
+ * HTTP——两者在 {@code McpClientService} 里走不同的客户端，写反了连不上。凭证按 {@code Authorization}
+ * 头透传（远程两种传输都支持自定义请求头）。
  */
 public final class McpCatalog {
 
@@ -18,9 +20,8 @@ public final class McpCatalog {
           new McpCatalogEntry(
               "github",
               "GitHub",
-              "Issue / PR / 代码搜索 / 仓库文件。官方远程 MCP（HTTP）——当前核心阶段暂不支持转发 Authorization"
-                  + " 头，鉴权网关会拒绝，可先用下面的 stdio 版替代。",
-              McpServerConfig.TRANSPORT_HTTP,
+              "Issue / PR / 代码搜索 / 仓库文件。官方远程 MCP（Streamable HTTP），token 按 Authorization 头发送。",
+              McpServerConfig.TRANSPORT_STREAMABLE,
               null,
               "https://api.githubcopilot.com/mcp/",
               List.of("GITHUB_TOKEN"),
