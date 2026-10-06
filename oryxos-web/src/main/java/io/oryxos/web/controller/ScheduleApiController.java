@@ -53,9 +53,7 @@ public class ScheduleApiController {
   /** 列出全部定时任务及其运行状态。 */
   @GetMapping
   public ApiResponse<List<LegacyScheduleView>> list() {
-    List<ScheduledTaskView> schedules = taskStore.list();
-    rejectAmbiguousLegacyKeys(schedules);
-    return ApiResponse.ok(schedules.stream().map(LegacyScheduleView::from).toList());
+    return ApiResponse.ok(legacyScheduleList().stream().map(LegacyScheduleView::from).toList());
   }
 
   /** 查某任务最近的执行历史（默认最多 100 条）。 */
@@ -89,7 +87,18 @@ public class ScheduleApiController {
       throw new IllegalArgumentException("请求体缺少 enabled（true 启用 / false 停用）");
     }
     taskStore.setEnabled(resolveScheduleId(id), body.enabled());
-    return ApiResponse.ok(taskStore.list().stream().map(LegacyScheduleView::from).toList());
+    return ApiResponse.ok(legacyScheduleList().stream().map(LegacyScheduleView::from).toList());
+  }
+
+  /**
+   * v1 列表口径：路径参数判歧义只覆盖请求里那一个 key，响应体里的**其余** key 同样不能出现重名 —— 否则这个 过渡端点会把同一 taskId 回两遍，正是 {@code GET
+   * /api/v1/schedules} 专门拒的形状 （{@code docs/ScheduleIdentityMigration.md}：多个 Agent 使用同 key 时返回 HTTP
+   * 409，绝不再静默选择第一条）。
+   */
+  private List<ScheduledTaskView> legacyScheduleList() {
+    List<ScheduledTaskView> schedules = taskStore.list();
+    rejectAmbiguousLegacyKeys(schedules);
+    return schedules;
   }
 
   private String resolveScheduleId(String key) {
