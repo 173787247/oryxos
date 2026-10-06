@@ -200,8 +200,15 @@ public class McpConfigLoader {
     }
     Map<String, String> out = new LinkedHashMap<>();
     for (Map.Entry<String, Object> entry : ((Map<String, Object>) value).entrySet()) {
-      if (entry.getValue() == null) {
+      if (entry.getKey() == null) {
+        // `~:` / 空键：这项没有名字可绑，跳过（与 ChannelConfigLoader.asExtra 同口径）。
         continue;
+      }
+      if (entry.getValue() == null) {
+        // 空值（`TOKEN:` / `TOKEN: ~`）不是字符串：以前这里 continue 会把它静默丢掉，
+        // 而键为 null 时 out.put(null, …) 又让后面的 Map.copyOf 抛无名 NPE。
+        throw new IllegalArgumentException(
+            "mcp_servers.yaml 的 " + field + "." + entry.getKey() + " 不能为空（空值请写 \"\" 或删除该行）");
       }
       out.put(entry.getKey(), asString(entry.getValue()));
     }

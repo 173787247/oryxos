@@ -173,6 +173,53 @@ class McpConfigLoaderTest {
   }
 
   @Test
+  @DisplayName("env/headers 的空值点名报错、空键跳过")
+  void envAndHeadersNullValueIsNamedAndNullKeyIsSkipped() throws IOException {
+    // 空值以前被 continue 静默丢掉（`TOKEN:` 配了个空的凭证，谁都不知道）；
+    // 空键以前 put(null, …) 让 McpServerConfig 的 Map.copyOf 抛无名 NPE。
+    write(
+        """
+        servers:
+          - name: nulls
+            transport: stdio
+            command: echo
+            env:
+              TOKEN:
+        """);
+    IllegalArgumentException envEx =
+        assertThrows(
+            IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+    assertTrue(envEx.getMessage().contains("env.TOKEN"), envEx::getMessage);
+
+    write(
+        """
+        servers:
+          - name: nulls
+            transport: sse
+            url: https://example.com/mcp
+            headers:
+              Authorization:
+        """);
+    IllegalArgumentException headersEx =
+        assertThrows(
+            IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+    assertTrue(headersEx.getMessage().contains("headers.Authorization"), headersEx::getMessage);
+
+    write(
+        """
+        servers:
+          - name: nulls
+            transport: stdio
+            command: echo
+            env:
+              ~: ignored
+              OK: kept
+        """);
+    List<io.oryxos.core.mcp.McpServerConfig> skipped = new McpConfigLoader(configFile()).loadRaw();
+    assertEquals(Map.of("OK", "kept"), skipped.get(0).env());
+  }
+
+  @Test
   @DisplayName("YAML 1.1 布尔词 yes 不得被 String.valueOf 改成 name=true")
   void rejectsYamlBooleanWordAsName() throws Exception {
     write(
