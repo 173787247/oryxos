@@ -96,6 +96,36 @@ class McpConfigLoaderTest {
   }
 
   @Test
+  @DisplayName("server 条目缺 name 时点名报错，不再以启动期无名 NPE 收场")
+  void missingNameFailsLoud() throws IOException {
+    // The name keys the connection everywhere downstream: McpClientService indexes its clients by
+    // it and the admin API routes by it. An entry without one used to reach connect(), hit the null
+    // key of a ConcurrentHashMap, and bring the whole context down with a message naming nothing.
+    write(
+        """
+        servers:
+          - transport: stdio
+            command: echo
+        """);
+    IllegalArgumentException missing =
+        assertThrows(
+            IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+    assertTrue(missing.getMessage().contains("缺少 name"), missing::getMessage);
+
+    write(
+        """
+        servers:
+          - name: ""
+            transport: stdio
+            command: echo
+        """);
+    IllegalArgumentException blank =
+        assertThrows(
+            IllegalArgumentException.class, () -> new McpConfigLoader(configFile()).loadRaw());
+    assertTrue(blank.getMessage().contains("缺少 name"), blank::getMessage);
+  }
+
+  @Test
   @DisplayName("headers/env 非映射时 fail-loud，缺省仍为空 map")
   void envAndHeadersMustBeMaps() throws IOException {
     write(

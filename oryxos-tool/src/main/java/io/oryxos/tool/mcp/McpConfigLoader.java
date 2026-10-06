@@ -92,9 +92,16 @@ public class McpConfigLoader {
             "mcp_servers.yaml 存在非对象条目: " + sanitize(String.valueOf(item)));
       }
       Map<String, Object> entry = (Map<String, Object>) item;
+      // 先于构造校验：name 是下游的连接身份键（McpClientService 用它索引客户端，管理台用它路由）。
+      // 缺 name 的条目以前一路放行到 connect()，最后在 ConcurrentHashMap 上撞 null 键抛无名 NPE，
+      // 整个进程起不来且没人知道该改哪一行——与 ChannelConfig.validateShape 同口径点名报错。
+      String name = asString(entry.get("name"));
+      if (name == null || name.isBlank()) {
+        throw new IllegalArgumentException("mcp_servers.yaml server 条目缺少 name");
+      }
       McpServerConfig config =
           new McpServerConfig(
-              asString(entry.get("name")),
+              name,
               asString(entry.get("transport")),
               asString(entry.get("command")),
               asStringMap(entry.get("env"), "env"),
