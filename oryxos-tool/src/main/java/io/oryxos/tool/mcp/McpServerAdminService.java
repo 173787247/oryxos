@@ -59,9 +59,12 @@ public class McpServerAdminService implements McpServerAdmin {
     if (idx < 0) {
       throw new IllegalArgumentException("MCP server 不存在: " + name);
     }
-    clientService.disconnect(name, toolRegistry); // 断旧连接，避免新旧工具并存打架
+    // 先落盘再断旧连接（add 本来就是这个顺序，ChannelAdminService 也在 #804 收敛到它）。
+    // 反过来的话，save 失败（只读卷/磁盘满/权限）会留下「运行态已拆、磁盘仍写着在用」的撕裂：
+    // GET 读盘仍列出它，status 读登记表却整行消失，不重试就不会回来。
     current.set(idx, config);
     configLoader.save(current);
+    clientService.disconnect(name, toolRegistry); // 断旧连接，避免新旧工具并存打架
     clientService.connect(configLoader.resolve(config), toolRegistry);
     return config;
   }
@@ -70,11 +73,12 @@ public class McpServerAdminService implements McpServerAdmin {
   public synchronized void remove(String name) {
     List<McpServerConfig> current = new ArrayList<>(configLoader.loadRaw());
     int idx = indexOf(current, name);
-    clientService.disconnect(name, toolRegistry);
     if (idx >= 0) {
+      // 同 update：落盘失败时连接继续按磁盘上的配置运行，两边一致。
       current.remove(idx);
       configLoader.save(current);
     }
+    clientService.disconnect(name, toolRegistry);
   }
 
   @Override

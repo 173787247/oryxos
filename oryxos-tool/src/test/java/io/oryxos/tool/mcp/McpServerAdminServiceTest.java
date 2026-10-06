@@ -10,6 +10,7 @@ import io.oryxos.core.mcp.McpServerConfig;
 import io.oryxos.core.mcp.McpServerStatus;
 import io.oryxos.tool.ToolRegistry;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 /** 31 节验收：MCP server 管理台 CRUD——增/改/删都是"落盘 + 立即生效"，凭证占位符不因编辑而被解析后写死。 */
 class McpServerAdminServiceTest {
@@ -142,5 +144,78 @@ class McpServerAdminServiceTest {
     assertDoesNotThrow(() -> service.update("remote", changed));
     assertEquals(changed, service.list().get(0));
     assertTrue(service.status().get(0).connected());
+  }
+
+  /** 写盘失败：只读卷 / 磁盘满 / 权限变更——真实的 {@link McpConfigLoader#save} 抛 UncheckedIOException。 */
+  private static final class FailingSaveLoader extends McpConfigLoader {
+
+    FailingSaveLoader(Path file) {
+      super(file);
+    }
+
+    @Override
+    public void save(List<McpServerConfig> configs) {
+      throw new UncheckedIOException(new IOException("只读卷: Read-only file system"));
+    }
+  }
+
+  /** 一条写进文件、已连上的 server。返回 admin 与运行态供断言。 */
+  private record RunningServer(
+      McpServerAdminService admin,
+      McpClientService clientService,
+      ToolRegistry registry,
+      io.modelcontextprotocol.client.McpSyncClient client) {}
+
+  private RunningServer runningServerWithFailingSave() throws IOException {
+    Files.writeString(
+        dir.resolve("mcp_servers.yaml"),
+        """
+        servers:
+          - name: demo
+            transport: stdio
+            command: echo hi
+        """);
+    var client = goodClient();
+    McpConfigLoader loader = new FailingSaveLoader(dir.resolve("mcp_servers.yaml"));
+    McpClientService clientService = new McpClientService(loader, c -> client);
+    ToolRegistry registry = new ToolRegistry();
+    clientService.connectAll(registry);
+    McpServerAdminService admin = new McpServerAdminService(loader, clientService, registry);
+    assertTrue(registry.contains("demo_tool"), "前置条件：连接已注册工具");
+    return new RunningServer(admin, clientService, registry, client);
+  }
+
+  @Test
+  @DisplayName("update: 落盘失败时不得先把旧连接拆掉（否则运行态没了、磁盘仍写着在用）")
+  void update_saveFailureKeepsTheRunningConnection() throws IOException {
+    RunningServer running = runningServerWithFailingSave();
+
+    assertThrows(
+        UncheckedIOException.class,
+        () ->
+            running
+                .admin()
+                .update(
+                    "demo",
+                    new McpServerConfig(
+                        "demo", "stdio", "echo hi --v2", Map.of(), null, Map.of())));
+
+    assertTrue(running.registry().contains("demo_tool"), "落盘失败不应注销已注册的工具");
+    assertTrue(running.clientService().status("demo").connected(), "落盘失败不应断开旧连接");
+    assertTrue(running.admin().list().get(0).command().contains("echo hi"));
+    Mockito.verify(running.client(), Mockito.never()).closeGracefully();
+  }
+
+  @Test
+  @DisplayName("remove: 落盘失败时不得先把连接拆掉（否则磁盘仍列着它、运行态却没了）")
+  void remove_saveFailureKeepsTheRunningConnection() throws IOException {
+    RunningServer running = runningServerWithFailingSave();
+
+    assertThrows(UncheckedIOException.class, () -> running.admin().remove("demo"));
+
+    assertEquals(1, running.admin().list().size(), "落盘失败，文件仍应列着这条 server");
+    assertTrue(running.registry().contains("demo_tool"), "落盘失败不应注销已注册的工具");
+    assertTrue(running.clientService().status("demo").connected(), "落盘失败不应断开连接");
+    Mockito.verify(running.client(), Mockito.never()).closeGracefully();
   }
 }
