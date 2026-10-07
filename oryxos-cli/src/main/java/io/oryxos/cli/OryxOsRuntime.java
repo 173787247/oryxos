@@ -2179,11 +2179,13 @@ public class OryxOsRuntime {
   AgentExecutionService agentExecutionService(
       AgentExecutionStore agentExecutionStore,
       @Qualifier("agentExecutionExecutor") ExecutorService agentExecutionExecutor,
-      AgentRunEventPublisher agentRunEventPublisher) {
+      AgentRunEventPublisher agentRunEventPublisher,
+      io.oryxos.core.cluster.ClusterProperties clusterProperties) {
     return new AgentExecutionService(
         agentExecutionStore,
         agentExecutionExecutor,
         Clock.systemDefaultZone(),
-        agentRunEventPublisher);
+        agentRunEventPublisher,
+        clusterProperties.isEnabled());
   }
 }

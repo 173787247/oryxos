@@ -3,9 +3,11 @@ package io.oryxos.boot;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.cli.OryxOsRuntime;
+import io.oryxos.core.agent.AgentExecution;
 import io.oryxos.core.agent.AgentExecutionStore;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.channel.ChannelLeaseCoordinator;
@@ -44,16 +46,17 @@ class FailoverTakeoverIT {
   private static EmbeddedPostgres postgres;
   private static ConfigurableApplicationContext replica;
   private static String url;
+  private static Path workspace;
 
   @BeforeAll
   static void start() throws IOException {
     postgres = EmbeddedPostgres.start();
     url = "jdbc:postgresql://localhost:" + postgres.getPort() + "/postgres?user=postgres";
-    Path root = seedWorkspace();
+    workspace = seedWorkspace();
     replica =
         new SpringApplicationBuilder(OryxOsRuntime.class)
             .run(
-                "--oryxos.root=" + root,
+                "--oryxos.root=" + workspace,
                 "--oryxos.providers[0].name=mock",
                 "--spring.datasource.url=" + url,
                 "--oryxos.cluster.enabled=true",
@@ -180,6 +183,36 @@ class FailoverTakeoverIT {
     store.purgeExpired(Duration.ofHours(12), Duration.ofSeconds(-1));
     assertFalse(
         store.listInstances().stream().anyMatch(i -> "ghost-replica".equals(i.instanceId())));
+  }
+
+  @Test
+  @DisplayName(
+      "rolling upgrade: a starting replica does not fail the running replica's in-flight execution")
+  void startingReplicaLeavesLiveReplicasRunRunning() throws Exception {
+    AgentExecutionStore executions = replica.getBean(AgentExecutionStore.class);
+    long runId = executions.start("default", "schedule", Instant.now(), "in-flight on replica A");
+    executions.markRunning(runId, Instant.now());
+
+    // 副本 B 启动（滚动升级 maxSurge:1 的新 pod）：它对着同一个库跑启动对账
+    try (ConfigurableApplicationContext second =
+        new SpringApplicationBuilder(OryxOsRuntime.class)
+            .run(
+                "--oryxos.root=" + workspace,
+                "--oryxos.providers[0].name=mock",
+                "--spring.datasource.url=" + url,
+                "--oryxos.cluster.enabled=true",
+                "--oryxos.cluster.instance-id=rolling-upgrade",
+                "--memory.backend=sqlite",
+                "--spring.lifecycle.timeout-per-shutdown-phase=100ms",
+                "--spring.main.web-application-type=none")) {
+      assertNotNull(second.getBean(AgentExecutionStore.class));
+    }
+
+    AgentExecution afterStartup = executions.findById(runId).orElseThrow();
+    assertEquals(
+        "RUNNING", afterStartup.status(), "副本 A 仍在执行中，新启动的副本不得把它判成 FAILED/PROCESS_RESTARTED");
+    assertNull(afterStartup.endedAt());
+    assertNull(afterStartup.stopReason());
   }
 
   private static ClusterProperties shortLeaseProps(String instanceId) {
