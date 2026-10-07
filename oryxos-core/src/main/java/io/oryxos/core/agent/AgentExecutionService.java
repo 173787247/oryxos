@@ -33,6 +33,7 @@ public class AgentExecutionService {
   private final ExecutorService executor;
   private final Clock clock;
   private final AgentRunEventPublisher events;
+  private final boolean clusterEnabled;
   private final ConcurrentHashMap<Long, Thread> runningThreads = new ConcurrentHashMap<>();
 
   public AgentExecutionService(AgentExecutionStore store, ExecutorService executor, Clock clock) {
@@ -44,10 +45,20 @@ public class AgentExecutionService {
       ExecutorService executor,
       Clock clock,
       AgentRunEventPublisher events) {
+    this(store, executor, clock, events, false);
+  }
+
+  public AgentExecutionService(
+      AgentExecutionStore store,
+      ExecutorService executor,
+      Clock clock,
+      AgentRunEventPublisher events,
+      boolean clusterEnabled) {
     this.store = store;
     this.executor = executor;
     this.clock = clock;
     this.events = events;
+    this.clusterEnabled = clusterEnabled;
   }
 
   /**
@@ -124,8 +135,20 @@ public class AgentExecutionService {
     return store.findById(id).orElse(current);
   }
 
-  /** 启动时把本进程无法证明仍在执行的非终态 Run 收敛为失败。 */
+  /**
+   * 启动时把本进程无法证明仍在执行的非终态 Run 收敛为失败。
+   *
+   * <p>集群档（{@code oryxos.cluster.enabled=true}）不做这次全量收敛：共享库里他人的非终态行与进程内 {@code runningThreads}
+   * 无关，本进程没有证据判定它已中断，全量收敛会把他副本正在执行的 Run 判成失败（026 契约 {@code
+   * contracts/coordination.md}：「回收只针对已过期持有，任何路径不得全量清除他人持有（含启动期）」）。 集群档的悬空轮由租约过期路径收口：{@code
+   * DbTurnCoordinator} 抢到过期租约时经 {@code reclaimedExecutionHandler} 给前任的 execution 补失败留痕。
+   *
+   * <p>单机档（默认）行为不变：进程内 {@code runningThreads} 之外的遗留行都属于本副本上一代，必须收口。
+   */
   public void reconcileOnStartup() {
+    if (clusterEnabled) {
+      return;
+    }
     Instant now = clock.instant();
     for (AgentExecution row : store.listNonTerminal()) {
       if (runningThreads.containsKey(row.id())) {

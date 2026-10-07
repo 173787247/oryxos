@@ -403,6 +403,52 @@ class AgentExecutionServiceTest {
   }
 
   @Test
+  @DisplayName("集群档启动不做全量收敛：共享库里他人的非终态 Run 不在本进程处置范围")
+  void clusterStartupReconcileLeavesOtherReplicasRunsAlone() {
+    FakeStore store = new FakeStore();
+    Instant now = Instant.parse("2026-08-23T04:00:00Z");
+    store.start("demo", "schedule", now, "other-replica-running");
+    store.markRunning(1, now);
+    // 集群档：库里这一行属于另一个活着的副本（本进程 runningThreads 里没有它，但那不构成它已中断的证据）
+    AgentExecutionService svc =
+        new AgentExecutionService(
+            store,
+            Executors.newSingleThreadExecutor(),
+            Clock.fixed(now, ZoneOffset.UTC),
+            null,
+            true);
+
+    svc.reconcileOnStartup();
+
+    AgentExecution row = store.findById(1).orElseThrow();
+    assertEquals("RUNNING", row.status());
+    assertNull(row.endedAt());
+    assertNull(row.stopReason());
+  }
+
+  @Test
+  @DisplayName("单机档启动仍收敛遗留非终态 Run（未被集群档改动带偏）")
+  void singleNodeStartupReconcileStillFailsLeftoverRuns() {
+    FakeStore store = new FakeStore();
+    Instant now = Instant.parse("2026-08-23T04:00:00Z");
+    store.start("demo", "manual", now, "leftover");
+    store.markRunning(1, now);
+    AgentExecutionService svc =
+        new AgentExecutionService(
+            store,
+            Executors.newSingleThreadExecutor(),
+            Clock.fixed(now, ZoneOffset.UTC),
+            null,
+            false);
+
+    svc.reconcileOnStartup();
+
+    AgentExecution row = store.findById(1).orElseThrow();
+    assertEquals("FAILED", row.status());
+    assertEquals(AgentStopReasons.PROCESS_RESTARTED, row.stopReason());
+  }
+
+  @Test
   @DisplayName("达到最大轮次时记 FAILED/MAX_ITERATIONS")
   void maxIterationsBecomesFailedStopReason() throws InterruptedException {
     FakeStore store = new FakeStore();
