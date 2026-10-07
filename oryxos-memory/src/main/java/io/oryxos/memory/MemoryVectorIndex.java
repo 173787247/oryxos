@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * 归档记忆的向量索引维护（015 FR-005/006/007）——写路径落库优先：本体先写、向量化异步补，任何索引异常 都不冒泡（零丢失，与知识库「向量化失败拒收」相反的取舍）。有界执行器 1
- * worker + 有限队列，队满静默丢弃、 随启动对账补齐；对账幂等（补缺失、清孤儿、模型变更整体重建）。仅归档条目入索引（core 不参与检索）。
+ * worker + 有限队列，队满静默丢弃、 随启动对账补齐；对账幂等（补缺失、清孤儿、模型/维度变更整体重建——维度先确认， 未知维度不判陈旧）。仅归档条目入索引（core 不参与检索）。
  */
 public class MemoryVectorIndex {
 
@@ -36,9 +36,18 @@ public class MemoryVectorIndex {
 
   private static final long WORKER_KEEP_ALIVE_SECONDS = 30;
 
+  /** 维度探测文本：embedder 惰性时用一次真实调用取回当前维度（FR-007），与记忆内容无关。 */
+  private static final String DIMENSION_PROBE = "oryxos-dimension-probe";
+
   private final MemoryVectorRepository repository;
   private final TextEmbedder embedder;
   private final Executor executor;
+
+  /** 本进程已确认的向量维度（0 = 未知）——惰性 embedder 首次真实调用前 dimensions() 报 0，见 currentDimension()。 */
+  private volatile int knownDimension;
+
+  /** 维度是否已尝试确认（失败也算）：每个进程最多探测一次，端点不可用时不让每个作用域各付一次超时。 */
+  private volatile boolean dimensionLookupDone;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -95,7 +104,10 @@ public class MemoryVectorIndex {
     }
   }
 
-  /** 启动对账（幂等）：清模型或维度不一致的行（整体重建，不混比新旧向量）、清本体已不存在的孤儿行、补缺失行。 「已索引」= 表中有当前模型且当前维度的对应行，无单独状态列。 */
+  /**
+   * 启动对账（幂等）：清模型或维度不一致的行（整体重建，不混比新旧向量）、清本体已不存在的孤儿行、补缺失行。 「已索引」= 表中有当前模型（维度已确认时还须当前维度）的对应行，无单独状态列。
+   * 维度先确认再判行：确认失败（0 = 未知）时只比模型——把「未知」当「变了」会在每次重启把全表判陈旧。
+   */
   public void reconcile(String agentName, List<MemoryEntryView> archivalEntries) {
     repository.deleteByEmbeddingModelNot(embedder.modelId());
     Map<String, MemoryEntryView> live = new LinkedHashMap<>();
@@ -104,9 +116,11 @@ public class MemoryVectorIndex {
     }
     Set<String> existing = new HashSet<>();
     List<String> stale = new ArrayList<>();
-    for (MemoryVectorEntity row : repository.findByAgentName(agentName)) {
-      // 本体仍在、且向量出自当前模型与当前维度，才算已索引；孤儿与维度陈旧行一并清掉，按 missing 重建
-      if (live.containsKey(row.getEntryHash()) && isCurrent(row)) {
+    List<MemoryVectorEntity> rows = repository.findByAgentName(agentName);
+    int dimension = rows.isEmpty() ? 0 : currentDimension();
+    for (MemoryVectorEntity row : rows) {
+      // 本体仍在、且向量出自当前模型与当前维度，才算已索引；孤儿与陈旧行一并清掉，按 missing 重建
+      if (live.containsKey(row.getEntryHash()) && isCurrent(row, dimension)) {
         existing.add(row.getEntryHash());
       } else {
         stale.add(row.getEntryHash());
@@ -151,18 +165,47 @@ public class MemoryVectorIndex {
   }
 
   /**
-   * 行是否已由当前 embedder 建好：模型与维度都一致才算。维度也是身份的一部分——同一 modelId 换了 dimensions（或上游同名
-   * 模型换了隐层宽度）时旧行不能复用，否则语义路按维度过滤后恒空（FR-007「维度不一致 MUST 自动重建」）。
+   * 当前向量维度；0 = 未知。embedder 是惰性的（ProviderEmbeddingModelFactory 只在首次真实调用后才确定维度），
+   * 而启动对账发生在任何真实调用之前——所以这里用一次探测调用取回真实维度：不取，就无法区分「维度没变」与
+   * 「维度变了」，只能二选一（全表重建，或永不重建）。探测文本与记忆内容无关，向量即取即弃；确认过（含失败） 就不再调用，端点不可用时也不让每个作用域各付一次超时。
    */
-  private boolean isCurrent(MemoryVectorEntity row) {
+  private int currentDimension() {
+    int known = knownDimension;
+    if (known > 0 || dimensionLookupDone) {
+      return known;
+    }
+    dimensionLookupDone = true;
+    int reported = embedder.dimensions();
+    if (reported > 0) {
+      knownDimension = reported;
+      return reported;
+    }
+    try {
+      int probed = embedder.embed(DIMENSION_PROBE).length;
+      knownDimension = probed;
+      return probed;
+    } catch (RuntimeException e) {
+      log.warn("向量维度探测失败，本轮对账不按维度判陈旧（下次启动重试）: {}", sanitize(e.getMessage()));
+      return 0;
+    }
+  }
+
+  /**
+   * 行是否已由当前 embedder 建好：模型必须一致；维度只在已确认（{@code dimension > 0}）时比较。维度也是身份的一部分——同一 modelId 换了
+   * dimensions（或上游同名模型换了隐层宽度）时旧行不能复用，否则语义路按维度过滤后恒空（FR-007「维度不一致 MUST
+   * 自动重建」）。未知维度不构成不一致：把「还没取到」当「变了」会让每次进程重启都全表重建。
+   */
+  private boolean isCurrent(MemoryVectorEntity row, int dimension) {
     return embedder.modelId().equals(row.getEmbeddingModel())
-        && row.getDim() == embedder.dimensions();
+        && (dimension <= 0 || row.getDim() == dimension);
   }
 
   private void index(String agentName, MemoryEntryView entry) {
     String hash = entryHash(agentName, entry.content());
     Optional<MemoryVectorEntity> existing = repository.findByAgentNameAndEntryHash(agentName, hash);
-    if (existing.isPresent() && isCurrent(existing.get())) {
+    // 与对账同口径：维度未知（惰性 embedder 首次真实调用前）时只比模型，不把「未知」当「变了」；
+    // 维度确认只在启动对账做一次（currentDimension），写路径不为一次判定多发一次真实调用
+    if (existing.isPresent() && isCurrent(existing.get(), embedder.dimensions())) {
       return; // 幂等：同条目同模型同维度已索引
     }
     float[] vector = embedder.embed(entry.content());
