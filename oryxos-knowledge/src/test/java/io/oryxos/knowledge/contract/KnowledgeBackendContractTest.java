@@ -76,6 +76,25 @@ class KnowledgeBackendContractTest {
   }
 
   @Test
+  void freeTextDescriptionSurvivesTheManifestRoundTrip() {
+    // 描述是自由文本：冒号+空格、井号、引号、反斜杠都不得把清单写坏（与 SkillService 的 frontmatter 同一契约）
+    String description = "运维手册: 磁盘告警 #1 处置（含\"引号\"与\\反斜杠）";
+
+    backend.updateBase("ops", description);
+    assertEquals(description, KnowledgeManifest.read(root.resolve("ops")).description());
+
+    backend.createBase("faq", description);
+    assertEquals(description, KnowledgeManifest.read(root.resolve("faq")).description());
+  }
+
+  @Test
+  void plainDescriptionStillRoundTripsUnchanged() {
+    // 反向用例：不含 YAML 元字符的描述必须一字不差（修法不得引入转义噪音或截断）
+    backend.updateBase("ops", "运维手册");
+    assertEquals("运维手册", KnowledgeManifest.read(root.resolve("ops")).description());
+  }
+
+  @Test
   void retrievalIsDeterministicAcrossRepeatedCalls() {
     indexReady();
     writeDoc("ops", "faq.md", "# 常见问题\n\n磁盘满了先扩容还是先清理？");
