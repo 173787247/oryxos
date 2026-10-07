@@ -4,6 +4,7 @@ import io.oryxos.core.agent.ToolExecutionContext;
 import io.oryxos.core.memory.MemoryEntryView;
 import io.oryxos.core.memory.MemoryRecallCapability;
 import io.oryxos.core.memory.MemoryScope;
+import io.oryxos.storage.MemoryEntry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -68,10 +69,18 @@ public class MarkdownMemoryStore implements LongTermMemoryStore {
     this.oryxosRoot = oryxosRoot;
   }
 
-  /** 当前该读写哪个 MEMORY.md：有合法 Agent 上下文 → 该 Agent 目录；否则回退全局。 */
+  /**
+   * 当前该读写哪个 MEMORY.md：有合法 Agent 上下文 → 该 Agent 目录；否则回退全局。
+   *
+   * <p>全局占位名 {@link MemoryEntry#GLOBAL_AGENT} 必须与「无上下文」解析到同一份文件：索引与检索按作用域名圈定（FR-014）， sqlite
+   * 档已把两者归一成同一个 {@code __global__}，启动对账也是带这个名字进来的。若它落到第二份文件
+   * `agents/&lt;__global__&gt;/MEMORY.md`，对账读到的是空归档——真实全局条目的索引行会被当孤儿删掉，全局文件里的存量条目也永不入索引。
+   */
   private Path memoryFile() {
     String agent = ToolExecutionContext.agentName();
-    if (agent != null && SAFE_AGENT.matcher(agent).matches()) {
+    if (agent != null
+        && !MemoryEntry.GLOBAL_AGENT.equals(agent)
+        && SAFE_AGENT.matcher(agent).matches()) {
       return oryxosRoot.resolve("agents").resolve(agent).resolve("MEMORY.md");
     }
     return oryxosRoot.resolve("memory").resolve("MEMORY.md");
