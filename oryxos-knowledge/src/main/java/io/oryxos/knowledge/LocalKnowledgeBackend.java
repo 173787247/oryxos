@@ -237,8 +237,7 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
     try {
       Files.createDirectories(dir);
       io.oryxos.core.io.AtomicFiles.writeString(
-          dir.resolve(KnowledgeManifest.FILE),
-          "---\nname: " + name + "\ndescription: " + desc + "\nbackend: local\n---\n");
+          dir.resolve(KnowledgeManifest.FILE), manifestText(name, desc));
     } catch (IOException e) {
       throw new UncheckedIOException("创建知识库失败: " + name, e);
     }
@@ -250,8 +249,20 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
     KnowledgeManifest.read(dir); // 校验存在且合法
     String desc = description == null ? "" : description.replace('\r', ' ').replace('\n', ' ');
     io.oryxos.core.io.AtomicFiles.writeString(
-        dir.resolve(KnowledgeManifest.FILE),
-        "---\nname: " + name + "\ndescription: " + desc + "\nbackend: local\n---\n");
+        dir.resolve(KnowledgeManifest.FILE), manifestText(name, desc));
+  }
+
+  /**
+   * 清单文本：描述按 YAML 双引号标量写。自由文本里的 {@code ": "} 会让 SnakeYAML 直接拒绝整份清单（库从列表、 绑定、检索里一起消失），{@code " #"}
+   * 则把它当注释静默截断——与 {@code SkillService.toSkillMarkdown} 同一做法。 name 由 {@link #SAFE_NAME}
+   * 白名单保证，backend 是字面量，无需转义。
+   */
+  private static String manifestText(String name, String description) {
+    return "---\nname: "
+        + name
+        + "\ndescription: "
+        + io.oryxos.core.agent.AgentMarkdown.yamlDoubleQuoted(description)
+        + "\nbackend: local\n---\n";
   }
 
   @Override

@@ -139,6 +139,29 @@ class KnowledgeApiControllerTest {
   }
 
   @Test
+  @DisplayName("描述含 YAML 元字符：建库与改描述都不得把清单写坏（冒号+空格、井号）")
+  void descriptionWithYamlMetacharactersKeepsTheBaseReadable() throws Exception {
+    String description = "产品 FAQ: 价格与退换货 #1";
+
+    createBase("faq", description);
+    mvc.perform(get("/api/v1/knowledge"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].name").value("faq"))
+        .andExpect(jsonPath("$.data[0].description").value(description));
+
+    mvc.perform(
+            patch("/api/v1/knowledge/faq")
+                .contentType("application/json")
+                .content("{\"description\":\"运维手册: 磁盘告警\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.description").value("运维手册: 磁盘告警"));
+
+    // 写坏的清单会让库从详情/删除里一起消失——这三步是"库还活着"的最小证明
+    mvc.perform(get("/api/v1/knowledge/faq")).andExpect(status().isOk());
+    mvc.perform(delete("/api/v1/knowledge/faq")).andExpect(status().isOk());
+  }
+
+  @Test
   @DisplayName("详情/改描述/删文档/重建")
   void detailUpdateDeleteDocReindex() throws Exception {
     createBase("ops-manual", "运维手册");
