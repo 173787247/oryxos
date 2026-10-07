@@ -5,6 +5,33 @@
 
 ## [Unreleased]
 
+## [0.1.7-RELEASE] - 2026-10-08
+
+### Added
+- A2A 互通：发布 Agent Card、JSON-RPC `message/send` 与 `message/stream`（SSE）、出站客户端 + `a2a_send` 工具、共享令牌鉴权、`X-A2A-Hop` 跳数上限（#704/#706/#708/#710/#712/#716）。
+- 团队任务（Direction I）：协调者编排 API、专家并行扇出、after/dependsOn 波次调度、失败有界重规划、JPA 持久化与 `GET /api/v1/team-tasks`、耐久 HITL 挂起/恢复、审批策略门禁、成本归因、远程 A2A 节点路由；CLI `team-task run/get/list`（#687~#740）。
+- Flow：AGENT 节点接入 `FlowAgentRunner`、TEAM_TASK 节点桥接团队编排、自然语言生成 Flow Markdown 草稿（#684/#690/#742/#744）。
+- 能力目录：统一 `CapabilityRef` 目录与按轮能力叠加（#746/#753）。
+- 工具与沙箱：进程内 `delegate_agent` 交接、docker 后端 `execute_code`、SSH 执行后端（#685/#686/#694）。
+- MCP：Streamable HTTP 传输（`sse` 别名）与首连自动选择 HTTP 传输（#678/#725）。
+- 评测：审计 trace 导出为 EvalCase 夹具（#696）。
+
+### Changed
+- Spring Boot starter parent 与 logstash-logback-encoder 等依赖升级；CI Actions 版本升级，PMD 暂锁 7.27.0（#726/#727/#813/#814 等）。
+- 检出统一换行符规范化（#755）；gitleaks 下载失败自动重试（#757）。
+
+### Fixed
+- 10 MiB 读写上限补齐：PersonaStore、AgentStore、工作区写入、知识上传、CLI 导入/展示、文件工具等（#650~#677）。
+- 渠道可靠性：租约续期/释放/回滚、去重认领释放、配额与媒体限制、长回复分段代理对、凭证掩码不回写、Telegram 媒体下载与令牌校验、钉钉 webhook 令牌不入错误信息（#777~#825）。
+- MCP：重名/无名配置拒绝、关闭时断开连接、存活探测、先持久化再拆旧连接、空 env/headers 提示、凭证掩码（#768~#858）。
+- 沙箱：未知执行后端拒绝而非回退本机、`execute_code` 按实际后端门禁、SSRF 判断隧道真实地址；路径边界判定穿透软链（#832/#847/#852/#854）。
+- 记忆：工具缺参拒绝、SQLite 档关键词大小写折叠与 `%`/`_` 字面匹配、embedding 维度变化重建向量索引（#845/#856/#860）。
+- 其他：Web 控制器与所注入 bean 同条件注册、RBAC 开启时 A2A 端点可启动、A2A 网关按映射后路径判定、`chat --profile` 拒绝不存在的 Agent、团队任务依赖等待与计划解析、集群心跳须短于租约（#751/#762/#766/#767/#770/#774/#786）。
+
+### Docs
+- 039 RBAC 用户角色面文档、Vision/roadmap 状态同步、Windows 需在 WSL2 内启动服务说明（#641/#688）。
+- README 版本徽章升级至 0.1.7；Helm `appVersion` 与 A2A Agent Card 默认版本对齐 `0.1.7-RELEASE`。
+
 ## [0.1.6-RELEASE] - 2026-09-23
 
 ### Added
