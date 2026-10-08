@@ -47,11 +47,9 @@ public class ProviderEmbeddingModelFactory {
     OpenAiEmbeddingModel delegate =
         OpenAiEmbeddingModel.builder()
             .metadataMode(MetadataMode.EMBED)
+            .openAiClient(
+                ProviderChatModelFactory.sdkClient(base, apiKey, connectTimeout, readTimeout))
             .options(options)
-            .httpClientBuilderCustomizer(
-                builder ->
-                    builder.timeout(
-                        ProviderChatModelFactory.okHttpTimeout(connectTimeout, readTimeout)))
             .build();
     return new SpringAiTextEmbedder(delegate, name + "/" + model);
   }
