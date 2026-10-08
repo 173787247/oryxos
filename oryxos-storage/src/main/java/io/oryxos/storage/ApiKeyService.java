@@ -98,8 +98,18 @@ public class ApiKeyService {
     return new CreatedKey(saved, plaintext);
   }
 
-  /** 校验明文 Key：格式错/不存在/已吊销均返 false（同一路径同一结果，防探测）。通过后同步节流更新 last_used_at， 更新失败仅日志不影响返回值。 */
-  @Transactional(rollbackFor = Exception.class)
+  /**
+   * 校验明文 Key：格式错/不存在/已吊销均返 false（同一路径同一结果，防探测）。通过后同步节流更新 last_used_at， 更新失败仅日志不影响返回值。
+   *
+   * <p>**刻意不加 {@code @Transactional}。** {@code last_used_at} 是一次可失败的治理写入，FR-009 要求它失败
+   * 不得阻断请求；而方法级事务会把这个要求变成不可能：{@code repository.save(key)} 在事务内退化成一次 merge，真正的 UPDATE
+   * 要等事务提交时才发出——那已经在 {@code touchLastUsed} 的 try/catch 之外。写竞争下 异常从提交点抛出（或把事务标成 rollback-only
+   * 后在提交点变成 {@code UnexpectedRollbackException}）， 两种走法都把一把有效 Key 的认证打挂。不开事务时 {@code save}
+   * 自带的事务在调用点提交，失败正好落在 try/catch 里。读侧不需要事务：{@code findByKeyHash} 单行读取，Spring Data 自带只读事务。
+   *
+   * <p>调用方（{@code ApiKeyAuthFilter}）也没有外层事务，与 {@code AuthEventRecorder.recordBestEffort} 等同类
+   * best-effort 写入的调用形态一致。
+   */
   public boolean verify(String plaintext) {
     if (plaintext == null || plaintext.isBlank() || !plaintext.startsWith(PLAINTEXT_PREFIX)) {
       return false;
