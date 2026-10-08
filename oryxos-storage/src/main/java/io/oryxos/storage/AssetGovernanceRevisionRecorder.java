@@ -14,7 +14,14 @@ public class AssetGovernanceRevisionRecorder {
   private static final int MAX_ID = 255;
   private static final int MAX_TYPE = 32;
   private static final int MAX_VERSION = 128;
-  private static final int MAX_SNAPSHOT = 65536;
+
+  /**
+   * 与治理文本在别处的读写上限（{@code AssetGovernanceStore.MAX_GOVERNANCE_FILE_BYTES}，10 MiB）对齐：这一列不是旁路日志，而是
+   * {@code AssetGovernanceApiSupport.restore} 的权威内容源，截断又是静默的——截出来的残缺 YAML 仍然可解析（owner 变短、其后
+   * version/visibility/riskLevel/health 全空），restore 会照它写回现网。{@code @Lob} 列本身没有宽度约束，原先的 64 KiB
+   * 只由这一行决定。
+   */
+  private static final int MAX_SNAPSHOT = 10 * 1024 * 1024;
 
   private static final String UNKNOWN_ACTOR = "anonymous";
 
