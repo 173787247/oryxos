@@ -149,6 +149,49 @@ class KnowledgeBackendContractTest {
   }
 
   @Test
+  void embeddingWidthChangeUnderTheSameModelIdRefusesMixedComparisonAndPromptsRebuild() {
+    indexReady();
+    embedderRef.set(() -> new TestEmbedder("test/v1", 8));
+
+    List<KnowledgeHit> hits = retrieve("磁盘告警", 5, "ops");
+
+    // 行为契约 5b：同一 modelId 换了宽度也是"与当前配置不一致"（FR-014 的维度那一半）
+    assertFalse(hits.isEmpty());
+    assertTrue(hits.stream().allMatch(KnowledgeHit::degraded), "宽度变更后必须逐条标注降级");
+    assertTrue(String.valueOf(hits.get(0).payload().get("degraded_reason")).contains("重建"));
+  }
+
+  @Test
+  void unchangedModelAndWidthStillServesTheVectorRouteWithoutDegrading() {
+    indexReady();
+    embedderRef.set(() -> new TestEmbedder("test/v1", TestEmbedder.DIM));
+
+    List<KnowledgeHit> hits = retrieve("磁盘告警", 5, "ops");
+
+    // 反向用例：宽度没变时新检查不得触发（不靠缺陷活着）
+    assertFalse(hits.isEmpty());
+    assertFalse(hits.get(0).degraded(), "模型与宽度都没变时不得标注降级");
+  }
+
+  @Test
+  void mixedWidthIndexRefusesMixedComparisonButStillServesTheOldDocument() {
+    indexReady(); // disk-alert.md 以 16 维入库
+    embedderRef.set(() -> new TestEmbedder("test/v1", 8));
+    writeDoc("ops", "faq.md", "# 常见问题\n\n磁盘满了先扩容还是先清理？");
+    backend.importDocument("ops", "faq.md"); // 同一 modelId，新行以 8 维入库
+    runBackground();
+
+    List<KnowledgeHit> hits = retrieve("磁盘告警", 5, "ops");
+
+    // 旧宽度片段不得被静默排除在比较之外：要么拒绝混比并标注，要么不得返回（FR-014）
+    assertFalse(hits.isEmpty());
+    assertTrue(hits.stream().allMatch(KnowledgeHit::degraded));
+    assertTrue(
+        hits.stream().anyMatch(hit -> hit.citation().relPath().equals("disk-alert.md")),
+        "降级不等于丢数据：关键词路仍须服务旧宽度的文档");
+  }
+
+  @Test
   void importRejectsUnsupportedEmptyAndScannedAtEntry() throws IOException {
     Files.writeString(root.resolve("ops").resolve("report.docx"), "x");
     assertReadableImportError("ops", "report.docx", "不支持");
@@ -407,16 +450,22 @@ class KnowledgeBackendContractTest {
 
     private static final int DIM = 16;
     private final String modelId;
+    private final int dim;
 
     TestEmbedder(String modelId) {
+      this(modelId, DIM);
+    }
+
+    TestEmbedder(String modelId, int dim) {
       this.modelId = modelId;
+      this.dim = dim;
     }
 
     @Override
     public float[] embed(String text) {
-      float[] vector = new float[DIM];
+      float[] vector = new float[dim];
       for (int i = 0; i < text.length(); i++) {
-        vector[text.charAt(i) % DIM] += 1;
+        vector[text.charAt(i) % dim] += 1;
       }
       double norm = 0;
       for (float value : vector) {
@@ -424,7 +473,7 @@ class KnowledgeBackendContractTest {
       }
       float length = (float) Math.sqrt(norm);
       if (length > 0) {
-        for (int i = 0; i < DIM; i++) {
+        for (int i = 0; i < dim; i++) {
           vector[i] /= length;
         }
       }
@@ -438,7 +487,7 @@ class KnowledgeBackendContractTest {
 
     @Override
     public int dimensions() {
-      return DIM;
+      return dim;
     }
   }
 }

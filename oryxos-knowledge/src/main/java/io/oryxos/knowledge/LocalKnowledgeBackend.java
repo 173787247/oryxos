@@ -117,7 +117,17 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
         degradedReason = mismatch;
       } else {
         try {
-          vectorRoute = vectorRecall(chunks, embedder, query, topK * ROUTE_FACTOR);
+          // 当前宽度取这次调用的真实返回：embedder.dimensions() 在首次调用前是 0，
+          // 拿它当基准会把健康索引误判成宽度不一致。
+          float[] queryVector = embedder.embed(query);
+          String widthMismatch = widthMismatch(chunks, queryVector.length);
+          if (widthMismatch != null) {
+            // 同一 modelId 换了宽度也属于"与当前配置不一致"：整条向量路退出比较并提示重建，
+            // 而不是按长度过滤后静默地只比对新宽度的那部分片段（FR-014 的维度那一半）。
+            degradedReason = widthMismatch;
+          } else {
+            vectorRoute = vectorRecall(chunks, queryVector, topK * ROUTE_FACTOR);
+          }
         } catch (RuntimeException e) {
           // embedder bean 在、embed 调用才失败（embedding API 宕机是最常见降级场景）——
           // 必须 WARN + 逐条标注降级（FR-013），不能静默变成纯关键词结果（与 MemoryRecallEngine 口径一致）
@@ -173,10 +183,20 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
     return null;
   }
 
+  /** 存量向量宽度与当前 embedder 不一致时返回可读原因；一致返回 null（FR-014）。 */
+  private static String widthMismatch(List<ChunkStore.ChunkRecord> chunks, int currentWidth) {
+    for (ChunkStore.ChunkRecord chunk : chunks) {
+      float[] embedding = chunk.embedding();
+      if (embedding != null && embedding.length != currentWidth) {
+        return "向量维度不一致（存量 " + embedding.length + " ≠ 当前 " + currentWidth + "），请重建索引；已降级为关键词检索";
+      }
+    }
+    return null;
+  }
+
   private static List<RetrievalPipeline.Candidate> vectorRecall(
-      List<ChunkStore.ChunkRecord> chunks, TextEmbedder embedder, String query, int limit) {
-    // embed 失败直接上抛：由 retrieveOne 统一 WARN + 标注降级，这里不再静默吞成空结果
-    float[] queryVector = embedder.embed(query);
+      List<ChunkStore.ChunkRecord> chunks, float[] queryVector, int limit) {
+    // 调用方已按 FR-014 拒绝宽度不一致的存量；此处只服务与当前宽度相同的片段
     return chunks.stream()
         .filter(
             chunk -> chunk.embedding() != null && chunk.embedding().length == queryVector.length)
