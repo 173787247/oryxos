@@ -1,6 +1,7 @@
 package io.oryxos.knowledge.watch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.core.embedding.TextEmbedder;
@@ -159,6 +160,113 @@ class KnowledgeWatcherTest {
     @Override
     public int dimensions() {
       return 4;
+    }
+  }
+
+  // ── 启动对账必须把被重启打断的 PENDING/INDEXING 拉回终态 ──
+  //
+  // 上传接口先落盘、再写 PENDING 行、最后把切分向量化交给执行器。进程在这个窗口被杀
+  // （滚动升级、OOM、SIGKILL）之后，那行没有任何在飞任务，也没有别的机制把它拉回：
+  // 文件在盘上、内容可读，却检索不到，failureReason 还是 null。
+
+  @Test
+  @DisplayName("启动对账：被重启打断的 PENDING 文档必须被重新驱动到就绪")
+  void startupReconcileReDrivesADocumentLeftPendingByARestart() throws IOException {
+    Path kb = knowledgeBase("ops", "运维手册");
+    Files.writeString(kb.resolve("a.md"), "# 磁盘告警\n\n先查 inode 占用。");
+
+    // 第一次启动：执行器只收任务不跑，等价于进程在后台段之前被杀
+    ControllableExecutor crashed = new ControllableExecutor();
+    KnowledgeIndexService firstBoot =
+        new KnowledgeIndexService(kbRoot, store, TestEmbedder::new, crashed);
+    firstBoot.importDocument("ops", "a.md");
+
+    assertEquals(
+        DocumentState.PENDING, firstBoot.status("ops").get(0).state(), "前提：任务没跑，行停在 PENDING");
+    assertNull(firstBoot.status("ops").get(0).failureReason(), "前提：也没有失败原因");
+
+    // 重启：新实例、新执行器，走启动对账那一条路
+    ControllableExecutor afterBoot = new ControllableExecutor();
+    KnowledgeIndexService restarted =
+        new KnowledgeIndexService(kbRoot, store, TestEmbedder::new, afterBoot);
+    restarted.reconcile("ops", true);
+
+    assertEquals(
+        DocumentState.PENDING, restarted.status("ops").get(0).state(), "对账只负责重新提交任务，推进由后台段完成");
+
+    afterBoot.runAll();
+
+    assertEquals(DocumentState.READY, restarted.status("ops").get(0).state(), "重启后必须收敛到就绪");
+    assertTrue(
+        store.chunks("ops", restarted.activeGeneration("ops")).stream()
+            .anyMatch(c -> c.content().contains("inode")),
+        "内容必须重新可被命中");
+  }
+
+  @Test
+  @DisplayName("热加载对账不得重驱动在飞的 PENDING（同 JVM 内确实有任务在跑）")
+  void hotReloadReconcileLeavesAnInFlightPendingAlone() throws IOException {
+    Path kb = knowledgeBase("ops", "运维手册");
+    Files.writeString(kb.resolve("a.md"), "# 磁盘告警\n\n先查 inode 占用。");
+
+    ControllableExecutor inFlight = new ControllableExecutor();
+    KnowledgeIndexService service =
+        new KnowledgeIndexService(kbRoot, store, TestEmbedder::new, inFlight);
+    service.importDocument("ops", "a.md");
+    assertEquals(1, inFlight.queued(), "前提：后台任务确实在队列里");
+
+    watcherWith(service).reconcileQuietly(kb);
+
+    assertEquals(1, inFlight.queued(), "热加载路径不得再提交一次（否则与在飞任务重复劳动）");
+  }
+
+  @Test
+  @DisplayName("反向：指纹与状态都没变的 READY 文档，启动对账不得重复导入")
+  void startupReconcileDoesNotReimportASettledDocument() throws IOException {
+    Path kb = knowledgeBase("ops", "运维手册");
+    Files.writeString(kb.resolve("a.md"), "# 磁盘告警\n\n先查 inode 占用。");
+
+    watcher.reconcileQuietly(kb, true);
+    assertEquals(DocumentState.READY, indexService.status("ops").get(0).state());
+
+    ControllableExecutor second = new ControllableExecutor();
+    KnowledgeIndexService reopened =
+        new KnowledgeIndexService(kbRoot, store, TestEmbedder::new, second);
+    reopened.reconcile("ops", true);
+
+    assertEquals(0, second.queued(), "已就绪且指纹未变 ⇒ 不重新导入");
+    assertEquals(DocumentState.READY, reopened.status("ops").get(0).state());
+  }
+
+  /** 取一个与 {@code indexService} 共用 store 的 watcher（用例里换了服务实例时用）。 */
+  private KnowledgeWatcher watcherWith(KnowledgeIndexService service) {
+    return new KnowledgeWatcher(root, service, Runnable::run);
+  }
+
+  /** 只收任务、不自动执行：模拟后台段尚未跑完（或进程已被杀）。 */
+  private static final class ControllableExecutor implements java.util.concurrent.Executor {
+    private final java.util.List<Runnable> tasks = new java.util.ArrayList<>();
+
+    @Override
+    public synchronized void execute(Runnable command) {
+      tasks.add(command);
+    }
+
+    synchronized int queued() {
+      return tasks.size();
+    }
+
+    void runAll() {
+      while (true) {
+        Runnable next;
+        synchronized (this) {
+          if (tasks.isEmpty()) {
+            return;
+          }
+          next = tasks.remove(0);
+        }
+        next.run();
+      }
     }
   }
 }

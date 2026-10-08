@@ -301,8 +301,21 @@ public class KnowledgeIndexService {
   /**
    * 对账（FR-010）：目录 ⇄ 索引差异收敛——新文件/指纹变化/失败态 → 重新导入（后台段推进）； 文件消失 → 清掉索引行。启动与热加载共用；单个坏文件 WARN
    * 跳过、不拖垮整库（US4 场景 3）。
+   *
+   * <p>热加载路径用这个重载：同 JVM 内 {@code PENDING}/{@code INDEXING} 意味着确实有任务在飞，跳过它 避免与在飞任务重复劳动。
    */
   public synchronized void reconcile(String kbName) {
+    reconcile(kbName, false);
+  }
+
+  /**
+   * 对账，并显式声明这次是不是「进程重启后的首轮」。
+   *
+   * <p>{@code afterRestart} 为真时，{@code PENDING}/{@code INDEXING} 也算差异：那两种状态的隐含前提是 「同 JVM
+   * 里有任务在飞」，而重启后不存在在飞的任务，也没有别的机制把这行拉回终态。不重驱动它就永远停在 「待索引」——文件在盘上、内容可读，却检索不到，且 {@code failureReason}
+   * 是 null，管理员既看不到卡住 也看不到原因（FR-008 的状态机、FR-010 的启动对账）。
+   */
+  public synchronized void reconcile(String kbName, boolean afterRestart) {
     Path kbDir = kbDir(kbName);
     long generation = activeGeneration(kbName);
     Map<String, ChunkStore.DocumentRecord> indexed = new java.util.HashMap<>();
@@ -317,6 +330,9 @@ public class KnowledgeIndexService {
       boolean changed =
           existing == null
               || existing.state() == DocumentState.FAILED
+              || (afterRestart
+                  && (existing.state() == DocumentState.PENDING
+                      || existing.state() == DocumentState.INDEXING))
               || !MessageDigest.isEqual(
                   existing.sha256().getBytes(StandardCharsets.UTF_8),
                   sha256(file).getBytes(StandardCharsets.UTF_8));

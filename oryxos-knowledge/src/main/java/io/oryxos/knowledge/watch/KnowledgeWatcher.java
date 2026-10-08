@@ -66,7 +66,8 @@ public class KnowledgeWatcher {
           Files.newDirectoryStream(knowledgeDir, Files::isDirectory)) {
         for (Path child : children) {
           watchTreeQuietly(watchService, child); // 含既有嵌套子目录：WatchService 是浅的，必须逐层补挂
-          reconcileQuietly(child); // 启动对账：停机期间的增改删在此收敛（FR-010）
+          // 启动对账：停机期间的增改删、以及被重启打断的 PENDING/INDEXING 都在此收敛（FR-010）
+          reconcileQuietly(child, true);
         }
       }
     } catch (IOException e) {
@@ -181,6 +182,11 @@ public class KnowledgeWatcher {
 
   /** 单库对账：非法清单 / 远程后端跳过并告警，不拖垮监听（US4 场景 3）。包级可见供单测直接调。 */
   void reconcileQuietly(Path kbDir) {
+    reconcileQuietly(kbDir, false);
+  }
+
+  /** {@code afterRestart} 透传给索引层；启动那一轮传 true（见 {@code reconcile} 的说明）。 */
+  void reconcileQuietly(Path kbDir, boolean afterRestart) {
     String name = String.valueOf(kbDir.getFileName());
     try {
       if (!Files.isDirectory(kbDir)) {
@@ -190,7 +196,7 @@ public class KnowledgeWatcher {
       if (!KnowledgeBackendRegistry.LOCAL.equals(manifest.backend())) {
         return; // 远程后端库无本地索引，无需对账
       }
-      indexService.reconcile(name);
+      indexService.reconcile(name, afterRestart);
     } catch (RuntimeException e) {
       LOG.warn("知识库目录 {} 对账跳过：{}", sanitize(name), sanitize(e.getMessage()));
     }
