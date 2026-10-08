@@ -40,8 +40,7 @@ public class JpaCostLedgerStore implements CostLedgerStore {
 
   @Override
   public List<CostLedgerEntry> find(CostAttributionQuery query) {
-    CostAttributionQuery q =
-        query == null ? new CostAttributionQuery(null, null, null, null, null, null) : query;
+    CostAttributionQuery q = normalize(query);
     return repository
         .search(
             blank(q.runId()),
@@ -57,12 +56,30 @@ public class JpaCostLedgerStore implements CostLedgerStore {
 
   @Override
   public long sumLlmCostMicros(CostAttributionQuery query) {
-    return find(query).stream().mapToLong(CostLedgerEntry::llmCostMicros).sum();
+    CostAttributionQuery q = normalize(query);
+    return repository.sumLlmCostMicros(
+        blank(q.runId()),
+        blank(q.taskId()),
+        blank(q.agentName()),
+        blank(q.teamId()),
+        blank(q.provider()),
+        blank(q.model()));
   }
 
   @Override
   public long sumToolCostMicros(CostAttributionQuery query) {
-    return find(query).stream().mapToLong(CostLedgerEntry::toolCostMicros).sum();
+    CostAttributionQuery q = normalize(query);
+    return repository.sumToolCostMicros(
+        blank(q.runId()),
+        blank(q.taskId()),
+        blank(q.agentName()),
+        blank(q.teamId()),
+        blank(q.provider()),
+        blank(q.model()));
+  }
+
+  private static CostAttributionQuery normalize(CostAttributionQuery query) {
+    return query == null ? new CostAttributionQuery(null, null, null, null, null, null) : query;
   }
 
   private static String blank(String v) {

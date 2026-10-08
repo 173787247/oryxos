@@ -15,9 +15,6 @@ public class JpaAuditLlmCostSource implements AuditLlmCostSource {
     if (traceId == null || traceId.isBlank()) {
       return 0L;
     }
-    return repository.findAll().stream()
-        .filter(c -> traceId.equals(c.getTraceId()))
-        .mapToLong(c -> c.getCostMicros() == null ? 0L : c.getCostMicros())
-        .sum();
+    return repository.sumCostMicrosByTraceId(traceId);
   }
 }
