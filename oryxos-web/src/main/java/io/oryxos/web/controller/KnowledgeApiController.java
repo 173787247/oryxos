@@ -236,6 +236,7 @@ public class KnowledgeApiController {
       throw new IllegalArgumentException("上传文件为空");
     }
     String fileName = safeFileName(file.getOriginalFilename());
+    rejectReservedFileName(fileName);
     long uploadSize = file.getSize();
     if (uploadSize > MAX_DOCUMENT_UPLOAD_BYTES) {
       throw new IllegalArgumentException(
@@ -285,6 +286,15 @@ public class KnowledgeApiController {
     KnowledgeManifest manifest = requireBase(name);
     KnowledgeBackend backend = requireBackend(manifest.backend());
     KnowledgeAdmin admin = admin(backend, KnowledgeCapabilities::importDocs, "删除文档");
+    if (relPath == null || relPath.isBlank()) {
+      throw new IllegalArgumentException("文档路径为空");
+    }
+    // getFileName() 依约定可为 null（根路径没有文件名）—— 那种入参没有"文件名"可比，
+    // 交给下面的越界校验去拒绝，不要在这里解引用。
+    Path leaf = Path.of(relPath).getFileName();
+    if (leaf != null) {
+      rejectReservedFileName(leaf.toString());
+    }
     Path target =
         RealPathBoundary.requireWithin(knowledgeRoot, knowledgeRoot.resolve(name).resolve(relPath));
     admin.deleteDocument(name, relPath);
@@ -348,6 +358,26 @@ public class KnowledgeApiController {
       throw new IllegalArgumentException("非法文件名（只允许中英文/数字/点/下划线/连字符）: " + original);
     }
     return fileName;
+  }
+
+  /**
+   * 拒收库清单自己的文件名 {@link KnowledgeManifest#FILE}（大小写不敏感）作为文档上传/删除的目标。
+   *
+   * <p>文档就落在库目录下、清单也躺在同一个目录里，所以一个叫 {@code KNOWLEDGE.md} 的"文档"会直接顶掉清单： 上传返回 200 之后，该库从列表里消失，随后连
+   * detail / delete 都因 frontmatter 缺失而不可用——库不可读也删不掉。
+   *
+   * <p>大小写不敏感的理由与 {@code WorkspaceApiController} 的 {@code AGENT.md} 同类：macOS / Windows
+   * 默认大小写不敏感，{@code knowledge.md} 指向同一个文件。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "KNOWLEDGE.md is an ASCII reserved filename; equalsIgnoreCase matches case-insensitive filesystems.")
+  private static void rejectReservedFileName(String fileName) {
+    if (KnowledgeManifest.FILE.equalsIgnoreCase(fileName)) {
+      throw new IllegalArgumentException(
+          "文件名 " + fileName + " 被知识库清单占用，不能作为文档: " + KnowledgeManifest.FILE);
+    }
   }
 
   private static void deleteQuietly(Path target) {
