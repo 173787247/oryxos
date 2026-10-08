@@ -62,15 +62,27 @@ public class JpaFlowRunStore implements FlowRunStore {
         .toList();
   }
 
+  /** 条件更新一条语句写完：rowcount 1 = 迁移成功（写的就是 {@code next} 的那些列），0 = 行不存在或状态不符。 */
   @Override
   @Transactional(rollbackFor = Exception.class)
   public Optional<FlowRun> tryTransitionRun(String runId, FlowRunState expected, FlowRun next) {
-    FlowRunEntity e = runs.findById(runId).orElse(null);
-    if (e == null || !expected.name().equals(e.getState())) {
-      return Optional.empty();
-    }
-    runs.save(toEntity(next));
-    return Optional.of(next);
+    int updated =
+        runs.transitionRunIfState(
+            runId,
+            expected.name(),
+            next.flowId(),
+            next.flowVersion(),
+            next.definitionMarkdown(),
+            next.state().name(),
+            next.entryNodeId(),
+            next.currentNodeId(),
+            next.inputsJson(),
+            next.contextJson(),
+            next.lastError(),
+            next.attempt(),
+            next.createdAt(),
+            next.updatedAt());
+    return updated == 1 ? Optional.of(next) : Optional.empty();
   }
 
   private static FlowRun toRun(FlowRunEntity e) {
