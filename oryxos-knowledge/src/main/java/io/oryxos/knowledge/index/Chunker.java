@@ -17,6 +17,9 @@ public final class Chunker {
 
   /** 把一个解析单元的文本切成有序片段；空白片段丢弃。 */
   public List<String> split(String text) {
+    // 行尾先归一：CRLF 下段落分隔是 \r\n\r\n，而 PARAGRAPH_SEPARATOR 只认 \n\n——
+    // 不归一的话整篇会并成一个「段落」，标题边界全部失效（只剩长度硬切），片段里还会夹带 \r。
+    text = text.replace("\r\n", "\n").replace('\r', '\n');
     List<String> chunks = new ArrayList<>();
     StringBuilder current = new StringBuilder();
     for (String paragraph : paragraphsOf(text)) {
