@@ -40,16 +40,33 @@ public class JpaTaskCheckpointStore implements TaskCheckpointStore {
         .toList();
   }
 
+  /** 条件更新一条语句写完：rowcount 1 = 迁移成功（写的就是 {@code next} 的那些列），0 = 行不存在或状态不符。 */
   @Override
   @Transactional(rollbackFor = Exception.class)
   public Optional<TaskCheckpoint> tryTransition(
       String id, DurableTaskState expected, TaskCheckpoint next) {
-    DurableTaskCheckpointEntity e = repository.findById(id).orElse(null);
-    if (e == null || !expected.name().equals(e.getState())) {
-      return Optional.empty();
-    }
-    repository.save(toEntity(next));
-    return Optional.of(next);
+    int updated =
+        repository.transitionIfState(
+            id,
+            expected.name(),
+            next.executionId(),
+            next.sessionId(),
+            next.agentName(),
+            next.state().name(),
+            next.idempotencyKey(),
+            next.checkpointKind(),
+            next.toolName(),
+            next.toolCallId(),
+            next.argumentsJson(),
+            next.policyVersion(),
+            next.ruleId(),
+            next.attempt(),
+            next.lastError(),
+            next.ttlSeconds(),
+            next.expiresAt(),
+            next.createdAt(),
+            next.updatedAt());
+    return updated == 1 ? Optional.of(next) : Optional.empty();
   }
 
   private static TaskCheckpoint toView(DurableTaskCheckpointEntity e) {
