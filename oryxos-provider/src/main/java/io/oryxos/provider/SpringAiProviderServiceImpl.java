@@ -217,11 +217,14 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       ProviderRequest request,
       Attempt attempt,
       ProviderDef def) {
-    ChatModel model = resolveModel(def);
-    Prompt prompt = buildPrompt(profile, request, attempt.model());
+    // 建模型与建 Prompt 也要落在 try 内：它们失败的原因（凭证缺失、base-url 非法、
+    // 工具 inputSchema 为空）都是配置类故障，恰恰是审计最该留下痕迹的一类。放在 try 外时
+    // 这些异常绕过 recordFailure，审计、失败指标与 LLM span 三者一起为零，排障只剩一个 500。
     long startedAt = System.currentTimeMillis();
     ProviderResponse result;
     try {
+      ChatModel model = resolveModel(def);
+      Prompt prompt = buildPrompt(profile, request, attempt.model());
       ChatResponse response = model.call(prompt);
       result = toProviderResponse(response);
     } catch (RuntimeException e) {
@@ -388,13 +391,13 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       Attempt attempt,
       ProviderDef def,
       boolean[] contentStarted) {
-    ChatModel model = resolveModel(def);
-    Prompt prompt = buildPrompt(profile, request, attempt.model());
     long startedAt = System.currentTimeMillis();
     StringBuilder text = new StringBuilder();
     ToolCallAggregator toolCalls = new ToolCallAggregator();
     Usage usage = null;
     try {
+      ChatModel model = resolveModel(def);
+      Prompt prompt = buildPrompt(profile, request, attempt.model());
       for (ChatResponse chunk : model.stream(prompt).toIterable()) {
         Generation generation = chunk.getResult();
         if (generation != null && generation.getOutput() != null) {

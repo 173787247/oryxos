@@ -375,4 +375,92 @@ class ProviderServiceTest {
             captor.getAllValues().get(1).getInstructions().get(0);
     assertTrue(second.getMedia().isEmpty());
   }
+
+  /**
+   * 建模型与建 Prompt 发生在 invokeChat 的 try 之外，所以它们抛出的异常绕过了 recordFailure —— 审计、失败指标、LLM span
+   * 三者一起为零。运维只看到一个 500，事后按会话/按 provider 查不到任何痕迹。
+   *
+   * <p>这两个触发条件都是配置类故障（凭证缺失、工具 schema 为空），恰恰是最需要在审计里看到的那一类。
+   */
+  @Test
+  void 建模型失败_审计必须留下success为false的记录() {
+    var registry = mock(io.oryxos.core.provider.ProviderRegistry.class);
+    when(registry.find("deepseek"))
+        .thenReturn(
+            java.util.Optional.of(
+                new io.oryxos.core.provider.ProviderDef("deepseek", "key", "https://x", null)));
+    var audit2 = mock(LlmCallAuditor.class);
+    var service2 =
+        new SpringAiProviderServiceImpl(
+            registry,
+            def -> {
+              throw new IllegalStateException("At least one credential source must be specified");
+            },
+            new ToolSchemaAdapter(),
+            audit2,
+            mock(io.oryxos.core.provider.PricingStore.class));
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> service2.chat("s-1", profileUsing("deepseek"), ProviderRequest.of("hi")));
+
+    // 异常照常上抛，但审计先落了这一条
+    verify(audit2)
+        .record(
+            eq("s-1"),
+            eq("test-agent"),
+            eq("deepseek"),
+            eq("model-x"),
+            isNull(),
+            isNull(),
+            eq(false),
+            contains("credential source"),
+            anyLong());
+  }
+
+  @Test
+  void 建Prompt失败_审计必须留下success为false的记录() {
+    OryxTool badSchema =
+        new OryxTool() {
+          @Override
+          public String getName() {
+            return "bad";
+          }
+
+          @Override
+          public String getDescription() {
+            return "d";
+          }
+
+          @Override
+          public String getInputSchema() {
+            return null;
+          }
+
+          @Override
+          public io.oryxos.core.ToolResult execute(com.fasterxml.jackson.databind.JsonNode input) {
+            return null;
+          }
+        };
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            service.chat(
+                "s-1",
+                profileUsing("deepseek"),
+                new ProviderRequest(null, List.of(), List.of(badSchema))));
+
+    verify(audit)
+        .record(
+            eq("s-1"),
+            eq("test-agent"),
+            eq("deepseek"),
+            eq("model-x"),
+            isNull(),
+            isNull(),
+            eq(false),
+            any(),
+            anyLong());
+  }
 }
