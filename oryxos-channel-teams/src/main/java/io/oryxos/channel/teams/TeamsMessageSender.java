@@ -11,6 +11,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 
 /** Bot Framework 回复：client_credentials 换 token 后 POST {@code /v3/conversations/{id}/activities}。 */
 public class TeamsMessageSender {
@@ -21,6 +22,19 @@ public class TeamsMessageSender {
   private static final Duration TIMEOUT = Duration.ofSeconds(20);
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String FIELD_ACCESS_TOKEN = "access_token";
+
+  /**
+   * 单条消息正文上限（字符数），留出与同族渠道一致的余量。
+   *
+   * <p>Teams 官方文档（learn.microsoft.com，Format agent messages → Message size limits）： {@code The
+   * agent message size limit is 100 KB … ensure that the size of the message itself is within 80 KB
+   * to guarantee successful message delivery}，超限时返回 {@code 413} （{@code RequestEntityTooLarge}，错误码
+   * {@code MessageSizeTooBig}）。
+   *
+   * <p>★ 官方明说那个 KB 是 {@code encoded as UTF-16} 且包含 text、@-mentions 与 reactions。 UTF-16 下中文属
+   * BMP，一个字符 2 字节 ⇒ 80 KB 约合 40960 个中文字符。 这里取 30000，给 @-mentions 与 JSON 外壳留出余量。
+   */
+  static final int DEFAULT_CHUNK_SIZE = 30000;
 
   private final HttpClient http;
   private final OutboundGuard guard;
@@ -42,11 +56,24 @@ public class TeamsMessageSender {
     this.tenantId = tenantId;
   }
 
+  /**
+   * 逐段发送。超过单条上限时整个请求被拒（413），那条回复就没了 —— 分段是既有的约定，见 {@link
+   * io.oryxos.core.channel.OutboundTextSegments}。
+   */
   public void send(String serviceUrl, String conversationId, String text, String replyToMessageId) {
+    // ★ token 与 url 都提到循环外。
+    //   fetchToken() 本身是一次 HTTP（client_credentials），放进循环会让三段回复打三次登录接口；
+    //   guard.check(url) 同理，没必要重复判。
     String token = fetchToken();
     String url =
         trimSlash(serviceUrl) + "/v3/conversations/" + urlEncode(conversationId) + "/activities";
     guard.check(url);
+    for (String chunk : segment(text == null ? "" : text, DEFAULT_CHUNK_SIZE)) {
+      postMessage(url, token, chunk, replyToMessageId);
+    }
+  }
+
+  private void postMessage(String url, String token, String text, String replyToMessageId) {
     try {
       ObjectNode body = MAPPER.createObjectNode();
       body.put("type", "message");
@@ -104,6 +131,10 @@ public class TeamsMessageSender {
     } catch (Exception e) {
       throw new IllegalStateException("Teams 换 token 失败: " + e.getMessage(), e);
     }
+  }
+
+  static List<String> segment(String text, int chunkSize) {
+    return io.oryxos.core.channel.OutboundTextSegments.split(text, chunkSize);
   }
 
   private static String trimSlash(String base) {

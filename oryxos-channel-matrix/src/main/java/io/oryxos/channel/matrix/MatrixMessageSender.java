@@ -10,6 +10,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 /** Matrix {@code PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}}。 */
@@ -20,6 +21,19 @@ public class MatrixMessageSender {
   private static final Duration TIMEOUT = Duration.ofSeconds(20);
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String MSGTYPE_TEXT = "m.text";
+
+  /**
+   * 单条消息正文上限（字符数），留出与同族渠道一致的余量。
+   *
+   * <p>Matrix 规范对【事件总大小】的规定是：{@code The total size of any event MUST NOT exceed 65
+   * KB}（matrix-spec-proposals#1021 在讨论它的确切字节数，建议定为 {@code <= 65507} bytes，数量级确定）。那是整个事件的大小，含 JSON
+   * 结构与事件字段，不只是 {@code body}。
+   *
+   * <p>★ 这里要注意计数单位：{@link io.oryxos.core.channel.OutboundTextSegments#split} 按 <b>字符</b>切，而 65 KB
+   * 是<b>字节</b>。中文在 UTF-8 下一个字符占 3 字节，所以 「65000 字符」在全中文时会变成约 190 KB —— 超限三倍。取 20000 字符， 全中文时约 60
+   * KB，加上 JSON 外壳与事件字段仍在上限内。
+   */
+  static final int DEFAULT_CHUNK_SIZE = 20000;
 
   private final HttpClient http;
   private final OutboundGuard guard;
@@ -37,7 +51,19 @@ public class MatrixMessageSender {
     this.token = token;
   }
 
+  /**
+   * 逐段发送。超过事件上限时整个请求会被 homeserver 拒掉（M413）， 那条回复就没了 —— 分段是既有的约定，见 {@link
+   * io.oryxos.core.channel.OutboundTextSegments}。
+   */
   public void send(String roomId, String text) {
+    for (String chunk : segment(text == null ? "" : text, DEFAULT_CHUNK_SIZE)) {
+      postMessage(roomId, chunk);
+    }
+  }
+
+  private void postMessage(String roomId, String text) {
+    // ★ 事务 id 是 Matrix 的去重键，必须【每段一个】。若提到循环外只生成一次，
+    //   多段会共用同一个 txnId，homeserver 会把后续几段当成重发而丢掉。
     String txn = UUID.randomUUID().toString();
     String url =
         homeserver
@@ -68,6 +94,10 @@ public class MatrixMessageSender {
     } catch (Exception e) {
       throw new IllegalStateException("Matrix 发消息失败: " + e.getMessage(), e);
     }
+  }
+
+  static List<String> segment(String text, int chunkSize) {
+    return io.oryxos.core.channel.OutboundTextSegments.split(text, chunkSize);
   }
 
   static String trimSlash(String base) {
