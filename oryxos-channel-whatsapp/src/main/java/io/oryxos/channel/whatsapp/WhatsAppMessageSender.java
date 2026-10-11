@@ -15,7 +15,7 @@ public class WhatsAppMessageSender {
 
   static final String DEFAULT_GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
-  /** 单条文本消息正文上限（Cloud API 为 4096 字符），留余量。 */
+  /** 分段长度。Cloud API 官方参考未为自由文本定义长度上限，这里取 3500 与其他渠道保持同一余量。 */
   static final int DEFAULT_CHUNK_SIZE = 3500;
 
   private static final int HTTP_STATUS_OK_MIN = 200;
@@ -47,7 +47,10 @@ public class WhatsAppMessageSender {
     this.phoneNumberId = phoneNumberId;
   }
 
-  /** 逐段发送。Cloud API 单条文本消息的正文上限是 4096 字符，超了整条会被拒；留出余量。 */
+  /**
+   * 逐段发送。Cloud API 官方参考（message-api 页的内嵌 schema）里 {@code text.body} 没有长度约束， 即**未为自由文本定义上限**；这里仍分段，取
+   * 3500 与其他渠道同一余量，避免平台日后收紧时整条被拒。
+   */
   public void send(String to, String text) {
     for (String chunk : segment(text == null ? "" : text, DEFAULT_CHUNK_SIZE)) {
       postMessage(to, chunk);

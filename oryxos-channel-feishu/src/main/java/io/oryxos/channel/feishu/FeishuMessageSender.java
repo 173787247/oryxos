@@ -24,8 +24,8 @@ import org.slf4j.LoggerFactory;
  * 飞书回复发送器（017 T012）：经 SDK 调 im/v1/messages（tenant token 由 SDK 自动管理）。
  *
  * <p>契约规则 A3 在此实现：发送前显式过 {@link OutboundGuard}（渠道自建出站不会被沙箱自动拦截，必须主动接线，R7）；
- * 超长文本按可配段长分段顺序发送不丢内容（FR-009，平台请求体上限 150KB，默认段长 4000 字符留足 JSON 转义余量）； 每段带随机 uuid 幂等（平台 1 小时内同 uuid
- * 至多成功一条）；replyToMessageId 非空走 reply 引用原消息（B4）。
+ * 超长文本按可配段长分段顺序发送不丢内容（FR-009；平台按**消息体 30KB** 限制，见官方错误码 19036， 默认段长 4000 字符、全中文约 12,000 字节）； 每段带随机
+ * uuid 幂等（平台 1 小时内同 uuid 至多成功一条）；replyToMessageId 非空走 reply 引用原消息（B4）。
  *
  * <p>出站使用富文本 {@code post} + {@code md} 标签承载 Agent Markdown（对齐企微/钉钉出站）。 进度流另走 {@code interactive} 卡片
  * create + patch（#347）。
