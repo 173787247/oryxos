@@ -3,6 +3,7 @@ package io.oryxos.channel.teams;
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.channel.BoundedMap;
 import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.channel.ChannelStatus;
 import io.oryxos.core.channel.InboundChannelAdapter;
@@ -13,8 +14,9 @@ import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.channel.WebhookRequest;
 import io.oryxos.core.channel.WebhookResponse;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Microsoft Teams 入站：Azure Bot webhook。凭证 {@code app_id}/{@code app_secret}/{@code
@@ -29,11 +31,15 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
   private static final String FIELD_ID = "id";
   private static final int HTTP_BAD_REQUEST = 400;
 
+  /** 最多记住多少个会话的 {@code serviceUrl}；超出按最早淘汰（与微信渠道那份同口径）。 */
+  static final int MAX_TRACKED_CONVERSATIONS = 1000;
+
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
-  private final ConcurrentHashMap<String, String> serviceUrls = new ConcurrentHashMap<>();
+  private final Map<String, String> serviceUrls =
+      Collections.synchronizedMap(new BoundedMap<>(MAX_TRACKED_CONVERSATIONS));
 
   private volatile TeamsEventNormalizer normalizer;
   private volatile TeamsMessageSender sender;
@@ -107,6 +113,16 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
       throw new IllegalStateException("渠道 " + name() + " 尚无会话 " + chatId + " 的 serviceUrl");
     }
     current.send(serviceUrl, chatId, text, replyToMessageId);
+  }
+
+  /** 仅供测试：当前记住的会话数。 */
+  int trackedServiceUrlCount() {
+    return serviceUrls.size();
+  }
+
+  /** 仅供测试：查一个会话记住的 serviceUrl。 */
+  String serviceUrlFor(String chatId) {
+    return serviceUrls.get(chatId);
   }
 
   @Override
