@@ -1,7 +1,7 @@
 package io.oryxos.channel.weixin;
 
+import io.oryxos.core.channel.BoundedMap;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -17,7 +17,8 @@ final class WeixinContextTokenStore {
   /** 最多记住多少个用户的上下文令牌。 */
   static final int MAX_TRACKED_USERS = 1000;
 
-  private final Map<String, String> byUserId = Collections.synchronizedMap(new BoundedTokens());
+  private final Map<String, String> byUserId =
+      Collections.synchronizedMap(new BoundedMap<>(MAX_TRACKED_USERS));
 
   void remember(String userId, String contextToken) {
     if (userId == null || userId.isBlank() || contextToken == null || contextToken.isBlank()) {
@@ -32,20 +33,5 @@ final class WeixinContextTokenStore {
       throw new IllegalStateException("微信 iLink 缺少 context_token，需用户先发一条私信（user=" + userId + "）");
     }
     return token;
-  }
-
-  /** 只保留最近 {@link #MAX_TRACKED_USERS} 个用户的令牌。 */
-  private static final class BoundedTokens extends LinkedHashMap<String, String> {
-
-    private static final long serialVersionUID = 1L;
-
-    BoundedTokens() {
-      super(16, 0.75f, false);
-    }
-
-    @Override
-    protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-      return size() > MAX_TRACKED_USERS;
-    }
   }
 }
