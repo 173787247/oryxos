@@ -64,4 +64,31 @@ class SignatureComparisonTest {
     assertFalse(
         SignatureComparison.constantTimeEquals("????????????????????????????????????????", SIG));
   }
+
+  @Test
+  @DisplayName("文本版不折叠：签名版把 '?' 与全角字符编成同一个字节，文本版不会")
+  void textComparisonDoesNotFoldNonAscii() {
+    // 签名版按 US_ASCII 取字节，两个输入都落到 '?'(0x3F)，因此判真 —— 这是为 hex 域设计的行为
+    assertTrue(SignatureComparison.constantTimeEquals("?", "\uFF41"));
+    // 文本版按 UTF-8 取字节：token / secret 是用户自定义文本，折叠会让两者互相命中
+    assertFalse(SignatureComparison.constantTimeEqualsText("?", "\uFF41"));
+    assertTrue(SignatureComparison.constantTimeEqualsText("?", "?"));
+  }
+
+  @Test
+  @DisplayName("文本版：精确相等判真；任一位不同、长度不同、单侧 null 判假")
+  void textComparisonIsAllOrNothing() {
+    String token = "mm-token-令牌-42";
+    assertTrue(SignatureComparison.constantTimeEqualsText(token, token));
+    for (int i = 0; i < token.length(); i++) {
+      char replacement = token.charAt(i) == 'x' ? 'y' : 'x';
+      String mutated = token.substring(0, i) + replacement + token.substring(i + 1);
+      assertFalse(
+          SignatureComparison.constantTimeEqualsText(token, mutated), "第 " + i + " 位被改动却判真");
+    }
+    assertFalse(SignatureComparison.constantTimeEqualsText(token, token.substring(0, 5)));
+    assertFalse(SignatureComparison.constantTimeEqualsText(token, null));
+    assertFalse(SignatureComparison.constantTimeEqualsText(null, token));
+    assertTrue(SignatureComparison.constantTimeEqualsText(null, ""));
+  }
 }

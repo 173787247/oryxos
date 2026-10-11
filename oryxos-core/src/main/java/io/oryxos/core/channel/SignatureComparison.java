@@ -29,7 +29,27 @@ public final class SignatureComparison {
     return MessageDigest.isEqual(asciiBytes(left), asciiBytes(right));
   }
 
+  /**
+   * 以常量时间比较两段任意文本（按 UTF-8 取字节），不做 ASCII 折叠。
+   *
+   * <p>与 {@link #constantTimeEquals} 的分工：那个按 US_ASCII 取字节，非 ASCII 落到 {@code ?}（0x3F）——对 hex 签名成立（域内
+   * 不出现非 ASCII），但 token / secret 是**用户自定义文本**，折叠会让配置里的 {@code "?"} 与提交的 {@code "ａ"} 编成同一串而互相
+   * 命中。凭据不是 hex 时用这个。
+   *
+   * <p>{@code null} 视同空串。
+   *
+   * @param left 收到的文本
+   * @param right 期望的文本
+   */
+  public static boolean constantTimeEqualsText(String left, String right) {
+    return MessageDigest.isEqual(utf8Bytes(left), utf8Bytes(right));
+  }
+
   private static byte[] asciiBytes(String value) {
     return value == null ? new byte[0] : value.getBytes(StandardCharsets.US_ASCII);
+  }
+
+  private static byte[] utf8Bytes(String value) {
+    return value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
   }
 }

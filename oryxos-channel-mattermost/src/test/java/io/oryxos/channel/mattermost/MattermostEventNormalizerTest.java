@@ -1,6 +1,7 @@
 package io.oryxos.channel.mattermost;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.core.channel.ChatKind;
@@ -76,5 +77,24 @@ class MattermostEventNormalizerTest {
                 "token=t&user_id=u1&channel_id=c1&post_id=p1&channel_type=O"
                     + "&text=把%20ops@oryxbot.example.com%20加进群")
             .isEmpty());
+  }
+
+  @Test
+  @DisplayName("webhook token 校验：只认精确相等，前缀命中不给部分匹配")
+  void tokenMatchesIsAllOrNothing() {
+    String token = "mm-token-abc123";
+    assertTrue(normalizer.tokenMatches("token=" + token, token));
+    assertFalse(normalizer.tokenMatches("token=" + token.substring(0, 5), token));
+    assertFalse(normalizer.tokenMatches("token=" + token + "x", token));
+    assertFalse(normalizer.tokenMatches("other=1", token));
+    assertFalse(normalizer.tokenMatches("token=" + token, ""));
+    assertFalse(normalizer.tokenMatches("token=" + token, null));
+  }
+
+  @Test
+  @DisplayName("webhook token 校验不做 ASCII 折叠：全角字符不得被当成 '?'")
+  void tokenMatchDoesNotFoldNonAscii() {
+    assertFalse(normalizer.tokenMatches("token=%EF%BD%81", "?"));
+    assertTrue(normalizer.tokenMatches("token=%3F", "?"));
   }
 }
