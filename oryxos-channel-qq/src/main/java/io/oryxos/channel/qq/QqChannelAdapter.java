@@ -176,7 +176,7 @@ public class QqChannelAdapter implements InboundChannelAdapter {
       tokens = new QqAccessTokenClient(guard, config.appId(), config.appSecret());
     }
     if (normalizer == null) {
-      normalizer = new QqEventNormalizer(config.name());
+      normalizer = new QqEventNormalizer(config.name(), config.appId());
     }
     if (sender == null) {
       sender = new QqMessageSender(guard, tokens);
