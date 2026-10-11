@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.oryxos.core.channel.ChatKind;
 import io.oryxos.core.channel.InboundAttachment;
 import io.oryxos.core.channel.InboundMessage;
+import io.oryxos.core.channel.MentionStripping;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +22,6 @@ public class QqEventNormalizer {
   static final String EVENT_GROUP_AT = "GROUP_AT_MESSAGE_CREATE";
   static final String EVENT_C2C = "C2C_MESSAGE_CREATE";
 
-  private static final Pattern MENTION = Pattern.compile("<@!?\\w+>");
   private static final String FIELD_ID = "id";
   private static final String FIELD_CONTENT = "content";
   private static final String FIELD_AUTHOR = "author";
@@ -46,8 +46,12 @@ public class QqEventNormalizer {
 
   private final String channelName;
 
-  public QqEventNormalizer(String channelName) {
+  /** 指向机器人自身的角括号提及；见 {@link MentionStripping#angleMention(String)}。 */
+  private final Pattern selfMention;
+
+  public QqEventNormalizer(String channelName, String appId) {
     this.channelName = channelName;
+    this.selfMention = MentionStripping.angleMention(appId);
   }
 
   public Optional<InboundMessage> normalize(String eventName, JsonNode data) {
@@ -127,8 +131,8 @@ public class QqEventNormalizer {
             extracted.attachments()));
   }
 
-  private static String resolveContent(String rawContent, String asrReferText) {
-    String content = stripMentions(rawContent == null ? "" : rawContent).strip();
+  private String resolveContent(String rawContent, String asrReferText) {
+    String content = MentionStripping.strip(rawContent, selfMention);
     if (!content.isBlank()) {
       return content;
     }
@@ -211,13 +215,6 @@ public class QqEventNormalizer {
       }
     }
     return new String(chars);
-  }
-
-  static String stripMentions(String content) {
-    if (content == null || content.isBlank()) {
-      return content == null ? "" : content;
-    }
-    return MENTION.matcher(content).replaceAll("").strip();
   }
 
   private static String firstNonBlank(String a, String b) {

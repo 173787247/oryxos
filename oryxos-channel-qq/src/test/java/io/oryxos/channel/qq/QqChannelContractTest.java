@@ -7,7 +7,7 @@ import io.oryxos.core.channel.InboundMessageServiceContractTestBase;
 
 class QqChannelContractTest extends InboundMessageServiceContractTestBase {
 
-  private final QqEventNormalizer normalizer = new QqEventNormalizer("contract-qq");
+  private final QqEventNormalizer normalizer = new QqEventNormalizer("contract-qq", "contract-app");
   private final ObjectMapper mapper = new ObjectMapper();
 
   @Override

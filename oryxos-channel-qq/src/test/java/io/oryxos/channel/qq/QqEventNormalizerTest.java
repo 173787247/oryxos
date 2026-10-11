@@ -17,15 +17,16 @@ import org.junit.jupiter.api.Test;
 class QqEventNormalizerTest {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String BOT_APP_ID = "12345";
   private QqEventNormalizer normalizer;
 
   @BeforeEach
   void setUp() {
-    normalizer = new QqEventNormalizer("ops-qq");
+    normalizer = new QqEventNormalizer("ops-qq", BOT_APP_ID);
   }
 
   @Test
-  @DisplayName("群 @Bot 文本 → GROUP，剥离 mention")
+  @DisplayName("群 @Bot 文本 → GROUP；平台未剥净时剥掉指向机器人自己的前缀")
   void groupAtMessage() {
     ObjectNode data = MAPPER.createObjectNode();
     data.put("id", "msg-g1");
@@ -40,6 +41,29 @@ class QqEventNormalizerTest {
     assertEquals("查天气", m.content());
     assertEquals("group:g-open", m.chatId());
     assertEquals("m-open", m.userId());
+  }
+
+  @Test
+  @DisplayName("群消息里指向他人的 mention 原样保留，只剥机器人自己的")
+  void groupKeepsOtherMentions() {
+    ObjectNode data = MAPPER.createObjectNode();
+    data.put("id", "msg-g3");
+    data.put("group_openid", "g-open");
+    data.put("content", "<@!" + BOT_APP_ID + "> 让 <@!A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4> 复核");
+    data.putObject("author").put("member_openid", "m-open");
+    InboundMessage m = normalizer.normalize(QqEventNormalizer.EVENT_GROUP_AT, data).orElseThrow();
+    assertEquals("让 <@!A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4> 复核", m.content());
+  }
+
+  @Test
+  @DisplayName("单聊 content 即用户原文，角括号文本不被当成 mention 吃掉")
+  void c2cKeepsAngleBracketText() {
+    ObjectNode data = MAPPER.createObjectNode();
+    data.put("id", "msg-c3");
+    data.put("content", "把 <@!9999> 换成 <@!8888> 再发我");
+    data.putObject("author").put("user_openid", "u-open");
+    InboundMessage m = normalizer.normalize(QqEventNormalizer.EVENT_C2C, data).orElseThrow();
+    assertEquals("把 <@!9999> 换成 <@!8888> 再发我", m.content());
   }
 
   @Test
@@ -116,7 +140,7 @@ class QqEventNormalizerTest {
     ObjectNode data = MAPPER.createObjectNode();
     data.put("id", "msg-g-img");
     data.put("group_openid", "g-open");
-    data.put("content", "<@!1>");
+    data.put("content", "<@!" + BOT_APP_ID + ">");
     data.putObject("author").put("member_openid", "m-open");
     data.putArray("attachments")
         .addObject()
@@ -186,7 +210,7 @@ class QqEventNormalizerTest {
     ObjectNode data = MAPPER.createObjectNode();
     data.put("id", "msg-g2");
     data.put("group_openid", "g-open");
-    data.put("content", "<@!1>   ");
+    data.put("content", "<@!" + BOT_APP_ID + ">   ");
     data.putObject("author").put("member_openid", "m-open");
     assertTrue(normalizer.normalize(QqEventNormalizer.EVENT_GROUP_AT, data).isEmpty());
   }
