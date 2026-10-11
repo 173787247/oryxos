@@ -20,7 +20,7 @@ public class MattermostMessageSender {
   private static final int ERROR_BODY_MAX_LEN = 200;
   private static final Duration TIMEOUT = Duration.ofSeconds(20);
 
-  /** 单条帖子上限（{@code MaxPostLength} 默认 16383 字符），留余量。 */
+  /** 分段长度。官方上限见 {@code PostMessageMaxRunesV2}（262,144 字符，按字符计数），这里取 15000 留余量。 */
   static final int DEFAULT_CHUNK_SIZE = 15000;
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -42,7 +42,11 @@ public class MattermostMessageSender {
   }
 
   /**
-   * 逐段发送。Mattermost 的 {@code MaxPostLength} 默认上限是 16383 字符，超了整条会被拒。
+   * 逐段发送。官方源码 {@code server/public/model/post.go} 的校验是 {@code utf8.RuneCountInString(o.Message) >
+   * maxPostSize} —— 按**字符**计；上限有两个口径： {@code PostMessageMaxRunesV1 = 4000} 与 {@code
+   * PostMessageMaxRunesV2 = 262,144}。
+   *
+   * <p>这里取 15000 是按 V2 口径留的余量；V1 口径更严，若部署仍走 V1，该值会超限。
    *
    * <p>线程根 id 在循环外只解析一次 —— 它是另一条 HTTP 请求，按段重复解析没有必要，多段回复 还会多打几次接口。
    */

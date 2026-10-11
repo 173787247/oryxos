@@ -15,7 +15,7 @@ public class GoogleChatMessageSender {
 
   static final String API_BASE = "https://chat.googleapis.com/v1/";
 
-  /** 单条消息正文上限（Chat API 为 4096 字符），留余量。 */
+  /** 分段长度。官方上限是**消息总大小 32,000 字节**（含 cards 与 widgets），这里按字符取 3500 留余量。 */
   static final int DEFAULT_CHUNK_SIZE = 3500;
 
   private static final int HTTP_STATUS_OK_MIN = 200;
@@ -37,7 +37,10 @@ public class GoogleChatMessageSender {
     this.accessToken = accessToken;
   }
 
-  /** 逐段发送。Chat API 单条消息的正文上限是 4096 字符，超了整条会被拒；留出与同族渠道一致的余量。 */
+  /**
+   * 逐段发送。官方上限是**消息总大小 32,000 字节**（Chat API {@code spaces.messages.create}），超了整条会被拒； 分段按字符计，3500
+   * 个全中文字符约 10,500 字节，留出与同族渠道一致的余量。
+   */
   public void send(String spaceName, String text, String replyToMessageId) {
     for (String chunk : segment(text == null ? "" : text, DEFAULT_CHUNK_SIZE)) {
       postMessage(spaceName, chunk, replyToMessageId);
