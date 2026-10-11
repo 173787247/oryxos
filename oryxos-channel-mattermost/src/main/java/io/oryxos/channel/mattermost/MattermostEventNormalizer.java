@@ -3,6 +3,7 @@ package io.oryxos.channel.mattermost;
 import io.oryxos.core.channel.ChatKind;
 import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.MentionStripping;
+import io.oryxos.core.channel.SignatureComparison;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
@@ -116,7 +117,8 @@ public class MattermostEventNormalizer {
     if (expected == null || expected.isBlank()) {
       return false;
     }
-    return expected.equals(parseForm(formBody).get(FIELD_TOKEN));
+    return SignatureComparison.constantTimeEqualsText(
+        expected, parseForm(formBody).get(FIELD_TOKEN));
   }
 
   private boolean mentionsBot(String text) {
