@@ -59,7 +59,7 @@ class AgentSchedulerIdentityTest {
     String scheduleId = store.scheduleId("alpha", "daily");
     store.setEnabled(scheduleId, false);
     store.recordExecution(
-        scheduleId, "legacy-session", Instant.EPOCH, true, null, 1, Instant.EPOCH);
+        scheduleId, "legacy-session", Instant.EPOCH, null, true, null, 1, Instant.EPOCH);
 
     scheduler.unregisterProfile(initial);
     Profile reloaded = profile("alpha", schedule("daily", "Renamed daily", "second message"));
@@ -79,7 +79,8 @@ class AgentSchedulerIdentityTest {
     AgentScheduler scheduler = scheduler(store, new ProfileRegistry(Map.of("alpha", original)));
     scheduler.registerProfile(original);
     String dailyId = store.scheduleId("alpha", "daily");
-    store.recordExecution(dailyId, "daily-session", Instant.EPOCH, true, null, 1, Instant.EPOCH);
+    store.recordExecution(
+        dailyId, "daily-session", Instant.EPOCH, null, true, null, 1, Instant.EPOCH);
 
     scheduler.unregisterProfile(original);
     scheduler.registerProfile(profile("alpha", schedule("weekly", "Weekly", "weekly message")));
@@ -216,6 +217,7 @@ class AgentSchedulerIdentityTest {
         String scheduleId,
         String sessionId,
         Instant startedAt,
+        Instant fireTime,
         boolean success,
         String errorMessage,
         long durationMs,
@@ -245,6 +247,7 @@ class AgentSchedulerIdentityTest {
                   false,
                   sessionId,
                   startedAt,
+                  fireTime,
                   success,
                   errorMessage,
                   durationMs));

@@ -9,6 +9,8 @@ public record TaskExecutionView(
     boolean legacyMigrated,
     String sessionId,
     Instant startedAt,
+    /** 到点时刻（理论触发值）；手动/补跑为 null。与 startedAt（执行开始墙钟）是两回事。 */
+    Instant fireTime,
     boolean success,
     String errorMessage,
     long durationMs) {}

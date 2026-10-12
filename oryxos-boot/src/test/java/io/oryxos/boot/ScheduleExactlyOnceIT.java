@@ -88,12 +88,22 @@ class ScheduleExactlyOnceIT {
         long total = rs.getLong("total");
         assertTrue(total >= 3, "至少跑了 3 个周期，实际=" + total);
       }
-      // 恰好一次的核心断言：按每 2 秒的到点粒度分桶，每桶至多 1 条执行
+      // 恰好一次的核心断言：按**到点时刻**分桶，同一到点至多 1 条执行。
+      //
+      // 这里必须用 fire_time，不能用 started_at —— 后者是执行开始时的墙钟（认领之后才取），
+      // 两次相邻到点若各自被拖慢，started_at 会落进同一秒，按秒分桶就假阳性（issue #882）。
+      // fire_time 是调度时算出的理论触发时刻，同一到点只可能有一个值。
       try (ResultSet rs =
           st.executeQuery(
-              "SELECT date_trunc('second', started_at) AS bucket, COUNT(*) AS n"
-                  + " FROM task_executions GROUP BY bucket HAVING COUNT(*) > 1")) {
-        assertTrue(!rs.next(), "存在同一到点的重复执行（双发）");
+              "SELECT fire_time, COUNT(*) AS n FROM task_executions"
+                  + " WHERE fire_time IS NOT NULL GROUP BY fire_time HAVING COUNT(*) > 1")) {
+        assertTrue(!rs.next(), "同一到点被执行了多次（双发）");
+      }
+      // 到点值必须落库：cron 触发的执行不该缺 fire_time（缺了上面的断言就是空转）
+      try (ResultSet rs =
+          st.executeQuery("SELECT COUNT(*) AS n FROM task_executions WHERE fire_time IS NULL")) {
+        assertTrue(rs.next());
+        assertEquals(0, rs.getLong("n"), "cron 触发的执行必须记下到点时刻");
       }
       // A1 验证：认领值 = 理论触发时刻（整 2 秒的日历点，微秒为零）
       try (ResultSet rs =

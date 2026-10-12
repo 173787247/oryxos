@@ -84,6 +84,7 @@ class ScheduleApiControllerTest {
                     false,
                     "session-1",
                     Instant.parse("2026-08-14T00:00:00Z"),
+                    Instant.parse("2026-08-14T00:00:00Z"),
                     true,
                     null,
                     12)));
@@ -118,6 +119,7 @@ class ScheduleApiControllerTest {
                     null,
                     false,
                     "session-1",
+                    Instant.parse("2026-08-14T00:00:00Z"),
                     Instant.parse("2026-08-14T00:00:00Z"),
                     true,
                     null,

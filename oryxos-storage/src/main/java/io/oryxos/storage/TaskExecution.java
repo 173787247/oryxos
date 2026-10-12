@@ -32,6 +32,15 @@ public class TaskExecution {
   @Column(name = "started_at", nullable = false)
   private Instant startedAt;
 
+  /**
+   * 本次执行的**到点时刻**（调度时算出的理论触发值，也是到点认领的 CAS 值）；手动/补跑为 null。
+   *
+   * <p>与 {@link #startedAt} 的区别是实质性的：{@code startedAt} 是执行开始时的墙钟，在认领之后才取，
+   * 可能比到点晚若干毫秒到数秒。判「同一到点是否被执行两次」必须用本列 —— 按 {@code startedAt} 分桶会把「两次相邻到点各自被拖慢」误报成双发。
+   */
+  @Column(name = "fire_time")
+  private Instant fireTime;
+
   @Column(nullable = false)
   private boolean success;
 
@@ -83,6 +92,14 @@ public class TaskExecution {
 
   public void setStartedAt(Instant startedAt) {
     this.startedAt = startedAt;
+  }
+
+  public Instant getFireTime() {
+    return fireTime;
+  }
+
+  public void setFireTime(Instant fireTime) {
+    this.fireTime = fireTime;
   }
 
   public boolean isSuccess() {
