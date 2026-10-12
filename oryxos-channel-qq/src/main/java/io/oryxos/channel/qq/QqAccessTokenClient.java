@@ -30,6 +30,8 @@ final class QqAccessTokenClient {
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String FIELD_ACCESS_TOKEN = "access_token";
   private static final String FIELD_EXPIRES_IN = "expires_in";
+  private static final String FIELD_CODE = "code";
+  private static final String FIELD_MESSAGE = "message";
 
   private final HttpClient http;
   private final OutboundGuard guard;
@@ -86,6 +88,11 @@ final class QqAccessTokenClient {
               .build();
       HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
       JsonNode root = MAPPER.readTree(response.body() == null ? "{}" : response.body());
+      // 官方：业务错误走响应体的 code，失败时 HTTP 仍是 200；成功响应没有 code 字段。
+      int code = root.path(FIELD_CODE).asInt(0);
+      if (code != 0) {
+        throw new IllegalStateException(businessFailure(code, root.path(FIELD_MESSAGE).asText("")));
+      }
       String token = root.path(FIELD_ACCESS_TOKEN).asText("");
       if (token.isBlank()) {
         throw new IllegalStateException(
@@ -99,6 +106,24 @@ final class QqAccessTokenClient {
     } catch (Exception e) {
       throw new IllegalStateException("QQ getAppAccessToken 失败: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * 按官方文档的 {@code code} 归类业务错误。
+   *
+   * <p>官方写明 {@code message}「仅用于人工排查」且「不要依据 message 判定错误类型」，所以这里只把它原样附在 提示之后，判定一律看 {@code
+   * code}；排查指南取官方「获取访问凭证」页的业务错误码表。
+   */
+  private static String businessFailure(int code, String message) {
+    String hint =
+        switch (code) {
+          case 100001 -> "请求过于频繁，请降低调用频率后重试";
+          case 100007 -> "AppID 无效，或机器人状态不正常（被封禁或已删除）";
+          case 100016 -> "AppID 或 ClientSecret 不正确";
+          case 10004 -> "AppID 对应的机器人不存在";
+          default -> "官方文档未列出该错误码";
+        };
+    return "QQ getAppAccessToken 业务错误 code=" + code + "（" + hint + "）: " + sanitize(message);
   }
 
   private static long parseExpiresIn(JsonNode node) {
