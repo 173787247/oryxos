@@ -55,6 +55,7 @@ public class JpaScheduledTaskStore implements ScheduledTaskStore {
       String scheduleId,
       String sessionId,
       Instant startedAt,
+      Instant fireTime,
       boolean success,
       String errorMessage,
       long durationMs,
@@ -65,6 +66,7 @@ public class JpaScheduledTaskStore implements ScheduledTaskStore {
     execution.setLegacyMigrated(false);
     execution.setSessionId(sessionId);
     execution.setStartedAt(startedAt);
+    execution.setFireTime(fireTime);
     execution.setSuccess(success);
     execution.setErrorMessage(errorMessage);
     execution.setDurationMs(durationMs);
@@ -153,6 +155,7 @@ public class JpaScheduledTaskStore implements ScheduledTaskStore {
         execution.isLegacyMigrated(),
         execution.getSessionId(),
         execution.getStartedAt(),
+        execution.getFireTime(),
         execution.isSuccess(),
         execution.getErrorMessage(),
         execution.getDurationMs());

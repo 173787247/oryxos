@@ -71,7 +71,7 @@ class JpaScheduledTaskStoreTest {
     assertThatThrownBy(
             () ->
                 store.recordExecution(
-                    "missing", "session", Instant.now(), true, null, 1L, Instant.now()))
+                    "missing", "session", Instant.now(), null, true, null, 1L, Instant.now()))
         .isInstanceOf(NoSuchElementException.class)
         .hasMessageContaining("missing");
   }
@@ -83,13 +83,17 @@ class JpaScheduledTaskStoreTest {
     String scheduleId =
         store.reconcile("alpha", "daily", "Alpha morning", "0 0 9 * * *", null, "a", Instant.now());
 
-    store.recordExecution(scheduleId, "session", Instant.now(), true, null, 12L, Instant.now());
+    Instant fireTime = Instant.parse("2026-10-12T03:00:02Z");
+    store.recordExecution(
+        scheduleId, "session", Instant.now(), fireTime, true, null, 12L, Instant.now());
 
     ArgumentCaptor<TaskExecution> captured = ArgumentCaptor.forClass(TaskExecution.class);
     verify(executions).save(captured.capture());
     assertThat(captured.getValue().getScheduleId()).isEqualTo(scheduleId);
     assertThat(captured.getValue().isLegacyMigrated()).isFalse();
     assertThat(captured.getValue().getLegacyTaskKey()).isNull();
+    // 到点时刻必须落到执行记录上 —— 它是判「同一到点是否被执行两次」的唯一依据
+    assertThat(captured.getValue().getFireTime()).isEqualTo(fireTime);
   }
 
   @Test

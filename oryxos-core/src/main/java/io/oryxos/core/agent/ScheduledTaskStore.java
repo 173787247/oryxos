@@ -24,11 +24,17 @@ public interface ScheduledTaskStore {
       String message,
       Instant nextRunAt);
 
-  /** Record an execution and update the schedule's runtime state. */
+  /**
+   * Record an execution and update the schedule's runtime state.
+   *
+   * <p>{@code fireTime} 是本次执行的到点时刻（理论触发值）；手动/补跑没有到点，传 {@code null}。 它与 {@code
+   * startedAt}（执行开始时的墙钟）不同 —— 判「同一到点是否被执行两次」要用它。
+   */
   void recordExecution(
       String scheduleId,
       String sessionId,
       Instant startedAt,
+      Instant fireTime,
       boolean success,
       String errorMessage,
       long durationMs,
