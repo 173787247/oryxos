@@ -13,13 +13,11 @@ import org.junit.jupiter.api.Test;
 /**
  * 钉住换票的三层判据与缓存行为。
  *
- * <p>{@code /cgi-bin/gettoken} 的失败有**三种形态**，且第二种在 HTTP 200 下发生：非 2xx、
- * {@code errcode != 0}（业务错误走 body，官方口径）、以及 200 + {@code errcode:0} 却没给
- * {@code access_token}。三者此前都没有测试。
+ * <p>{@code /cgi-bin/gettoken} 的失败有**三种形态**，且第二种在 HTTP 200 下发生：非 2xx、 {@code errcode != 0}（业务错误走
+ * body，官方口径）、以及 200 + {@code errcode:0} 却没给 {@code access_token}。三者此前都没有测试。
  *
  * <p>用 {@link StubHttpClient}（{@code oryxos-core} 的 test-jar）—— 它记录请求，因此「第二次
- * 命中缓存不再打端点」可以直接断言请求数。构造器本来就是包级注入 {@code HttpClient} 的，
- * 没有为测试改动生产代码。
+ * 命中缓存不再打端点」可以直接断言请求数。构造器本来就是包级注入 {@code HttpClient} 的， 没有为测试改动生产代码。
  */
 class WeixinKfAccessTokenClientTest {
 
