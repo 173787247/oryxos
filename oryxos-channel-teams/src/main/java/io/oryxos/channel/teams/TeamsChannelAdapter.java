@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.channel.BoundedMap;
 import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.channel.ChannelStatus;
+import io.oryxos.core.channel.InboundCallerVerifier;
 import io.oryxos.core.channel.InboundChannelAdapter;
 import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageService;
@@ -30,6 +31,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
   private static final String FIELD_CONVERSATION = "conversation";
   private static final String FIELD_ID = "id";
   private static final int HTTP_BAD_REQUEST = 400;
+  private static final int HTTP_UNAUTHORIZED = 401;
 
   /** 最多记住多少个会话的 {@code serviceUrl}；超出按最早淘汰（与微信渠道那份同口径）。 */
   static final int MAX_TRACKED_CONVERSATIONS = 1000;
@@ -127,6 +129,10 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
 
   @Override
   public WebhookResponse onWebhook(WebhookRequest request) {
+    if (!InboundCallerVerifier.accepts(
+        config.extra(InboundCallerVerifier.EXTRA_INBOUND_TOKEN), request)) {
+      return WebhookResponse.text(HTTP_UNAUTHORIZED, "invalid caller token");
+    }
     try {
       JsonNode activity = MAPPER.readTree(request.body().isBlank() ? "{}" : request.body());
       String serviceUrl = TeamsEventNormalizer.serviceUrl(activity);
