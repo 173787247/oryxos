@@ -8,14 +8,18 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Flow;
 import java.util.function.Function;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -64,6 +68,52 @@ public final class StubHttpClient extends HttpClient {
   /** 已收到的请求数（断言「缓存命中时不发第二次」用）。 */
   public int requestCount() {
     return requests.size();
+  }
+
+  /**
+   * 读出请求正文，供断言报文形状。
+   *
+   * <p>{@code HttpRequest} 的正文只以 {@link HttpRequest.BodyPublisher} 的形式暴露，不能直接取字符串； {@code
+   * BodyPublishers.ofString} 这类内存 publisher 在订阅后会立即完成，所以这里同步收一次即可。
+   *
+   * @param request 从 {@link #requests()} 拿到的请求
+   * @return 正文；请求没有正文时为空串
+   */
+  public static String bodyOf(HttpRequest request) {
+    HttpRequest.BodyPublisher publisher = request.bodyPublisher().orElse(null);
+    if (publisher == null) {
+      return "";
+    }
+    CompletableFuture<String> collected = new CompletableFuture<>();
+    publisher.subscribe(
+        new Flow.Subscriber<ByteBuffer>() {
+          private final List<ByteBuffer> chunks = new ArrayList<>();
+
+          @Override
+          public void onSubscribe(Flow.Subscription subscription) {
+            subscription.request(Long.MAX_VALUE);
+          }
+
+          @Override
+          public void onNext(ByteBuffer item) {
+            chunks.add(item);
+          }
+
+          @Override
+          public void onError(Throwable failure) {
+            collected.completeExceptionally(failure);
+          }
+
+          @Override
+          public void onComplete() {
+            int size = chunks.stream().mapToInt(ByteBuffer::remaining).sum();
+            ByteBuffer merged = ByteBuffer.allocate(size);
+            chunks.forEach(merged::put);
+            merged.flip();
+            collected.complete(StandardCharsets.UTF_8.decode(merged).toString());
+          }
+        });
+    return collected.getNow("");
   }
 
   @Override
