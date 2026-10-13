@@ -1881,6 +1881,8 @@ public class OryxOsRuntime {
               coordinationStore, clusterProps, taskScheduler);
       leaseCoordinator.setMetricsRecorder(channelMetricsRecorder);
       service.setChannelLeaseCoordinator(leaseCoordinator);
+      // 集群档要求渠道配好调用方校验：多副本生产里，裸奔的入站端点谁都能驱动 Agent 推理（#918）
+      service.setRequireCallerVerification(true);
     }
     return service;
   }

@@ -127,6 +127,13 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
     return ChannelStatus.ok(name(), TYPE, boundAgent(), state);
   }
 
+  /** 官方 JWT 或共享 token 任一配好即算有校验；都没有则集群档会被装配层拒绝上线。 */
+  @Override
+  public boolean callerVerificationConfigured() {
+    String token = config.extra(InboundCallerVerifier.EXTRA_INBOUND_TOKEN);
+    return callerJwt != null || (token != null && !token.isBlank());
+  }
+
   @Override
   public void sendReply(String chatId, String text, String replyToMessageId) {
     TeamsMessageSender current = sender;

@@ -89,4 +89,16 @@ public class StubChannelAdapter implements InboundChannelAdapter {
   public void useProgressStream(InboundProgressStream stream) {
     this.progressStream = stream;
   }
+
+  private volatile boolean callerVerificationConfigured = true;
+
+  /** 模拟「该渠道没配入站调用方校验」（gchat/teams 的官方 JWT 默认关）：供集群档拒启与单机档告警的用例。 */
+  public void withoutCallerVerification() {
+    this.callerVerificationConfigured = false;
+  }
+
+  @Override
+  public boolean callerVerificationConfigured() {
+    return callerVerificationConfigured;
+  }
 }
