@@ -31,6 +31,18 @@ public interface InboundChannelAdapter {
   ChannelStatus status();
 
   /**
+   * 本渠道的入站调用方校验是否已配置好。
+   *
+   * <p>默认 {@code true}：绝大多数渠道用凭证或签名头自证（appSecret / 签名头 / 长连接鉴权），没有交给部署方选择 的余地。只有把「校验与否」留给部署方的渠道 ——
+   * 目前是 Google Chat 与 Teams，它们的官方 JWT 校验默认关 —— 才覆盖本方法，好让装配层在集群档下拒绝裸奔配置。
+   *
+   * @return 已配置校验为 {@code true}
+   */
+  default boolean callerVerificationConfigured() {
+    return true;
+  }
+
+  /**
    * 发送回复到来源处（FR-007）。实现负责平台上限分段（FR-009）与出站沙箱校验（宪法 VI）。
    *
    * @param chatId 回复目标（私聊/群）

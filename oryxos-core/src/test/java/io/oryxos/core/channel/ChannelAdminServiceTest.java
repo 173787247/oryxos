@@ -364,53 +364,59 @@ class ChannelAdminServiceTest {
         .detachAppender(appender);
   }
 
-  private static boolean warnedAboutMissingToken(ListAppender<ILoggingEvent> appender) {
+  private static boolean warnedAboutMissingVerification(ListAppender<ILoggingEvent> appender) {
     return appender.list.stream()
         .anyMatch(
             event ->
-                event.getLevel() == Level.WARN
-                    && event.getFormattedMessage().contains("未配置 extra.inbound_token"));
+                event.getLevel() == Level.WARN && event.getFormattedMessage().contains("未配置调用方校验"));
   }
 
-  /** 只注册给定 type 的工厂，好让 gchat/teams 这种真实类型能过 validateForLaunch。 */
-  private ChannelAdminService adminFor(String type) {
+  /** 只注册给定 type 的工厂；{@code callerVerified} 决定桩适配器是否自称「校验已配好」。 */
+  private ChannelAdminService adminFor(String type, boolean callerVerified) {
     Map<String, Function<ChannelConfig, InboundChannelAdapter>> factories =
-        Map.of(type, c -> new TrackingAdapter(c.name(), c.agent()));
+        Map.of(
+            type,
+            c -> {
+              TrackingAdapter adapter = new TrackingAdapter(c.name(), c.agent());
+              if (!callerVerified) {
+                adapter.withoutCallerVerification();
+              }
+              return adapter;
+            });
     return new ChannelAdminService(loader, registry, profileRegistry, factories);
   }
 
+  private ChannelStatus statusOf(String name) {
+    return registry.statusAll().stream()
+        .filter(status -> status.name().equals(name))
+        .findFirst()
+        .orElseThrow();
+  }
+
   @Test
-  @DisplayName("gchat 未配 inbound_token：上线成功但必须留下告警")
+  @DisplayName("单机档 + 未配校验：上线成功，但必须留下告警")
   void warnsWhenCallerTokenMissing() {
     ListAppender<ILoggingEvent> appender = attachAppender();
     try {
-      adminFor("gchat")
+      adminFor("gchat", false)
           .add(new ChannelConfig("gc-1", "gchat", "app-id", "app-secret", "ops-agent", true));
 
-      assertTrue(warnedAboutMissingToken(appender), "裸奔档应当告警，否则运维看不到");
-      assertNotNull(registry.get("gc-1"), "告警不影响正常上线");
+      assertTrue(warnedAboutMissingVerification(appender), "裸奔档应当告警，否则运维看不到");
+      assertNotNull(registry.get("gc-1"), "单机档只告警，不影响上线");
     } finally {
       detachAppender(appender);
     }
   }
 
   @Test
-  @DisplayName("teams 配了 inbound_token：不告警")
+  @DisplayName("单机档 + 已配校验：不告警")
   void silentWhenCallerTokenPresent() {
     ListAppender<ILoggingEvent> appender = attachAppender();
     try {
-      adminFor("teams")
-          .add(
-              new ChannelConfig(
-                  "tm-1",
-                  "teams",
-                  "app-id",
-                  "app-secret",
-                  "ops-agent",
-                  true,
-                  Map.of("inbound_token", "t-1")));
+      adminFor("teams", true)
+          .add(new ChannelConfig("tm-1", "teams", "app-id", "app-secret", "ops-agent", true));
 
-      assertFalse(warnedAboutMissingToken(appender), "关上了闸就不该告警");
+      assertFalse(warnedAboutMissingVerification(appender), "关上了闸就不该告警");
     } finally {
       detachAppender(appender);
     }
@@ -423,9 +429,35 @@ class ChannelAdminServiceTest {
     try {
       admin.add(config("chan-plain", "ops-agent", true));
 
-      assertFalse(warnedAboutMissingToken(appender), "非该闸覆盖的渠道不该被误报");
+      assertFalse(warnedAboutMissingVerification(appender), "非该闸覆盖的渠道不该被误报");
     } finally {
       detachAppender(appender);
     }
+  }
+
+  @Test
+  @DisplayName("集群档 + 未配校验：拒绝上线并点名原因（fail-fast）")
+  void clusterRejectsChannelWithoutCallerVerification() {
+    ChannelAdminService service = adminFor("gchat", false);
+    service.setRequireCallerVerification(true);
+
+    service.add(new ChannelConfig("gc-2", "gchat", "app-id", "app-secret", "ops-agent", true));
+
+    assertTrue(registry.get("gc-2").isEmpty(), "集群档下未配校验的渠道不该上线");
+    ChannelStatus status = statusOf("gc-2");
+    assertEquals(ChannelStatus.State.ERROR, status.state());
+    assertTrue(status.error().contains("未配置入站调用方校验"), "错误应点名原因，实际: " + status.error());
+  }
+
+  @Test
+  @DisplayName("集群档 + 已配校验：照常上线")
+  void clusterAllowsChannelWithCallerVerification() {
+    ChannelAdminService service = adminFor("teams", true);
+    service.setRequireCallerVerification(true);
+
+    service.add(new ChannelConfig("tm-2", "teams", "app-id", "app-secret", "ops-agent", true));
+
+    assertNotNull(registry.get("tm-2"), "配好校验的渠道不该被集群档挡下");
+    assertEquals(ChannelStatus.State.CONNECTED, statusOf("tm-2").state());
   }
 }

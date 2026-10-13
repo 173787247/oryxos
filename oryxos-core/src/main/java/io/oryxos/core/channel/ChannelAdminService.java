@@ -176,34 +176,48 @@ public class ChannelAdminService {
   }
 
   /**
-   * 未配置 {@code extra.inbound_token} 时点名告警：账面上渠道是"已上线"，但任何能访问该端点的人都能驱动 Agent
-   * 推理。只对走该闸的渠道类型生效，其余渠道有自己的验签（appSecret / 签名头），不该误报。
+   * 渠道的入站调用方校验：配好了就放行；没配时按部署档位分流 —— 集群档拒绝上线（fail-fast），单机档只告警。
+   *
+   * <p>分档的理由：集群档通常意味着生产，裸奔的入站端点在那是实打实的风险；单机档多是本地开发，强制会把最简单的 路径也堵上。是否强制由装配层按 {@code
+   * oryxos.cluster.enabled} 调 {@link #setRequireCallerVerification} 决定。
+   *
+   * <p>「配好了没有」由渠道自己回答（{@link InboundChannelAdapter#callerVerificationConfigured()}）——
+   * 各渠道的配置键并不相同（{@code project_number} / {@code verify_caller_jwt} / {@code inbound_token}），
+   * 装配层不该去猜。
    */
-  private static void warnIfCallerUnverified(ChannelConfig resolved) {
-    if (!CALLER_TOKEN_TYPES.contains(resolved.type())) {
+  private void checkCallerVerification(ChannelConfig resolved, InboundChannelAdapter adapter) {
+    if (adapter.callerVerificationConfigured()) {
       return;
     }
-    String token = resolved.extra(InboundCallerVerifier.EXTRA_INBOUND_TOKEN);
-    if (token == null || token.isBlank()) {
-      LOG.warn(
-          "入站渠道 {}（type={}）未配置 extra.inbound_token：任何能访问该端点的人都能驱动 Agent 推理。"
-              + "官方 JWT 校验应由边缘承担（见 specs/026-im-channel-roadmap），该键是应用层兜底",
-          sanitize(resolved.name()),
-          sanitize(resolved.type()));
+    if (requireCallerVerification) {
+      throw new IllegalArgumentException(
+          "渠道 "
+              + resolved.name()
+              + "（type="
+              + resolved.type()
+              + "）未配置入站调用方校验：集群档下拒绝上线。"
+              + "请为该渠道配置平台 JWT 校验（见 specs/026-im-channel-roadmap 与 issue #918），"
+              + "或退到单机档（oryxos.cluster.enabled=false）");
     }
+    LOG.warn(
+        "入站渠道 {}（type={}）未配置调用方校验：任何能访问该端点的人都能驱动 Agent 推理。" + "单机档仅告警；集群档下该配置会被拒绝上线（#918）",
+        sanitize(resolved.name()),
+        sanitize(resolved.type()));
   }
 
   /** 026：独连型渠道类型（单连接互踢语义，需属主协调）；集群档由 setChannelLeaseCoordinator 装配。 */
   private static final java.util.Set<String> EXCLUSIVE_CONNECTION_TYPES = java.util.Set.of("wecom");
 
   /**
-   * 支持入站调用方校验（{@code extra.inbound_token}）的渠道类型。
+   * 未配置调用方校验的渠道是否拒绝上线；装配层在集群档下设 {@code true}。
    *
-   * <p>这两个渠道的官方校验方式都是平台签发的 JWT（Google Chat 由 Google 签发、Teams 是 Bot Framework）， 按 specs/026
-   * 的决策由边缘承担、不在 core 引入 OpenID 依赖 —— 应用层因此缺一道闸。配了该键才算关上， 没配就在启动时点名告警（#918）；默认放行是有意的，改变它会拒绝既有部署。
+   * <p>与 {@link #setChannelLeaseCoordinator} 同款：core 不认识「集群档」这个概念，档位判断留给装配层。 将来若要全档强制，改的也只是装配层那一行。
    */
-  private static final java.util.Set<String> CALLER_TOKEN_TYPES =
-      java.util.Set.of("gchat", "teams");
+  private volatile boolean requireCallerVerification;
+
+  public void setRequireCallerVerification(boolean required) {
+    this.requireCallerVerification = required;
+  }
 
   private volatile ChannelLeaseCoordinator channelLeaseCoordinator;
 
@@ -235,6 +249,7 @@ public class ChannelAdminService {
     try {
       validateForLaunch(resolved);
       InboundChannelAdapter adapter = adapterFactories.get(resolved.type()).apply(resolved);
+      checkCallerVerification(resolved, adapter);
       adapter.start();
       registry.register(adapter);
       LOG.info(
@@ -242,7 +257,6 @@ public class ChannelAdminService {
           sanitize(resolved.name()),
           sanitize(resolved.type()),
           sanitize(resolved.agent()));
-      warnIfCallerUnverified(resolved);
     } catch (RuntimeException e) {
       LOG.error("入站渠道 {} 上线失败: {}", sanitize(resolved.name()), sanitize(e.getMessage()));
       registry.registerOffline(
