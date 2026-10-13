@@ -23,6 +23,7 @@ public class GoogleChatChannelAdapter implements InboundChannelAdapter, InboundW
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final int HTTP_BAD_REQUEST = 400;
   private static final int HTTP_UNAUTHORIZED = 401;
+  private static final String AUTHORIZATION_HEADER = "authorization";
 
   private final ChannelConfig config;
   private final ProfileRegistry profileRegistry;
@@ -31,6 +32,7 @@ public class GoogleChatChannelAdapter implements InboundChannelAdapter, InboundW
 
   private volatile GoogleChatEventNormalizer normalizer;
   private volatile GoogleChatMessageSender sender;
+  private volatile GoogleChatCallerJwt callerJwt;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -72,7 +74,29 @@ public class GoogleChatChannelAdapter implements InboundChannelAdapter, InboundW
     guard.check(GoogleChatMessageSender.API_BASE);
     normalizer = new GoogleChatEventNormalizer(config.name());
     sender = new GoogleChatMessageSender(guard, config.appSecret());
+    callerJwt = callerJwtFor(config);
     state = ChannelStatus.State.CONNECTED;
+  }
+
+  /** 配了 {@code extra.project_number} 才启用官方 JWT 校验 —— 没有它就没有 audience 可比。 */
+  private static GoogleChatCallerJwt callerJwtFor(ChannelConfig config) {
+    String projectNumber = config.extra(GoogleChatCallerJwt.EXTRA_PROJECT_NUMBER);
+    return projectNumber == null || projectNumber.isBlank()
+        ? null
+        : new GoogleChatCallerJwt(projectNumber);
+  }
+
+  /**
+   * 官方 JWT 优先（配了 {@code project_number} 才启用）；否则退回共享 token 闸（{@code extra.inbound_token}）。两者都没配则放行
+   * —— 那正是 {@code ChannelAdminService} 启动告警点名的情形。
+   */
+  private boolean callerAccepted(WebhookRequest request) {
+    GoogleChatCallerJwt verifier = callerJwt;
+    if (verifier != null && !verifier.accepts(request.header(AUTHORIZATION_HEADER))) {
+      return false;
+    }
+    return InboundCallerVerifier.accepts(
+        config.extra(InboundCallerVerifier.EXTRA_INBOUND_TOKEN), request);
   }
 
   @Override
@@ -96,8 +120,7 @@ public class GoogleChatChannelAdapter implements InboundChannelAdapter, InboundW
 
   @Override
   public WebhookResponse onWebhook(WebhookRequest request) {
-    if (!InboundCallerVerifier.accepts(
-        config.extra(InboundCallerVerifier.EXTRA_INBOUND_TOKEN), request)) {
+    if (!callerAccepted(request)) {
       return WebhookResponse.text(HTTP_UNAUTHORIZED, "invalid caller token");
     }
     try {

@@ -32,6 +32,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
   private static final String FIELD_ID = "id";
   private static final int HTTP_BAD_REQUEST = 400;
   private static final int HTTP_UNAUTHORIZED = 401;
+  private static final String AUTHORIZATION_HEADER = "authorization";
 
   /** 最多记住多少个会话的 {@code serviceUrl}；超出按最早淘汰（与微信渠道那份同口径）。 */
   static final int MAX_TRACKED_CONVERSATIONS = 1000;
@@ -45,6 +46,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
 
   private volatile TeamsEventNormalizer normalizer;
   private volatile TeamsMessageSender sender;
+  private volatile TeamsCallerJwt callerJwt;
   private volatile ChannelStatus.State state = ChannelStatus.State.DISCONNECTED;
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -91,7 +93,28 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
     sender =
         new TeamsMessageSender(
             guard, config.appId(), config.appSecret(), config.extra(EXTRA_TENANT_ID));
+    callerJwt = callerJwtFor(config);
     state = ChannelStatus.State.CONNECTED;
+  }
+
+  /** {@code extra.verify_caller_jwt=true} 才启用官方 JWT 校验；audience 用本 Bot 的 appId。 */
+  private static TeamsCallerJwt callerJwtFor(ChannelConfig config) {
+    return Boolean.parseBoolean(config.extra(TeamsCallerJwt.EXTRA_VERIFY_CALLER_JWT))
+        ? new TeamsCallerJwt(config.appId())
+        : null;
+  }
+
+  /**
+   * 官方 JWT 优先（配了 {@code verify_caller_jwt=true} 才启用）；否则退回共享 token 闸（{@code
+   * extra.inbound_token}）。两者都没配则放行 —— 那正是 {@code ChannelAdminService} 启动告警点名的情形。
+   */
+  private boolean callerAccepted(WebhookRequest request) {
+    TeamsCallerJwt verifier = callerJwt;
+    if (verifier != null && !verifier.accepts(request.header(AUTHORIZATION_HEADER))) {
+      return false;
+    }
+    return InboundCallerVerifier.accepts(
+        config.extra(InboundCallerVerifier.EXTRA_INBOUND_TOKEN), request);
   }
 
   @Override
@@ -129,8 +152,7 @@ public class TeamsChannelAdapter implements InboundChannelAdapter, InboundWebhoo
 
   @Override
   public WebhookResponse onWebhook(WebhookRequest request) {
-    if (!InboundCallerVerifier.accepts(
-        config.extra(InboundCallerVerifier.EXTRA_INBOUND_TOKEN), request)) {
+    if (!callerAccepted(request)) {
       return WebhookResponse.text(HTTP_UNAUTHORIZED, "invalid caller token");
     }
     try {
