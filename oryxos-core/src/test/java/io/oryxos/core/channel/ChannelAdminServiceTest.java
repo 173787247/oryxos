@@ -1,6 +1,7 @@
 package io.oryxos.core.channel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -8,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.oryxos.core.policy.AssetGovernance;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
@@ -20,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 
 /** 017 T019：渠道管理——断旧建新顺序、校验失败不落盘、启动恢复不带病上线。 */
 class ChannelAdminServiceTest {
@@ -342,5 +347,85 @@ class ChannelAdminServiceTest {
 
     assertTrue(registry.get("chan-a").isPresent(), "落盘失败时渠道应当继续运行");
     assertTrue(!lifecycle.toString().contains("stop:chan-a"), "实际生命周期: " + lifecycle);
+  }
+
+  // ---------- #918：未配置应用层兜底闸时的启动可见性 ----------
+
+  private static ListAppender<ILoggingEvent> attachAppender() {
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(ChannelAdminService.class))
+        .addAppender(appender);
+    return appender;
+  }
+
+  private static void detachAppender(ListAppender<ILoggingEvent> appender) {
+    ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(ChannelAdminService.class))
+        .detachAppender(appender);
+  }
+
+  private static boolean warnedAboutMissingToken(ListAppender<ILoggingEvent> appender) {
+    return appender.list.stream()
+        .anyMatch(
+            event ->
+                event.getLevel() == Level.WARN
+                    && event.getFormattedMessage().contains("未配置 extra.inbound_token"));
+  }
+
+  /** 只注册给定 type 的工厂，好让 gchat/teams 这种真实类型能过 validateForLaunch。 */
+  private ChannelAdminService adminFor(String type) {
+    Map<String, Function<ChannelConfig, InboundChannelAdapter>> factories =
+        Map.of(type, c -> new TrackingAdapter(c.name(), c.agent()));
+    return new ChannelAdminService(loader, registry, profileRegistry, factories);
+  }
+
+  @Test
+  @DisplayName("gchat 未配 inbound_token：上线成功但必须留下告警")
+  void warnsWhenCallerTokenMissing() {
+    ListAppender<ILoggingEvent> appender = attachAppender();
+    try {
+      adminFor("gchat")
+          .add(new ChannelConfig("gc-1", "gchat", "app-id", "app-secret", "ops-agent", true));
+
+      assertTrue(warnedAboutMissingToken(appender), "裸奔档应当告警，否则运维看不到");
+      assertNotNull(registry.get("gc-1"), "告警不影响正常上线");
+    } finally {
+      detachAppender(appender);
+    }
+  }
+
+  @Test
+  @DisplayName("teams 配了 inbound_token：不告警")
+  void silentWhenCallerTokenPresent() {
+    ListAppender<ILoggingEvent> appender = attachAppender();
+    try {
+      adminFor("teams")
+          .add(
+              new ChannelConfig(
+                  "tm-1",
+                  "teams",
+                  "app-id",
+                  "app-secret",
+                  "ops-agent",
+                  true,
+                  Map.of("inbound_token", "t-1")));
+
+      assertFalse(warnedAboutMissingToken(appender), "关上了闸就不该告警");
+    } finally {
+      detachAppender(appender);
+    }
+  }
+
+  @Test
+  @DisplayName("自带验签的渠道不告警（避免把正常渠道报成裸奔）")
+  void silentForChannelsWithTheirOwnVerification() {
+    ListAppender<ILoggingEvent> appender = attachAppender();
+    try {
+      admin.add(config("chan-plain", "ops-agent", true));
+
+      assertFalse(warnedAboutMissingToken(appender), "非该闸覆盖的渠道不该被误报");
+    } finally {
+      detachAppender(appender);
+    }
   }
 }
