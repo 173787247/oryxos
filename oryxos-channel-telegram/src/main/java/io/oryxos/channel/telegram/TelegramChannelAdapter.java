@@ -32,7 +32,25 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
 
   public static final String TYPE = "telegram";
   static final String DEFAULT_API_BASE = "https://api.telegram.org";
-  private static final Duration POLL_TIMEOUT = Duration.ofSeconds(35);
+
+  /**
+   * {@code extra} 键：{@code getUpdates} 的长轮询秒数。
+   *
+   * <p>缺省 25 秒（Telegram 的常规用法）。**受限网络下要调小**：中间设备（企业代理、隧道）常把超过 ~20 秒 的空闲连接切断，表现为 {@code EOF reached
+   * while reading} 而不是超时——轮询于是永远拿不到消息。实测把 它从 25 降到 10 之后，同一环境下失败次数从每 37 秒一次降到 0。
+   */
+  static final String EXTRA_POLL_TIMEOUT = "poll_timeout_seconds";
+
+  static final int DEFAULT_POLL_TIMEOUT_SECONDS = 25;
+
+  /** Telegram 对 {@code getUpdates} 的 {@code timeout} 参数上限是 50 秒，超过会被拒。 */
+  static final int MAX_POLL_TIMEOUT_SECONDS = 50;
+
+  static final int MIN_POLL_TIMEOUT_SECONDS = 1;
+
+  /** HTTP 超时相对长轮询的余量：长轮询本身就要占满 poll 秒，超时必须更宽，否则每次都自杀。 */
+  static final int HTTP_TIMEOUT_MARGIN_SECONDS = 10;
+
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String FIELD_OK = "ok";
   private static final String FIELD_RESULT = "result";
@@ -43,6 +61,8 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
   private final String apiBase;
+  private final int pollTimeoutSeconds;
+  private final Duration httpTimeout;
   private static final String MEDIA_DIR_PREFIX = "telegram";
 
   private volatile TelegramEventNormalizer normalizer;
@@ -74,6 +94,44 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
     this.apiBase = apiBase;
+    this.pollTimeoutSeconds = resolvePollTimeoutSeconds(config);
+    this.httpTimeout = Duration.ofSeconds(pollTimeoutSeconds + HTTP_TIMEOUT_MARGIN_SECONDS);
+  }
+
+  /**
+   * 解析 {@code extra.poll_timeout_seconds}：缺省、非法、越界都回落到缺省并告警——不因一个可选键让渠道起不来。
+   *
+   * <p>包级可见以便单测直接钉判据（与 {@code DiscordGatewayClient.dispatchFrameForTest} 同一种做法）。
+   */
+  static int resolvePollTimeoutSeconds(ChannelConfig config) {
+    String raw = config.extra(EXTRA_POLL_TIMEOUT);
+    if (raw == null || raw.isBlank()) {
+      return DEFAULT_POLL_TIMEOUT_SECONDS;
+    }
+    int value;
+    try {
+      value = Integer.parseInt(raw.strip());
+    } catch (NumberFormatException e) {
+      LOG.warn(
+          "{} 的 extra.{} 不是整数（{}），回落到缺省 {} 秒",
+          sanitize(config.name()),
+          EXTRA_POLL_TIMEOUT,
+          sanitize(raw),
+          DEFAULT_POLL_TIMEOUT_SECONDS);
+      return DEFAULT_POLL_TIMEOUT_SECONDS;
+    }
+    if (value < MIN_POLL_TIMEOUT_SECONDS || value > MAX_POLL_TIMEOUT_SECONDS) {
+      LOG.warn(
+          "{} 的 extra.{} = {} 越界（允许 {}~{}），回落到缺省 {} 秒",
+          sanitize(config.name()),
+          EXTRA_POLL_TIMEOUT,
+          value,
+          MIN_POLL_TIMEOUT_SECONDS,
+          MAX_POLL_TIMEOUT_SECONDS,
+          DEFAULT_POLL_TIMEOUT_SECONDS);
+      return DEFAULT_POLL_TIMEOUT_SECONDS;
+    }
+    return value;
   }
 
   @Override
@@ -197,10 +255,10 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
   }
 
   private JsonNode getUpdates() throws Exception {
-    String url = tokenUrl("/getUpdates?timeout=25&offset=" + offset);
+    String url = tokenUrl("/getUpdates?timeout=" + pollTimeoutSeconds + "&offset=" + offset);
     guard.check(url);
     HttpRequest request =
-        HttpRequest.newBuilder().uri(URI.create(url)).timeout(POLL_TIMEOUT).GET().build();
+        HttpRequest.newBuilder().uri(URI.create(url)).timeout(httpTimeout).GET().build();
     HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
     if (Thread.interrupted()) {
       throw new InterruptedException("poll interrupted");
