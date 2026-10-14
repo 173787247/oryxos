@@ -122,25 +122,26 @@ oryxos/
 ├── oryxos-knowledge     # Knowledge base: local backend plugin, chunk/embed/index pipeline,
 │                        #   hybrid retrieval (vector + keyword + RRF), retrieve_knowledge
 ├── oryxos-tool          # Built-in tools (file/shell/http), MCP Client, ToolRegistry, SandboxChecker
-├── oryxos-channel-cli   # CLI channel: oryxos chat implementation
-├── oryxos-channel-feishu  # Feishu inbound channel (long connection)
-├── oryxos-channel-wecom  # WeCom smart-bot inbound channel
-├── oryxos-channel-dingtalk  # DingTalk stream inbound channel
-├── oryxos-channel-slack  # Slack inbound channel (Socket Mode)
-├── oryxos-channel-discord  # Discord inbound channel (Gateway)
-├── oryxos-channel-telegram  # Telegram bot inbound channel
-├── oryxos-channel-whatsapp  # WhatsApp inbound channel
-├── oryxos-channel-teams  # Microsoft Teams inbound channel
-├── oryxos-channel-gchat  # Google Chat inbound channel
-├── oryxos-channel-mattermost  # Mattermost inbound channel
-├── oryxos-channel-matrix  # Matrix inbound channel
-├── oryxos-channel-qq  # QQ official bot inbound channel
-├── oryxos-channel-douyin  # Douyin OpenAPI inbound channel
-├── oryxos-channel-weixin  # WeChat iLink bot inbound channel
-├── oryxos-channel-weixin-kf  # WeChat Customer Service inbound channel
-├── oryxos-channel-weixin-mp  # WeChat Official Account inbound channel
-├── oryxos-channel-weixin-mini  # WeChat Mini Program inbound channel
-├── oryxos-channel-alipay  # Alipay lifestyle inbound channel
+├── channels/            # Channel adapters, grouped under the oryxos-channels aggregator
+│   ├── oryxos-channel-cli   # CLI channel: oryxos chat implementation
+│   ├── oryxos-channel-feishu  # Feishu inbound channel (long connection)
+│   ├── oryxos-channel-wecom  # WeCom smart-bot inbound channel
+│   ├── oryxos-channel-dingtalk  # DingTalk stream inbound channel
+│   ├── oryxos-channel-slack  # Slack inbound channel (Socket Mode)
+│   ├── oryxos-channel-discord  # Discord inbound channel (Gateway)
+│   ├── oryxos-channel-telegram  # Telegram bot inbound channel
+│   ├── oryxos-channel-whatsapp  # WhatsApp inbound channel
+│   ├── oryxos-channel-teams  # Microsoft Teams inbound channel
+│   ├── oryxos-channel-gchat  # Google Chat inbound channel
+│   ├── oryxos-channel-mattermost  # Mattermost inbound channel
+│   ├── oryxos-channel-matrix  # Matrix inbound channel
+│   ├── oryxos-channel-qq  # QQ official bot inbound channel
+│   ├── oryxos-channel-douyin  # Douyin OpenAPI inbound channel
+│   ├── oryxos-channel-weixin  # WeChat iLink bot inbound channel
+│   ├── oryxos-channel-weixin-kf  # WeChat Customer Service inbound channel
+│   ├── oryxos-channel-weixin-mp  # WeChat Official Account inbound channel
+│   ├── oryxos-channel-weixin-mini  # WeChat Mini Program inbound channel
+│   └── oryxos-channel-alipay  # Alipay lifestyle inbound channel
 ├── oryxos-web           # REST API controllers, Web admin console, GlobalExceptionHandler
 ├── oryxos-storage       # SQLite, SessionRepository, ToolInvocationRepository, LlmCallRepository
 ├── oryxos-cli           # Picocli entry, 12 subcommands, ConfigLoader
