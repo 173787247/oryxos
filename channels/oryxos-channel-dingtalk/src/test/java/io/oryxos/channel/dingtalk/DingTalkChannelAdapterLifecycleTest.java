@@ -11,10 +11,14 @@ import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class DingTalkChannelAdapterLifecycleTest {
+
+  @TempDir Path workspaceRoot;
 
   @Test
   @DisplayName("重连退避：指数增长并封顶")
@@ -41,7 +45,8 @@ class DingTalkChannelAdapterLifecycleTest {
             config,
             new ProfileRegistry(),
             mock(InboundMessageService.class),
-            (OutboundGuard) url -> {});
+            (OutboundGuard) url -> {},
+            workspaceRoot);
 
     Method ensure = DingTalkChannelAdapter.class.getDeclaredMethod("ensureOutboundStack");
     ensure.setAccessible(true);

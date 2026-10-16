@@ -10,6 +10,7 @@ import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -46,6 +47,7 @@ public class QqChannelAdapter implements InboundChannelAdapter {
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
 
   private final AtomicReference<QqGatewayClient> gatewayRef = new AtomicReference<>();
   private volatile QqAccessTokenClient tokens;
@@ -67,11 +69,13 @@ public class QqChannelAdapter implements InboundChannelAdapter {
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
+      OutboundGuard guard,
+      Path workspaceRoot) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
   }
 
   @Override
@@ -186,7 +190,7 @@ public class QqChannelAdapter implements InboundChannelAdapter {
       mediaResolver =
           new QqInboundMediaResolver(
               tokenClient::authorizationHeader,
-              InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX),
+              InboundMediaRoots.forChannel(workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
               config.name());
     }
   }

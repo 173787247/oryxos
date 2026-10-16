@@ -14,17 +14,21 @@ import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.lang.reflect.Field;
+import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * 2026-08 容器停机实录回归：SDK {@code ws.Client.close()} 存在不返回的实现路径，SIGTERM 后被它拖满 ~30s 才完成关闭。 closeQuietly
  * 必须限时——close 阻塞时 {@code stop()} 快速返回、断开动作留在守护线程，停机链路与 ChannelAdminService.stopAll 不被拖死。
  */
 class FeishuChannelAdapterStopTest {
+
+  @TempDir Path workspaceRoot;
 
   private static final long STOP_DEADLINE_MS = 5_000;
 
@@ -39,7 +43,8 @@ class FeishuChannelAdapterStopTest {
             config,
             mock(ProfileRegistry.class),
             mock(InboundMessageService.class),
-            mock(OutboundGuard.class));
+            mock(OutboundGuard.class),
+            workspaceRoot);
   }
 
   @Test

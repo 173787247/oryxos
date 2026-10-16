@@ -8,12 +8,16 @@ import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Gateway 重连时机的选择。 */
 class DiscordChannelAdapterReconnectTest {
+
+  @TempDir Path workspaceRoot;
 
   private DiscordChannelAdapter adapter;
 
@@ -26,7 +30,8 @@ class DiscordChannelAdapterReconnectTest {
             config,
             mock(ProfileRegistry.class),
             mock(InboundMessageService.class),
-            mock(OutboundGuard.class));
+            mock(OutboundGuard.class),
+            workspaceRoot);
   }
 
   @Test

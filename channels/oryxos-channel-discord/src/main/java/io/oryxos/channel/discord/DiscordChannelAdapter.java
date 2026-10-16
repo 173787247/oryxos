@@ -8,6 +8,7 @@ import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
@@ -42,6 +43,7 @@ public class DiscordChannelAdapter implements InboundChannelAdapter {
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
 
   private final AtomicReference<DiscordGatewayClient> gatewayRef = new AtomicReference<>();
   private volatile DiscordMessageSender sender;
@@ -62,11 +64,13 @@ public class DiscordChannelAdapter implements InboundChannelAdapter {
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
+      OutboundGuard guard,
+      Path workspaceRoot) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
   }
 
   @Override
@@ -191,7 +195,8 @@ public class DiscordChannelAdapter implements InboundChannelAdapter {
       mediaResolver =
           new DiscordInboundMediaResolver(
               config.appId(),
-              io.oryxos.core.channel.InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX),
+              io.oryxos.core.channel.InboundMediaRoots.forChannel(
+                  workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
               config.name());
     }
   }

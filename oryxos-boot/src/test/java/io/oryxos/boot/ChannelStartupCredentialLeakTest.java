@@ -116,7 +116,7 @@ class ChannelStartupCredentialLeakTest {
             TelegramChannelAdapter.TYPE,
             config ->
                 new TelegramChannelAdapter(
-                    config, profiles, mock(InboundMessageService.class), guard));
+                    config, profiles, mock(InboundMessageService.class), guard, tempDir));
 
     return new ChannelAdminService(
         new ChannelConfigLoader(configFile), new InboundChannelRegistry(), profiles, factories);

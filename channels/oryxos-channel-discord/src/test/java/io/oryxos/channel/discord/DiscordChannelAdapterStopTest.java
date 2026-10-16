@@ -9,11 +9,15 @@ import io.oryxos.core.channel.ChannelStatus;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class DiscordChannelAdapterStopTest {
+
+  @TempDir Path workspaceRoot;
 
   private DiscordChannelAdapter adapter;
 
@@ -27,7 +31,8 @@ class DiscordChannelAdapterStopTest {
             config,
             mock(ProfileRegistry.class),
             mock(InboundMessageService.class),
-            mock(OutboundGuard.class));
+            mock(OutboundGuard.class),
+            workspaceRoot);
   }
 
   @Test

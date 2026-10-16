@@ -10,12 +10,16 @@ import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class WeixinChannelAdapterTest {
+
+  @TempDir Path workspaceRoot;
 
   @Test
   @DisplayName("未启动 sendReply → 拒绝")
@@ -25,7 +29,8 @@ class WeixinChannelAdapterTest {
     ChannelConfig config =
         new ChannelConfig("ops-weixin", "weixin", "bot-acc", "tok", "demo-agent", true, Map.of());
     WeixinChannelAdapter adapter =
-        new WeixinChannelAdapter(config, profiles, mock(InboundMessageService.class), url -> {});
+        new WeixinChannelAdapter(
+            config, profiles, mock(InboundMessageService.class), url -> {}, workspaceRoot);
     IllegalStateException e =
         assertThrows(IllegalStateException.class, () -> adapter.sendReply("user:u1", "hi", null));
     assertTrue(e.getMessage().contains("尚未启动"));

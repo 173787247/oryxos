@@ -58,6 +58,7 @@ public class WeixinKfChannelAdapter implements InboundChannelAdapter, InboundWeb
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
   private final Clock clock;
   private final WeixinKfReplySessionStore sessions = new WeixinKfReplySessionStore();
   private final Set<String> seenMsgIds = ConcurrentHashMap.newKeySet();
@@ -74,8 +75,9 @@ public class WeixinKfChannelAdapter implements InboundChannelAdapter, InboundWeb
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
-    this(config, profileRegistry, inboundMessageService, guard, Clock.systemUTC());
+      OutboundGuard guard,
+      Path workspaceRoot) {
+    this(config, profileRegistry, inboundMessageService, guard, workspaceRoot, Clock.systemUTC());
   }
 
   WeixinKfChannelAdapter(
@@ -83,11 +85,13 @@ public class WeixinKfChannelAdapter implements InboundChannelAdapter, InboundWeb
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
       OutboundGuard guard,
+      Path workspaceRoot,
       Clock clock) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
     this.clock = clock;
   }
 
@@ -97,10 +101,11 @@ public class WeixinKfChannelAdapter implements InboundChannelAdapter, InboundWeb
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
       OutboundGuard guard,
+      Path workspaceRoot,
       Clock clock,
       WeixinKfClient api,
       WeixinKfMsgCrypt crypt) {
-    this(config, profileRegistry, inboundMessageService, guard, clock);
+    this(config, profileRegistry, inboundMessageService, guard, workspaceRoot, clock);
     this.api = api;
     this.crypt = crypt;
   }
@@ -474,7 +479,7 @@ public class WeixinKfChannelAdapter implements InboundChannelAdapter, InboundWeb
   }
 
   private Path createMediaRoot() {
-    return InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX);
+    return InboundMediaRoots.forChannel(workspaceRoot, config.name(), MEDIA_DIR_PREFIX);
   }
 
   private void requireExtra(String key) {
