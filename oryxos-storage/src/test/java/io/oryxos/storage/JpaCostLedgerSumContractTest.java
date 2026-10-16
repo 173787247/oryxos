@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.oryxos.core.cost.CostAttributionQuery;
 import jakarta.persistence.EntityManagerFactory;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.hibernate.SessionFactory;
@@ -28,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 abstract class JpaCostLedgerSumContractTest {
 
   private static final int LEDGER_ROWS = 200;
+  private static final int WINDOW_ROWS = 6;
   private static final long LLM_MICROS_PER_ROW = 7L;
   private static final long TOOL_MICROS_PER_ROW = 3L;
   private static final int LLM_CALLS_PER_TRACE = 100;
@@ -81,6 +84,53 @@ abstract class JpaCostLedgerSumContractTest {
     assertThat(agentA).isEqualTo(LEDGER_ROWS / 2 * LLM_MICROS_PER_ROW);
     assertThat(agentB).isEqualTo(LEDGER_ROWS / 2 * LLM_MICROS_PER_ROW);
     assertThat(agentA + agentB).isEqualTo(LEDGER_ROWS * LLM_MICROS_PER_ROW);
+  }
+
+  @Test
+  @DisplayName("sum_遵守时间范围_且仍在库内求和（与 InMemory 同口径）")
+  void sumHonoursTheTimeWindow() {
+    Instant base = Instant.parse("2026-05-01T00:00:00Z");
+    List<CostLedgerEntryEntity> rows = new ArrayList<>(WINDOW_ROWS);
+    for (int i = 0; i < WINDOW_ROWS; i++) {
+      CostLedgerEntryEntity row = new CostLedgerEntryEntity();
+      row.setRunId("run-window");
+      row.setAgentName("agent-a");
+      row.setProvider("deepseek");
+      row.setModel("deepseek-flash");
+      row.setSourceKind("LLM");
+      row.setLlmCostMicros(LLM_MICROS_PER_ROW);
+      row.setToolCostMicros(TOOL_MICROS_PER_ROW);
+      row.setLatencyMs(1L);
+      row.setCreatedAt(base.plus(Duration.ofHours(i)));
+      rows.add(row);
+    }
+    ledgerEntries.saveAll(rows);
+
+    // [base+1h, base+4h)：from 含、to 不含 ⇒ 命中 i=1,2,3 三行
+    CostAttributionQuery window =
+        new CostAttributionQuery(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            base.plus(Duration.ofHours(1)),
+            base.plus(Duration.ofHours(4)));
+
+    Statistics statistics = statistics();
+    long loadedBefore = statistics.getEntityLoadCount();
+    long llm = store.sumLlmCostMicros(window);
+    long tool = store.sumToolCostMicros(window);
+    long loaded = statistics.getEntityLoadCount() - loadedBefore;
+
+    assertThat(llm).isEqualTo(3 * LLM_MICROS_PER_ROW);
+    assertThat(tool).isEqualTo(3 * TOOL_MICROS_PER_ROW);
+    // 时间谓词必须落在 SQL 里：放进 Java 侧过滤就等于把明细行水合进堆，本用力拒的正是这件事
+    assertThat(loaded).isZero();
+    // 与 find 同一口径（InMemoryCostLedgerStore 的求和就是走 find 的）
+    assertThat(store.find(window)).hasSize(3);
+    assertThat(store.sumLlmCostMicros(ALL_ENTRIES)).isEqualTo(WINDOW_ROWS * LLM_MICROS_PER_ROW);
   }
 
   @Test

@@ -85,6 +85,8 @@ public final class RequestActionResolver {
 
   private static final String PATH_PRICING = "/api/v1/pricing";
 
+  private static final String PATH_COST = "/api/v1/cost";
+
   private static final String PATH_PROFILES = "/api/v1/profiles";
 
   private static final String PATH_TOOLS = "/api/v1/tools";
@@ -195,6 +197,15 @@ public final class RequestActionResolver {
     }
     if (isUnder(p, PATH_PROVIDERS) || isUnder(p, PATH_PRICING)) {
       return readOrManage(m, Action.MANAGE_WORKSPACE, ResourceRef.workspace());
+    }
+    // 成本看板（053）：全部只读查询，VIEWER 可读（READ_WORKSPACE）；非读方法拒绝。
+    // 前缀登记覆盖现有 /attribution、/runs/*/reconcile 与新增 /daily、/tool-usage、/facets，
+    // 避免 fail-closed 下未登记路径被 403。
+    if (isUnder(p, PATH_COST)) {
+      if (isRead(m)) {
+        return Resolution.of(Action.READ_WORKSPACE, ResourceRef.workspace());
+      }
+      return null;
     }
     if (isReadWorkspaceExactOrUnder(p)) {
       if (isRead(m)) {

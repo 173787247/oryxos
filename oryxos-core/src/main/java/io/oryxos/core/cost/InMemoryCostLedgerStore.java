@@ -57,6 +57,19 @@ public final class InMemoryCostLedgerStore implements CostLedgerStore {
     return find(query).stream().mapToLong(CostLedgerEntry::toolCostMicros).sum();
   }
 
+  @Override
+  public CostFacets facets() {
+    return new CostFacets(
+        distinct(CostLedgerEntry::agentName),
+        distinct(CostLedgerEntry::provider),
+        distinct(CostLedgerEntry::model),
+        distinct(CostLedgerEntry::teamId));
+  }
+
+  private List<String> distinct(java.util.function.Function<CostLedgerEntry, String> f) {
+    return rows.stream().map(f).filter(v -> v != null && !v.isBlank()).distinct().sorted().toList();
+  }
+
   public void clear() {
     rows.clear();
     seq.set(0);
@@ -75,7 +88,15 @@ public final class InMemoryCostLedgerStore implements CostLedgerStore {
         && eq(q.agentName(), e.agentName())
         && eq(q.teamId(), e.teamId())
         && eq(q.provider(), e.provider())
-        && eq(q.model(), e.model());
+        && eq(q.model(), e.model())
+        && inRange(e.createdAt(), q.from(), q.to());
+  }
+
+  private static boolean inRange(Instant at, Instant from, Instant to) {
+    if (from != null && (at == null || at.isBefore(from))) {
+      return false;
+    }
+    return to == null || (at != null && at.isBefore(to));
   }
 
   private static boolean eq(String filter, String value) {

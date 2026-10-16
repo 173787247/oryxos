@@ -16,6 +16,8 @@ public final class CostAttributionSummary {
   private final long promptTokens;
   private final long completionTokens;
   private final List<Long> priceVersions;
+  private final long llmCallCount;
+  private final long toolCallCount;
 
   public CostAttributionSummary(
       List<CostLedgerEntry> entries,
@@ -25,7 +27,9 @@ public final class CostAttributionSummary {
       long totalLatencyMs,
       long promptTokens,
       long completionTokens,
-      List<Long> priceVersions) {
+      List<Long> priceVersions,
+      long llmCallCount,
+      long toolCallCount) {
     this.entries = List.copyOf(entries == null ? List.of() : entries);
     this.llmCostMicros = llmCostMicros;
     this.toolCostMicros = toolCostMicros;
@@ -34,6 +38,8 @@ public final class CostAttributionSummary {
     this.promptTokens = promptTokens;
     this.completionTokens = completionTokens;
     this.priceVersions = List.copyOf(priceVersions == null ? List.of() : priceVersions);
+    this.llmCallCount = llmCallCount;
+    this.toolCallCount = toolCallCount;
   }
 
   public List<CostLedgerEntry> entries() {
@@ -66,5 +72,15 @@ public final class CostAttributionSummary {
 
   public List<Long> priceVersions() {
     return priceVersions;
+  }
+
+  /** LLM 调用条目数（sourceKind=LLM）；KPI「LLM 调用次数」与平均延迟口径。 */
+  public long llmCallCount() {
+    return llmCallCount;
+  }
+
+  /** 工具调用条目数（sourceKind=TOOL）；KPI「工具调用次数」口径。 */
+  public long toolCallCount() {
+    return toolCallCount;
   }
 }

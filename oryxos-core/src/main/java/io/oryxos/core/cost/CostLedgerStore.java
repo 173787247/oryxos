@@ -12,4 +12,7 @@ public interface CostLedgerStore {
   long sumLlmCostMicros(CostAttributionQuery query);
 
   long sumToolCostMicros(CostAttributionQuery query);
+
+  /** 枚举类维度的去重候选值（053 筛选器下拉）。 */
+  CostFacets facets();
 }

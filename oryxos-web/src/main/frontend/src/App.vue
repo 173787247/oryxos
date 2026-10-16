@@ -10,6 +10,7 @@ import TeamsManagementView from './features/teams/TeamsManagementView.vue'
 import IdentityMappingsView from './features/identity-mappings/IdentityMappingsView.vue'
 import ApprovalsView from './features/approvals/ApprovalsView.vue'
 import GovernanceRevisionHistory from './features/governance/GovernanceRevisionHistory.vue'
+import CostDashboardView from './features/cost/CostDashboardView.vue'
 import { isNearBottom } from './chat-scroll.js'
 import { providerApiKeyMissing } from './provider-form.js'
 import { applyRunNav, parseRunNav, runHash, runListHash } from './features/runs/run-navigation.js'
@@ -73,6 +74,7 @@ const TOP_NAV = [
   { key: 'skills', label: 'Skill 列表' },
   { key: 'knowledge', label: '知识库' },
   { key: 'report', label: '审计' },
+  { key: 'cost', label: '成本' },
 ]
 
 const RUNTIME_NAV = [
@@ -244,6 +246,7 @@ function select(key, options = {}) {
 // 刷新当前页的列表：各页复用各自的加载函数（agents / notify-channels / 概览 / 其余按 path 的通用列表）
 function refresh() {
   const key = active.value
+  if (key === 'cost') { costViewRef.value?.reload(); return }
   if (key === 'agents') { loadAgents(); return }
   if (key === 'personas') { loadPersonaPresets(); return }
   if (key === 'notify-channels') { loadNotifyChannels(); return }
@@ -702,6 +705,7 @@ const runViewRef = ref(null)
 const teamsViewRef = ref(null)
 const identityMappingsViewRef = ref(null)
 const approvalsViewRef = ref(null)
+const costViewRef = ref(null)
 
 function writeRunHash(runId) {
   const next = runId ? runHash(runId) : runListHash()
@@ -2404,6 +2408,9 @@ const outputRows = computed(() =>
           </div>
           <div v-if="active === 'approvals'">
             <ApprovalsView ref="approvalsViewRef" />
+          </div>
+          <div v-if="active === 'cost'">
+            <CostDashboardView ref="costViewRef" />
           </div>
 
           <!-- 报表（016 审计看板）：KPI 汇总 + 分布条形图 + 明细下钻；时间窗三档 -->

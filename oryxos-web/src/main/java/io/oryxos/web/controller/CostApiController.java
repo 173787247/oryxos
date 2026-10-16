@@ -37,10 +37,21 @@ public class CostApiController {
       @RequestParam(required = false) String agent,
       @RequestParam(required = false) String teamId,
       @RequestParam(required = false) String provider,
-      @RequestParam(required = false) String model) {
+      @RequestParam(required = false) String model,
+      @RequestParam(required = false) String from,
+      @RequestParam(required = false) String to) {
     requireEnabled();
     CostAttributionSummary summary =
-        ledger.query(new CostAttributionQuery(runId, taskId, agent, teamId, provider, model));
+        ledger.query(
+            new CostAttributionQuery(
+                runId,
+                taskId,
+                agent,
+                teamId,
+                provider,
+                model,
+                parseInstant(from),
+                parseInstant(to)));
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("llmCostMicros", summary.llmCostMicros());
     body.put("toolCostMicros", summary.toolCostMicros());
@@ -48,8 +59,89 @@ public class CostApiController {
     body.put("totalLatencyMs", summary.totalLatencyMs());
     body.put("promptTokens", summary.promptTokens());
     body.put("completionTokens", summary.completionTokens());
+    body.put("llmCallCount", summary.llmCallCount());
+    body.put("toolCallCount", summary.toolCallCount());
     body.put("priceVersions", summary.priceVersions());
     body.put("entries", summary.entries().stream().map(CostApiController::toView).toList());
+    return ApiResponse.ok(body);
+  }
+
+  private static java.time.Instant parseInstant(String v) {
+    if (v == null || v.isBlank()) {
+      return null;
+    }
+    try {
+      return java.time.Instant.parse(v);
+    } catch (java.time.format.DateTimeParseException ex) {
+      throw new IllegalArgumentException("时间参数需为 ISO-8601 Instant（如 2026-10-01T00:00:00Z）: " + v);
+    }
+  }
+
+  @GetMapping("/daily")
+  public ApiResponse<java.util.List<Map<String, Object>>> daily(
+      @RequestParam(required = false) String runId,
+      @RequestParam(required = false) String taskId,
+      @RequestParam(required = false) String agent,
+      @RequestParam(required = false) String teamId,
+      @RequestParam(required = false) String provider,
+      @RequestParam(required = false) String model,
+      @RequestParam String from,
+      @RequestParam String to) {
+    requireEnabled();
+    CostAttributionQuery q =
+        new CostAttributionQuery(
+            runId, taskId, agent, teamId, provider, model, parseInstant(from), parseInstant(to));
+    java.util.List<Map<String, Object>> body =
+        ledger.dailyLlmCost(q).stream()
+            .map(
+                p -> {
+                  Map<String, Object> m = new LinkedHashMap<>();
+                  m.put("date", p.date());
+                  m.put("llmCostMicros", p.llmCostMicros());
+                  return m;
+                })
+            .toList();
+    return ApiResponse.ok(body);
+  }
+
+  @GetMapping("/tool-usage")
+  public ApiResponse<java.util.List<Map<String, Object>>> toolUsage(
+      @RequestParam(required = false) String runId,
+      @RequestParam(required = false) String taskId,
+      @RequestParam(required = false) String agent,
+      @RequestParam(required = false) String teamId,
+      @RequestParam(required = false) String provider,
+      @RequestParam(required = false) String model,
+      @RequestParam(required = false) String from,
+      @RequestParam(required = false) String to,
+      @RequestParam(required = false, defaultValue = "false") boolean byTool) {
+    requireEnabled();
+    CostAttributionQuery q =
+        new CostAttributionQuery(
+            runId, taskId, agent, teamId, provider, model, parseInstant(from), parseInstant(to));
+    java.util.List<Map<String, Object>> body =
+        ledger.toolUsage(q, byTool).stream()
+            .map(
+                u -> {
+                  Map<String, Object> m = new LinkedHashMap<>();
+                  m.put("agentName", u.agentName());
+                  m.put("tool", u.tool());
+                  m.put("callCount", u.callCount());
+                  return m;
+                })
+            .toList();
+    return ApiResponse.ok(body);
+  }
+
+  @GetMapping("/facets")
+  public ApiResponse<Map<String, Object>> facets() {
+    requireEnabled();
+    io.oryxos.core.cost.CostFacets f = ledger.facets();
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("agents", f.agents());
+    body.put("providers", f.providers());
+    body.put("models", f.models());
+    body.put("teams", f.teams());
     return ApiResponse.ok(body);
   }
 
