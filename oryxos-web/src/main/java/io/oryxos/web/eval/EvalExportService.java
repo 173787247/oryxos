@@ -59,7 +59,12 @@ public class EvalExportService {
     boolean success = toolsOk && llmsOk;
     long toolLatency = ordered.stream().mapToLong(ToolInvocation::getDurationMs).sum();
     long llmLatency = llms.stream().mapToLong(LlmCall::getDurationMs).sum();
-    long latencyMs = Math.max(toolLatency, llmLatency);
+    // Execution is synchronous, one branch after the other (Principle VII: no async), so the trace
+    // spans both branches: the duration is their sum. Taking the larger of the two under-reports it
+    // on every trace that does both, and this value feeds EvalHarness.latencyMsAvg into the
+    // EvalRegressionGate latency thresholds. Same reading as AuditMetricsService#traceTimeline
+    // (summary.totalDurationMs), so one trace has one duration.
+    long latencyMs = toolLatency + llmLatency;
     long costMicros =
         llms.stream()
             .filter(c -> c.getCostMicros() != null)
