@@ -51,7 +51,7 @@ public class SqliteChunkStore implements ChunkStore {
 
   @Override
   public List<DocumentRecord> documents(String kbName, long generation) {
-    return documents.findByKbNameAndGeneration(kbName, generation).stream()
+    return documents.findByKbNameAndGenerationOrderByRelPathAsc(kbName, generation).stream()
         .map(SqliteChunkStore::toRecord)
         .toList();
   }
@@ -80,7 +80,7 @@ public class SqliteChunkStore implements ChunkStore {
 
   @Override
   public List<ChunkRecord> chunks(String kbName, long generation) {
-    return chunks.findByKbNameAndGeneration(kbName, generation).stream()
+    return chunks.findByKbNameAndGenerationOrderByIdAsc(kbName, generation).stream()
         .map(SqliteChunkStore::toRecord)
         .toList();
   }

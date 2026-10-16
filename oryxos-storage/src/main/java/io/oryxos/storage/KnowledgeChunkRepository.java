@@ -7,7 +7,8 @@ import org.springframework.transaction.annotation.Transactional;
 /** knowledge_chunks 读写通道（014 知识库）——检索按库 + 代号全量加载做内存余弦扫描（research D1）。 */
 public interface KnowledgeChunkRepository extends JpaRepository<KnowledgeChunkEntity, Long> {
 
-  List<KnowledgeChunkEntity> findByKbNameAndGeneration(String kbName, long generation);
+  /** 片段按 id 升序，即保留落库次序——内存档同样如此排序，检索在得分相同时按它决定谁进 top-K。 显式 ORDER BY 让这条语义不再依赖扫描顺序。 */
+  List<KnowledgeChunkEntity> findByKbNameAndGenerationOrderByIdAsc(String kbName, long generation);
 
   long countByKbNameAndGeneration(String kbName, long generation);
 
