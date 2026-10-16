@@ -286,7 +286,41 @@
                             <goal>repackage</goal>
                         </goals>
                     </execution>
+                    <!-- 052：生成 META-INF/build-info.properties（version 同源 Maven <version>），
+                         供 /api/v1/health 的 version 字段读取（BuildProperties Bean 自动装配）。 -->
+                    <execution>
+                        <id>build-info</id>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
                 </executions>
+            </plugin>
+
+            <!-- 052：生成 git.properties（git short sha），供 /api/v1/health 的 build 字段读取
+                 （GitProperties Bean 自动装配）。非 git 环境/源码态 fail 关闭 → 降级由运行期组件兜底。 -->
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <version>9.0.1</version>
+                <executions>
+                    <execution>
+                        <id>get-git-info</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <generateGitPropertiesFile>true</generateGitPropertiesFile>
+                    <includeOnlyProperties>
+                        <includeOnlyProperty>^git.commit.id.abbrev$</includeOnlyProperty>
+                        <includeOnlyProperty>^git.commit.time$</includeOnlyProperty>
+                    </includeOnlyProperties>
+                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <failOnUnableToExtractRepoInfo>false</failOnUnableToExtractRepoInfo>
+                </configuration>
             </plugin>
         </plugins>
     </build>

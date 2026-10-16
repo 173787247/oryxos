@@ -65,7 +65,7 @@ class WebSmokeIT {
 
     mvc =
         MockMvcBuilders.standaloneSetup(
-                new SystemApiController(registry),
+                new SystemApiController(registry, degradedVersionInfo()),
                 new ProfileApiController(registry),
                 new AgentApiController(
                     mock(AgentLifecycleService.class),
@@ -77,6 +77,15 @@ class WebSmokeIT {
                 new ToolApiController(Map.of("http_get", tool)))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static io.oryxos.web.version.VersionInfoProvider degradedVersionInfo() {
+    org.springframework.beans.factory.ObjectProvider<org.springframework.boot.info.BuildProperties>
+        build = mock(org.springframework.beans.factory.ObjectProvider.class);
+    org.springframework.beans.factory.ObjectProvider<org.springframework.boot.info.GitProperties>
+        git = mock(org.springframework.beans.factory.ObjectProvider.class);
+    return new io.oryxos.web.version.VersionInfoProvider(build, git);
   }
 
   @Test

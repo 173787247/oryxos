@@ -3,9 +3,10 @@ package io.oryxos.web.controller;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.web.common.ApiResponse;
+import io.oryxos.web.controller.dto.HealthView;
 import io.oryxos.web.controller.dto.InfoView;
+import io.oryxos.web.version.VersionInfoProvider;
 import java.util.List;
-import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,14 +24,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class SystemApiController {
 
   private final ProfileRegistry profileRegistry;
+  private final VersionInfoProvider versionInfo;
 
-  public SystemApiController(ProfileRegistry profileRegistry) {
+  public SystemApiController(ProfileRegistry profileRegistry, VersionInfoProvider versionInfo) {
     this.profileRegistry = profileRegistry;
+    this.versionInfo = versionInfo;
   }
 
   @GetMapping("/health")
-  public ApiResponse<Map<String, String>> health() {
-    return ApiResponse.ok(Map.of("status", "ok"));
+  public ApiResponse<HealthView> health() {
+    return ApiResponse.ok(new HealthView("ok", versionInfo.version(), versionInfo.build()));
   }
 
   @GetMapping("/info")
