@@ -8,7 +8,12 @@ import org.springframework.transaction.annotation.Transactional;
 /** knowledge_documents 读写通道（014 知识库）。 */
 public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocumentEntity, Long> {
 
-  List<KnowledgeDocumentEntity> findByKbNameAndGeneration(String kbName, long generation);
+  /**
+   * 顺序是输出契约的一部分（检索同分排序、{@code /knowledge/{kb}/status} 都透传它），故显式 ORDER BY： 靠扫描顺序在 SQLite 上是偶然的，在
+   * PostgreSQL 的并行计划下更不保证。
+   */
+  List<KnowledgeDocumentEntity> findByKbNameAndGenerationOrderByRelPathAsc(
+      String kbName, long generation);
 
   Optional<KnowledgeDocumentEntity> findByKbNameAndRelPathAndGeneration(
       String kbName, String relPath, long generation);
