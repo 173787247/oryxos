@@ -20,6 +20,11 @@ import org.springframework.http.HttpMethod;
  *
  * <p>相对契约初稿的补登记（路由盘点）：{@code /api/v2/schedules/**} 与 v1 调度同档；{@code POST /api/v1} （Alipay
  * 截断网关）按入站渠道同口径只认证不裁决——否则 RBAC 一开即打挂支付宝回调。
+ *
+ * <p>路由盘点的第二批：{@code /api/v1/capabilities} 与 {@code /api/v1/routing}（只读目录）、{@code
+ * /api/v1/evals}（审计两表，与 /audit 同档）、{@code /api/v1/flows} 与 {@code /api/v1/team-tasks}（写方法按
+ * RUN_AGENT）。这五个前缀此前从未登记，{@code oryxos.web.rbac.enabled=true} 时会被 039 SC-005 的启动检查拒绝 —— 其中 {@code
+ * team-tasks} 带 {@code @ConditionalOnProperty}，只在开关打开时才注册，因此最难在人工盘点上被看见。
  */
 public final class RequestActionResolver {
 
@@ -86,6 +91,16 @@ public final class RequestActionResolver {
   private static final String PATH_PRICING = "/api/v1/pricing";
 
   private static final String PATH_COST = "/api/v1/cost";
+
+  private static final String PATH_CAPABILITIES = "/api/v1/capabilities";
+
+  private static final String PATH_FLOWS = "/api/v1/flows";
+
+  private static final String PATH_EVALS = "/api/v1/evals";
+
+  private static final String PATH_ROUTING = "/api/v1/routing";
+
+  private static final String PATH_TEAM_TASKS = "/api/v1/team-tasks";
 
   private static final String PATH_PROFILES = "/api/v1/profiles";
 
@@ -219,6 +234,25 @@ public final class RequestActionResolver {
         || isUnder(p, PATH_IDENTITY_MAPPINGS)
         || isUserTeamsPath(p)) {
       return Resolution.of(Action.MANAGE_MEMBERS, ResourceRef.member(null));
+    }
+    // 039 SC-005 覆盖补登记：capabilities / routing / evals / flows 四个控制器一直无条件注册，
+    // team-tasks 则由 @ConditionalOnProperty(oryxos.task.team.enabled) 开关控制 —— 五个前缀都从未登记进本表，
+    // 于是 oryxos.web.rbac.enabled=true 时 RbacEndpointCoverageCheck 在启动期直接抛异常（fail-closed 兜不住启动）。
+    // team-tasks 那三个尤其隐蔽：默认部署下它根本不注册，"打开 team tasks + 打开 RBAC"才会撞上。
+    // 分档：capabilities 与 routing 是只读目录，非读方法保持未登记（继续 fail-closed）；evals 读的是审计两表
+    // （llm_calls / tool_invocations），与 /audit 同档；flows/generate 与 team-tasks 的写方法会驱动模型/Agent
+    // 真干活，按 RUN_AGENT（VIEWER 不该能触发）。
+    if (isUnder(p, PATH_CAPABILITIES) || isUnder(p, PATH_ROUTING)) {
+      if (isRead(m)) {
+        return Resolution.of(Action.READ_WORKSPACE, ResourceRef.workspace());
+      }
+      return null;
+    }
+    if (isUnder(p, PATH_EVALS)) {
+      return Resolution.of(Action.READ_AUDIT, ResourceRef.audit());
+    }
+    if (isUnder(p, PATH_FLOWS) || isUnder(p, PATH_TEAM_TASKS)) {
+      return readOrManage(m, Action.RUN_AGENT, ResourceRef.agent(null));
     }
     // 未登记：fail-closed
     return null;
