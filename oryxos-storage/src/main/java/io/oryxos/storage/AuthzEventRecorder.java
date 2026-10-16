@@ -11,6 +11,9 @@ import org.slf4j.MDC;
  * 授权拒绝落库（039）：任何异常只记 ERROR 不抛出——写失败绝不能把拒绝变成放行。
  *
  * <p>API Key 只记名称（{@link Principal#id()}），绝不含明文。方法/路径由调用方（web 层）传入，本模块不依赖 servlet API。
+ *
+ * <p>每条自由文本字段落库前先按列宽截断（列宽由 V9 迁移唯一规定，实体 {@code @Column(length = …)} 与之一致）。 这一步不只是美化：超长值在 PostgreSQL
+ * 上会被数据库直接拒绝，而拒绝抛出的异常正好落进本类的 fail-open catch—— 这条拒绝裁决就从审计里消失了，且没有任何调用方看得见。有界化之后写入才可能成功，才谈得上「拒绝留痕」。
  */
 public class AuthzEventRecorder {
 
@@ -19,6 +22,7 @@ public class AuthzEventRecorder {
   private static final int MAX_REASON = 512;
   private static final int MAX_PATH = 512;
   private static final int MAX_ID = 128;
+  private static final int MAX_RESOURCE_ID = 255;
   private static final String TRACE_MDC_KEY = "traceId";
 
   private final AuthzEventRepository repository;
@@ -51,7 +55,7 @@ public class AuthzEventRecorder {
       event.setAction(action == null ? "UNKNOWN" : action.name());
       if (resource != null) {
         event.setResourceType(resource.type());
-        event.setResourceId(resource.id());
+        event.setResourceId(truncate(resource.id(), MAX_RESOURCE_ID));
       }
       event.setReason(truncate(reason == null ? "未说明理由" : reason, MAX_REASON));
       event.setRequestMethod(requestMethod);
