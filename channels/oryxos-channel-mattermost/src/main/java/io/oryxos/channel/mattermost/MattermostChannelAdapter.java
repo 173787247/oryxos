@@ -11,6 +11,7 @@ import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.channel.WebhookRequest;
 import io.oryxos.core.channel.WebhookResponse;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ public class MattermostChannelAdapter implements InboundChannelAdapter, InboundW
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
 
   private volatile MattermostEventNormalizer normalizer;
   private volatile MattermostMessageSender sender;
@@ -49,11 +51,13 @@ public class MattermostChannelAdapter implements InboundChannelAdapter, InboundW
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
+      OutboundGuard guard,
+      Path workspaceRoot) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
   }
 
   @Override
@@ -91,7 +95,7 @@ public class MattermostChannelAdapter implements InboundChannelAdapter, InboundW
             guard,
             baseUrl,
             token,
-            InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX),
+            InboundMediaRoots.forChannel(workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
             config.name());
     state = ChannelStatus.State.CONNECTED;
   }

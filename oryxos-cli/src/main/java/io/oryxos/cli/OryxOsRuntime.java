@@ -1873,7 +1873,11 @@ public class OryxOsRuntime {
             channelConfigLoader,
             inboundChannelRegistry,
             profileRegistry,
-            inboundChannelFactories(profileRegistry, inboundMessageService, channelOutboundGuard));
+            inboundChannelFactories(
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                nativeWorkspaceRoot()));
     // 026：集群档下独连型渠道（企微）走属主协调——持租约副本建连，属主失效自动接管，永不互踢
     if (clusterProps.isEnabled()) {
       io.oryxos.core.channel.ChannelLeaseCoordinator leaseCoordinator =
@@ -1894,16 +1898,17 @@ public class OryxOsRuntime {
       inboundChannelFactories(
           ProfileRegistry profileRegistry,
           io.oryxos.core.channel.InboundMessageService inboundMessageService,
-          io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+          io.oryxos.core.channel.OutboundGuard channelOutboundGuard,
+          Path workspaceRoot) {
     Map<
             String,
             java.util.function.Function<
                 io.oryxos.core.channel.ChannelConfig, io.oryxos.core.channel.InboundChannelAdapter>>
         factories = new LinkedHashMap<>();
     registerEnterpriseChannelFactories(
-        factories, profileRegistry, inboundMessageService, channelOutboundGuard);
+        factories, profileRegistry, inboundMessageService, channelOutboundGuard, workspaceRoot);
     registerConsumerChannelFactories(
-        factories, profileRegistry, inboundMessageService, channelOutboundGuard);
+        factories, profileRegistry, inboundMessageService, channelOutboundGuard, workspaceRoot);
     return factories;
   }
 
@@ -1916,37 +1921,62 @@ public class OryxOsRuntime {
           factories,
       ProfileRegistry profileRegistry,
       io.oryxos.core.channel.InboundMessageService inboundMessageService,
-      io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+      io.oryxos.core.channel.OutboundGuard channelOutboundGuard,
+      Path workspaceRoot) {
     factories.put(
         io.oryxos.channel.feishu.FeishuChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.feishu.FeishuChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.wecom.WeComChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.wecom.WeComChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.dingtalk.DingTalkChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.dingtalk.DingTalkChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.slack.SlackChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.slack.SlackChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.discord.DiscordChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.discord.DiscordChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.telegram.TelegramChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.telegram.TelegramChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
   }
 
   private static void registerConsumerChannelFactories(
@@ -1958,7 +1988,8 @@ public class OryxOsRuntime {
           factories,
       ProfileRegistry profileRegistry,
       io.oryxos.core.channel.InboundMessageService inboundMessageService,
-      io.oryxos.core.channel.OutboundGuard channelOutboundGuard) {
+      io.oryxos.core.channel.OutboundGuard channelOutboundGuard,
+      Path workspaceRoot) {
     factories.put(
         io.oryxos.channel.whatsapp.WhatsAppChannelAdapter.TYPE,
         resolved ->
@@ -1978,17 +2009,29 @@ public class OryxOsRuntime {
         io.oryxos.channel.mattermost.MattermostChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.mattermost.MattermostChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.matrix.MatrixChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.matrix.MatrixChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.qq.QqChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.qq.QqChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.douyin.DouyinChannelAdapter.TYPE,
         resolved ->
@@ -1998,12 +2041,20 @@ public class OryxOsRuntime {
         io.oryxos.channel.weixin.WeixinChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.weixin.WeixinChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.weixinkf.WeixinKfChannelAdapter.TYPE,
         resolved ->
             new io.oryxos.channel.weixinkf.WeixinKfChannelAdapter(
-                resolved, profileRegistry, inboundMessageService, channelOutboundGuard));
+                resolved,
+                profileRegistry,
+                inboundMessageService,
+                channelOutboundGuard,
+                workspaceRoot));
     factories.put(
         io.oryxos.channel.weixinmp.WeixinMpChannelAdapter.TYPE,
         resolved ->

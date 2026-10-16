@@ -73,6 +73,7 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
 
   private volatile com.lark.oapi.Client apiClient;
   private volatile com.lark.oapi.ws.Client wsClient;
@@ -89,11 +90,13 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
+      OutboundGuard guard,
+      Path workspaceRoot) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
   }
 
   @Override
@@ -325,7 +328,8 @@ public class FeishuChannelAdapter implements InboundChannelAdapter {
 
   /** 入站媒体落盘：优先 {@code .oryxos/inbound-media}，失败回退临时目录。 */
   private Path createMediaRoot() {
-    return io.oryxos.core.channel.InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX);
+    return io.oryxos.core.channel.InboundMediaRoots.forChannel(
+        workspaceRoot, config.name(), MEDIA_DIR_PREFIX);
   }
 
   /**

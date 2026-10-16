@@ -45,6 +45,7 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
 
   private final AtomicReference<DingTalkStreamClient> streamRef = new AtomicReference<>();
   private volatile DingTalkMessageSender sender;
@@ -65,11 +66,13 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
+      OutboundGuard guard,
+      Path workspaceRoot) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
   }
 
   @Override
@@ -360,7 +363,8 @@ public class DingTalkChannelAdapter implements InboundChannelAdapter {
   }
 
   private Path createMediaRoot() {
-    return io.oryxos.core.channel.InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX);
+    return io.oryxos.core.channel.InboundMediaRoots.forChannel(
+        workspaceRoot, config.name(), MEDIA_DIR_PREFIX);
   }
 
   private static String sanitize(String value) {

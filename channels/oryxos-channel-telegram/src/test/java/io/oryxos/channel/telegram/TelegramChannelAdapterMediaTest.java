@@ -65,6 +65,7 @@ class TelegramChannelAdapterMediaTest {
             mock(ProfileRegistry.class),
             mock(InboundMessageService.class),
             mock(OutboundGuard.class),
+            tempDir,
             apiBase);
     TelegramMessageSender sender = mock(TelegramMessageSender.class);
     when(sender.resolveFileUrl("file_id_1"))

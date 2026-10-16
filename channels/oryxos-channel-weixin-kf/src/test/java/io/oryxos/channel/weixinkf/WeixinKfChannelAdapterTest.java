@@ -17,6 +17,7 @@ import io.oryxos.core.channel.WebhookRequest;
 import io.oryxos.core.channel.WebhookResponse;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -28,8 +29,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class WeixinKfChannelAdapterTest {
+
+  @TempDir Path workspaceRoot;
 
   private static final String TOKEN = "QDG6eK";
   private static final String CORP_ID = "wx5823bf96d3bd56c7";
@@ -68,6 +72,7 @@ class WeixinKfChannelAdapterTest {
             profiles,
             inbound,
             url -> {},
+            workspaceRoot,
             Clock.fixed(Instant.parse("2026-09-11T00:00:00Z"), ZoneOffset.UTC),
             client,
             crypt);

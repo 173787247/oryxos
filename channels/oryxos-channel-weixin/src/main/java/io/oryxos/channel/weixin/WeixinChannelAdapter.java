@@ -9,6 +9,7 @@ import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -43,6 +44,7 @@ public class WeixinChannelAdapter implements InboundChannelAdapter {
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
 
   private final WeixinContextTokenStore tokens = new WeixinContextTokenStore();
   private final AtomicReference<String> syncBuf = new AtomicReference<>("");
@@ -60,11 +62,13 @@ public class WeixinChannelAdapter implements InboundChannelAdapter {
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
+      OutboundGuard guard,
+      Path workspaceRoot) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
   }
 
   @Override
@@ -103,7 +107,9 @@ public class WeixinChannelAdapter implements InboundChannelAdapter {
     sender = new WeixinMessageSender(client);
     mediaResolver =
         new WeixinInboundMediaResolver(
-            guard, InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX), config.name());
+            guard,
+            InboundMediaRoots.forChannel(workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
+            config.name());
     running = true;
     pollThread = Thread.ofVirtual().name("oryxos-weixin-" + config.name()).start(this::pollLoop);
     state = ChannelStatus.State.CONNECTED;

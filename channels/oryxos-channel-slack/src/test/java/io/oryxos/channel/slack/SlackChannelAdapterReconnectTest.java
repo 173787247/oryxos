@@ -8,12 +8,16 @@ import io.oryxos.core.channel.ChannelConfig;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Socket Mode 重连时机的选择。 */
 class SlackChannelAdapterReconnectTest {
+
+  @TempDir Path workspaceRoot;
 
   private SlackChannelAdapter adapter;
 
@@ -26,7 +30,8 @@ class SlackChannelAdapterReconnectTest {
             config,
             mock(ProfileRegistry.class),
             mock(InboundMessageService.class),
-            mock(OutboundGuard.class));
+            mock(OutboundGuard.class),
+            workspaceRoot);
   }
 
   @Test

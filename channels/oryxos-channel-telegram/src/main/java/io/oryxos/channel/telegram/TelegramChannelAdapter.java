@@ -13,6 +13,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -60,6 +61,7 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
   private final String apiBase;
   private final int pollTimeoutSeconds;
   private final Duration httpTimeout;
@@ -79,8 +81,9 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
-    this(config, profileRegistry, inboundMessageService, guard, DEFAULT_API_BASE);
+      OutboundGuard guard,
+      Path workspaceRoot) {
+    this(config, profileRegistry, inboundMessageService, guard, workspaceRoot, DEFAULT_API_BASE);
   }
 
   TelegramChannelAdapter(
@@ -88,11 +91,13 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
       OutboundGuard guard,
+      Path workspaceRoot,
       String apiBase) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
     this.apiBase = apiBase;
     this.pollTimeoutSeconds = resolvePollTimeoutSeconds(config);
     this.httpTimeout = Duration.ofSeconds(pollTimeoutSeconds + HTTP_TIMEOUT_MARGIN_SECONDS);
@@ -247,7 +252,8 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
       resolver =
           new TelegramInboundMediaResolver(
               apiBase,
-              io.oryxos.core.channel.InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX),
+              io.oryxos.core.channel.InboundMediaRoots.forChannel(
+                  workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
               config.name());
       mediaResolver = resolver;
     }

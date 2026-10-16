@@ -17,6 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Iterator;
 import java.util.Map;
@@ -54,6 +55,7 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
   private final ProfileRegistry profileRegistry;
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
+  private final Path workspaceRoot;
 
   private volatile MatrixEventNormalizer normalizer;
   private volatile MatrixMessageSender sender;
@@ -72,11 +74,13 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
       ChannelConfig config,
       ProfileRegistry profileRegistry,
       InboundMessageService inboundMessageService,
-      OutboundGuard guard) {
+      OutboundGuard guard,
+      Path workspaceRoot) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
+    this.workspaceRoot = workspaceRoot;
   }
 
   @Override
@@ -115,7 +119,7 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
             guard,
             config.extra(EXTRA_HOMESERVER),
             config.appSecret(),
-            InboundMediaRoots.forChannel(config.name(), MEDIA_DIR_PREFIX),
+            InboundMediaRoots.forChannel(workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
             config.name());
     directRooms = new MatrixDirectRooms();
     seedDirectRooms();
