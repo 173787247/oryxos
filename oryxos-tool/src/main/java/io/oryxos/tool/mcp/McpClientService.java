@@ -117,6 +117,12 @@ public class McpClientService {
       lastErrors.put(config.name(), msg);
       return;
     }
+    if (McpServerConfig.isHttpSse(config.transport())) {
+      LOG.warn(
+          "MCP server {} 配置了已废弃的 SSE 传输（transport: {}）；MCP 规范已改推 Streamable HTTP，建议改为 transport: streamable",
+          s(config.name()),
+          s(config.transport()));
+    }
     McpSyncClient client = null;
     List<String> toolNames = new ArrayList<>();
     try {
@@ -129,7 +135,9 @@ public class McpClientService {
         }
         closeQuietly(config.name(), client);
         client = null;
-        LOG.info("MCP server {} 初次连接回退到 legacy SSE", s(config.name()));
+        LOG.warn(
+            "MCP server {} 回退到已废弃的 legacy SSE 传输（同端点）；等服务端支持后建议改用 transport: streamable",
+            s(config.name()));
         // 与 Streamable 探测使用同一端点；仅配置根地址时也不猜测另一个 /sse 路径。
         client = connectHttpSse(config, "/mcp");
         client.initialize();

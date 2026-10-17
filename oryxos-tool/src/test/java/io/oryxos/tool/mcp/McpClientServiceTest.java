@@ -10,6 +10,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -28,9 +31,14 @@ import java.util.function.Function;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** 课件《第20节》验收 harness：McpClientServiceTest——失联隔离是最值钱的那条。 */
 class McpClientServiceTest {
+
+  /** 显式配置 sse/http 时的 WARN marker（与 auto 回退的 marker 区分开）。 */
+  private static final String DEPRECATED_SSE_MARKER = "配置了已废弃的 SSE 传输";
 
   @TempDir Path dir;
 
@@ -340,5 +348,88 @@ class McpClientServiceTest {
 
     assertTrue(registry.contains("sse_server_tool"));
     assertTrue(registry.contains("streamable_server_tool"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"sse", "http"})
+  @DisplayName("显式配置 sse/http：每 server 一条废弃 WARN，文案指向 transport: streamable")
+  void explicitSseTransportWarnsOncePerServer(String transport) throws IOException {
+    McpConfigLoader loader =
+        loaderWith(
+            """
+            servers:
+              - name: legacy-sse
+                transport: %s
+                url: http://127.0.0.1:1/sse
+            """
+                .formatted(transport));
+    McpSyncClient client = mock(McpSyncClient.class);
+    when(client.listTools()).thenReturn(new McpSchema.ListToolsResult(List.of(), null));
+
+    ListAppender<ILoggingEvent> appender = attachMcpLogAppender();
+    try {
+      new McpClientService(loader, config -> client).connectAll(new ToolRegistry());
+    } finally {
+      detachMcpLogAppender(appender);
+    }
+
+    List<ILoggingEvent> warnings = warningsAbout(appender, DEPRECATED_SSE_MARKER);
+    assertEquals(1, warnings.size(), "每个 server 启动只该警告一次，不能刷屏");
+    String message = warnings.get(0).getFormattedMessage();
+    assertTrue(message.contains("legacy-sse"), "警告要带 server 名: " + message);
+    assertTrue(message.contains(transport), "警告要带用户实际配置的 transport: " + message);
+    assertTrue(message.contains("transport: streamable"), "警告要指向替代传输: " + message);
+  }
+
+  @Test
+  @DisplayName("streamable 传输：没有 SSE 废弃警告")
+  void streamableTransportDoesNotWarnAboutDeprecatedSse() throws IOException {
+    McpConfigLoader loader =
+        loaderWith(
+            """
+            servers:
+              - name: modern
+                transport: streamable
+                url: http://127.0.0.1:1/mcp
+            """);
+    McpSyncClient client = mock(McpSyncClient.class);
+    when(client.listTools()).thenReturn(new McpSchema.ListToolsResult(List.of(), null));
+
+    ListAppender<ILoggingEvent> appender = attachMcpLogAppender();
+    try {
+      new McpClientService(loader, config -> client).connectAll(new ToolRegistry());
+    } finally {
+      detachMcpLogAppender(appender);
+    }
+
+    assertTrue(
+        warningsAbout(appender, "已废弃").isEmpty(), "当前规范的推荐传输不该被废弃警告: " + messagesOf(appender));
+  }
+
+  /** 只挂 {@link McpClientService} 这个命名 logger，避免收进 SDK / HTTP 客户端的日志。 */
+  private static ListAppender<ILoggingEvent> attachMcpLogAppender() {
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(McpClientService.class))
+        .addAppender(appender);
+    return appender;
+  }
+
+  private static void detachMcpLogAppender(ListAppender<ILoggingEvent> appender) {
+    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(McpClientService.class))
+        .detachAppender(appender);
+    appender.stop();
+  }
+
+  private static List<ILoggingEvent> warningsAbout(
+      ListAppender<ILoggingEvent> appender, String marker) {
+    return appender.list.stream()
+        .filter(event -> event.getLevel() == Level.WARN)
+        .filter(event -> event.getFormattedMessage().contains(marker))
+        .toList();
+  }
+
+  private static List<String> messagesOf(ListAppender<ILoggingEvent> appender) {
+    return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
   }
 }

@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
@@ -145,6 +148,7 @@ class McpTransportCompatibilityTest {
     try (StreamableFixture server = new StreamableFixture()) {
       McpClientService service = serviceFor("auto", null, server.baseUrl() + "/team/mcp?x=a%2Fb");
       ToolRegistry registry = new ToolRegistry();
+      ListAppender<ILoggingEvent> appender = attachMcpLogAppender();
       try {
         service.connectAll(registry);
         assertRoundTrip(registry, "auto-streamable");
@@ -152,7 +156,9 @@ class McpTransportCompatibilityTest {
         assertTrue(server.requestHeaders.stream().allMatch(FIXTURE_AUTHORIZATION::equals));
         assertTrue(server.legacyProbeRequests.isEmpty());
         assertEquals(1, server.methods.stream().filter("initialize"::equals).count());
+        assertTrue(warningsAbout(appender, "已废弃").isEmpty(), "auto 走 Streamable 成功路径不该出现 SSE 废弃警告");
       } finally {
+        detachMcpLogAppender(appender);
         service.disconnect("fixture", registry);
       }
     }
@@ -166,6 +172,7 @@ class McpTransportCompatibilityTest {
       String endpoint = "/tenant/events?tenant=x%2Fy";
       McpClientService service = serviceFor("auto", null, server.baseUrl() + endpoint);
       ToolRegistry registry = new ToolRegistry();
+      ListAppender<ILoggingEvent> appender = attachMcpLogAppender();
       try {
         service.connectAll(registry);
         assertRoundTrip(registry, "auto-sse");
@@ -173,7 +180,15 @@ class McpTransportCompatibilityTest {
         assertEquals(List.of(endpoint), server.eventRequests);
         assertEquals(List.of("2024-11-05"), server.eventVersions);
         assertTrue(server.requestHeaders.stream().allMatch(FIXTURE_AUTHORIZATION::equals));
+
+        List<ILoggingEvent> fallbackWarnings = warningsAbout(appender, "回退到已废弃的 legacy SSE 传输");
+        assertEquals(1, fallbackWarnings.size(), "auto 回退应恰好警告一次，不能刷屏");
+        String warning = fallbackWarnings.get(0).getFormattedMessage();
+        assertTrue(warning.contains("fixture"), "警告要带 server 名: " + warning);
+        assertTrue(warning.contains("transport: streamable"), "警告要指向替代传输: " + warning);
+        assertTrue(warningsAbout(appender, "配置了已废弃的 SSE 传输").isEmpty(), "auto 是回退，不该被报成显式配置了 SSE");
       } finally {
+        detachMcpLogAppender(appender);
         service.disconnect("fixture", registry);
       }
     }
@@ -319,6 +334,29 @@ class McpTransportCompatibilityTest {
             + FIXTURE_AUTHORIZATION
             + "\n");
     return new McpClientService(new McpConfigLoader(config));
+  }
+
+  /** 只挂 {@link McpClientService} 这个命名 logger，避免收进 SDK / HTTP 服务端线程的日志。 */
+  private static ListAppender<ILoggingEvent> attachMcpLogAppender() {
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(McpClientService.class))
+        .addAppender(appender);
+    return appender;
+  }
+
+  private static void detachMcpLogAppender(ListAppender<ILoggingEvent> appender) {
+    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(McpClientService.class))
+        .detachAppender(appender);
+    appender.stop();
+  }
+
+  private static List<ILoggingEvent> warningsAbout(
+      ListAppender<ILoggingEvent> appender, String marker) {
+    return appender.list.stream()
+        .filter(event -> event.getLevel() == Level.WARN)
+        .filter(event -> event.getFormattedMessage().contains(marker))
+        .toList();
   }
 
   private static void assertRoundTrip(ToolRegistry registry, String transport) {
