@@ -1,0 +1,5 @@
+# 只给 RbacStartupRefusalTest 用：application.yml 里的 deepseek 在测试环境没有 API key ⇒ 启动会在
+# ProviderRegistryValidator 处先死，走不到 RBAC 的启动校验。这里换成一个 mock provider。
+oryxos:
+  providers:
+    - name: mock
