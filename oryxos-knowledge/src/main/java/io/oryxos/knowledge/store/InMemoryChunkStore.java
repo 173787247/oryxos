@@ -67,7 +67,8 @@ public final class InMemoryChunkStore implements ChunkStore {
   @Override
   public synchronized void saveChunks(List<ChunkRecord> records) {
     for (ChunkRecord record : records) {
-      long id = record.id() == null ? ids.incrementAndGet() : record.id();
+      // 与生产档对齐：id 由实现分配，调用方传入的 id 忽略（见 ChunkStore.saveChunks 契约）。
+      long id = ids.incrementAndGet();
       chunks.put(
           id,
           new ChunkRecord(

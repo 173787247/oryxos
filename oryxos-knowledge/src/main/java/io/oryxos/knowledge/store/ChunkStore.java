@@ -62,6 +62,12 @@ public interface ChunkStore {
   /** 删除一份文档及其全部片段。 */
   void deleteDocument(long documentId);
 
+  /**
+   * 追加片段（不按 id 更新）。
+   *
+   * <p>id 由实现分配，{@link ChunkRecord#id()} 传入值一律忽略：生产档由 DB 自增决定，内存档由内部计数器决定，契约必须两档都成立； 调用方要拿 id 须回读
+   * {@link #chunks(String, long)}。忽略而非采纳，也避免了调用方给的 id 与实现自己的计数器撞上、静默覆盖别人的行。
+   */
   void saveChunks(List<ChunkRecord> chunks);
 
   void deleteChunksOf(long documentId);
