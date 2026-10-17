@@ -204,8 +204,15 @@ public final class RequestActionResolver {
     if (isUnder(p, PATH_TOOL_POLICY) || isUnder(p, PATH_SANDBOX) || isUnder(p, PATH_APPROVALS)) {
       return Resolution.of(Action.MANAGE_POLICIES, ResourceRef.policy());
     }
+    // 审计面（llm_calls / tool_invocations）现有 handler 全是只读查询：GET/HEAD 为 READ_AUDIT，
+    // 其余方法保持未登记（fail-closed），与 /api/v1/cost 同款。只按前缀登记会让将来加在审计前缀下的写端点
+    // 静默继承 VIEWER 可用的 READ_AUDIT；未登记的写端点则先被启动期覆盖闸（RbacEndpointCoverageCheck）拦下，
+    // 必须显式登记到更严的动作。
     if (isUnder(p, PATH_AUDIT)) {
-      return Resolution.of(Action.READ_AUDIT, ResourceRef.audit());
+      if (isRead(m)) {
+        return Resolution.of(Action.READ_AUDIT, ResourceRef.audit());
+      }
+      return null;
     }
     if (isUnder(p, PATH_WORKSPACE)) {
       return readOrManage(m, Action.MANAGE_WORKSPACE, ResourceRef.workspace());
@@ -240,16 +247,21 @@ public final class RequestActionResolver {
     // 于是 oryxos.web.rbac.enabled=true 时 RbacEndpointCoverageCheck 在启动期直接抛异常（fail-closed 兜不住启动）。
     // team-tasks 那三个尤其隐蔽：默认部署下它根本不注册，"打开 team tasks + 打开 RBAC"才会撞上。
     // 分档：capabilities 与 routing 是只读目录，非读方法保持未登记（继续 fail-closed）；evals 读的是审计两表
-    // （llm_calls / tool_invocations），与 /audit 同档；flows/generate 与 team-tasks 的写方法会驱动模型/Agent
-    // 真干活，按 RUN_AGENT（VIEWER 不该能触发）。
+    // （llm_calls / tool_invocations），与 /audit 同口径——只读方法才登记，非读保持未登记；flows/generate 与
+    // team-tasks 的写方法会驱动模型/Agent 真干活，按 RUN_AGENT（VIEWER 不该能触发）。
     if (isUnder(p, PATH_CAPABILITIES) || isUnder(p, PATH_ROUTING)) {
       if (isRead(m)) {
         return Resolution.of(Action.READ_WORKSPACE, ResourceRef.workspace());
       }
       return null;
     }
+    // evals 与 /audit 同一张审计面：现有 handler 全为只读导出，非读方法未登记 → 启动期覆盖闸拦下（fail-closed），
+    // 不会让将来加在 /api/v1/evals 下的写端点继承 VIEWER 可用的 READ_AUDIT。
     if (isUnder(p, PATH_EVALS)) {
-      return Resolution.of(Action.READ_AUDIT, ResourceRef.audit());
+      if (isRead(m)) {
+        return Resolution.of(Action.READ_AUDIT, ResourceRef.audit());
+      }
+      return null;
     }
     if (isUnder(p, PATH_FLOWS) || isUnder(p, PATH_TEAM_TASKS)) {
       return readOrManage(m, Action.RUN_AGENT, ResourceRef.agent(null));
