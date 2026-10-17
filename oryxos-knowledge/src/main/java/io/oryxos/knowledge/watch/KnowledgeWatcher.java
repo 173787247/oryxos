@@ -4,8 +4,6 @@ import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 
-import io.oryxos.core.knowledge.KnowledgeBackendRegistry;
-import io.oryxos.core.knowledge.KnowledgeManifest;
 import io.oryxos.knowledge.index.KnowledgeIndexService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -37,7 +35,7 @@ public class KnowledgeWatcher {
   private static final Logger LOG = LoggerFactory.getLogger(KnowledgeWatcher.class);
 
   private final Path knowledgeDir;
-  private final KnowledgeIndexService indexService;
+  private final KnowledgeBaseReconciler reconciler;
   private final Executor watcherExecutor;
 
   /**
@@ -51,23 +49,29 @@ public class KnowledgeWatcher {
   public KnowledgeWatcher(
       Path oryxosRoot, KnowledgeIndexService indexService, Executor watcherExecutor) {
     this.knowledgeDir = oryxosRoot.resolve("knowledge");
-    this.indexService = indexService;
+    this.reconciler = new KnowledgeBaseReconciler(indexService);
     this.watcherExecutor = watcherExecutor;
   }
 
   /** 装配层 {@code @Bean(initMethod="start")} 调用：启动对账 + 守护线程监听循环。 */
   public void start() {
-    WatchService watchService;
+    // 启动对账先于且独立于监听设施：inotify 额度耗尽时 newWatchService() 会抛 IOException，
+    // 若对账塞在同一个 try 里，停机期间的增改删与被重启打断的 PENDING/INDEXING 就一起被跳过（FR-010）。
     try {
       Files.createDirectories(knowledgeDir);
-      watchService = knowledgeDir.getFileSystem().newWatchService();
+    } catch (IOException e) {
+      LOG.warn("知识库目录创建失败: {}", sanitize(e.getMessage()));
+    }
+    reconciler.reconcileAll(knowledgeDir);
+
+    WatchService watchService;
+    try {
+      watchService = newWatchService();
       registerDir(watchService, knowledgeDir);
       try (DirectoryStream<Path> children =
           Files.newDirectoryStream(knowledgeDir, Files::isDirectory)) {
         for (Path child : children) {
           watchTreeQuietly(watchService, child); // 含既有嵌套子目录：WatchService 是浅的，必须逐层补挂
-          // 启动对账：停机期间的增改删、以及被重启打断的 PENDING/INDEXING 都在此收敛（FR-010）
-          reconcileQuietly(child, true);
         }
       }
     } catch (IOException e) {
@@ -76,6 +80,11 @@ public class KnowledgeWatcher {
     }
     this.watchService = watchService;
     watcherExecutor.execute(() -> loop(watchService));
+  }
+
+  /** 单测缝：让「WatchService 创建失败（inotify 额度耗尽）」可注入，验证监听失败不拖累启动对账。 */
+  WatchService newWatchService() throws IOException {
+    return knowledgeDir.getFileSystem().newWatchService();
   }
 
   /**
@@ -182,34 +191,17 @@ public class KnowledgeWatcher {
 
   /** 单库对账：非法清单 / 远程后端跳过并告警，不拖垮监听（US4 场景 3）。包级可见供单测直接调。 */
   void reconcileQuietly(Path kbDir) {
-    reconcileQuietly(kbDir, false);
+    reconciler.reconcile(kbDir, false);
   }
 
   /** {@code afterRestart} 透传给索引层；启动那一轮传 true（见 {@code reconcile} 的说明）。 */
   void reconcileQuietly(Path kbDir, boolean afterRestart) {
-    String name = String.valueOf(kbDir.getFileName());
-    try {
-      if (!Files.isDirectory(kbDir)) {
-        return;
-      }
-      KnowledgeManifest manifest = KnowledgeManifest.read(kbDir); // 非法清单在此拦截 → WARN 不注册
-      if (!KnowledgeBackendRegistry.LOCAL.equals(manifest.backend())) {
-        return; // 远程后端库无本地索引，无需对账
-      }
-      indexService.reconcile(name, afterRestart);
-    } catch (RuntimeException e) {
-      LOG.warn("知识库目录 {} 对账跳过：{}", sanitize(name), sanitize(e.getMessage()));
-    }
+    reconciler.reconcile(kbDir, afterRestart);
   }
 
   /** 库目录被删：索引与片段一并清（SC-006：删除的内容不再被命中）。包级可见供单测直接调。 */
   void removeBase(Path kbDir) {
-    String name = String.valueOf(kbDir.getFileName());
-    try {
-      indexService.deleteBase(name);
-    } catch (RuntimeException e) {
-      LOG.warn("清理知识库 {} 索引失败：{}", sanitize(name), sanitize(e.getMessage()));
-    }
+    reconciler.removeBase(kbDir);
   }
 
   private static String sanitize(String value) {

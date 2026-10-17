@@ -11,6 +11,7 @@ import io.oryxos.knowledge.store.InMemoryChunkStore;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.WatchService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -197,6 +198,45 @@ class KnowledgeWatcherTest {
     afterBoot.runAll();
 
     assertEquals(DocumentState.READY, restarted.status("ops").get(0).state(), "重启后必须收敛到就绪");
+    assertTrue(
+        store.chunks("ops", restarted.activeGeneration("ops")).stream()
+            .anyMatch(c -> c.content().contains("inode")),
+        "内容必须重新可被命中");
+  }
+
+  /**
+   * 启动对账与监听设施解耦：inotify 额度耗尽时 {@code newWatchService()} 会抛 IOException，若两者共用一个 try，
+   * 重启后的首轮对账会被一起跳过——那行 PENDING 没有在飞任务，也没有别的机制把它拉回终态。
+   */
+  @Test
+  @DisplayName("WatchService 创建失败（inotify 额度耗尽）时，启动对账仍须执行")
+  void startupReconcileSurvivesWatchServiceCreationFailure() throws IOException {
+    Path kb = knowledgeBase("ops", "运维手册");
+    Files.writeString(kb.resolve("a.md"), "# 磁盘告警\n\n先查 inode 占用。");
+
+    // 上一轮在后台段之前被杀：行停在 PENDING，没有在飞任务
+    ControllableExecutor crashed = new ControllableExecutor();
+    KnowledgeIndexService firstBoot =
+        new KnowledgeIndexService(kbRoot, store, TestEmbedder::new, crashed);
+    firstBoot.importDocument("ops", "a.md");
+    assertEquals(DocumentState.PENDING, firstBoot.status("ops").get(0).state(), "前提：停在 PENDING");
+
+    // 重启：WatchService 建不起来，启动对账不得跟着跳过
+    ControllableExecutor afterBoot = new ControllableExecutor();
+    KnowledgeIndexService restarted =
+        new KnowledgeIndexService(kbRoot, store, TestEmbedder::new, afterBoot);
+    KnowledgeWatcher watchless =
+        new KnowledgeWatcher(root, restarted, Runnable::run) {
+          @Override
+          WatchService newWatchService() throws IOException {
+            throw new IOException("inotify watches exhausted");
+          }
+        };
+    watchless.start();
+
+    assertEquals(1, afterBoot.queued(), "对账必须先于监听失败执行：重新提交索引任务");
+    afterBoot.runAll();
+    assertEquals(DocumentState.READY, restarted.status("ops").get(0).state(), "重启后收敛到就绪");
     assertTrue(
         store.chunks("ops", restarted.activeGeneration("ops")).stream()
             .anyMatch(c -> c.content().contains("inode")),
