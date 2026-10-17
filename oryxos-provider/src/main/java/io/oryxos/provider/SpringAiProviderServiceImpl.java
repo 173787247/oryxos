@@ -24,6 +24,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -283,18 +284,37 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     return attempts;
   }
 
-  /** 051 / #477：enabled 时按策略重排/过滤 Agent 声明候选；disabled 时等同 attemptsOf。 */
+  /**
+   * 051 / #477：enabled 时按策略重排/过滤 Agent 声明候选；disabled 时等同 attemptsOf。
+   *
+   * <p>两个分支返回前都去一次重（{@link #distinctCandidates}）：routing 只重排/过滤声明候选，既不新增也不删除重复， 所以声明里的重复会原样流进
+   * {@code attemptOrder}——去重放在这里才能同时覆盖 routing 开与关两条路径。
+   */
   private List<Attempt> resolveAttempts(Profile profile) {
     ModelRoutingService routing = this.modelRouting;
     if (routing == null || !routing.isEnabled()) {
-      return attemptsOf(profile);
+      return distinctCandidates(attemptsOf(profile));
     }
     RoutingDecision decision = routing.route(profile);
     List<Attempt> out = new ArrayList<>();
     for (RoutingCandidate c : decision.attemptOrder()) {
       out.add(new Attempt(c.provider(), c.model()));
     }
-    return out.isEmpty() ? attemptsOf(profile) : out;
+    return distinctCandidates(out.isEmpty() ? attemptsOf(profile) : out);
+  }
+
+  /**
+   * 尝试序列去重：同一候选只保留第一次出现。
+   *
+   * <p>为什么这是修复而不是优化：Profile 把主 provider 又写进 fallback（复制粘贴常见）时，未去重会把同一端点连打两轮。
+   * 第二轮面对的是同一个端点、同一个请求，拿不到任何新信息，只会多一条失败审计、并在切换日志里留下「deepseek →
+   * deepseek」这种自指——读日志的人得先分辨这是配置重复还是真的发生了切换。
+   *
+   * <p>去重键是 {@code (provider, model)} 一对（{@link Attempt} 是 record，相等性就是这两个分量）：同 provider 不同 model
+   * 是两个合法候选（换模型是真实的重试手段，可能改变结果），不能合并。保留第一次出现的位置，声明的优先级不变。
+   */
+  private static List<Attempt> distinctCandidates(List<Attempt> attempts) {
+    return List.copyOf(new LinkedHashSet<>(attempts));
   }
 
   /**
