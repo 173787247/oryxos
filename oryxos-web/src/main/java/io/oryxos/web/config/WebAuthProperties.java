@@ -1,13 +1,10 @@
 package io.oryxos.web.config;
 
-import java.time.Duration;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.convert.DurationUnit;
 
 /**
  * 管理台 Basic Auth 配置（012-web-auth）。
@@ -27,9 +24,11 @@ public class WebAuthProperties {
   /** Basic Auth realm 文案（curl 401 时 WWW-Authenticate 用）。默认 "OryxOS"。 */
   private String realm = "OryxOS";
 
-  /** session 过期时间（web_sessions.expires_at = created_at + ttl）。默认 12 小时。 */
-  @DurationUnit(ChronoUnit.HOURS)
-  private Duration sessionTtl = Duration.ofHours(12);
+  // 注意：{@code oryxos.web.auth.session-ttl} **不在本类**。它由 OryxOsRuntime 的
+  // {@code @Value("${oryxos.web.auth.session-ttl:12h}")} 直接解析后注入 WebSessionService——cli 不依赖 web
+  // 的配置类、
+  // storage 不依赖 web（WebSessionService javadoc 里写着）。此处曾有一个带 @DurationUnit(HOURS) 的同名字段，全仓没有调用方；
+  // 留着它只会让人以为"裸数字按小时"，而真正生效的那条 @Value 按 Spring 的标准把裸数字当毫秒。
 
   /** 本地用户 → 团队 id（与 OIDC groups / {@code Principal.teamIds} 对齐）。缺省空 map。 */
   private Map<String, List<String>> userTeamIds = new LinkedHashMap<>();
@@ -48,14 +47,6 @@ public class WebAuthProperties {
 
   public void setRealm(String realm) {
     this.realm = realm;
-  }
-
-  public Duration getSessionTtl() {
-    return sessionTtl;
-  }
-
-  public void setSessionTtl(Duration sessionTtl) {
-    this.sessionTtl = sessionTtl;
   }
 
   /** 返回防御性深拷贝（SpotBugs EI_EXPOSE_REP）。 */
