@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import org.slf4j.Logger;
@@ -139,11 +140,21 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       value = "CRLF_INJECTION_LOGS",
       justification = "日志中的 provider 名已经 sanitize() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
   public ProviderResponse chat(String sessionId, Profile profile, ProviderRequest request) {
+    long callStartedAt = System.currentTimeMillis();
     List<Attempt> attempts = resolveAttempts(profile);
     RuntimeException last = null;
     for (int i = 0; i < attempts.size(); i++) {
       Attempt attempt = attempts.get(i);
-      ProviderDef def = findDef(attempt, i == 0);
+      ProviderDef def;
+      try {
+        def = findDef(attempt, isDeclaredPrimary(profile, attempt));
+      } catch (ProviderNotFoundException e) {
+        // 声明主未注册：点名报错不换家（PNFE 契约），但失败必须留痕——这个抛出在下面的 fallback try
+        // 之外，不补记则审计、失败指标与 LLM span 一起为零（宪法 V）。与预算拒绝同口径（见下）：真实
+        // 调用没有发生，durationMs 只含到此为止的检查耗时。
+        recordFailure(sessionId, profile, attempt, e, callStartedAt);
+        throw e;
+      }
       if (def == null) {
         continue; // 备用候选未注册：WARN 已记，跳过不落审计（FR-008）
       }
@@ -151,7 +162,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       try {
         Attempt gated = applyBudgetGate(profile, attempt);
         if (gated != attempt) {
-          // primary=true：目标未注册时 findDef 直抛 PNFE，永不返回 null，故无 null 分支可判。
+          // throwIfMissing=true（闸点名的目标）：未注册时 findDef 直抛 PNFE，永不返回 null，故无 null 分支可判。
           ProviderDef degraded;
           try {
             degraded = findDef(gated, true);
@@ -184,7 +195,20 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         switchWarn(profile, attempt, attempts.get(i + 1), e);
       }
     }
-    throw last != null ? last : new ProviderNotFoundException(profile.provider().name());
+    if (last != null) {
+      throw last; // 候选真的失败过：失败审计已由 chatOnce/invokeChat 记，不重复记账
+    }
+    // 没有任何候选能进入调用（例如 routing 把声明主过滤掉、剩余候选又全未注册）：与上面同口径补记，
+    // 否则整次调用在审计里不存在（宪法 V）。异常与审计行点名同一个 provider（声明主），可对账。
+    ProviderNotFoundException nobodyAvailable =
+        new ProviderNotFoundException(profile.provider().name());
+    recordFailure(
+        sessionId,
+        profile,
+        new Attempt(profile.provider().name(), profile.provider().model()),
+        nobodyAvailable,
+        callStartedAt);
+    throw nobodyAvailable;
   }
 
   /** 单次尝试（023）：attempt 的 name/model 贯穿路由、Prompt 与审计（R2）。 */
@@ -273,17 +297,33 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     return out.isEmpty() ? attemptsOf(profile) : out;
   }
 
-  /** 主 provider 未注册直抛（现状口径）；备用候选未注册 WARN 返回 null 跳过（FR-008）。 */
-  private ProviderDef findDef(Attempt attempt, boolean primary) {
+  /**
+   * 未注册时：点名类目标直抛，备用候选 WARN 并返回 null 跳过（FR-008）。
+   *
+   * <p>{@code throwIfMissing} 由「这个目标是不是被点名的」决定，不再由尝试序号决定——routing 开启时 {@code attemptOrder}
+   * 会被提权、按成本重排、按 residency 过滤，位置 0 只表示「本轮先试哪家」，不再等于 Profile 声明的主。点名类目标有两个来源：Profile 声明主（{@link
+   * #isDeclaredPrimary}）与预算闸点名的降级目标。
+   */
+  private ProviderDef findDef(Attempt attempt, boolean throwIfMissing) {
     var def = registry.find(attempt.provider());
     if (def.isPresent()) {
       return def.get();
     }
-    if (primary) {
+    if (throwIfMissing) {
       throw new ProviderNotFoundException(attempt.provider());
     }
     LOG.warn("fallback 候选 provider 未注册，跳过: {}", sanitize(attempt.provider()));
     return null;
+  }
+
+  /**
+   * 声明主判据是 Profile 里那一条 {@code (provider, model)}，不是尝试序列的位置：051 routing 会重排候选。
+   *
+   * <p>比一对而不是只比 provider 名：同 provider 不同 model 的备用被提权到首位时它不是声明主；按名字判会把它当成主，未注册时又回到「整次调用硬失败」。
+   */
+  private static boolean isDeclaredPrimary(Profile profile, Attempt attempt) {
+    return Objects.equals(attempt.provider(), profile.provider().name())
+        && Objects.equals(attempt.model(), profile.provider().model());
   }
 
   /** 切换留痕（FR-006）：WARN 带 from→to（MDC 自带 traceId）+ 切换计数；指标异常不伤主链路。 */
@@ -328,11 +368,19 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       Profile profile,
       ProviderRequest request,
       java.util.function.Consumer<String> onToken) {
+    long callStartedAt = System.currentTimeMillis();
     List<Attempt> attempts = resolveAttempts(profile);
     RuntimeException last = null;
     for (int i = 0; i < attempts.size(); i++) {
       Attempt attempt = attempts.get(i);
-      ProviderDef def = findDef(attempt, i == 0);
+      ProviderDef def;
+      try {
+        def = findDef(attempt, isDeclaredPrimary(profile, attempt));
+      } catch (ProviderNotFoundException e) {
+        // 与 chat 同口径：声明主未注册不换家，但必须补记一行失败审计（宪法 V）。
+        recordFailure(sessionId, profile, attempt, e, callStartedAt);
+        throw e;
+      }
       if (def == null) {
         continue;
       }
@@ -341,7 +389,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       try {
         Attempt gated = applyBudgetGate(profile, attempt);
         if (gated != attempt) {
-          // primary=true：目标未注册时 findDef 直抛 PNFE，永不返回 null，故无 null 分支可判。
+          // throwIfMissing=true（闸点名的目标）：未注册时 findDef 直抛 PNFE，永不返回 null，故无 null 分支可判。
           ProviderDef degraded;
           try {
             degraded = findDef(gated, true);
@@ -375,7 +423,19 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         switchWarn(profile, attempt, attempts.get(i + 1), e);
       }
     }
-    throw last != null ? last : new ProviderNotFoundException(profile.provider().name());
+    if (last != null) {
+      throw last;
+    }
+    // 与 chat 同口径：没有任何候选进入调用时也要留一行失败审计（宪法 V）。
+    ProviderNotFoundException nobodyAvailable =
+        new ProviderNotFoundException(profile.provider().name());
+    recordFailure(
+        sessionId,
+        profile,
+        new Attempt(profile.provider().name(), profile.provider().model()),
+        nobodyAvailable,
+        callStartedAt);
+    throw nobodyAvailable;
   }
 
   private ProviderResponse chatStreamOnce(
