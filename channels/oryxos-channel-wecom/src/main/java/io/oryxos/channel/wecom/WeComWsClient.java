@@ -25,13 +25,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** 企微智能机器人 WebSocket 长连接：订阅鉴权、心跳、收帧、发帧。自动重连由外层适配器控制。 */
-final class WeComWsClient implements WebSocket.Listener {
+class WeComWsClient implements WebSocket.Listener {
 
   private static final Logger LOG = LoggerFactory.getLogger(WeComWsClient.class);
 
   static final String DEFAULT_WS_URL = "wss://openws.work.weixin.qq.com";
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
   private static final long HEARTBEAT_INTERVAL_SEC = 30;
+  private static final long WS_CLOSE_TIMEOUT_MS = 2_000L;
   private static final String FIELD_ERRCODE = "errcode";
   private static final String FIELD_ERRMSG = "errmsg";
   private static final String CMD_AIBOT_SUBSCRIBE = "aibot_subscribe";
@@ -127,16 +128,40 @@ final class WeComWsClient implements WebSocket.Listener {
     }
   }
 
+  /**
+   * 限时关闭：{@code sendClose().join()} 偶发不返回时放弃等待（对齐飞书/Slack/Discord/QQ），守护线程后台继续。
+   *
+   * <p>{@code stop()} 在 synchronized 里调用本方法，对端不回应 FIN 时裸 join 会占住渠道监视器与 ChannelAdminService
+   * 监视器，之后所有渠道的增删改与停机钩子一起挂住。
+   *
+   * <p>HttpClient 的释放放在限时关闭之后而不是里面：close 超时被放弃时，selector 线程照样必须释放。
+   */
   void closeQuietly() {
     closed.set(true);
     subscribed.set(false);
     stopHeartbeat();
     WebSocket ws = socket.getAndSet(null);
     if (ws != null) {
+      Thread closer =
+          Thread.ofPlatform()
+              .daemon(true) // 守护：被放弃的 close 不得阻止 JVM 退出
+              .name("oryxos-wecom-ws-close")
+              .unstarted(
+                  () -> {
+                    try {
+                      closeWebSocket(ws);
+                    } catch (RuntimeException ignored) {
+                      // ignore
+                    }
+                  });
+      closer.start();
       try {
-        ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye").join();
-      } catch (RuntimeException ignored) {
-        // ignore
+        closer.join(WS_CLOSE_TIMEOUT_MS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      if (closer.isAlive()) {
+        LOG.warn("企微 WS close {}ms 未返回，放弃等待（守护线程后台继续）", WS_CLOSE_TIMEOUT_MS);
       }
     }
     HttpClient client = httpClient;
@@ -144,6 +169,11 @@ final class WeComWsClient implements WebSocket.Listener {
     if (client != null) {
       client.shutdownNow(); // 释放 selector 线程；不关会泄漏至 GC（重连风暴下累积）
     }
+  }
+
+  /** 单测缝：让「对端不回应 FIN、close 永不返回」可注入（同 {@code KnowledgeWatcher.newWatchService()}）。 */
+  void closeWebSocket(WebSocket ws) {
+    ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye").join();
   }
 
   @Override

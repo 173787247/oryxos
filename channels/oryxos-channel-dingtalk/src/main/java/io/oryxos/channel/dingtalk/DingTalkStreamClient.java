@@ -25,7 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** 钉钉 Stream WebSocket：注册 ticket、收帧、ACK、机器人消息回调。 */
-final class DingTalkStreamClient implements WebSocket.Listener {
+class DingTalkStreamClient implements WebSocket.Listener {
 
   private static final Logger LOG = LoggerFactory.getLogger(DingTalkStreamClient.class);
 
@@ -33,6 +33,7 @@ final class DingTalkStreamClient implements WebSocket.Listener {
   static final String OPEN_CONNECTION_PATH = "/v1.0/gateway/connections/open";
   static final String API_BASE_URL = "https://api.dingtalk.com";
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
+  private static final long WS_CLOSE_TIMEOUT_MS = 2_000L;
   private static final String TYPE_CALLBACK = "CALLBACK";
   private static final String TYPE_SYSTEM = "SYSTEM";
   private static final String TOPIC_PING = "ping";
@@ -98,18 +99,46 @@ final class DingTalkStreamClient implements WebSocket.Listener {
     return connected.get() && !closed.get();
   }
 
+  /**
+   * 限时关闭：{@code sendClose().join()} 偶发不返回时放弃等待（对齐飞书/Slack/Discord/QQ），守护线程后台继续。
+   *
+   * <p>{@code stop()} 在 synchronized 里调用本方法，对端不回应 FIN 时裸 join 会占住渠道监视器与 ChannelAdminService
+   * 监视器，之后所有渠道的增删改与停机钩子一起挂住。
+   */
   void closeQuietly() {
     closed.set(true);
     connected.set(false);
     openLatch.countDown();
     WebSocket ws = socket.getAndSet(null);
-    if (ws != null) {
-      try {
-        ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye").join();
-      } catch (RuntimeException ignored) {
-        // ignore
-      }
+    if (ws == null) {
+      return;
     }
+    Thread closer =
+        Thread.ofPlatform()
+            .daemon(true) // 守护：被放弃的 close 不得阻止 JVM 退出
+            .name("oryxos-dingtalk-ws-close")
+            .unstarted(
+                () -> {
+                  try {
+                    closeWebSocket(ws);
+                  } catch (RuntimeException ignored) {
+                    // ignore
+                  }
+                });
+    closer.start();
+    try {
+      closer.join(WS_CLOSE_TIMEOUT_MS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    if (closer.isAlive()) {
+      LOG.warn("钉钉 WS close {}ms 未返回，放弃等待（守护线程后台继续）", WS_CLOSE_TIMEOUT_MS);
+    }
+  }
+
+  /** 单测缝：让「对端不回应 FIN、close 永不返回」可注入（同 {@code KnowledgeWatcher.newWatchService()}）。 */
+  void closeWebSocket(WebSocket ws) {
+    ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye").join();
   }
 
   @Override
