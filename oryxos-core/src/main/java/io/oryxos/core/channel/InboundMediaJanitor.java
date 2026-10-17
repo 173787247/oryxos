@@ -55,7 +55,13 @@ public final class InboundMediaJanitor {
     this(resolveTtl(), resolveMaxBytes());
   }
 
-  InboundMediaJanitor(Duration ttl, long maxBytes) {
+  /**
+   * 显式 TTL 与配额（小时/字节口径）：装配与跨模块集成测试用，生产默认值仍由无参构造从环境变量解析。
+   *
+   * <p>公开它是为了让渠道模块的测试能注入小配额——被守护的是渠道 resolver 对 {@link #sweepIfDue} / {@link #ensureQuotaOrThrow}
+   * 的调用，把 janitor mock 掉就测不到写盘前的真实拒绝路径了。
+   */
+  public InboundMediaJanitor(Duration ttl, long maxBytes) {
     this(ttl, maxBytes, MIN_SWEEP_INTERVAL_NANOS);
   }
 
