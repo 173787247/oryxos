@@ -151,6 +151,37 @@ class KnowledgeBaseNameBoundaryTest {
   }
 
   @Test
+  @DisplayName("根内软链别名 alias -> ops：后端各入口拒绝，ops 的清单/文档/索引行原样保留")
+  void symlinkAliasInsideRootIsRejectedAndTargetSurvives() throws IOException {
+    backend.importDocument("ops", "disk.md");
+    runBackground();
+    assertEquals(DocumentState.READY, backend.status("ops").get(0).state(), "前提：目标库已有索引");
+    SymlinkAssumptions.createSymbolicLinkOrAssume(knowledgeRoot.resolve("alias"), Path.of("ops"));
+
+    for (Runnable call :
+        List.<Runnable>of(
+            () -> backend.createBase("alias", "x"),
+            () -> backend.updateBase("alias", "改描述"),
+            () -> backend.deleteBase("alias"),
+            () -> backend.importDocument("alias", "disk.md"),
+            () -> backend.rebuild("alias"))) {
+      IllegalArgumentException rejected = assertThrows(IllegalArgumentException.class, call::run);
+      assertTrue(
+          rejected.getMessage().contains("软链别名"),
+          "根内别名必须按「名字与外层目录不一致」拒绝: " + rejected.getMessage());
+    }
+
+    // 别名这个请求不得动到目标库：清单、文档、索引行都还在（删除别名时 DB 删的是 alias 行，
+    // 随后 walk 真实 ops 目录删文件——DB 与磁盘会直接分叉）
+    assertEquals(
+        "运维手册", KnowledgeManifest.read(knowledgeRoot.resolve("ops")).description(), "目标库清单不得被改写");
+    assertTrue(Files.isRegularFile(knowledgeRoot.resolve("ops/disk.md")), "目标库文档不得被删");
+    assertTrue(Files.isSymbolicLink(knowledgeRoot.resolve("alias")), "别名本身不得被删");
+    assertEquals(DocumentState.READY, backend.status("ops").get(0).state(), "目标库索引不得被清");
+    assertTrue(store.allDocuments("alias").isEmpty(), "别名不得留下索引记录");
+  }
+
+  @Test
   @DisplayName("非 SAFE 字符集统一拒绝（中文 / 空格 / 带点）")
   void nonSafeNamesAreRejected() {
     for (String name : List.of("团队知识", "my kb", "v1.2")) {
