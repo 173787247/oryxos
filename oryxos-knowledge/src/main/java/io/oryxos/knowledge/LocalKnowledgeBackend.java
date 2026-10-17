@@ -1,10 +1,10 @@
 package io.oryxos.knowledge;
 
 import io.oryxos.core.embedding.TextEmbedder;
-import io.oryxos.core.fs.RealPathBoundary;
 import io.oryxos.core.knowledge.KnowledgeAdmin;
 import io.oryxos.core.knowledge.KnowledgeBackend;
 import io.oryxos.core.knowledge.KnowledgeBackendRegistry;
+import io.oryxos.core.knowledge.KnowledgeBaseNames;
 import io.oryxos.core.knowledge.KnowledgeManifest;
 import io.oryxos.core.knowledge.model.Citation;
 import io.oryxos.core.knowledge.model.DocumentStatus;
@@ -26,7 +26,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -37,8 +36,6 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
 
   private static final org.slf4j.Logger LOG =
       org.slf4j.LoggerFactory.getLogger(LocalKnowledgeBackend.class);
-
-  private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9_-]+");
 
   /** 每路召回候选量与 topK 的倍数：给融合层留足重排空间。 */
   private static final int ROUTE_FACTOR = 4;
@@ -246,10 +243,7 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
 
   @Override
   public void createBase(String name, String description) {
-    if (name == null || !SAFE_NAME.matcher(name).matches()) {
-      throw new IllegalArgumentException("非法知识库名（只允许字母/数字/下划线/连字符）: " + name);
-    }
-    Path dir = knowledgeRoot.resolve(name);
+    Path dir = KnowledgeBaseNames.requireBaseDir(knowledgeRoot, name);
     if (Files.exists(dir)) {
       throw new IllegalArgumentException("知识库已存在: " + name);
     }
@@ -265,7 +259,7 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
 
   @Override
   public void updateBase(String name, String description) {
-    Path dir = RealPathBoundary.requireWithin(knowledgeRoot, knowledgeRoot.resolve(name));
+    Path dir = KnowledgeBaseNames.requireBaseDir(knowledgeRoot, name);
     KnowledgeManifest.read(dir); // 校验存在且合法
     String desc = description == null ? "" : description.replace('\r', ' ').replace('\n', ' ');
     io.oryxos.core.io.AtomicFiles.writeString(
@@ -274,8 +268,8 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
 
   /**
    * 清单文本：描述按 YAML 双引号标量写。自由文本里的 {@code ": "} 会让 SnakeYAML 直接拒绝整份清单（库从列表、 绑定、检索里一起消失），{@code " #"}
-   * 则把它当注释静默截断——与 {@code SkillService.toSkillMarkdown} 同一做法。 name 由 {@link #SAFE_NAME}
-   * 白名单保证，backend 是字面量，无需转义。
+   * 则把它当注释静默截断——与 {@code SkillService.toSkillMarkdown} 同一做法。 name 由 {@link KnowledgeBaseNames}
+   * 的白名单保证，backend 是字面量，无需转义。
    */
   private static String manifestText(String name, String description) {
     return "---\nname: "
@@ -287,7 +281,7 @@ public class LocalKnowledgeBackend implements KnowledgeBackend, KnowledgeAdmin {
 
   @Override
   public void deleteBase(String name) {
-    Path dir = RealPathBoundary.requireWithin(knowledgeRoot, knowledgeRoot.resolve(name));
+    Path dir = KnowledgeBaseNames.requireBaseDir(knowledgeRoot, name);
     if (!Files.isDirectory(dir)) {
       throw new IllegalArgumentException("知识库不存在: " + name);
     }

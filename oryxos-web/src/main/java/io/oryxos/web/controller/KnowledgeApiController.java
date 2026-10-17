@@ -4,6 +4,7 @@ import io.oryxos.core.fs.RealPathBoundary;
 import io.oryxos.core.knowledge.KnowledgeAdmin;
 import io.oryxos.core.knowledge.KnowledgeBackend;
 import io.oryxos.core.knowledge.KnowledgeBackendRegistry;
+import io.oryxos.core.knowledge.KnowledgeBaseNames;
 import io.oryxos.core.knowledge.KnowledgeBindingService;
 import io.oryxos.core.knowledge.KnowledgeImportException;
 import io.oryxos.core.knowledge.KnowledgeManifest;
@@ -329,7 +330,8 @@ public class KnowledgeApiController {
   }
 
   private KnowledgeManifest requireBase(String name) {
-    Path dir = knowledgeRoot.resolve(name);
+    // 与后端同一口径：非法名/越界目录是客户端错误（400），不是「资源不存在」（404）。
+    Path dir = KnowledgeBaseNames.requireBaseDir(knowledgeRoot, name);
     if (!Files.isDirectory(dir)) {
       throw new ResourceNotFoundException("知识库不存在: " + name);
     }
