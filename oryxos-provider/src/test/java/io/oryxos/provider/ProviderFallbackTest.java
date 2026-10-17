@@ -11,6 +11,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,6 +21,7 @@ import io.oryxos.core.provider.ProviderDef;
 import io.oryxos.core.provider.ProviderRegistry;
 import io.oryxos.core.provider.ProviderRequest;
 import io.oryxos.core.provider.ProviderResponse;
+import io.oryxos.core.session.Message;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -93,6 +96,28 @@ class ProviderFallbackTest {
   private static RestClientResponseException badRequest() {
     return new RestClientResponseException(
         "bad request", 400, "st", new HttpHeaders(), new byte[0], StandardCharsets.UTF_8);
+  }
+
+  private static RestClientResponseException paymentRequired() {
+    return new RestClientResponseException(
+        "payment required", 402, "st", new HttpHeaders(), new byte[0], StandardCharsets.UTF_8);
+  }
+
+  /** 带一张远程图片的请求：402 若被当成"请求内容类 4xx"，就会触发剥 media 的降级链。 */
+  private static ProviderRequest requestWithRemoteImage() {
+    Message user =
+        new Message(
+            Message.ROLE_USER,
+            "图片链接: https://example.com/a.png",
+            null,
+            null,
+            List.of(),
+            List.of(new Message.MediaPart("image/png", "https://example.com/a.png")));
+    return new ProviderRequest(null, List.of(user), List.of());
+  }
+
+  private static List<?> userMedia(Prompt prompt) {
+    return ((UserMessage) prompt.getInstructions().get(0)).getMedia();
   }
 
   @Test
@@ -239,6 +264,32 @@ class ProviderFallbackTest {
     order.verify(primary).call(any(Prompt.class));
     order.verify(backup).call(any(Prompt.class));
     order.verify(primary).call(any(Prompt.class));
+  }
+
+  @Test
+  void 余额耗尽402_不剥media重试_直接切到备用() {
+    RestClientResponseException paymentRequired = paymentRequired();
+    when(primary.call(any(Prompt.class))).thenThrow(paymentRequired);
+    when(backup.call(any(Prompt.class))).thenReturn(reply("备用回复"));
+
+    ProviderResponse response =
+        service.chat(
+            "s-1",
+            profileWithFallback(new Profile.ProviderRef.FallbackRef("backup", "b-model")),
+            requestWithRemoteImage());
+
+    assertThat(response.text()).isEqualTo("备用回复");
+    // 402 是账户状态：同一请求剥 media 换不来成功，主调用只该发生一次
+    ArgumentCaptor<Prompt> primaryPrompt = ArgumentCaptor.forClass(Prompt.class);
+    verify(primary, times(1)).call(primaryPrompt.capture());
+    assertThat(userMedia(primaryPrompt.getValue())).as("402 不该触发 media 降级：主调用必须带着原始图片").hasSize(1);
+    // 备用拿到的是原始请求（媒体未被剥离）
+    ArgumentCaptor<Prompt> backupPrompt = ArgumentCaptor.forClass(Prompt.class);
+    verify(backup, times(1)).call(backupPrompt.capture());
+    assertThat(userMedia(backupPrompt.getValue())).as("切到备用时媒体应原样带上").hasSize(1);
+    // 审计恰两条：主失败 + 备成功，而不是 media 重试链打出的更多条
+    verify(audit, times(2))
+        .record(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyLong());
   }
 
   @Test

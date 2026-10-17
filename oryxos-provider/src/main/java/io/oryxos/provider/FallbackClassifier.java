@@ -54,7 +54,16 @@ final class FallbackClassifier {
     if (code >= SERVER_ERROR_FLOOR) {
       return true; // 服务端故障
     }
-    // 429 限流=换配额；401/403 本家凭证问题=换家换凭证；408 请求超时
-    return code == 429 || code == 401 || code == 403 || code == 408;
+    return isSwitchableClientStatus(code);
+  }
+
+  /**
+   * 4xx 里"换一家有合理成功预期"的码：401/403 本家凭证问题=换家换凭证；402 余额/配额耗尽=换一家独立计费（与 429 同一面）； 429 限流=换配额；408 请求超时。
+   *
+   * <p>也是 {@code SpringAiProviderServiceImpl#isClientHttpStatus} 的补集来源：这些码剥 media 后重试必然同样失败，
+   * 那条"请求内容类 4xx 降级"判据必须排除它们。两处共用这一张表，避免判据各抄一份后漂移。
+   */
+  static boolean isSwitchableClientStatus(int code) {
+    return code == 401 || code == 402 || code == 403 || code == 408 || code == 429;
   }
 }

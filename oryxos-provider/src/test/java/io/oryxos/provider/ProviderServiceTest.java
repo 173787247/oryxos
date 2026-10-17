@@ -376,6 +376,43 @@ class ProviderServiceTest {
     assertTrue(second.getMedia().isEmpty());
   }
 
+  @Test
+  void 余额耗尽402_不触发media降级_只调用一次() {
+    org.springframework.web.client.HttpClientErrorException paymentRequired =
+        org.springframework.web.client.HttpClientErrorException.create(
+            org.springframework.http.HttpStatus.PAYMENT_REQUIRED,
+            "payment required",
+            org.springframework.http.HttpHeaders.EMPTY,
+            new byte[0],
+            null);
+    when(deepseek.call(any(Prompt.class))).thenThrow(paymentRequired);
+
+    Message user =
+        new Message(
+            Message.ROLE_USER,
+            "图片链接: https://example.com/a.png",
+            null,
+            null,
+            List.of(),
+            List.of(new Message.MediaPart("image/png", "https://example.com/a.png")));
+
+    assertThrows(
+        org.springframework.web.client.HttpClientErrorException.class,
+        () ->
+            service.chat(
+                "s-1",
+                profileUsing("deepseek"),
+                new ProviderRequest(null, List.of(user), List.of())));
+
+    // 402 是账户/配额状态，剥 media 只会把同一个请求再打一遍：不能有第二、第三次调用
+    ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+    verify(deepseek, times(1)).call(captor.capture());
+    var springUser =
+        (org.springframework.ai.chat.messages.UserMessage)
+            captor.getValue().getInstructions().get(0);
+    assertEquals(1, springUser.getMedia().size());
+  }
+
   /**
    * 建模型与建 Prompt 发生在 invokeChat 的 try 之外，所以它们抛出的异常绕过了 recordFailure —— 审计、失败指标、LLM span
    * 三者一起为零。运维只看到一个 500，事后按会话/按 provider 查不到任何痕迹。

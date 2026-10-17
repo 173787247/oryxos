@@ -929,8 +929,14 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     return false;
   }
 
+  /**
+   * 请求内容类 4xx（模型拒收图片/链接失效等）——剥 media 再试可能成功。
+   *
+   * <p>认证/余额/限流/超时类换一家才有用（补集见 {@link FallbackClassifier#isSwitchableClientStatus(int)}），剥 media
+   * 只是把同一个失败请求再打一遍：402 余额耗尽曾因此被判成客户端错误，先剥远程图、再剥全部 media，每条都记一次必然失败的 {@code llm_calls}，最后仍不切备用。
+   */
   private static boolean isClientHttpStatus(int code) {
-    return code >= 400 && code < 500 && code != 401 && code != 403 && code != 408 && code != 429;
+    return code >= 400 && code < 500 && !FallbackClassifier.isSwitchableClientStatus(code);
   }
 
   private static ProviderResponse toProviderResponse(ChatResponse response) {
