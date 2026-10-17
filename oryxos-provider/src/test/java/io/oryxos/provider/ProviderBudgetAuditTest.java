@@ -33,6 +33,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import reactor.core.publisher.Flux;
 
 /**
  * 预算闸拒绝的审计痕迹：被拦下的调用从未发生，但必须留下一条 {@code success=false} 的 llm_calls 行。
@@ -168,6 +169,58 @@ class ProviderBudgetAuditTest {
     assertThat(delegate.calls.get(0).success()).isTrue();
     // 证明账本接线是活的：上面「不新增行」不是因为没有接线
     assertThat(store.all()).hasSize(1);
+  }
+
+  /** 流式路径（019 R2）此前**完全不经过预算闸**：同一份预算，整段调用会被拒、流式调用照花。这条钉住它。 */
+  @Test
+  void 流式预算拒绝_落一行失败审计且模型未被调用() {
+    spendBudgetToLimit();
+
+    assertThatThrownBy(
+            () -> service.chatStream(SESSION, profileWithFallback(), request(), token -> {}))
+        .isInstanceOf(BudgetExceededException.class)
+        .hasMessageContaining("budget exceeded: rule=cap");
+
+    // 闸在流式入口之前：连 stream 都没碰，更不会有片段流出
+    verify(primary, never()).stream(any(Prompt.class));
+    verify(primary, never()).call(any(Prompt.class));
+
+    assertThat(delegate.calls).hasSize(1);
+    RecordedCall row = delegate.calls.get(0);
+    assertThat(row.provider()).isEqualTo(PROVIDER);
+    assertThat(row.model()).isEqualTo(MODEL);
+    assertThat(row.success()).isFalse();
+    assertThat(row.usage()).isNull();
+    assertThat(row.costMicros()).isNull();
+    assertThat(row.errorMessage()).startsWith("budget exceeded: rule=cap");
+    assertThat(row.durationMs()).isLessThan(1000L);
+
+    assertThat(store.all()).hasSize(1);
+  }
+
+  @Test
+  void 流式预算拒绝不切备用() {
+    spendBudgetToLimit();
+    Profile profile =
+        profileWithFallback(new Profile.ProviderRef.FallbackRef("backup", BACKUP_MODEL));
+
+    assertThatThrownBy(() -> service.chatStream(SESSION, profile, request(), token -> {}))
+        .isInstanceOf(BudgetExceededException.class);
+
+    verify(backup, never()).stream(any(Prompt.class));
+    verify(backup, never()).call(any(Prompt.class));
+    assertThat(delegate.calls).hasSize(1);
+  }
+
+  @Test
+  void 对照_预算内的流式调用正常返回() {
+    when(primary.stream(any(Prompt.class))).thenReturn(Flux.just(reply("tok-a"), reply("tok-b")));
+
+    ProviderResponse response =
+        service.chatStream(SESSION, profileWithFallback(), request(), token -> {});
+
+    assertThat(response.text()).isEqualTo("tok-atok-b");
+    verify(primary).stream(any(Prompt.class));
   }
 
   private void spendBudgetToLimit() {

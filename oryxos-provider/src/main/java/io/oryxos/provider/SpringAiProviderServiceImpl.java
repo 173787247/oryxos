@@ -325,8 +325,20 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         continue;
       }
       boolean[] contentStarted = new boolean[1];
+      long gateStartedAt = System.currentTimeMillis();
       try {
+        Attempt gated = applyBudgetGate(profile, attempt);
+        if (gated != attempt) {
+          // findDef(…, true) 在降级目标未注册时直抛，不返回 null（:261-272）
+          return chatStreamOnce(
+              sessionId, profile, request, onToken, gated, findDef(gated, true), contentStarted);
+        }
         return chatStreamOnce(sessionId, profile, request, onToken, attempt, def, contentStarted);
+      } catch (BudgetExceededException budget) {
+        // 与 chat 同口径（:161）：预算拒绝不切备用——换一家 provider 改不了预算裁决，静默切换反而把
+        // 决定藏起来。留一行失败审计，否则流式路径上的拒绝会连 llm_calls/指标/span 一起为零。
+        recordFailure(sessionId, profile, attempt, budget, gateStartedAt);
+        throw budget;
       } catch (RuntimeException e) {
         last = e;
         // 023 R4：首个内容片段已流出后绝不切换——重试必然重复输出，按 019 error 语义收尾（FR-007）
