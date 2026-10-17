@@ -1,6 +1,7 @@
 package io.oryxos.core.knowledge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -83,7 +84,63 @@ class KnowledgeBaseNamesTest {
             IllegalArgumentException.class,
             () -> KnowledgeBaseNames.requireBaseDir(knowledgeRoot, "escape"));
     assertTrue(rejected.getMessage().contains("越界"), "必须按边界臂拒绝: " + rejected.getMessage());
+    assertFalse(
+        rejected.getMessage().contains("软链别名"),
+        "根外软链仍走边界臂（越界口径），不因别名规则改写: " + rejected.getMessage());
     assertTrue(Files.isDirectory(outside), "根外目标不得被改动");
+  }
+
+  @Test
+  @DisplayName("根内软链别名：真实目录名与请求名不一致 ⇒ 拒绝；真实库名照常解析")
+  void rejectsSymlinkAliasInsideRoot() throws IOException {
+    Path ops = Files.createDirectories(knowledgeRoot.resolve("ops"));
+    SymlinkAssumptions.createSymbolicLinkOrAssume(knowledgeRoot.resolve("alias"), Path.of("ops"));
+
+    IllegalArgumentException rejected =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> KnowledgeBaseNames.requireBaseDir(knowledgeRoot, "alias"));
+    assertTrue(
+        rejected.getMessage().contains("软链别名"), "必须点名真实目录名与请求名不一致: " + rejected.getMessage());
+
+    assertEquals(
+        ops.toRealPath(),
+        KnowledgeBaseNames.requireBaseDir(knowledgeRoot, "ops"),
+        "真实库名照常解析，不被别名规则误伤");
+  }
+
+  @Test
+  @DisplayName("库目录是软链但真实 basename 与请求名一致：故意保留（整根挂载同款）")
+  void symlinkedBaseWithMatchingBasenameStaysAllowed() throws IOException {
+    Path nested = Files.createDirectories(knowledgeRoot.resolve("archive").resolve("ops"));
+    SymlinkAssumptions.createSymbolicLinkOrAssume(
+        knowledgeRoot.resolve("ops"), Path.of("archive", "ops"));
+
+    // 故意保留的形状：basename 一致 ⇒ 请求名与实际目录名没有错位；整棵 knowledge/ 或 oryxos.root
+    // 在软链上（真实部署形态）也靠同一性质存活，不得收紧成「库目录不得是软链」。
+    assertEquals(
+        nested.toRealPath(),
+        KnowledgeBaseNames.requireBaseDir(knowledgeRoot, "ops"),
+        "软链本身不是缺陷：名字错位才是");
+  }
+
+  @Test
+  @DisplayName("整棵 knowledge 目录被软链挂载：库名按真实目录名照常解析")
+  void knowledgeRootItselfMayBeSymlinked() throws IOException {
+    Path mounted = Files.createDirectories(workspace.resolve("mounted-knowledge"));
+    Files.createDirectories(mounted.resolve("ops"));
+    Path link = workspace.resolve("knowledge-link");
+    SymlinkAssumptions.createSymbolicLinkOrAssume(link, mounted);
+
+    assertEquals(
+        mounted.toRealPath().resolve("ops"),
+        KnowledgeBaseNames.requireBaseDir(link, "ops"),
+        "整根被软链挂载时，库目录真实路径的最后一段仍是库名");
+
+    assertEquals(
+        mounted.toRealPath().resolve("faq"),
+        KnowledgeBaseNames.requireBaseDir(link, "faq"),
+        "尚未创建的库同样投影在真实根之下");
   }
 
   @Test
