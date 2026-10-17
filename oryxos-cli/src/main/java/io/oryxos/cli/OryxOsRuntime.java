@@ -782,6 +782,22 @@ public class OryxOsRuntime {
         oryxosRoot(), knowledgeIndexService, knowledgeWatcherExecutor);
   }
 
+  /**
+   * FR-010 集群档启动对账：集群档不装配 {@code KnowledgeWatcher}（NFS 上 inotify 不可靠），但「重启后的首轮对账」不能 因此缺席——被重启打断的
+   * PENDING/INDEXING 没有在飞任务，也没有别的机制把它拉回终态（手动刷新的运行中对账把 PENDING 视为在飞，不算差异），只能整库 rebuild。单机档由 watcher
+   * 的启动对账负责，两条路径各恰好一次。
+   */
+  @Bean
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+      name = "oryxos.cluster.enabled",
+      havingValue = "true")
+  org.springframework.boot.ApplicationRunner clusterKnowledgeStartupReconciler(
+      io.oryxos.knowledge.index.KnowledgeIndexService knowledgeIndexService) {
+    io.oryxos.knowledge.watch.KnowledgeBaseReconciler reconciler =
+        new io.oryxos.knowledge.watch.KnowledgeBaseReconciler(knowledgeIndexService);
+    return args -> reconciler.reconcileAll(oryxosRoot().resolve("knowledge"));
+  }
+
   @Bean
   io.oryxos.core.knowledge.KnowledgeService knowledgeService(
       io.oryxos.core.knowledge.KnowledgeBindingService knowledgeBindingService,
