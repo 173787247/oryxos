@@ -72,6 +72,25 @@ class RequestActionResolverTest {
   }
 
   @Test
+  @DisplayName("audit 前缀只读：GET/HEAD → READ_AUDIT；非读方法未登记（fail-closed）")
+  void auditPrefixFailsClosedForWrites() {
+    assertAction("GET", "/api/v1/audit/export", Action.READ_AUDIT);
+    assertAction("GET", "/api/v1/audit/llm/summary", Action.READ_AUDIT);
+    assertAction("HEAD", "/api/v1/audit/llm", Action.READ_AUDIT);
+    assertThat(RequestActionResolver.resolve("POST", "/api/v1/audit/anything")).isNull();
+    assertThat(RequestActionResolver.resolve("DELETE", "/api/v1/audit/llm")).isNull();
+  }
+
+  @Test
+  @DisplayName("evals 前缀只读：GET/HEAD → READ_AUDIT；非读方法未登记（fail-closed，同 audit）")
+  void evalsPrefixFailsClosedForWrites() {
+    assertAction("GET", "/api/v1/evals/export/trace/x", Action.READ_AUDIT);
+    assertAction("HEAD", "/api/v1/evals/export/trace/x", Action.READ_AUDIT);
+    assertThat(RequestActionResolver.resolve("POST", "/api/v1/evals/anything")).isNull();
+    assertThat(RequestActionResolver.resolve("DELETE", "/api/v1/evals/export/trace/x")).isNull();
+  }
+
+  @Test
   @DisplayName("未登记路径返回 null（fail-closed）")
   void unmapped() {
     assertThat(RequestActionResolver.resolve("GET", "/api/v1/unknown-thing")).isNull();
