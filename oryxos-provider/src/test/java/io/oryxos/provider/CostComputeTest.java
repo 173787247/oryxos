@@ -116,6 +116,44 @@ class CostComputeTest {
     assertNull(cost.getValue());
   }
 
+  @Test
+  @DisplayName("负单价：成本夹到 0，审计不记负数")
+  void negativePricesClampToZero() {
+    when(model.call(any(Prompt.class))).thenReturn(usageResponse(1000, 2000));
+    when(pricingStore.find("deepseek", "model-x"))
+        .thenReturn(Optional.of(new ModelPricing("deepseek", "model-x", -1.0, -2.0)));
+
+    service().chat("s-1", profile(), ProviderRequest.of("hi"));
+
+    // 负单价本该算出 1000×(-1) + 2000×(-2) = -5000；金额不为负，夹到 0。
+    assertEquals(0L, capturedCostMicros());
+  }
+
+  @Test
+  @DisplayName("正负混合单价：合计为负时同样夹到 0（不是只挡两项都为负）")
+  void mixedSignPricesClampToZero() {
+    when(model.call(any(Prompt.class))).thenReturn(usageResponse(1000, 1000));
+    when(pricingStore.find("deepseek", "model-x"))
+        .thenReturn(Optional.of(new ModelPricing("deepseek", "model-x", -2.0, 1.0)));
+
+    service().chat("s-1", profile(), ProviderRequest.of("hi"));
+
+    // 1000×(-2) + 1000×1 = -1000
+    assertEquals(0L, capturedCostMicros());
+  }
+
+  @Test
+  @DisplayName("负 token × 正价：成本同样夹到 0")
+  void negativeTokensClampToZero() {
+    when(model.call(any(Prompt.class))).thenReturn(usageResponse(-1000, -2000));
+    when(pricingStore.find("deepseek", "model-x"))
+        .thenReturn(Optional.of(new ModelPricing("deepseek", "model-x", 1.0, 2.0)));
+
+    service().chat("s-1", profile(), ProviderRequest.of("hi"));
+
+    assertEquals(0L, capturedCostMicros());
+  }
+
   private Long capturedCostMicros() {
     ArgumentCaptor<Long> cost = ArgumentCaptor.forClass(Long.class);
     verify(audit)

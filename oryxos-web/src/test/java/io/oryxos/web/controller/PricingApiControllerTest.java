@@ -4,10 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.oryxos.storage.LlmPricing;
 import io.oryxos.storage.LlmPricingRepository;
+import io.oryxos.web.GlobalExceptionHandler;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.CreatePricingRequest;
 import io.oryxos.web.controller.dto.PricingView;
@@ -18,6 +24,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /** 016 模型定价 CRUD：新增/更新/删除/重复冲突/列表过滤。 */
 class PricingApiControllerTest {
@@ -81,6 +90,64 @@ class PricingApiControllerTest {
     when(repository.existsById(99L)).thenReturn(false);
 
     assertThatThrownBy(() -> controller.delete(99L)).isInstanceOf(ResourceNotFoundException.class);
+  }
+
+  @Test
+  @DisplayName("新增负单价被拒绝：消息点名字段与值")
+  void createNegativePriceRejected() {
+    assertThatThrownBy(
+            () -> controller.create(new CreatePricingRequest("deepseek", "neg", -1.0, 2.0)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("promptPrice 不能为负数: -1.0");
+    verify(repository, never()).save(any());
+  }
+
+  @Test
+  @DisplayName("更新为负单价被拒绝：不落库，已有定价不被改写")
+  void updateNegativePriceRejected() {
+    LlmPricing existing = pricing("deepseek", "deepseek-chat");
+    when(repository.findById(1L)).thenReturn(Optional.of(existing));
+
+    assertThatThrownBy(() -> controller.update(1L, new UpdatePricingRequest(1.0, -0.5)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("completionPrice 不能为负数: -0.5");
+    verify(repository, never()).save(any());
+    assertThat(existing.getCompletionPrice()).isEqualTo(2.0);
+  }
+
+  @Test
+  @DisplayName("零单价允许（免费模型），null 也允许（未定价）")
+  void zeroAndNullPricesAllowed() {
+    when(repository.findByProviderAndModel("deepseek", "free")).thenReturn(Optional.empty());
+    when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    ApiResponse<PricingView> free =
+        controller.create(new CreatePricingRequest("deepseek", "free", 0.0, 0.0));
+    assertThat(free.getData().promptPrice()).isEqualTo(0.0);
+    assertThat(free.getData().completionPrice()).isEqualTo(0.0);
+
+    ApiResponse<PricingView> unpriced =
+        controller.create(new CreatePricingRequest("deepseek", "unknown", null, null));
+    assertThat(unpriced.getData().promptPrice()).isNull();
+    assertThat(unpriced.getData().completionPrice()).isNull();
+  }
+
+  @Test
+  @DisplayName("PUT 负单价 → 400，消息点名字段（经 GlobalExceptionHandler）")
+  void updateNegativePriceReturnsBadRequest() throws Exception {
+    when(repository.findById(1L)).thenReturn(Optional.of(pricing("deepseek", "deepseek-chat")));
+    when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    MockMvc mvc =
+        MockMvcBuilders.standaloneSetup(new PricingApiController(repository))
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+
+    mvc.perform(
+            put("/api/v1/pricing/1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"promptPrice\":-1.5,\"completionPrice\":2.0}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("promptPrice 不能为负数: -1.5"));
   }
 
   @Test

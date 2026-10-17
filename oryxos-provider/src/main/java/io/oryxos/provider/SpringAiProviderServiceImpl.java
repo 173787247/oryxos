@@ -705,7 +705,10 @@ public class SpringAiProviderServiceImpl implements ProviderService {
     if (usage.completionTokens() != null && completionPrice != null) {
       micros += Math.round(usage.completionTokens() * completionPrice);
     }
-    return micros;
+    // 金额不为负：负单价（定价 API 已拒绝，但老库可能已有）或负用量都会算成负数，在这里统一夹到 0。
+    // 审计（llm_calls）、指标（cost_micros）、账本三处都消费这一个返回值，夹在这个唯一出口它们才不会各说各话；
+    // 负价本身没有丢——它留在 llm_pricing 行里，而负数不是金额。
+    return Math.max(0L, micros);
   }
 
   /** 按 provider 名缓存已建的 ChatModel；同名下 key/url 变化即原地重建替换（provider CRUD 改了配置立即生效，旧实例可回收）。 */
