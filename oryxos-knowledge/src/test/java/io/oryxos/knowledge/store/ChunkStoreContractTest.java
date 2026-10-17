@@ -2,6 +2,7 @@ package io.oryxos.knowledge.store;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -161,6 +162,29 @@ abstract class ChunkStoreContractTest {
     assertNull(withoutVector.embeddingModel());
     assertNotNull(withoutVector.pageNo());
     assertEquals(7, withoutVector.pageNo().intValue(), "页码往返（PDF 出处用）");
+  }
+
+  /**
+   * 传入 id 一律忽略：生产档由 DB 自增分配、内存档由内部计数器分配，采纳调用方给的值还会与实现自己的计数器撞车， 把别人的行静默覆盖掉。读回的 id 以 {@code
+   * chunks(...)} 为准。
+   */
+  @Test
+  @DisplayName("saveChunks_id由实现分配_调用方传入的id被忽略_不覆盖已有行")
+  void saveChunksAssignsIdsAndIgnoresCallerId() {
+    long documentId = saveDocument(KB, "a.md", 1).id();
+    store.saveChunks(List.of(chunk(documentId, KB, 1, 1, "先落库的片段")));
+    ChunkRecord first = store.chunks(KB, 1).get(0);
+    assertNotNull(first.id(), "读回的片段必须带实现分配的 id");
+
+    ChunkRecord withCallerId =
+        new ChunkRecord(first.id(), documentId, KB, 2, null, "调用方声称的 id", null, null, 1);
+    store.saveChunks(List.of(withCallerId));
+
+    List<ChunkRecord> stored = store.chunks(KB, 1);
+    assertEquals(2, stored.size(), "传入 id 被忽略 ⇒ 落成新行；采纳它会把已有行覆盖掉");
+    assertEquals(List.of("先落库的片段", "调用方声称的 id"), contents(stored), "已有行不得被覆盖");
+    assertNotNull(stored.get(1).id(), "读回的片段必须带实现分配的 id");
+    assertNotEquals(first.id(), stored.get(1).id(), "回读的 id 是实现分配的，不是调用方传的那个");
   }
 
   private DocumentRecord saveDocument(String kbName, String relPath, long generation) {
