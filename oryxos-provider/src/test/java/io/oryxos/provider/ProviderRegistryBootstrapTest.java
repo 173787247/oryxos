@@ -1,9 +1,12 @@
 package io.oryxos.provider;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -124,5 +127,56 @@ class ProviderRegistryBootstrapTest {
         registry, new ProvidersProperties(List.of(new ProviderConfig("mock", null, null))));
 
     verify(registry).save(new ProviderDef("mock", null, null, null));
+  }
+
+  /** 两副本并发启动：本副本过了存在性检查，插入时对方已经写进去了（providers_pkey 冲突）。 */
+  @Test
+  void saveConflictWithRowNowPresent_isTreatedAsSeededByAnotherReplica() {
+    when(registry.exists("deepseek")).thenReturn(false, true);
+    doThrow(new IllegalStateException("providers_pkey 冲突")).when(registry).save(any());
+
+    bootstrap.seedMissing(
+        registry,
+        new ProvidersProperties(
+            List.of(new ProviderConfig("deepseek", "yaml-key", "https://seed.example/v1"))));
+
+    verify(registry, times(2)).exists("deepseek");
+    verify(registry).save(any());
+  }
+
+  @Test
+  void saveConflictWithRowStillMissing_rethrows() {
+    when(registry.exists("deepseek")).thenReturn(false, false);
+    IllegalStateException conflict = new IllegalStateException("boom");
+    doThrow(conflict).when(registry).save(any());
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            bootstrap.seedMissing(
+                registry,
+                new ProvidersProperties(
+                    List.of(
+                        new ProviderConfig("deepseek", "yaml-key", "https://seed.example/v1")))));
+  }
+
+  @Test
+  void recheckFailure_doesNotMaskTheOriginalConflict() {
+    when(registry.exists("deepseek")).thenReturn(false).thenThrow(new IllegalStateException("db"));
+    IllegalStateException conflict = new IllegalStateException("providers_pkey 冲突");
+    doThrow(conflict).when(registry).save(any());
+
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                bootstrap.seedMissing(
+                    registry,
+                    new ProvidersProperties(
+                        List.of(
+                            new ProviderConfig(
+                                "deepseek", "yaml-key", "https://seed.example/v1")))));
+
+    assertEquals(conflict.getMessage(), thrown.getMessage());
   }
 }
