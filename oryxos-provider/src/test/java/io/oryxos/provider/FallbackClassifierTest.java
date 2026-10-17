@@ -37,6 +37,7 @@ class FallbackClassifierTest {
     assertThat(FallbackClassifier.isSwitchable(status(401))).isTrue(); // 本家凭证问题=换家
     assertThat(FallbackClassifier.isSwitchable(status(403))).isTrue();
     assertThat(FallbackClassifier.isSwitchable(status(408))).isTrue();
+    assertThat(FallbackClassifier.isSwitchable(status(402))).isTrue(); // 余额/配额耗尽=换一家独立计费（与 429 同一面）
   }
 
   @Test
