@@ -28,8 +28,18 @@ public class JpaSandboxWhitelistStore implements SandboxWhitelistStore {
     SandboxWhitelistRow row = new SandboxWhitelistRow();
     row.setCategory(category.name());
     row.setEntryValue(value);
-    repository.save(row);
-    return true;
+    try {
+      repository.saveAndFlush(row);
+      return true;
+    } catch (RuntimeException conflict) {
+      // 契约要求 add 幂等（已存在返回 false），而"已存在"在一个集群里不只由本进程决定：两个副本同时启动时
+      // 会双双通过上面的存在性检查，由唯一键 (category, entry_value) 兜底。冲突在这里是正常结果，不是错误；
+      // 非约束违规原样上抛。这正是 ConcurrentMigrationIT 抓到的形态（两副本并发启动播种同一批白名单）。
+      if (ConstraintViolations.isConstraintViolation(conflict)) {
+        return false;
+      }
+      throw conflict;
+    }
   }
 
   @Override
