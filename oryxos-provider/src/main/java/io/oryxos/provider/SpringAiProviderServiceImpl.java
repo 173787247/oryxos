@@ -341,9 +341,19 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       try {
         Attempt gated = applyBudgetGate(profile, attempt);
         if (gated != attempt) {
-          // findDef(…, true) 在降级目标未注册时直抛，不返回 null（:261-272）
+          // primary=true：目标未注册时 findDef 直抛 PNFE，永不返回 null，故无 null 分支可判。
+          ProviderDef degraded;
+          try {
+            degraded = findDef(gated, true);
+          } catch (ProviderNotFoundException e) {
+            // 与 chat 同口径：闸点名的目标不在注册表 ⇒ 持久性配置错误，不是值得换家的瞬时故障。闸在建流
+            // 之前就失败，不补记则审计、失败指标与 LLM span 一起为零；审计行落 gated，排障直接看见是哪个
+            // provider 没注册。
+            recordFailure(sessionId, profile, gated, e, gateStartedAt);
+            throw e;
+          }
           return chatStreamOnce(
-              sessionId, profile, request, onToken, gated, findDef(gated, true), contentStarted);
+              sessionId, profile, request, onToken, gated, degraded, contentStarted);
         }
         return chatStreamOnce(sessionId, profile, request, onToken, attempt, def, contentStarted);
       } catch (BudgetExceededException budget) {
@@ -351,6 +361,11 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         // 决定藏起来。留一行失败审计，否则流式路径上的拒绝会连 llm_calls/指标/span 一起为零。
         recordFailure(sessionId, profile, attempt, budget, gateStartedAt);
         throw budget;
+      } catch (ProviderNotFoundException e) {
+        // 分类（显式）：从本 try 逃出的 PNFE 都是点名类配置错误（闸目标未注册，或目标在建流前失效），按
+        // PNFE「点名报错、绝不静默换家」的契约上抛，不参与 FallbackClassifier 的「未知异常偏向切换」默认。
+        // 审计只在失败点记（上面补记 / invokeChat 已记），这里不重复记账。
+        throw e;
       } catch (RuntimeException e) {
         last = e;
         // 023 R4：首个内容片段已流出后绝不切换——重试必然重复输出，按 019 error 语义收尾（FR-007）
