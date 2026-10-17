@@ -12,7 +12,6 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +24,6 @@ import org.slf4j.LoggerFactory;
 public class KnowledgeBindingService {
 
   private static final Logger LOG = LoggerFactory.getLogger(KnowledgeBindingService.class);
-  private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9_-]+");
   private static final String AGENT_FILE = "AGENT.md";
   private static final String LINKS_DIR = "knowledge";
 
@@ -218,7 +216,7 @@ public class KnowledgeBindingService {
       List<BoundKnowledgeDescriptor> valid,
       List<KnowledgeBindingIssue> issues) {
     String entryName = String.valueOf(entry.getFileName());
-    if (!SAFE_NAME.matcher(entryName).matches() || !Files.isSymbolicLink(entry)) {
+    if (!KnowledgeBaseNames.isSafe(entryName) || !Files.isSymbolicLink(entry)) {
       issues.add(
           issue(
               agent,
@@ -525,7 +523,7 @@ public class KnowledgeBindingService {
   }
 
   private static String safe(String name, String kind) {
-    if (name == null || !SAFE_NAME.matcher(name).matches()) {
+    if (!KnowledgeBaseNames.isSafe(name)) {
       throw new IllegalArgumentException("非法 " + kind + " 名（只允许字母/数字/下划线/连字符）: " + name);
     }
     return name;

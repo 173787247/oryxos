@@ -3,6 +3,8 @@ package io.oryxos.web.controller;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -50,6 +52,7 @@ class KnowledgeApiControllerTest {
 
   private Path kbRoot;
   private KnowledgeBindingService bindings;
+  private KnowledgeApiController controller;
   private MockMvc mvc;
 
   @BeforeEach
@@ -66,9 +69,9 @@ class KnowledgeApiControllerTest {
     registry.register(retrieveOnlyStub());
     bindings = new KnowledgeBindingService(root);
     KnowledgeService service = new KnowledgeServiceImpl(kbRoot, bindings, registry);
+    controller = new KnowledgeApiController(service, registry, bindings, root.toString());
     mvc =
-        MockMvcBuilders.standaloneSetup(
-                new KnowledgeApiController(service, registry, bindings, root.toString()))
+        MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
   }
@@ -395,5 +398,56 @@ class KnowledgeApiControllerTest {
                 .file(new MockMultipartFile("file", "huge.md", "text/markdown", "# ok".getBytes())))
         .andExpect(status().isBadRequest());
     assertEquals(over, Files.size(existing));
+  }
+
+  @Test
+  @DisplayName("REST 入口：kbName=\"../agents/demo\" 按规则拒绝，不再靠「目标目录没有 KNOWLEDGE.md」偶然挡住")
+  void requireBaseRejectsTraversalNameByRule() throws Exception {
+    Path agent = Files.createDirectories(root.resolve("agents/demo"));
+    Files.writeString(agent.resolve("AGENT.md"), "---\nname: demo\n---\n任务指令 AGENTSECRET-1\n");
+
+    // 直接打到 controller：确认拦截原因是名字规则本身（400），而不是 404 或清单缺失
+    IllegalArgumentException rejected =
+        assertThrows(IllegalArgumentException.class, () -> controller.detail("../agents/demo"));
+    assertTrue(rejected.getMessage().contains("非法知识库名"), rejected.getMessage());
+
+    // 裸 `..`/多段名的 HTTP 形态在路由层就没有映射（这里实测 NoHandlerFound；真实容器是 404），
+    // 到不了 requireBase。该断言只钉住「越界名永远不会被当成知识库响应」。
+    mvc.perform(get("/api/v1/knowledge/../agents/demo"))
+        .andExpect(
+            result -> assertNotEquals(200, result.getResponse().getStatus(), "越界名不得被当作知识库响应"));
+  }
+
+  @Test
+  @DisplayName("REST 入口：%2F 不参与段切分，穿越形态整串到达 requireBase → 400 且点名规则")
+  void requireBaseRejectsEncodedTraversalName() throws Exception {
+    // 编码斜杠不会把 path 变量切成多段：`..%2Fagents%2Fdemo` 作为一个名字到达 controller。
+    // 之前它落到「目录不存在」的 404，现在是确定的 400（名字规则）。
+    mvc.perform(get("/api/v1/knowledge/..%2Fagents%2Fdemo"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(containsString("非法知识库名")));
+  }
+
+  @Test
+  @DisplayName("REST 入口：kbName=\".\" → 400 且点名规则")
+  void requireBaseRejectsDotName() throws Exception {
+    mvc.perform(get("/api/v1/knowledge/."))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(containsString("非法知识库名")));
+  }
+
+  @Test
+  @DisplayName("REST 入口：库目录本身是根外软链 → 400，根外清单不被读取")
+  void requireBaseRejectsSymlinkedBaseDirectory() throws Exception {
+    Path outside = Files.createDirectories(root.resolve("outside-kb"));
+    Files.writeString(
+        outside.resolve("KNOWLEDGE.md"), "---\nname: escape\ndescription: 越界库\n---\n");
+    SymlinkAssumptions.createSymbolicLinkOrAssume(
+        kbRoot.resolve("escape"), Path.of("..", "outside-kb"));
+
+    mvc.perform(get("/api/v1/knowledge/escape"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(containsString("越界")));
+    assertTrue(Files.isRegularFile(outside.resolve("KNOWLEDGE.md")), "根外清单不得被改动");
   }
 }
