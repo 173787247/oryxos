@@ -57,6 +57,11 @@ public class PricingApiController {
         || req.model().isBlank()) {
       throw new IllegalArgumentException("provider 和 model 不能为空");
     }
+    // 写侧堵源头：负单价能存进来，代价就会算成负数（读侧 computeMicros 现在把它夹到 0），
+    // 但"存进来再夹平"意味着成本表与审计表各自解释同一个错配置——在入口拒绝。
+    // 0 允许（免费模型是合法配置），null 允许（该方向未定价）。
+    requireNonNegativePrice(req.promptPrice(), "promptPrice");
+    requireNonNegativePrice(req.completionPrice(), "completionPrice");
     if (repository.findByProviderAndModel(req.provider(), req.model()).isPresent()) {
       throw new IllegalArgumentException("模型定价已存在: " + req.provider() + "/" + req.model());
     }
@@ -71,6 +76,10 @@ public class PricingApiController {
   @PutMapping("/{id}")
   public ApiResponse<PricingView> update(
       @PathVariable Long id, @RequestBody UpdatePricingRequest req) {
+    if (req != null) {
+      requireNonNegativePrice(req.promptPrice(), "promptPrice");
+      requireNonNegativePrice(req.completionPrice(), "completionPrice");
+    }
     LlmPricing existing =
         repository.findById(id).orElseThrow(() -> new ResourceNotFoundException("模型定价不存在: " + id));
     if (req != null) {
@@ -79,6 +88,13 @@ public class PricingApiController {
       existing.bumpPriceVersion();
     }
     return ApiResponse.ok(PricingView.from(repository.save(existing)));
+  }
+
+  /** 单价非负校验：负价在入口拒绝，0 与 null 放行（免费模型 / 该方向未定价都是合法配置）。 */
+  private static void requireNonNegativePrice(Double price, String field) {
+    if (price != null && price < 0) {
+      throw new IllegalArgumentException(field + " 不能为负数: " + price);
+    }
   }
 
   @DeleteMapping("/{id}")

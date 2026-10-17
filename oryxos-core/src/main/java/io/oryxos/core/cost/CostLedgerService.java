@@ -55,6 +55,7 @@ public final class CostLedgerService {
     if (!properties.isEnabled()) {
       return null;
     }
+    // 成本非负：provider 侧已在 computeMicros 夹平，这里再夹一次是防御（直接调本方法的路径仍可能传负数）。
     long llm = costMicros == null ? 0L : Math.max(0L, costMicros);
     return store.append(
         baseEntry(
@@ -270,10 +271,20 @@ public final class CostLedgerService {
     long ledgerTool = store.sumToolCostMicros(q);
     long audit = auditCosts.sumCostMicrosByTraceId(id);
     boolean matched = ledgerLlm == audit;
-    String detail =
-        matched
-            ? "ledger llm matches audit llm_calls"
-            : "mismatch ledgerLlm=" + ledgerLlm + " auditLlm=" + audit;
+    String detail;
+    if (matched) {
+      detail = "ledger llm matches audit llm_calls";
+    } else {
+      detail = "mismatch ledgerLlm=" + ledgerLlm + " auditLlm=" + audit;
+      if (audit < 0) {
+        // 负审计合计只可能来自夹平之前写入的行（负单价）或直接改库；账本对这类行记 0。
+        // 不写清楚的话，这条 mismatch 看起来像丢账，而实际是两个口径对同一个错配置的不同处理。
+        detail +=
+            "; audit total is negative (llm_calls holds a negative cost row: a negative unit price"
+                + " stored before prices were validated/clamped, or edited directly). The ledger"
+                + " floors such rows at 0, so the two totals differ by exactly that amount.";
+      }
+    }
     return new CostReconcileResult(id, ledgerLlm, ledgerTool, audit, matched, detail);
   }
 

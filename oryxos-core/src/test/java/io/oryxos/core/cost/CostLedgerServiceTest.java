@@ -130,6 +130,38 @@ class CostLedgerServiceTest {
   }
 
   @Test
+  @DisplayName("reconcile explains a negative audit total instead of looking like lost accounting")
+  void reconcileExplainsNegativeAuditTotal() {
+    try (TraceContext.Scope scope = TraceContext.open("run-neg")) {
+      // 负成本在账本侧被夹到 0；审计库里的历史行仍是负数（夹平之前写入的负单价）。
+      service.recordLlm("s", "a", "p", "m", new Usage(1, 1, 2), -500L, 1L, 1);
+    }
+    auditMicros.set(-500L);
+
+    CostReconcileResult r = service.reconcile("run-neg");
+
+    assertFalse(r.matched());
+    assertEquals(0L, r.ledgerLlmCostMicros());
+    assertEquals(-500L, r.auditLlmCostMicros());
+    assertTrue(r.detail().contains("audit total is negative"), r.detail());
+  }
+
+  @Test
+  @DisplayName(
+      "reconcile leaves an ordinary positive mismatch unexplained by the negative-price hint")
+  void reconcileDoesNotExplainPositiveMismatch() {
+    try (TraceContext.Scope scope = TraceContext.open("run-pos")) {
+      service.recordLlm("s", "a", "p", "m", new Usage(1, 1, 2), 42L, 1L, 1);
+    }
+    auditMicros.set(50L);
+
+    CostReconcileResult r = service.reconcile("run-pos");
+
+    assertFalse(r.matched());
+    assertFalse(r.detail().contains("audit total is negative"), r.detail());
+  }
+
+  @Test
   @DisplayName("BudgetExceededException message surfaces rule detail")
   void blockReasonSurfaced() {
     CostProperties.BudgetRule rule = new CostProperties.BudgetRule();
