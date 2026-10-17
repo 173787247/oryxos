@@ -36,6 +36,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import reactor.core.publisher.Flux;
 
 /**
  * 预算闸点名的降级目标未注册：这是持久性配置错误，不是值得换家的瞬时故障。
@@ -146,6 +147,54 @@ class ProviderDegradeTargetMissTest {
     // 证明上面「不新增账本行」不是接线没通：降级目标被真正调用并记了成功审计
     verify(primary, never()).call(any(Prompt.class));
     verify(backup, never()).call(any(Prompt.class));
+    assertThat(delegate.calls).hasSize(1);
+    RecordedCall row = delegate.calls.get(0);
+    assertThat(row.provider()).isEqualTo(DEGRADE_PROVIDER);
+    assertThat(row.model()).isEqualTo(DEGRADE_MODEL);
+    assertThat(row.success()).isTrue();
+    assertThat(store.all()).hasSize(2);
+  }
+
+  /** 流式路径与 chat 同形：闸点名的目标未注册时，同样要留一行审计、同样不换家。 */
+  @Test
+  void 流式降级目标未注册_同样补记一条失败审计且不切备用() {
+    spendBudgetToLimit();
+
+    assertThatThrownBy(
+            () -> service.chatStream(SESSION, profileWithBackup(), request(), token -> {}))
+        .isInstanceOf(ProviderNotFoundException.class)
+        .hasMessageContaining(DEGRADE_PROVIDER);
+
+    verify(primary, never()).stream(any(Prompt.class));
+    verify(backup, never()).stream(any(Prompt.class));
+    verify(backup, never()).call(any(Prompt.class));
+    assertThat(metrics.switches).isEmpty();
+
+    assertThat(delegate.calls).hasSize(1);
+    RecordedCall row = delegate.calls.get(0);
+    assertThat(row.provider()).isEqualTo(DEGRADE_PROVIDER);
+    assertThat(row.model()).isEqualTo(DEGRADE_MODEL);
+    assertThat(row.success()).isFalse();
+    assertThat(row.usage()).isNull();
+    assertThat(row.costMicros()).isNull();
+    assertThat(row.errorMessage()).contains(DEGRADE_PROVIDER);
+    assertThat(row.durationMs()).isLessThan(1000L);
+    assertThat(store.all()).hasSize(1);
+  }
+
+  @Test
+  void 对照_流式降级目标已注册_正常降级() {
+    spendBudgetToLimit();
+    when(registry.find(DEGRADE_PROVIDER))
+        .thenReturn(Optional.of(new ProviderDef(DEGRADE_PROVIDER, "key", "https://c", null)));
+    when(cheap.stream(any(Prompt.class))).thenReturn(Flux.just(reply("cheap "), reply("ok")));
+
+    ProviderResponse response =
+        service.chatStream(SESSION, profileWithBackup(), request(), token -> {});
+
+    assertThat(response.text()).isEqualTo("cheap ok");
+    verify(primary, never()).stream(any(Prompt.class));
+    verify(backup, never()).stream(any(Prompt.class));
     assertThat(delegate.calls).hasSize(1);
     RecordedCall row = delegate.calls.get(0);
     assertThat(row.provider()).isEqualTo(DEGRADE_PROVIDER);
