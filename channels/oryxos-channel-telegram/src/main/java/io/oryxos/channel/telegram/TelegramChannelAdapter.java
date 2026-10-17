@@ -15,7 +15,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,6 +67,7 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
   private final String apiBase;
   private final int pollTimeoutSeconds;
   private final Duration httpTimeout;
+  private final Supplier<HttpClient> httpClientFactory;
   private static final String MEDIA_DIR_PREFIX = "telegram";
 
   private volatile TelegramEventNormalizer normalizer;
@@ -93,6 +96,25 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
       OutboundGuard guard,
       Path workspaceRoot,
       String apiBase) {
+    this(
+        config,
+        profileRegistry,
+        inboundMessageService,
+        guard,
+        workspaceRoot,
+        apiBase,
+        TelegramChannelAdapter::newHttpClient);
+  }
+
+  /** 单测缝：注入 HttpClient 工厂，验证复用与 stop() 释放。 */
+  TelegramChannelAdapter(
+      ChannelConfig config,
+      ProfileRegistry profileRegistry,
+      InboundMessageService inboundMessageService,
+      OutboundGuard guard,
+      Path workspaceRoot,
+      String apiBase,
+      Supplier<HttpClient> httpClientFactory) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
@@ -101,6 +123,12 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
     this.apiBase = apiBase;
     this.pollTimeoutSeconds = resolvePollTimeoutSeconds(config);
     this.httpTimeout = Duration.ofSeconds(pollTimeoutSeconds + HTTP_TIMEOUT_MARGIN_SECONDS);
+    this.httpClientFactory = Objects.requireNonNull(httpClientFactory, "httpClientFactory");
+  }
+
+  /** 长连接用的 HttpClient（selector 线程 + 连接池随适配器存活）：懒创建、跨 start 复用，释放见 stop()。 */
+  static HttpClient newHttpClient() {
+    return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
   }
 
   /**
@@ -165,13 +193,21 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
     guard.check(probe);
     running = true;
     offset = 0;
-    http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
-    normalizer = new TelegramEventNormalizer(config.name(), config.appSecret());
-    sender = new TelegramMessageSender(guard, apiBase, config.appId());
-    pollThread = Thread.ofVirtual().name("oryxos-telegram-" + config.name()).start(this::pollLoop);
-    state = ChannelStatus.State.CONNECTED;
-    lastError = null;
-    LOG.info("Telegram 渠道 {} 长轮询已启动（Agent: {}）", sanitize(config.name()), sanitize(config.agent()));
+    http = httpClient();
+    try {
+      normalizer = new TelegramEventNormalizer(config.name(), config.appSecret());
+      sender = new TelegramMessageSender(guard, apiBase, config.appId());
+      pollThread =
+          Thread.ofVirtual().name("oryxos-telegram-" + config.name()).start(this::pollLoop);
+      state = ChannelStatus.State.CONNECTED;
+      lastError = null;
+      LOG.info(
+          "Telegram 渠道 {} 长轮询已启动（Agent: {}）", sanitize(config.name()), sanitize(config.agent()));
+    } catch (RuntimeException e) {
+      running = false;
+      releaseHttpClient(); // 先释放再抛：admin 丢弃适配器时不会调 stop()
+      throw e;
+    }
   }
 
   @Override
@@ -182,7 +218,34 @@ public class TelegramChannelAdapter implements InboundChannelAdapter {
       t.interrupt();
       pollThread = null;
     }
+    releaseHttpClient();
     state = ChannelStatus.State.DISCONNECTED;
+  }
+
+  /**
+   * 长轮询共用的 HttpClient：懒创建、跨 start 复用。HttpClient 自带连接池与 selector 线程，每次 start 新建而不释放会在渠道反复启停时累积泄漏直到
+   * GC。
+   */
+  HttpClient httpClient() {
+    HttpClient current = http;
+    if (current != null) {
+      return current;
+    }
+    synchronized (this) {
+      if (http == null) {
+        http = httpClientFactory.get();
+      }
+      return http;
+    }
+  }
+
+  /** 释放 selector 线程与连接池：{@code stop()} 与启动失败路径各调一次，幂等；{@code shutdownNow()} 不 join。 */
+  private void releaseHttpClient() {
+    HttpClient client = http;
+    http = null;
+    if (client != null) {
+      client.shutdownNow(); // 不关会泄漏至 GC（渠道反复启停时累积）
+    }
   }
 
   @Override

@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +58,8 @@ class WeComWsClient implements WebSocket.Listener {
   /** 承载 WebSocket 的 HttpClient：持有 selector 线程，连接生命周期内必须存活、关闭时必须释放。 */
   private volatile HttpClient httpClient;
 
+  private final Supplier<HttpClient> httpClientFactory;
+
   private ScheduledExecutorService heartbeat;
   private ScheduledFuture<?> heartbeatTask;
 
@@ -66,48 +69,82 @@ class WeComWsClient implements WebSocket.Listener {
       String wsUrl,
       Consumer<JsonNode> onFrame,
       Runnable onDisconnected) {
+    this(botId, secret, wsUrl, onFrame, onDisconnected, WeComWsClient::newHttpClient);
+  }
+
+  /** 单测缝：注入 HttpClient 工厂，让「持有但不触网」的客户端可测（连接仍由 connectAndSubscribe 建立）。 */
+  WeComWsClient(
+      String botId,
+      String secret,
+      String wsUrl,
+      Consumer<JsonNode> onFrame,
+      Runnable onDisconnected,
+      Supplier<HttpClient> httpClientFactory) {
     this.botId = Objects.requireNonNull(botId);
     this.secret = Objects.requireNonNull(secret);
     this.wsUrl = wsUrl == null || wsUrl.isBlank() ? DEFAULT_WS_URL : wsUrl;
     this.onFrame = Objects.requireNonNull(onFrame);
     this.onDisconnected = onDisconnected == null ? () -> {} : onDisconnected;
+    this.httpClientFactory = Objects.requireNonNull(httpClientFactory, "httpClientFactory");
+  }
+
+  /** 长连接用的 HttpClient（selector 线程 + 连接池随连接存活）：本客户端持有，closeQuietly() 释放。 */
+  static HttpClient newHttpClient() {
+    return HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+  }
+
+  /** 懒创建：适配器/测试都不需要为了拿引用而先真的连一次。 */
+  HttpClient httpClient() {
+    HttpClient current = httpClient;
+    if (current != null) {
+      return current;
+    }
+    synchronized (this) {
+      if (httpClient == null) {
+        httpClient = httpClientFactory.get();
+      }
+      return httpClient;
+    }
   }
 
   void connectAndSubscribe(Duration timeout) throws Exception {
     closed.set(false);
-    HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
-    httpClient = client;
-    CompletableFuture<WebSocket> future =
-        client
-            .newWebSocketBuilder()
-            .connectTimeout(CONNECT_TIMEOUT)
-            .buildAsync(URI.create(wsUrl), this);
-    WebSocket ws;
+    HttpClient client = httpClient();
+    boolean established = false;
     try {
-      ws = future.get(timeout.toSeconds(), TimeUnit.SECONDS);
-    } catch (java.util.concurrent.TimeoutException e) {
-      // 不取消的话迟到连接会变幽灵：onOpen 照发订阅且可能成功，但无人持有引用
-      future.cancel(true);
-      closeQuietly();
-      throw e;
-    } catch (InterruptedException e) {
-      future.cancel(true);
-      closeQuietly();
-      Thread.currentThread().interrupt();
-      throw e;
-    }
-    socket.set(ws);
-    if (!subscribeLatch.await(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-      closeQuietly();
-      throw new IllegalStateException("企微长连接订阅超时（未收到 " + CMD_AIBOT_SUBSCRIBE + " 回执）");
-    }
-    if (subscribeError != null) {
-      closeQuietly();
-      throw new IllegalStateException("企微长连接订阅失败: " + subscribeError);
-    }
-    if (!subscribed.get()) {
-      closeQuietly();
-      throw new IllegalStateException("企微长连接订阅失败（未知原因）");
+      CompletableFuture<WebSocket> future =
+          client
+              .newWebSocketBuilder()
+              .connectTimeout(CONNECT_TIMEOUT)
+              .buildAsync(URI.create(wsUrl), this);
+      WebSocket ws;
+      try {
+        ws = future.get(timeout.toSeconds(), TimeUnit.SECONDS);
+      } catch (java.util.concurrent.TimeoutException e) {
+        // 不取消的话迟到连接会变幽灵：onOpen 照发订阅且可能成功，但无人持有引用
+        future.cancel(true);
+        throw e;
+      } catch (InterruptedException e) {
+        future.cancel(true);
+        Thread.currentThread().interrupt();
+        throw e;
+      }
+      socket.set(ws);
+      if (!subscribeLatch.await(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+        throw new IllegalStateException("企微长连接订阅超时（未收到 " + CMD_AIBOT_SUBSCRIBE + " 回执）");
+      }
+      if (subscribeError != null) {
+        throw new IllegalStateException("企微长连接订阅失败: " + subscribeError);
+      }
+      if (!subscribed.get()) {
+        throw new IllegalStateException("企微长连接订阅失败（未知原因）");
+      }
+      established = true;
+    } finally {
+      if (!established) {
+        // 建连失败（含 DNS/TLS/订阅超时）：适配器会丢弃这个客户端且不调 stop()，selector 线程必须在这里释放
+        closeQuietly();
+      }
     }
   }
 
