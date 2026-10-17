@@ -1,8 +1,5 @@
 package io.oryxos.web.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentRunEvent;
 import io.oryxos.core.agent.AgentRunEventHub;
@@ -43,19 +40,16 @@ public class AgentRunStreamController {
   private final AgentRunEventStore eventStore;
   private final AgentRunEventHub eventHub;
   private final ExecutorService executor;
-  private final ObjectMapper objectMapper;
 
   public AgentRunStreamController(
       AgentExecutionService executionService,
       AgentRunEventStore eventStore,
       AgentRunEventHub eventHub,
-      @Qualifier("agentRunStreamExecutor") ExecutorService agentRunStreamExecutor,
-      ObjectMapper objectMapper) {
+      @Qualifier("agentRunStreamExecutor") ExecutorService agentRunStreamExecutor) {
     this.executionService = executionService;
     this.eventStore = eventStore;
     this.eventHub = eventHub;
     this.executor = agentRunStreamExecutor;
-    this.objectMapper = objectMapper;
   }
 
   @GetMapping(value = "/{runId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -151,19 +145,11 @@ public class AgentRunStreamController {
   }
 
   private void send(SseEmitter emitter, AgentRunEvent event) throws IOException {
-    AgentRunEventView view = AgentRunEventView.from(event, parsePayload(event.payloadJson()));
+    AgentRunEventView view = AgentRunEventView.from(event);
     emitter.send(
         SseEmitter.event()
             .id(String.valueOf(event.sequence()))
             .name(event.type())
             .data(view, MediaType.APPLICATION_JSON));
-  }
-
-  private JsonNode parsePayload(String json) {
-    try {
-      return objectMapper.readTree(json == null || json.isBlank() ? "{}" : json);
-    } catch (JsonProcessingException e) {
-      return objectMapper.createObjectNode();
-    }
   }
 }

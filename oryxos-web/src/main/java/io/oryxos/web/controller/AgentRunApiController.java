@@ -1,8 +1,5 @@
 package io.oryxos.web.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.agent.AgentExecution;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentRunEvent;
@@ -56,7 +53,6 @@ public class AgentRunApiController {
   private final AgentService agentService;
   private final SessionManager sessionManager;
   private final ProfileRegistry profileRegistry;
-  private final ObjectMapper objectMapper;
 
   /** 503：开跑前 decide + 异步线程装回 Principal；可空以便单测直构。 */
   private RuntimeAgentGuard runtimeAgentGuard;
@@ -66,14 +62,12 @@ public class AgentRunApiController {
       AgentRunEventStore eventStore,
       AgentService agentService,
       SessionManager sessionManager,
-      ProfileRegistry profileRegistry,
-      ObjectMapper objectMapper) {
+      ProfileRegistry profileRegistry) {
     this.executionService = executionService;
     this.eventStore = eventStore;
     this.agentService = agentService;
     this.sessionManager = sessionManager;
     this.profileRegistry = profileRegistry;
-    this.objectMapper = objectMapper;
   }
 
   @Autowired(required = false)
@@ -163,15 +157,7 @@ public class AgentRunApiController {
   }
 
   private AgentRunEventView toEventView(AgentRunEvent event) {
-    return AgentRunEventView.from(event, parsePayload(event.payloadJson()));
-  }
-
-  private JsonNode parsePayload(String json) {
-    try {
-      return objectMapper.readTree(json == null || json.isBlank() ? "{}" : json);
-    } catch (JsonProcessingException e) {
-      return objectMapper.createObjectNode();
-    }
+    return AgentRunEventView.from(event);
   }
 
   private AgentExecution requireRun(long runId) {

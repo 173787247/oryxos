@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.agent.AgentExecution;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentRunEvent;
@@ -65,12 +64,7 @@ class AgentRunApiControllerTest {
     mvc =
         MockMvcBuilders.standaloneSetup(
                 new AgentRunApiController(
-                    executions,
-                    events,
-                    mock(AgentService.class),
-                    sessions,
-                    registry,
-                    new ObjectMapper()))
+                    executions, events, mock(AgentService.class), sessions, registry))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
   }
