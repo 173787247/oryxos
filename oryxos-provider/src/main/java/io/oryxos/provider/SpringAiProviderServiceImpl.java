@@ -147,6 +147,7 @@ public class SpringAiProviderServiceImpl implements ProviderService {
       if (def == null) {
         continue; // 备用候选未注册：WARN 已记，跳过不落审计（FR-008）
       }
+      long gateStartedAt = System.currentTimeMillis();
       try {
         Attempt gated = applyBudgetGate(profile, attempt);
         if (gated != attempt) {
@@ -159,6 +160,9 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         }
         return chatOnce(sessionId, profile, request, attempt, def);
       } catch (BudgetExceededException e) {
+        // 预算闸在调用前拒绝，不会走到 chatOnce 的 recordFailure：不在这里补记，审计、失败指标与
+        // LLM span 会一起为零（宪法 V）。durationMs 只含闸检查耗时——真实调用没有发生。
+        recordFailure(sessionId, profile, attempt, e, gateStartedAt);
         throw e;
       } catch (RuntimeException e) {
         last = e;
