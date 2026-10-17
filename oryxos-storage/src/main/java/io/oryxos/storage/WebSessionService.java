@@ -10,7 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 浏览器登录 session 管理（012-web-auth US3）：创建/查询有效 session/登出/过期判定。
  *
  * <p>session id 用 {@link UUID#randomUUID()}（不可预测）。过期时间 = 创建时间 + sessionTtl（由构造注入的 {@link
- * Duration}，从 {@code WebAuthProperties.sessionTtl} 读，但本类不引 oryxos-web 类避免 storage→web 反向依赖）。
+ * Duration}，装配处 {@code OryxOsRuntime.webSessionService} 从 {@code oryxos.web.auth.session-ttl:12h}
+ * 解析； 本类不引 oryxos-web 类，避免 storage→web 反向依赖）。
  *
  * <p>惰性清过期行：{@link #findValid(String)} 查到过期行时顺手 {@code delete}（无后台定时线程）。
  *
