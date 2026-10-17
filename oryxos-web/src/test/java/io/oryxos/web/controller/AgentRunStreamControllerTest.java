@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.agent.AgentExecution;
 import io.oryxos.core.agent.AgentExecutionService;
 import io.oryxos.core.agent.AgentRunEvent;
@@ -55,8 +54,7 @@ class AgentRunStreamControllerTest {
     DeferredExecutor executor = new DeferredExecutor();
     MockMvc mvc =
         MockMvcBuilders.standaloneSetup(
-                new AgentRunStreamController(
-                    executions, store, new AgentRunEventHub(), executor, new ObjectMapper()))
+                new AgentRunStreamController(executions, store, new AgentRunEventHub(), executor))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
@@ -98,8 +96,7 @@ class AgentRunStreamControllerTest {
     DeferredExecutor executor = new DeferredExecutor();
     MockMvc mvc =
         MockMvcBuilders.standaloneSetup(
-                new AgentRunStreamController(
-                    executions, store, new AgentRunEventHub(), executor, new ObjectMapper()))
+                new AgentRunStreamController(executions, store, new AgentRunEventHub(), executor))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
