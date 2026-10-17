@@ -280,24 +280,10 @@ public class JpaCoordinationStore implements CoordinationStore {
 
   /**
    * 约束违规判定：PG 经 Spring 翻译为 DataIntegrityViolationException；SQLite community 方言把 SQLITE_CONSTRAINT
-   * 包成 JpaSystemException（翻译缺口，契约测试实证）——按 cause 链 SQLState 23xxx 或 SQLITE_CONSTRAINT
-   * 标识兜底。非约束违规的异常原样上抛（绝不吞真错误）。
+   * 包成 JpaSystemException（翻译缺口，契约测试实证）。识别逻辑已收敛到 {@link ConstraintViolations}， 与沙箱白名单的幂等写入共用同一份 ——
+   * 判定只放一处。非约束违规的异常原样上抛（绝不吞真错误）。
    */
   private static void rethrowUnlessConstraintViolation(DataAccessException e) {
-    for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-      if (cause instanceof org.springframework.dao.DataIntegrityViolationException
-          || cause instanceof org.hibernate.exception.ConstraintViolationException) {
-        return;
-      }
-      if (cause instanceof java.sql.SQLException sql) {
-        String state = sql.getSQLState();
-        boolean integrityState = state != null && state.startsWith("23");
-        boolean sqliteConstraint = String.valueOf(sql.getMessage()).contains("SQLITE_CONSTRAINT");
-        if (integrityState || sqliteConstraint) {
-          return;
-        }
-      }
-    }
-    throw e;
+    ConstraintViolations.rethrowUnlessConstraintViolation(e);
   }
 }
