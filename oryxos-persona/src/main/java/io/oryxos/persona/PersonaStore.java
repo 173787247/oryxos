@@ -10,6 +10,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 自定义人格库的文件读写，限定在 {@code .oryxos/personas/} 内（025「人格库」阶段二落地）。
@@ -20,6 +22,8 @@ import java.util.stream.Stream;
  * <p>key 必须是安全文件名段（只允许字母/数字/下划线/连字符，防路径穿越），与 {@code AgentStore}/{@code SkillStore} 同口径。
  */
 public class PersonaStore {
+
+  private static final Logger LOG = LoggerFactory.getLogger(PersonaStore.class);
 
   private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9_-]+");
   private static final String PERSONA_DIR = "personas";
@@ -85,7 +89,7 @@ public class PersonaStore {
     }
   }
 
-  /** 扫 {@code personas/*.md} 返回全部自定义 key（= 文件名 stem，字典序）。 */
+  /** 扫 {@code personas/*.md} 返回全部自定义 key（= 文件名 stem，字典序）；文件名不合规的跳过并 WARN。 */
   public List<String> list() {
     if (!Files.isDirectory(personasDir)) {
       return List.of();
@@ -95,11 +99,30 @@ public class PersonaStore {
           .filter(Files::isRegularFile)
           .map(PersonaStore::stem)
           .filter(name -> name != null && !name.isEmpty())
+          .filter(PersonaStore::listableKey)
           .sorted()
           .toList();
     } catch (IOException e) {
       throw new UncheckedIOException("扫描自定义人格目录失败", e);
     }
+  }
+
+  /**
+   * 目录里的文件名不归本类管：{@code .oryxos/personas/} 是用户可以手工碰的工作区目录，放一个 {@code 团队评审.md} 或 {@code my
+   * persona.md} 不会经过 {@link #safe}。列出时跳过它 —— 否则 {@code PersonaService.list()} 会为这个 key 调 {@link
+   * #read} → {@link #safe} 直接抛，整份名单（含 12 个内置人格）一起读不出来。
+   */
+  private static boolean listableKey(String key) {
+    if (SAFE_NAME.matcher(key).matches()) {
+      return true;
+    }
+    LOG.warn("跳过文件名不合规的自定义人格（只允许字母/数字/下划线/连字符）: {}", sanitizeForLog(key));
+    return false;
+  }
+
+  /** 日志里的用户可控字符串：消去 CR/LF，避免伪造日志行。 */
+  static String sanitizeForLog(String value) {
+    return value == null ? "<null>" : value.replace('\r', '_').replace('\n', '_');
   }
 
   private Path file(String key) {

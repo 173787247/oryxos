@@ -118,4 +118,33 @@ class PersonaServiceTest {
     s.create("team-reviewer", CUSTOM_MD);
     assertEquals(CUSTOM_MD, s.source("team-reviewer").orElse(""));
   }
+
+  @Test
+  @DisplayName("合并列表：单个读不出来的自定义人格不让整份名单（含内置）消失")
+  void listSkipsBrokenCustomPersona() throws Exception {
+    PersonaService s = service();
+    s.create("good-one", CUSTOM_MD);
+
+    Path dir = root.resolve("personas");
+    // 超过 10 MiB 上限：read() 抛 IllegalStateException —— 以前整份名单跟着 500
+    Path huge = dir.resolve("huge.md");
+    java.nio.file.Files.writeString(huge, "x");
+    try (var out =
+        java.nio.file.Files.newOutputStream(huge, java.nio.file.StandardOpenOption.APPEND)) {
+      byte[] chunk = new byte[1024 * 1024];
+      long written = java.nio.file.Files.size(huge);
+      while (written <= PersonaStore.MAX_PERSONA_FILE_BYTES) {
+        out.write(chunk);
+        written += chunk.length;
+      }
+    }
+    // 文件名不合规：store.list() 就该跳过（另一条用例钉住），这里确认它也不拖垮合并
+    java.nio.file.Files.writeString(dir.resolve("团队评审.md"), "---\nname: 坏\n---\n正文");
+
+    List<PersonaEntry> entries = s.list();
+
+    assertTrue(entries.stream().anyMatch(e -> e.key().equals("good-one")), "好的自定义人格仍在");
+    assertTrue(entries.stream().anyMatch(PersonaEntry::builtin), "内置人格仍在");
+    assertFalse(entries.stream().anyMatch(e -> e.key().equals("huge")), "坏的那个不出现");
+  }
 }

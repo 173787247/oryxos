@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 人格库编排（025阶段二落地）：只读内置（classpath，随 jar 升级自动更新）+ 可 CRUD 自定义（{@code .oryxos/personas/}，
@@ -21,6 +23,8 @@ import java.util.Optional;
     value = "EI_EXPOSE_REP2",
     justification = "catalog/store 均为 Spring 注入的共享单例，构造注入共享同一引用正是意图（无法也不应防御性拷贝）。")
 public class PersonaService {
+
+  private static final Logger LOG = LoggerFactory.getLogger(PersonaService.class);
 
   private final PersonaPresetCatalog builtins;
   private final PersonaStore store;
@@ -56,7 +60,16 @@ public class PersonaService {
       merged.put(p.key(), entryOf(p));
     }
     for (String key : store.list()) {
-      merged.put(key, customEntry(key));
+      try {
+        merged.put(key, customEntry(key));
+      } catch (RuntimeException broken) {
+        // 单个自定义人格坏掉（超过 10 MiB 上限、读失败、列出后被删）不该让整份名单消失：内置与其余自定义照常返回，
+        // 坏的跳过并 WARN。否则 /api/v1/personas 直接 500，用户连"哪个人格坏了"都看不到。
+        LOG.warn(
+            "跳过读不出来的自定义人格 {}: {}",
+            PersonaStore.sanitizeForLog(key),
+            PersonaStore.sanitizeForLog(broken.getMessage()));
+      }
     }
     return List.copyOf(merged.values());
   }

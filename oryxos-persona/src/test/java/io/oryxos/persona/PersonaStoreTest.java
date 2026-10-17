@@ -110,4 +110,19 @@ class PersonaStoreTest {
         assertThrows(IllegalStateException.class, () -> store.read("planted"));
     assertTrue(readEx.getMessage().contains("10 MiB"));
   }
+
+  @Test
+  @DisplayName("列：文件名不合规的跳过（工作区目录是手工可碰的）")
+  void listSkipsFileNamesThatAreNotKeys() throws Exception {
+    PersonaStore store = store();
+    store.write("ok-one", "---\nname: 正常\n---\n正文");
+
+    // 手工放进 .oryxos/personas/ 的文件不经过 safe()：列出时必须跳过 —— 否则
+    // PersonaService.list() 会为它调 read → safe 直接抛，整份名单连 12 个内置一起读不出来
+    Path dir = root.resolve("personas");
+    Files.writeString(dir.resolve("团队评审.md"), "---\nname: 坏\n---\n正文");
+    Files.writeString(dir.resolve("my persona.md"), "---\nname: 坏\n---\n正文");
+
+    assertEquals(List.of("ok-one"), store.list());
+  }
 }
