@@ -10,8 +10,10 @@ import io.oryxos.core.channel.InboundMessage;
 import io.oryxos.core.channel.InboundMessageService;
 import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -19,6 +21,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +51,10 @@ public class QqChannelAdapter implements InboundChannelAdapter {
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
   private final Path workspaceRoot;
+  private final Supplier<HttpClient> httpClientFactory;
+
+  /** 长连接共用的 HttpClient：懒创建、跨重连复用；释放见 {@link #releaseHttpClient()}。 */
+  private volatile HttpClient httpClient;
 
   private final AtomicReference<QqGatewayClient> gatewayRef = new AtomicReference<>();
   private volatile QqAccessTokenClient tokens;
@@ -71,11 +78,31 @@ public class QqChannelAdapter implements InboundChannelAdapter {
       InboundMessageService inboundMessageService,
       OutboundGuard guard,
       Path workspaceRoot) {
+    this(
+        config,
+        profileRegistry,
+        inboundMessageService,
+        guard,
+        workspaceRoot,
+        QqGatewayClient::newHttpClient);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "协作者均为 Runtime 装配的单例，共享引用正是意图")
+  QqChannelAdapter(
+      ChannelConfig config,
+      ProfileRegistry profileRegistry,
+      InboundMessageService inboundMessageService,
+      OutboundGuard guard,
+      Path workspaceRoot,
+      Supplier<HttpClient> httpClientFactory) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
     this.workspaceRoot = workspaceRoot;
+    this.httpClientFactory = Objects.requireNonNull(httpClientFactory, "httpClientFactory");
   }
 
   @Override
@@ -114,6 +141,7 @@ public class QqChannelAdapter implements InboundChannelAdapter {
     } catch (Exception e) {
       running = false;
       shutdownReconnectSchedulerLocked();
+      releaseHttpClient(); // 先释放再抛：admin 丢弃适配器时不会调 stop()
       state = ChannelStatus.State.ERROR;
       lastError = "Gateway 连接失败: " + sanitize(e.getMessage());
       throw new IllegalStateException("渠道 " + config.name() + " " + lastError, e);
@@ -129,11 +157,38 @@ public class QqChannelAdapter implements InboundChannelAdapter {
     if (gateway != null) {
       gateway.closeQuietly();
     }
+    releaseHttpClient();
     sender = null;
     normalizer = null;
     mediaResolver = null;
     tokens = null;
     state = ChannelStatus.State.DISCONNECTED;
+  }
+
+  /**
+   * 长连接共用的 HttpClient：懒创建、跨重连复用。HttpClient 自带连接池与 selector 线程，按连接新建 会在重连风暴下累积泄漏直到 GC——这里一个渠道一个，重连只换
+   * WebSocket 不换它。
+   */
+  HttpClient httpClient() {
+    HttpClient current = httpClient;
+    if (current != null) {
+      return current;
+    }
+    synchronized (this) {
+      if (httpClient == null) {
+        httpClient = httpClientFactory.get();
+      }
+      return httpClient;
+    }
+  }
+
+  /** 释放 selector 线程与连接池：{@code stop()} 与启动失败路径各调一次，幂等；{@code shutdownNow()} 不 join。 */
+  private void releaseHttpClient() {
+    HttpClient client = httpClient;
+    httpClient = null;
+    if (client != null) {
+      client.shutdownNow(); // 不关会泄漏至 GC（重连风暴下累积）
+    }
   }
 
   @Override
@@ -171,7 +226,7 @@ public class QqChannelAdapter implements InboundChannelAdapter {
     ensureOutboundStack();
     QqGatewayClient client =
         new QqGatewayClient(tokens, guard, this::handleDispatch, this::handleDisconnected);
-    client.connect(START_TIMEOUT);
+    client.connect(httpClient(), START_TIMEOUT);
     return client;
   }
 
@@ -257,6 +312,7 @@ public class QqChannelAdapter implements InboundChannelAdapter {
     synchronized (this) {
       if (!running) {
         client.closeQuietly();
+        releaseHttpClient(); // stop() 已释放过则为 no-op；这里收掉竞态新建的实例
         return;
       }
       gatewayRef.set(client);

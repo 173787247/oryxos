@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.oryxos.core.channel.StubHttpClient;
 import io.oryxos.core.channel.StubWebSocket;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -16,8 +17,9 @@ import org.junit.jupiter.api.Test;
 /**
  * 钉住 Gateway 的协议处理：Hello → Identify、Dispatch 分发、以及断开的分类。
  *
- * <p>连接建立那段没有可注入的接缝（客户端在方法内部自建 {@code HttpClient}），但协议处理全在 {@code WebSocket.Listener} 的回调里，而回调接收一个
- * {@link java.net.http.WebSocket} 参数 —— 喂一个 {@link StubWebSocket} 就能驱动它，不必改产品代码。
+ * <p>连接建立由调用方注入 {@code HttpClient}（见 {@code DiscordHttpClientLifecycleTest}），协议处理全在 {@code
+ * WebSocket.Listener} 的回调里，而回调接收一个 {@link java.net.http.WebSocket} 参数 —— 喂一个 {@link StubWebSocket}
+ * 就能驱动它。
  *
  * <p>不测心跳的定时行为（那要等真实时间），只测 Hello 之后**是否**发了 Identify、以及帧的解析与分发。
  */
@@ -199,7 +201,8 @@ class DiscordGatewayClientTest {
         new DiscordGatewayClient(TOKEN, guarded::add, (type, payload) -> {}, kind -> {});
 
     try {
-      client.connect(Duration.ofMillis(200));
+      // 不触网：stub 的 newWebSocketBuilder 直接抛 UnsupportedOperationException（默认实现）
+      client.connect(StubHttpClient.always(500, "{}"), Duration.ofMillis(200));
     } catch (Exception ignored) {
       // 没有真网关，connect 必然失败；这里只关心它在连接前过了哪些闸
     }

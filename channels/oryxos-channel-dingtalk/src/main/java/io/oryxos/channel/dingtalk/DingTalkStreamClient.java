@@ -71,12 +71,18 @@ class DingTalkStreamClient implements WebSocket.Listener {
     this.onDisconnected = onDisconnected == null ? kind -> {} : onDisconnected;
   }
 
-  void connect(Duration timeout) throws Exception {
+  /**
+   * 长连接用的 HttpClient（selector 线程 + 连接池随长连接存活）：由装配层持有并负责释放， 客户端自己不创建也不 shutdown——每次重连新建一个会在重连风暴下累积。
+   */
+  static HttpClient newHttpClient() {
+    return HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+  }
+
+  void connect(HttpClient client, Duration timeout) throws Exception {
     closed.set(false);
     disconnectNotified.set(false);
     guard.check(API_BASE_URL);
-    URI wsUri = openWebSocketUri();
-    HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+    URI wsUri = openWebSocketUri(client);
     CompletableFuture<WebSocket> future =
         client.newWebSocketBuilder().connectTimeout(CONNECT_TIMEOUT).buildAsync(wsUri, this);
     WebSocket ws = future.get(timeout.toSeconds(), TimeUnit.SECONDS);
@@ -263,7 +269,7 @@ class DingTalkStreamClient implements WebSocket.Listener {
     }
   }
 
-  private URI openWebSocketUri() throws Exception {
+  private URI openWebSocketUri(HttpClient client) throws Exception {
     ObjectNode subscription = MAPPER.createObjectNode();
     subscription.put("topic", TOPIC_BOT_MESSAGE);
     subscription.put("type", "CALLBACK");
@@ -274,7 +280,6 @@ class DingTalkStreamClient implements WebSocket.Listener {
     body.put("clientSecret", clientSecret);
     body.set("subscriptions", subscriptions);
     body.put("ua", "oryxos-channel-dingtalk/0.1.7-RELEASE");
-    HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
     HttpRequest request =
         HttpRequest.newBuilder()
             .uri(URI.create(API_BASE_URL + OPEN_CONNECTION_PATH))
