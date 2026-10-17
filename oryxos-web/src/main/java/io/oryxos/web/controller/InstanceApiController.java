@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 副本可见性（026 FR-008）：GET /api/v1/instances——全部副本（id/代次/启动/最近心跳/存活判定， 距今 >3×TTL 判死）+
+ * 副本可见性（026 FR-008）：GET /api/v1/instances——全部副本（id/代次/启动/最近心跳/存活判定， 距最近心跳 >3×TTL 判死， 恰好 3×TTL 仍算活）+
  * 现役轮次持有（谁在处理哪个会话）。单机档返回空清单（零协调写）。
  */
 @RestController
@@ -43,7 +43,7 @@ public class InstanceApiController {
                         "epoch", i.epoch(),
                         "startedAt", i.startedAt(),
                         "lastHeartbeatAt", i.lastHeartbeatAt(),
-                        "alive", i.lastHeartbeatAt().isAfter(now.minus(deadAfter))))
+                        "alive", isAlive(i.lastHeartbeatAt(), now, deadAfter)))
             .toList();
     List<Map<String, Object>> activeTurns =
         store.activeTurnLeases().stream()
@@ -60,5 +60,13 @@ public class InstanceApiController {
             "clusterEnabled", cluster.isEnabled(),
             "instances", instances,
             "activeTurns", activeTurns));
+  }
+
+  /**
+   * 存活判定：距最近心跳 **大于** {@code deadAfter}（=3×TTL）才判死，恰好相等仍算活——与 {@code purgeExpired} 的删除条件同一边界（{@code
+   * last_heartbeat_at < now - 3×TTL} 才删）， 因此列表里标记为死的副本，恰好就是下一轮清理可以回收的那些行。
+   */
+  static boolean isAlive(Instant lastHeartbeatAt, Instant now, Duration deadAfter) {
+    return !lastHeartbeatAt.isBefore(now.minus(deadAfter));
   }
 }
