@@ -90,7 +90,14 @@ final class DiscordGatewayClient implements WebSocket.Listener {
     this.onDisconnected = onDisconnected == null ? kind -> {} : onDisconnected;
   }
 
-  void connect(Duration timeout) throws Exception {
+  /**
+   * 长连接用的 HttpClient（selector 线程 + 连接池随长连接存活）：由装配层持有并负责释放， 客户端自己不创建也不 shutdown——每次重连新建一个会在重连风暴下累积。
+   */
+  static HttpClient newHttpClient() {
+    return HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+  }
+
+  void connect(HttpClient client, Duration timeout) throws Exception {
     closed.set(false);
     disconnectNotified.set(false);
     identified.set(false);
@@ -99,7 +106,6 @@ final class DiscordGatewayClient implements WebSocket.Listener {
     guard.check(API_BASE_URL);
     guard.check(GATEWAY_ORIGIN_FOR_GUARD);
     URI wsUri = URI.create(GATEWAY_URL);
-    HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
     CompletableFuture<WebSocket> future =
         client.newWebSocketBuilder().connectTimeout(CONNECT_TIMEOUT).buildAsync(wsUri, this);
     WebSocket ws;

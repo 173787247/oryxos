@@ -82,18 +82,24 @@ final class SlackSocketClient implements WebSocket.Listener {
     this.onDisconnected = onDisconnected == null ? kind -> {} : onDisconnected;
   }
 
-  void connect(Duration timeout) throws Exception {
+  /**
+   * 长连接用的 HttpClient（selector 线程 + 连接池随长连接存活）：由装配层持有并负责释放， 客户端自己不创建也不 shutdown——每次重连新建一个会在重连风暴下累积。
+   */
+  static HttpClient newHttpClient() {
+    return HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+  }
+
+  void connect(HttpClient client, Duration timeout) throws Exception {
     closed.set(false);
     disconnectNotified.set(false);
     guard.check(API_BASE_URL);
-    URI wsUri = openWebSocketUri();
+    URI wsUri = openWebSocketUri(client);
     // 沙箱只认 http/https；WSS 主机用 https 伪 URL 过白名单（对齐钉钉：开连接 HTTPS 过闸，WS 端点来自平台响应）
     String host = wsUri.getHost();
     if (host == null || host.isBlank()) {
       throw new IllegalStateException("Slack Socket Mode URL 缺少主机名");
     }
     guard.check("https://" + host);
-    HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
     CompletableFuture<WebSocket> future =
         client.newWebSocketBuilder().connectTimeout(CONNECT_TIMEOUT).buildAsync(wsUri, this);
     WebSocket ws;
@@ -252,8 +258,7 @@ final class SlackSocketClient implements WebSocket.Listener {
     }
   }
 
-  private URI openWebSocketUri() throws Exception {
-    HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+  private URI openWebSocketUri(HttpClient client) throws Exception {
     HttpRequest request =
         HttpRequest.newBuilder()
             .uri(URI.create(API_BASE_URL + CONNECTIONS_OPEN_PATH))

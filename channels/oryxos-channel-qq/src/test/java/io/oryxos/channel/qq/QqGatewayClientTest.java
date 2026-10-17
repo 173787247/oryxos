@@ -26,7 +26,8 @@ import org.junit.jupiter.api.Test;
  *   <li>{@code intents} 是单个位（{@code 1 << 25}），不是 Discord 那种多标志位掩码
  * </ul>
  *
- * <p>连接建立没有可注入的接缝，但协议处理全在 {@code WebSocket.Listener} 回调里，喂一个 {@link StubWebSocket} 即可驱动。
+ * <p>连接建立由调用方注入 {@code HttpClient}（见 {@code QqHttpClientLifecycleTest}），协议处理全在 {@code
+ * WebSocket.Listener} 回调里，喂一个 {@link StubWebSocket} 即可驱动。
  */
 class QqGatewayClientTest {
 
@@ -227,7 +228,8 @@ class QqGatewayClientTest {
             kind -> {});
 
     try {
-      client.connect(Duration.ofMillis(200));
+      // 连接在第二个 guard 前就被拦下；传一个 stub 只为满足签名，不触网
+      client.connect(StubHttpClient.always(500, "{}"), Duration.ofMillis(200));
     } catch (Exception ignored) {
       // 期望走到第二次 guard 就停
     }
