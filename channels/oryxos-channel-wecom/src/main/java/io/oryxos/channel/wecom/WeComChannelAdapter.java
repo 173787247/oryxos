@@ -219,15 +219,22 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
     }
   }
 
-  private void handleDisconnected() {
+  // 包级可见：断线重连的释放语义需要能单测直接驱动（不依赖真实长连接断开）
+  void handleDisconnected() {
     boolean shouldReconnect;
+    WeComWsClient stale;
     synchronized (this) {
       if (!running || state == ChannelStatus.State.ERROR) {
         return;
       }
-      wsRef.set(null);
+      stale = wsRef.getAndSet(null);
       state = ChannelStatus.State.DISCONNECTED;
       shouldReconnect = true;
+    }
+    // 本类客户端自己持有 HttpClient：断线重连必经此路，不 close 旧客户端就每次重连漏一个 selector 线程。
+    // 放锁外：closeQuietly 最多限时 2s，别占着适配器监视器（对齐 #993 的关闭时序）。
+    if (stale != null) {
+      stale.closeQuietly();
     }
     if (shouldReconnect) {
       LOG.warn("企微渠道 {} 长连接断开，将自动重连", sanitize(config.name()));

@@ -21,8 +21,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +58,7 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
   private final InboundMessageService inboundMessageService;
   private final OutboundGuard guard;
   private final Path workspaceRoot;
+  private final Supplier<HttpClient> httpClientFactory;
 
   private volatile MatrixEventNormalizer normalizer;
   private volatile MatrixMessageSender sender;
@@ -76,11 +79,36 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
       InboundMessageService inboundMessageService,
       OutboundGuard guard,
       Path workspaceRoot) {
+    this(
+        config,
+        profileRegistry,
+        inboundMessageService,
+        guard,
+        workspaceRoot,
+        MatrixChannelAdapter::newHttpClient);
+  }
+
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "协作者均为 Runtime 装配的单例，共享引用正是意图")
+  MatrixChannelAdapter(
+      ChannelConfig config,
+      ProfileRegistry profileRegistry,
+      InboundMessageService inboundMessageService,
+      OutboundGuard guard,
+      Path workspaceRoot,
+      Supplier<HttpClient> httpClientFactory) {
     this.config = config;
     this.profileRegistry = profileRegistry;
     this.inboundMessageService = inboundMessageService;
     this.guard = guard;
     this.workspaceRoot = workspaceRoot;
+    this.httpClientFactory = Objects.requireNonNull(httpClientFactory, "httpClientFactory");
+  }
+
+  /** 长连接用的 HttpClient（selector 线程 + 连接池随适配器存活）：懒创建、跨 start 复用，释放见 stop()。 */
+  static HttpClient newHttpClient() {
+    return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
   }
 
   @Override
@@ -111,20 +139,26 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
     guard.check(config.extra(EXTRA_HOMESERVER));
     running = true;
     since = null;
-    http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
-    normalizer = new MatrixEventNormalizer(config.name(), config.appId());
-    sender = new MatrixMessageSender(guard, config.extra(EXTRA_HOMESERVER), config.appSecret());
-    mediaResolver =
-        new MatrixInboundMediaResolver(
-            guard,
-            config.extra(EXTRA_HOMESERVER),
-            config.appSecret(),
-            InboundMediaRoots.forChannel(workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
-            config.name());
-    directRooms = new MatrixDirectRooms();
-    seedDirectRooms();
-    pollThread = Thread.ofVirtual().name("oryxos-matrix-" + config.name()).start(this::syncLoop);
-    state = ChannelStatus.State.CONNECTED;
+    http = httpClient();
+    try {
+      normalizer = new MatrixEventNormalizer(config.name(), config.appId());
+      sender = new MatrixMessageSender(guard, config.extra(EXTRA_HOMESERVER), config.appSecret());
+      mediaResolver =
+          new MatrixInboundMediaResolver(
+              guard,
+              config.extra(EXTRA_HOMESERVER),
+              config.appSecret(),
+              InboundMediaRoots.forChannel(workspaceRoot, config.name(), MEDIA_DIR_PREFIX),
+              config.name());
+      directRooms = new MatrixDirectRooms();
+      seedDirectRooms();
+      pollThread = Thread.ofVirtual().name("oryxos-matrix-" + config.name()).start(this::syncLoop);
+      state = ChannelStatus.State.CONNECTED;
+    } catch (RuntimeException e) {
+      running = false;
+      releaseHttpClient(); // 先释放再抛：admin 丢弃适配器时不会调 stop()
+      throw e;
+    }
   }
 
   @Override
@@ -135,8 +169,35 @@ public class MatrixChannelAdapter implements InboundChannelAdapter {
       t.interrupt();
       pollThread = null;
     }
+    releaseHttpClient();
     mediaResolver = null;
     state = ChannelStatus.State.DISCONNECTED;
+  }
+
+  /**
+   * 长连接共用的 HttpClient：懒创建、跨 start 复用。HttpClient 自带连接池与 selector 线程，每次 start 新建而不释放会在渠道反复启停时累积泄漏直到
+   * GC。
+   */
+  HttpClient httpClient() {
+    HttpClient current = http;
+    if (current != null) {
+      return current;
+    }
+    synchronized (this) {
+      if (http == null) {
+        http = httpClientFactory.get();
+      }
+      return http;
+    }
+  }
+
+  /** 释放 selector 线程与连接池：{@code stop()} 与启动失败路径各调一次，幂等；{@code shutdownNow()} 不 join。 */
+  private void releaseHttpClient() {
+    HttpClient client = http;
+    http = null;
+    if (client != null) {
+      client.shutdownNow(); // 不关会泄漏至 GC（渠道反复启停时累积）
+    }
   }
 
   @Override
