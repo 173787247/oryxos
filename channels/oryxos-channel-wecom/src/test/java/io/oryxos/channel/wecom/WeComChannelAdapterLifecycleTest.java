@@ -11,9 +11,14 @@ import io.oryxos.core.channel.OutboundGuard;
 import io.oryxos.core.profile.ProfileRegistry;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.net.http.WebSocket;
 import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 class WeComChannelAdapterLifecycleTest {
@@ -60,5 +65,66 @@ class WeComChannelAdapterLifecycleTest {
     ensure.invoke(adapter);
     WeComMessageSender second = (WeComMessageSender) senderField.get(adapter);
     assertSame(first, second);
+  }
+
+  @Test
+  @Timeout(20)
+  @DisplayName("对端不回应 FIN_adapter.stop() 仍在约 2 秒内返回，不占住 ChannelAdminService 监视器")
+  void stopBoundedWhenWsCloseNeverCompletes() throws Exception {
+    ChannelConfig config =
+        new ChannelConfig("ops-wecom", "wecom", "bot", "secret", "demo-agent", true);
+    WeComChannelAdapter adapter =
+        new WeComChannelAdapter(
+            config,
+            new ProfileRegistry(),
+            mock(InboundMessageService.class),
+            (OutboundGuard) url -> {},
+            workspaceRoot);
+
+    CountDownLatch closeEntered = new CountDownLatch(1);
+    CountDownLatch neverFinishes = new CountDownLatch(1);
+    WeComWsClient neverClosing =
+        new WeComWsClient("bot", "secret", WeComWsClient.DEFAULT_WS_URL, node -> {}, () -> {}) {
+          @Override
+          void closeWebSocket(WebSocket ws) {
+            closeEntered.countDown();
+            try {
+              neverFinishes.await();
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+          }
+        };
+    seedSocket(neverClosing, mock(WebSocket.class));
+    seedClient(adapter, neverClosing);
+
+    long startedAt = System.nanoTime();
+    try {
+      adapter.stop();
+    } finally {
+      neverFinishes.countDown();
+    }
+    long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
+
+    assertTrue(closeEntered.await(1, TimeUnit.SECONDS), "close 必须真的被尝试过");
+    assertTrue(elapsedMs >= 1_500, "stop() 应等满 2s 限时才返回，实际 " + elapsedMs + "ms");
+    assertTrue(elapsedMs <= 4_000, "stop() 不得无限等待，实际 " + elapsedMs + "ms");
+  }
+
+  private static void seedSocket(WeComWsClient client, WebSocket ws) throws Exception {
+    Field socketField = WeComWsClient.class.getDeclaredField("socket");
+    socketField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    AtomicReference<WebSocket> ref = (AtomicReference<WebSocket>) socketField.get(client);
+    ref.set(ws);
+  }
+
+  private static void seedClient(WeComChannelAdapter adapter, WeComWsClient client)
+      throws Exception {
+    Field wsRefField = WeComChannelAdapter.class.getDeclaredField("wsRef");
+    wsRefField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    AtomicReference<WeComWsClient> ref = (AtomicReference<WeComWsClient>) wsRefField.get(adapter);
+    ref.set(client);
   }
 }
