@@ -38,7 +38,7 @@ class RbacStartupCheckTest {
     apiKeyProperties.setEnabled(false);
     authProperties.setEnabled(false);
 
-    assertThatCode(() -> check.run(null)).doesNotThrowAnyException();
+    assertThatCode(() -> check.check()).doesNotThrowAnyException();
   }
 
   @Test
@@ -49,7 +49,7 @@ class RbacStartupCheckTest {
     authProperties.setEnabled(true);
     when(userService.hasAdminAccount()).thenReturn(true);
 
-    assertThatThrownBy(() -> check.run(null))
+    assertThatThrownBy(() -> check.check())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("oryxos.web.apikey.enabled");
   }
@@ -62,7 +62,7 @@ class RbacStartupCheckTest {
     authProperties.setEnabled(true);
     when(userService.hasAdminAccount()).thenReturn(false);
 
-    assertThatThrownBy(() -> check.run(null))
+    assertThatThrownBy(() -> check.check())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("oryxos user role");
   }
@@ -75,7 +75,7 @@ class RbacStartupCheckTest {
     authProperties.setEnabled(true);
     when(userService.hasAdminAccount()).thenReturn(true);
 
-    assertThatCode(() -> check.run(null)).doesNotThrowAnyException();
+    assertThatCode(() -> check.check()).doesNotThrowAnyException();
   }
 
   @Test
@@ -86,6 +86,6 @@ class RbacStartupCheckTest {
     authProperties.setEnabled(false);
     when(userService.hasAdminAccount()).thenReturn(true);
 
-    assertThatCode(() -> check.run(null)).doesNotThrowAnyException();
+    assertThatCode(() -> check.check()).doesNotThrowAnyException();
   }
 }

@@ -49,7 +49,7 @@ class DockerBackendStartupCheckTest {
   @DisplayName("local档_零检查零开销")
   void localBackendSkipsEntirely() {
     StubProbe probe = new StubProbe();
-    new DockerBackendStartupCheck(localProps(), probe).run(null);
+    new DockerBackendStartupCheck(localProps(), probe).check();
     assertTrue(probe.calls.isEmpty(), "local 档不得发起任何探测");
   }
 
@@ -57,7 +57,7 @@ class DockerBackendStartupCheckTest {
   @DisplayName("docker档_全通过_无异常")
   void allHealthyPasses() {
     StubProbe probe = new StubProbe();
-    assertDoesNotThrow(() -> new DockerBackendStartupCheck(dockerProps(), probe).run(null));
+    assertDoesNotThrow(() -> new DockerBackendStartupCheck(dockerProps(), probe).check());
     assertTrue(probe.calls.size() >= 3, "至少探测 CLI/daemon/镜像三项");
   }
 
@@ -69,7 +69,7 @@ class DockerBackendStartupCheckTest {
     IllegalStateException e =
         assertThrows(
             IllegalStateException.class,
-            () -> new DockerBackendStartupCheck(dockerProps(), probe).run(null));
+            () -> new DockerBackendStartupCheck(dockerProps(), probe).check());
     assertTrue(e.getMessage().contains("PATH"));
   }
 
@@ -81,7 +81,7 @@ class DockerBackendStartupCheckTest {
     IllegalStateException e =
         assertThrows(
             IllegalStateException.class,
-            () -> new DockerBackendStartupCheck(dockerProps(), probe).run(null));
+            () -> new DockerBackendStartupCheck(dockerProps(), probe).check());
     assertTrue(e.getMessage().contains("daemon"));
   }
 
@@ -90,7 +90,7 @@ class DockerBackendStartupCheckTest {
   void missingImageHealsViaPull() {
     StubProbe probe = new StubProbe();
     probe.failures.put("docker image inspect", "No such image");
-    assertDoesNotThrow(() -> new DockerBackendStartupCheck(dockerProps(), probe).run(null));
+    assertDoesNotThrow(() -> new DockerBackendStartupCheck(dockerProps(), probe).check());
     assertTrue(probe.calls.stream().anyMatch(argv -> argv.contains("pull")), "inspect 失败后必须尝试预拉取");
   }
 
@@ -103,7 +103,7 @@ class DockerBackendStartupCheckTest {
     IllegalStateException e =
         assertThrows(
             IllegalStateException.class,
-            () -> new DockerBackendStartupCheck(dockerProps(), probe).run(null));
+            () -> new DockerBackendStartupCheck(dockerProps(), probe).check());
     assertTrue(e.getMessage().contains("alpine:3.20"));
   }
 
@@ -117,7 +117,7 @@ class DockerBackendStartupCheckTest {
     IllegalStateException e =
         assertThrows(
             IllegalStateException.class,
-            () -> new DockerBackendStartupCheck(dockerProps(), ioProbe).run(null));
+            () -> new DockerBackendStartupCheck(dockerProps(), ioProbe).check());
     assertEquals("docker 执行后端启动校验失败: broken pipe", e.getMessage());
   }
 }

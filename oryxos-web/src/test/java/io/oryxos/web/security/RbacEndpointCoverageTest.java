@@ -64,7 +64,7 @@ class RbacEndpointCoverageTest {
     RequestMappingHandlerMapping mapping = mock(RequestMappingHandlerMapping.class);
     RbacEndpointCoverageCheck check = new RbacEndpointCoverageCheck(rbac, mapping);
 
-    check.run(null);
+    check.check();
 
     verify(mapping, never()).getHandlerMethods();
   }
@@ -79,7 +79,7 @@ class RbacEndpointCoverageTest {
     when(mapping.getHandlerMethods()).thenReturn(Map.of(info, mock(HandlerMethod.class)));
     RbacEndpointCoverageCheck check = new RbacEndpointCoverageCheck(rbac, mapping);
 
-    assertThatThrownBy(() -> check.run(null))
+    assertThatThrownBy(() -> check.check())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("GET /api/v1/not-registered");
   }

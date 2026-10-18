@@ -21,8 +21,10 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
  *   <li>库里没有 ADMIN 账号 ⇒ 治理面永久锁死。
  * </ul>
  *
- * <p>校验本身在 {@code RbacStartupCheckTest} 里用单元测试钉着；这里补的是**它真的能拦住启动**：校验是个 {@code
- * ApplicationRunner}，只有整台服务起来才会跑，而"runner 抛异常 ⇒ 启动失败"这条链没有任何测试走过。
+ * <p>校验本身在 {@code RbacStartupCheckTest} 里用单元测试钉着；这里补的是**它真的能拦住启动，而且发生在端口打开之前**： 校验是 {@code
+ * SmartInitializingSingleton}（{@code preInstantiateSingletons()} 尾部），而 Web Server 是在 {@code
+ * finishRefresh()} 里才 start —— 用 {@link WebServerStartProbe} 断言「启动被拒 + 端口从未打开」。 如果退回 {@code
+ * ApplicationRunner}，Tomcat 已经监听端口后才会抛，事件探针会触发，用例转红。
  *
  * <p>用程序化启动（而不是 {@code @SpringBootTest}）：本用例要断言的就是"启动失败"，测试上下文机制做不到这一点。
  */
@@ -33,12 +35,16 @@ class RbacStartupRefusalTest {
   void startupIsRefusedWithoutAnAdminAccount() {
     Path root = tempWorkspace();
 
+    WebServerStartProbe.reset();
     Throwable failure = catchThrowable(() -> start(root, true));
 
     assertThat(failure).as("治理面锁死保护：没有 ADMIN 账号时不该起来").isNotNull();
-    assertThat(messagesOf(failure))
+    assertThat(WebServerStartProbe.messagesOf(failure))
         .as("失败原因要是那条可执行的指路信息，而不是别的启动问题")
         .anyMatch(message -> message.contains("no ADMIN account found"));
+    assertThat(WebServerStartProbe.started())
+        .as("拒启必须发生在 Web Server 打开端口之前（ApplicationRunner 会在此之后才跑）")
+        .isFalse();
   }
 
   @Test
@@ -46,12 +52,16 @@ class RbacStartupRefusalTest {
   void startupIsRefusedWithoutApiKeyAuth() {
     Path root = tempWorkspace();
 
+    WebServerStartProbe.reset();
     Throwable failure = catchThrowable(() -> start(root, false));
 
     assertThat(failure).as("没有门产出主体时授权会静默失效，属误配，必须拒启").isNotNull();
-    assertThat(messagesOf(failure))
+    assertThat(WebServerStartProbe.messagesOf(failure))
         .as("失败原因要是那条可执行的指路信息，而不是别的启动问题")
         .anyMatch(message -> message.contains("but API key auth is off"));
+    assertThat(WebServerStartProbe.started())
+        .as("拒启必须发生在 Web Server 打开端口之前（ApplicationRunner 会在此之后才跑）")
+        .isFalse();
   }
 
   /**
@@ -60,7 +70,7 @@ class RbacStartupRefusalTest {
    * Provider」——那是另一层失败，会让本用例假红/假绿。
    */
   private static void start(Path root, boolean apiKeyEnabled) {
-    new SpringApplicationBuilder(OryxOsRuntime.class)
+    new SpringApplicationBuilder(OryxOsRuntime.class, WebServerStartProbe.class)
         .web(WebApplicationType.SERVLET)
         .run(
             "--server.port=0",
@@ -69,17 +79,6 @@ class RbacStartupRefusalTest {
             "--spring.datasource.url=jdbc:sqlite:" + root.resolve("rbac.db"),
             "--oryxos.web.rbac.enabled=true",
             "--oryxos.web.apikey.enabled=" + apiKeyEnabled);
-  }
-
-  /** cause 链上的非空消息：Spring 会把 runner 的失败包一层 ISE，真正的原因在 cause 里。 */
-  private static java.util.List<String> messagesOf(Throwable failure) {
-    java.util.List<String> messages = new java.util.ArrayList<>();
-    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-      if (cause.getMessage() != null) {
-        messages.add(cause.getMessage());
-      }
-    }
-    return messages;
   }
 
   private static Path tempWorkspace() {

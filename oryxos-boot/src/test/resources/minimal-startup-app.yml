@@ -1,0 +1,4 @@
+# 最小启动上下文用例的配置占位：通过 --spring.config.location 指向本文件，
+# 避免继承 oryxos-boot 的生产 application.yml（actuator readiness 组 / 数据源等生产配置
+# 会先于被测的启动校验触发无关的启动失败）。
+{}

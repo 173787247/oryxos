@@ -15,14 +15,11 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
-import org.springframework.core.Ordered;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -261,33 +258,25 @@ class SessionLoginE2ETest {
 
   /**
    * 在 {@code AuthStartupCheck} 之前播种账号：{@code auth.enabled=true} 但库里没有 enabled 账号时它会 fail-fast 拒绝启动
-   * （FR-006），那是 {@code AuthStartupCheck} 的另一半语义。两个 {@code ApplicationRunner} 都没顺序时谁先跑取决于 bean
-   * 定义顺序，所以这里必须显式 {@link Ordered#HIGHEST_PRECEDENCE}。
+   * （FR-006），那是 {@code AuthStartupCheck} 的另一半语义。
+   *
+   * <p>播种必须是**单例实例化期**的一部分：Spring 先实例化全部单例、再统一回调 {@code
+   * SmartInitializingSingleton.afterSingletonsInstantiated()}，所以构造器里的播种一定早于启动校验。原先 {@code Ordered}
+   * runner 在 refresh 之后才跑，检查提前后不再成立。
    */
   @TestConfiguration
   static class SeedConsoleUser {
 
     @Bean
-    ApplicationRunner seedConsoleUser(WebUserService users) {
-      return new SeedRunner(users);
+    SeedConsoleUserAccount seedConsoleUser(WebUserService users) {
+      return new SeedConsoleUserAccount(users);
     }
   }
 
-  static final class SeedRunner implements ApplicationRunner, Ordered {
+  /** 单例实例化即播种：早于所有 {@code afterSingletonsInstantiated} 回调。 */
+  static final class SeedConsoleUserAccount {
 
-    private final WebUserService users;
-
-    SeedRunner(WebUserService users) {
-      this.users = users;
-    }
-
-    @Override
-    public int getOrder() {
-      return Ordered.HIGHEST_PRECEDENCE;
-    }
-
-    @Override
-    public void run(ApplicationArguments args) {
+    SeedConsoleUserAccount(WebUserService users) {
       if (!users.hasEnabledAccount()) {
         users.create(USERNAME, PASSWORD);
       }

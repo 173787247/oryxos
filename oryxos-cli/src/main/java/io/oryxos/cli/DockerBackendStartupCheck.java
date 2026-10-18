@@ -8,8 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 
 /**
  * docker 执行后端启动校验（024 FR-005，fail loud）：backend=docker 时校验 CLI 存在、daemon 可达、执行镜像可用（缺失则预拉取），任一失败抛
@@ -17,8 +16,12 @@ import org.springframework.boot.ApplicationRunner;
  *
  * <p>放 oryxos-cli（镜像 020 ToolPolicyStartupCheck 的位置理由）：依赖 oryxos-tool 的执行后端配置，由 {@code
  * OryxOsRuntime} 以 {@code @Bean + @ConditionalOnWebApplication(SERVLET)} 装配，仅 serve/gateway 模式运行。
+ *
+ * <p>用 {@link SmartInitializingSingleton}：校验在全部单例初始化完成后、Web Server 开始监听端口之前执行（与 {@code
+ * ProviderStartupCheck}/{@code ClusterStartupCheck} 同款）。{@code ApplicationRunner} 太晚——Tomcat
+ * 已经打开端口， 一个"已声明 docker 后端、实际不可用"的副本会先被探针判成就绪。
  */
-public class DockerBackendStartupCheck implements ApplicationRunner {
+public class DockerBackendStartupCheck implements SmartInitializingSingleton {
 
   private static final Logger LOG = LoggerFactory.getLogger(DockerBackendStartupCheck.class);
 
@@ -54,7 +57,12 @@ public class DockerBackendStartupCheck implements ApplicationRunner {
   }
 
   @Override
-  public void run(ApplicationArguments args) {
+  public void afterSingletonsInstantiated() {
+    check();
+  }
+
+  /** 校验主体（包级可见：单测直接调；相位由 {@link #afterSingletonsInstantiated()} 保证在端口打开前）。 */
+  void check() {
     if (!props.isDocker()) {
       return; // local 档（默认）零检查零开销
     }

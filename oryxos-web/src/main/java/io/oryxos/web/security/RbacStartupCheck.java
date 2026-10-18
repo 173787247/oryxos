@@ -6,8 +6,7 @@ import io.oryxos.web.config.WebAuthProperties;
 import io.oryxos.web.config.WebRbacProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.stereotype.Component;
 
@@ -22,12 +21,16 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <p>{@code auth.enabled=false} 只 WARN（管理台不可用是合法纯 API 部署，镜像 018 {@code ApiKeyStartupCheck}）。用
- * {@link ApplicationRunner}（context 就绪后跑）。 {@link ConditionalOnWebApplication} 限定只 SERVLET 模式装配，CLI
- * 管理命令（{@code WebApplicationType.NONE}）不受影响。
+ * {@link SmartInitializingSingleton}：校验在全部单例初始化完成后、Web Server 开始监听端口之前执行（与 {@code
+ * ProviderStartupCheck}/{@code ClusterStartupCheck} 同款）。{@code ApplicationRunner} 太晚——Tomcat 在
+ * {@code finishRefresh()} 里已经打开端口，fail-open 窗口会被 K8s 探针/滚动发布调度打到。
+ *
+ * <p>{@link ConditionalOnWebApplication} 限定只 SERVLET 模式装配，CLI 管理命令（{@code
+ * WebApplicationType.NONE}）不受影响。
  */
 @Component
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-public class RbacStartupCheck implements ApplicationRunner {
+public class RbacStartupCheck implements SmartInitializingSingleton {
 
   private static final Logger LOG = LoggerFactory.getLogger(RbacStartupCheck.class);
 
@@ -69,7 +72,12 @@ public class RbacStartupCheck implements ApplicationRunner {
   }
 
   @Override
-  public void run(ApplicationArguments args) {
+  public void afterSingletonsInstantiated() {
+    check();
+  }
+
+  /** 校验主体（包级可见：单测直接调；相位由 {@link #afterSingletonsInstantiated()} 保证在端口打开前）。 */
+  void check() {
     if (!rbacProperties.isEnabled()) {
       LOG.debug("RBAC disabled (oryxos.web.rbac.enabled=false), startup check skipped");
       return;
