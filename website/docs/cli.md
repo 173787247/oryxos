@@ -205,16 +205,22 @@ oryxos profile delete <name>
 
 ### provider list
 
-List the providers declared for this instance. The light CLI command reads them straight from the packaged `application.yml` (`oryxos.providers`), printing each provider's name and base URL. (At runtime, providers are managed as a dynamic registry backed by SQLite, seeded from these declarations.)
+List the provider registry this instance actually runs with. The light CLI command queries the same database as the runtime — the `providers` table in `oryxos.db` by default, or the datasource configured in `config/application.yml` — and prints each provider's name, derived default marker, base URL and description. The packaged `application.yml` only seeds providers missing from the database on first startup; after that the database is the single source of truth. Providers added or deleted in the admin console (`/api/v1/providers`) show up here accordingly.
 
 ```bash
 oryxos provider list
 ```
 
 ```text
-deepseek     https://api.deepseek.com
-qwen         https://dashscope.aliyuncs.com/compatible-mode/v1
+Provider 注册表（oryxos.db）：
+NAME                 DEFAULT  BASE-URL                                             DESCRIPTION
+deepseek             *        https://api.deepseek.com                             默认 DeepSeek
+mock                          -                                                    内置假模型
+qwen                          https://dashscope.aliyuncs.com/compatible-mode/v1    通义
+default(*) 为运行时派生（注册表内按大小写无关排序的最小名），不是库字段。
 ```
+
+The command exits non-zero when the database is unreachable, uninitialized, or missing the `providers` table; it never falls back to the packaged YAML.
 
 ### tool list
 
