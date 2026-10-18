@@ -531,4 +531,34 @@ class WorkspaceApiControllerTest {
     org.junit.jupiter.api.Assertions.assertFalse(
         Files.exists(oryxosRoot.resolve("output/huge.txt")));
   }
+
+  @Test
+  @DisplayName("master.key 是系统保留文件：workspace file/download/write 一律 400，且密钥内容不得被改写")
+  void masterKeyIsReservedForReadAndWrite() throws Exception {
+    // 主密钥真实存在于工作区根（{oryxosRoot}/master.key，022）—— 正是通用读路径能触达的位置
+    Path key = oryxosRoot.resolve("master.key");
+    Files.writeString(key, "BASE64-MASTER-KEY");
+    String original = Files.readString(key);
+
+    mvc.perform(get("/api/v1/workspace/file").param("path", "master.key"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("master.key")));
+    mvc.perform(get("/api/v1/workspace/file").param("path", "MASTER.KEY"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/download").param("path", "master.key"))
+        .andExpect(status().isBadRequest());
+    // "./" 前缀不能绕过：守卫按路径段判定，"." 段不影响后面的保留名段
+    mvc.perform(get("/api/v1/workspace/file").param("path", "./master.key"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/download").param("path", "master.key"))
+        .andExpect(
+            content().string(org.hamcrest.Matchers.not(containsString("BASE64-MASTER-KEY"))));
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"master.key\",\"content\":\"ATTACKER-REPLACED\"}"))
+        .andExpect(status().isBadRequest());
+
+    org.junit.jupiter.api.Assertions.assertEquals(original, Files.readString(key), "主密钥不得被通用写入口改写");
+  }
 }

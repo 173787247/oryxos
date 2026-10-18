@@ -125,6 +125,45 @@ class AdminConfigFileGuardTest {
   }
 
   @Test
+  @DisplayName("主密钥 master.key 属系统保留文件：读/写两侧都拒（大小写、任意段、祖先形态）")
+  void rejectsMasterKeyForReadAndWrite() {
+    // 读侧：词法命中（含大小写变体、任意路径段、把保留名当目录的祖先形态）
+    assertThrows(
+        IllegalArgumentException.class, () -> AdminConfigFileGuard.rejectRead("master.key"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> AdminConfigFileGuard.rejectRead(".oryxos/Master.KEY"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> AdminConfigFileGuard.rejectRead(".oryxos/config/master.key"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> AdminConfigFileGuard.rejectRead("master.key/child.txt"));
+    // 写侧同一份名单：改写主密钥会让既有 enc:v1: 密文全部不可解
+    assertThrows(
+        IllegalArgumentException.class, () -> AdminConfigFileGuard.rejectMutation("master.key"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> AdminConfigFileGuard.rejectMutation(".oryxos/MASTER.KEY"));
+    // 不误伤：名字相近的普通文件仍放行
+    assertDoesNotThrow(() -> AdminConfigFileGuard.rejectRead("master.key.bak"));
+    assertDoesNotThrow(() -> AdminConfigFileGuard.rejectRead("agents/demo/master.key.md"));
+  }
+
+  @Test
+  @DisplayName("读侧拒绝经软链别名读 master.key（真实路径投影）")
+  void rejectReadBlocksSymlinkAliasToMasterKey() throws IOException {
+    Path reserved = temp.resolve("master.key");
+    Files.writeString(reserved, "BASE64KEY");
+    Path alias = temp.resolve("notes.md");
+    assumeCanSymlink(alias, reserved);
+
+    assertThrows(IllegalArgumentException.class, () -> AdminConfigFileGuard.rejectRead(alias));
+    assertThrows(
+        IllegalArgumentException.class, () -> AdminConfigFileGuard.rejectRead(alias.toString()));
+  }
+
+  @Test
   @DisplayName("读侧拒绝经软链别名读 channels.yaml（词法 + 叶子目标双重）")
   void rejectReadBlocksSymlinkAliasToChannelsYaml() throws IOException {
     Path reserved = temp.resolve("channels.yaml");
