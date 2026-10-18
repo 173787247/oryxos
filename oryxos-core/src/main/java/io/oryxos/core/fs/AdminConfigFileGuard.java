@@ -13,8 +13,12 @@ import java.util.Set;
  * 里的全量持久化数据。
  *
  * <p>覆盖 {@code channels.yaml}（{@code ChannelAdminService}）、{@code mcp_servers.yaml}（{@code
- * McpServerAdminService}）与 {@code oryxos.db} 家族（含 SQLite 侧车 {@code -wal}/{@code -shm}/ {@code
- * -journal} 与备份副本——同源数据，同样敏感）。
+ * McpServerAdminService}）、{@code master.key} 与 {@code oryxos.db} 家族（含 SQLite 侧车 {@code -wal}/{@code
+ * -shm}/ {@code -journal} 与备份副本——同源数据，同样敏感）。
+ *
+ * <p>{@code master.key}（{@code {oryxosRoot}/master.key}，022 主密钥）必须在这份名单里：它解密库里所有 {@code enc:v1:}
+ * 凭证（provider api_key、notify 渠道 secret）——读走等同拿走全部凭证，改写则让既有密文全部不可解。它恰好落在工作区根下， 正是 Workspace
+ * 通用读写入口能触达的位置。
  *
  * <p>除词法路径段检查外，还会经 {@link RealPathBoundary} 解析已存在祖先的真实路径，避免 {@code alias.yaml → channels.yaml}
  * 这类软链绕过（对齐 {@code MemoryMdGuard}）。
@@ -22,7 +26,7 @@ import java.util.Set;
 public final class AdminConfigFileGuard {
 
   private static final Set<String> RESERVED_CONFIG_LOWER =
-      Set.of("channels.yaml", "mcp_servers.yaml");
+      Set.of("channels.yaml", "mcp_servers.yaml", "master.key");
 
   /** SQLite 主库文件名（小写）；侧车/备份以 {@code oryxos.db-} / {@code oryxos.db.} 起头。 */
   private static final String DB_FILE_LOWER = "oryxos.db";
@@ -36,7 +40,8 @@ public final class AdminConfigFileGuard {
       return;
     }
     if (hitsReserved(Path.of(path))) {
-      throw new IllegalArgumentException("拒绝直接改写系统保留文件（管理配置 / 数据库请走 Channel、MCP 等对应管理入口）: " + path);
+      throw new IllegalArgumentException(
+          "拒绝直接改写系统保留文件（管理配置 / 主密钥 / 数据库请走 Channel、MCP 等对应管理入口）: " + path);
     }
   }
 
@@ -46,7 +51,8 @@ public final class AdminConfigFileGuard {
       return;
     }
     if (hitsReserved(path)) {
-      throw new IllegalArgumentException("拒绝直接改写系统保留文件（管理配置 / 数据库请走 Channel、MCP 等对应管理入口）: " + path);
+      throw new IllegalArgumentException(
+          "拒绝直接改写系统保留文件（管理配置 / 主密钥 / 数据库请走 Channel、MCP 等对应管理入口）: " + path);
     }
   }
 
@@ -58,7 +64,7 @@ public final class AdminConfigFileGuard {
     }
     if (hitsReserved(Path.of(path))) {
       throw new IllegalArgumentException(
-          "拒绝直接读取系统保留文件原文（管理配置含凭证、oryxos.db 含全量数据，请走对应管理入口）: " + path);
+          "拒绝直接读取系统保留文件原文（管理配置含凭证、master.key 解全部密文、oryxos.db 含全量数据，请走对应管理入口）: " + path);
     }
   }
 
@@ -69,7 +75,7 @@ public final class AdminConfigFileGuard {
     }
     if (hitsReserved(path)) {
       throw new IllegalArgumentException(
-          "拒绝直接读取系统保留文件原文（管理配置含凭证、oryxos.db 含全量数据，请走对应管理入口）: " + path);
+          "拒绝直接读取系统保留文件原文（管理配置含凭证、master.key 解全部密文、oryxos.db 含全量数据，请走对应管理入口）: " + path);
     }
   }
 
