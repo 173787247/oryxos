@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -116,7 +118,7 @@ public class WorkspaceApiController {
     // 先词法拦保留文件原文（channels.yaml/mcp_servers.yaml 凭证、oryxos.db 全量数据）；
     // 再投影真实路径后复检——alias.yaml→channels.yaml 软链只在投影后能看见
     AdminConfigFileGuard.rejectRead(path);
-    Path target = resolveWithinRoot(path);
+    Path target = resolveReadable(path);
     AdminConfigFileGuard.rejectRead(target);
     if (!Files.isRegularFile(target)) {
       throw new ResourceNotFoundException("文件不存在: " + path); // → 404
@@ -124,7 +126,7 @@ public class WorkspaceApiController {
     try {
       // 读前复检：与 writeFile / tool 层 read_file 同款——防首次校验到 readString 间被换成外向软链
       // 或换成仍在 root 内的保留文件
-      target = resolveWithinRoot(path);
+      target = resolveReadable(path);
       AdminConfigFileGuard.rejectRead(target);
       long size = Files.size(target);
       if (size > MAX_TEXT_READ_BYTES) {
@@ -151,14 +153,14 @@ public class WorkspaceApiController {
   public ResponseEntity<Resource> download(@RequestParam String path) {
     // 同 file：保留文件原文（凭证配置 / SQLite 库）禁止经附件流下载
     AdminConfigFileGuard.rejectRead(path);
-    Path target = resolveWithinRoot(path);
+    Path target = resolveReadable(path);
     AdminConfigFileGuard.rejectRead(target);
     if (!Files.isRegularFile(target)) {
       throw new ResourceNotFoundException("文件不存在: " + path); // → 404
     }
     // 读前复检：与 file / writeFile 同款——防首次校验到打开附件间被换成外向软链
     // 或换成仍在 root 内的保留文件
-    target = resolveWithinRoot(path);
+    target = resolveReadable(path);
     AdminConfigFileGuard.rejectRead(target);
     String filename = String.valueOf(target.getFileName());
     // 文件名可能含中文/空格：用 RFC 5987 编码进 Content-Disposition，避免乱码或截断
@@ -195,7 +197,7 @@ public class WorkspaceApiController {
     MemoryMdGuard.rejectMutation(path);
     AdminConfigFileGuard.rejectMutation(path);
     WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(path);
-    Path target = resolveWithinRoot(path);
+    Path target = resolveWritable(path);
     MemoryMdGuard.rejectMutation(target);
     AdminConfigFileGuard.rejectMutation(target);
     if (isAgentSkillsPath(target)) {
@@ -228,7 +230,7 @@ public class WorkspaceApiController {
         Files.createDirectories(parent);
       }
       // 写前复检：防首次校验到 writeString 间路径被换成外向软链，或换成仍在 root 内的保留文件
-      target = resolveWithinRoot(path);
+      target = resolveWritable(path);
       MemoryMdGuard.rejectMutation(target);
       AdminConfigFileGuard.rejectMutation(target);
       WorkspaceMutationGuard.rejectSkillKnowledgeContentWrite(target.toString());
@@ -358,6 +360,117 @@ public class WorkspaceApiController {
       return FileNode.dir(name, rel, List.of());
     }
     return FileNode.dir(name, rel, children);
+  }
+
+  private static final Logger LOG = LoggerFactory.getLogger(WorkspaceApiController.class);
+
+  /**
+   * 控制台可读的树根（目录白名单）。默认与 {@link #tree()} 列出的四个目录一致。
+   *
+   * <p>读入口曾经是黑名单（"根内默认公开"）：新增一个根级敏感文件（如 022 的 {@code master.key}）就得记得把它加进保留名单，漏一个就泄露。
+   * 白名单把默认值反过来：只有控制台真正会浏览的产出目录可读，{@code logs/}、{@code memory/}、{@code oryxos.db} 这类根级文件结构上不可达。
+   *
+   * <p>改安全边界要能在日志里看见：非默认值时启动打一条 WARN（见 {@link #warnOnRelaxedRoots()}）。
+   */
+  @org.springframework.beans.factory.annotation.Value(
+      "${oryxos.web.workspace.readable-roots:agents,skills,output,archive}")
+  private String readableRootsSetting = DEFAULT_READABLE_ROOTS;
+
+  /** 控制台可写的树根：{@code skills/} 是绑定视图，只读。 */
+  @org.springframework.beans.factory.annotation.Value(
+      "${oryxos.web.workspace.writable-roots:agents,output,archive}")
+  private String writableRootsSetting = DEFAULT_WRITABLE_ROOTS;
+
+  private static final String DEFAULT_READABLE_ROOTS = "agents,skills,output,archive";
+
+  private static final String DEFAULT_WRITABLE_ROOTS = "agents,output,archive";
+
+  /** 配置里的目录名只允许单段安全名：一条 `..` 就能把白名单变成任意目录。 */
+  private static final java.util.regex.Pattern SAFE_ROOT_SEGMENT =
+      java.util.regex.Pattern.compile("[A-Za-z0-9_-]+");
+
+  @jakarta.annotation.PostConstruct
+  void warnOnRelaxedRoots() {
+    // 解析即校验：非法配置在这里就炸（启动失败），不要等到第一次请求
+    java.util.Set<String> readable = readableRoots();
+    java.util.Set<String> writable = writableRoots();
+    if (!readable.equals(parseRoots(DEFAULT_READABLE_ROOTS))
+        || !writable.equals(parseRoots(DEFAULT_WRITABLE_ROOTS))) {
+      LOG.warn(
+          "工作区入口的目录白名单已非默认值：可读={} 可写={}（默认 {}/{}）",
+          sanitizeForLog(readable.toString()),
+          sanitizeForLog(writable.toString()),
+          DEFAULT_READABLE_ROOTS,
+          DEFAULT_WRITABLE_ROOTS);
+    }
+  }
+
+  private java.util.Set<String> readableRoots() {
+    return parseRoots(readableRootsSetting);
+  }
+
+  private java.util.Set<String> writableRoots() {
+    return parseRoots(writableRootsSetting);
+  }
+
+  /** 逗号分隔的单段目录名 → 集合；非法值直接抛（配置坏掉不该静默降级成"什么都读不到"）。 */
+  private static java.util.Set<String> parseRoots(String setting) {
+    java.util.Set<String> roots = new java.util.LinkedHashSet<>();
+    for (String raw : (setting == null ? "" : setting).split(",")) {
+      String segment = raw.trim();
+      if (segment.isEmpty()) {
+        continue;
+      }
+      if (!SAFE_ROOT_SEGMENT.matcher(segment).matches()) {
+        throw new IllegalStateException("工作区目录白名单只允许字母/数字/下划线/连字符组成的单段目录名，非法值: " + segment);
+      }
+      roots.add(segment);
+    }
+    if (roots.isEmpty()) {
+      throw new IllegalStateException("工作区目录白名单不能为空（可读/可写至少各一个根）");
+    }
+    return roots;
+  }
+
+  /** 目标必须在白名单的某个树根下（取真实路径相对工作区根的第一段）。 */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "IMPROPER_UNICODE",
+      justification =
+          "目录名是 ASCII 配置值/盘上名；这里按 Locale.ROOT 折叠，与 AdminConfigFileGuard 的保留名判定同口径（大小写不敏感文件系统上 Agents 就是 agents）。")
+  private void requireUnderAllowlist(
+      Path target, java.util.Set<String> allowed, String action, String path) {
+    Path relative = oryxosRoot.relativize(target);
+    if (relative.getNameCount() == 0) {
+      throw new IllegalArgumentException("拒绝" + action + "工作区根目录: " + path);
+    }
+    String first = relative.getName(0).toString().toLowerCase(java.util.Locale.ROOT);
+    // 真实路径已是盘上大小写：大小写不敏感文件系统上 Agents/ 就是 agents/，按忽略大小写判定才不会误伤
+    for (String root : allowed) {
+      if (root.toLowerCase(java.util.Locale.ROOT).equals(first)) {
+        return;
+      }
+    }
+    throw new IllegalArgumentException(
+        "拒绝" + action + "工作区根之外的路径（允许的根: " + String.join("、", allowed) + "）: " + path);
+  }
+
+  /** 日志里的用户可控字符串：消去 CR/LF，避免伪造日志行（配置值也算用户可控）。 */
+  private static String sanitizeForLog(String value) {
+    return value == null ? "<null>" : value.replace('\r', '_').replace('\n', '_');
+  }
+
+  /** 读入口的统一解析：边界（防穿越/软链）+ 目录白名单。 */
+  private Path resolveReadable(String path) {
+    Path target = resolveWithinRoot(path);
+    requireUnderAllowlist(target, readableRoots(), "读取", path);
+    return target;
+  }
+
+  /** 写入口的统一解析：边界 + 目录白名单。{@code skills/} 不在可写白名单里（绑定视图只读）。 */
+  private Path resolveWritable(String path) {
+    Path target = resolveWithinRoot(path);
+    requireUnderAllowlist(target, writableRoots(), "写入", path);
+    return target;
   }
 
   private Path resolveWithinRoot(String path) {

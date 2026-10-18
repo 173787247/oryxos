@@ -561,4 +561,88 @@ class WorkspaceApiControllerTest {
 
     org.junit.jupiter.api.Assertions.assertEquals(original, Files.readString(key), "主密钥不得被通用写入口改写");
   }
+
+  @Test
+  @DisplayName("目录白名单：读入口只放行四个树根，logs/ 与自建目录一律 400")
+  void readIsLimitedToTheAllowlistedRoots() throws Exception {
+    Files.createDirectories(oryxosRoot.resolve("logs"));
+    Files.writeString(oryxosRoot.resolve("logs/app.log"), "log line");
+    Files.createDirectories(oryxosRoot.resolve("custom"));
+    Files.writeString(oryxosRoot.resolve("custom/notes.md"), "custom notes");
+
+    mvc.perform(get("/api/v1/workspace/file").param("path", "logs/app.log"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("工作区根之外")));
+    mvc.perform(get("/api/v1/workspace/download").param("path", "logs/app.log"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/v1/workspace/file").param("path", "custom/notes.md"))
+        .andExpect(status().isBadRequest());
+    // 允许的根照常可读（archive/ 在默认可读白名单里）
+    Files.createDirectories(oryxosRoot.resolve("archive/2026"));
+    Files.writeString(oryxosRoot.resolve("archive/2026/report.md"), "archived");
+    mvc.perform(get("/api/v1/workspace/file").param("path", "archive/2026/report.md"))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("目录白名单：写入口不放行自建目录，也不放行 skills/（绑定视图只读）")
+  void writeIsLimitedToTheWritableRoots() throws Exception {
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"custom/notes.md\",\"content\":\"x\"}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/api/v1/workspace/file")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"path\":\"skills/demo/SKILL.md\",\"content\":\"x\"}"))
+        .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertFalse(
+        Files.exists(oryxosRoot.resolve("custom/notes.md")), "被拒的写不得落盘");
+  }
+
+  @Test
+  @DisplayName("目录白名单可由配置放宽：readable-roots 含 custom 后该目录可读")
+  void readableRootsCanBeRelaxedByConfiguration() throws Exception {
+    Files.createDirectories(oryxosRoot.resolve("custom"));
+    Files.writeString(oryxosRoot.resolve("custom/notes.md"), "custom notes");
+    WorkspaceApiController controller =
+        controllerWithRoots("agents,skills,output,archive,custom", null);
+
+    MockMvc relaxed =
+        MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+    relaxed
+        .perform(get("/api/v1/workspace/file").param("path", "custom/notes.md"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("custom notes")));
+  }
+
+  @Test
+  @DisplayName("目录白名单配置非法（含 ..）时启动校验直接抛，不静默降级")
+  void illegalAllowlistConfigurationFailsFast() throws Exception {
+    WorkspaceApiController controller = controllerWithRoots("../etc", null);
+    org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalStateException.class, controller::warnOnRelaxedRoots);
+  }
+
+  private WorkspaceApiController controllerWithRoots(String readable, String writable)
+      throws Exception {
+    WorkspaceApiController controller =
+        new WorkspaceApiController(oryxosRoot.toString(), lifecycle, clusterRefreshService());
+    if (readable != null) {
+      java.lang.reflect.Field f =
+          WorkspaceApiController.class.getDeclaredField("readableRootsSetting");
+      f.setAccessible(true);
+      f.set(controller, readable);
+    }
+    if (writable != null) {
+      java.lang.reflect.Field f =
+          WorkspaceApiController.class.getDeclaredField("writableRootsSetting");
+      f.setAccessible(true);
+      f.set(controller, writable);
+    }
+    return controller;
+  }
 }
