@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Base64;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,66 @@ class MasterKeyResolverTest {
     assertThatThrownBy(() -> new MasterKeyResolver(root, () -> null).resolve())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining(MasterKeyResolver.KEY_FILE);
+  }
+
+  @Test
+  void 解析与落盘分离_守卫通过前磁盘上没有新密钥() throws Exception {
+    MasterKeyResolver resolver = new MasterKeyResolver(root, () -> null);
+
+    MasterKeyResolver.ResolvedMasterKey resolved = resolver.resolveForStartup();
+
+    assertThat(resolved.origin()).isEqualTo(MasterKeyResolver.Origin.GENERATED);
+    assertThat(resolved.key()).hasSize(32);
+    // 真推迟：守卫通过之前，自动生成的钥匙只在内存里，磁盘上没有可被误当成"原密钥"的文件
+    assertThat(root.resolve(MasterKeyResolver.KEY_FILE)).doesNotExist();
+
+    resolver.persistIfGenerated();
+
+    Path keyFile = root.resolve(MasterKeyResolver.KEY_FILE);
+    assertThat(keyFile).exists();
+    assertThat(Base64.getDecoder().decode(Files.readString(keyFile).trim()))
+        .isEqualTo(resolved.key());
+    assertThat(Files.getPosixFilePermissions(keyFile))
+        .containsExactlyInAnyOrder(
+            PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE); // 0600
+  }
+
+  @Test
+  void 老版本留下的0644密钥文件_启动时归一到0600() throws Exception {
+    byte[] key = new byte[32];
+    key[0] = 42;
+    Path keyFile = root.resolve(MasterKeyResolver.KEY_FILE);
+    Files.writeString(keyFile, Base64.getEncoder().encodeToString(key));
+    Files.setPosixFilePermissions(
+        keyFile, PosixFilePermissions.fromString("rw-r--r--")); // 老版本形态 0644
+    assertThat(Files.getPosixFilePermissions(keyFile))
+        .containsExactlyInAnyOrder(
+            PosixFilePermission.OWNER_READ,
+            PosixFilePermission.OWNER_WRITE,
+            PosixFilePermission.GROUP_READ,
+            PosixFilePermission.OTHERS_READ);
+
+    MasterKeyResolver.ResolvedMasterKey resolved =
+        new MasterKeyResolver(root, () -> null).resolveForStartup();
+
+    assertThat(resolved.origin()).isEqualTo(MasterKeyResolver.Origin.FILE); // 读已有文件，不重建
+    assertThat(resolved.key()).isEqualTo(key);
+    assertThat(Files.getPosixFilePermissions(keyFile))
+        .containsExactlyInAnyOrder(
+            PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE); // 升级即归一
+  }
+
+  @Test
+  void 环境变量档_不会顺手写出密钥文件() {
+    byte[] envKey = new byte[32];
+    envKey[1] = 3;
+    String envValue = Base64.getEncoder().encodeToString(envKey);
+    MasterKeyResolver resolver = new MasterKeyResolver(root, () -> envValue);
+
+    assertThat(resolver.resolveForStartup().origin()).isEqualTo(MasterKeyResolver.Origin.ENV);
+    resolver.persistIfGenerated();
+
+    assertThat(root.resolve(MasterKeyResolver.KEY_FILE)).doesNotExist();
   }
 
   @Test
