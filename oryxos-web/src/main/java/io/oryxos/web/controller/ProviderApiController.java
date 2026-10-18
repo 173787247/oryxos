@@ -3,6 +3,7 @@ package io.oryxos.web.controller;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.oryxos.core.provider.ProviderDef;
 import io.oryxos.core.provider.ProviderRegistry;
+import io.oryxos.core.provider.ProviderService;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.CreateProviderRequest;
 import io.oryxos.web.controller.dto.ProviderConnectivityView;
@@ -39,10 +40,15 @@ public class ProviderApiController {
 
   private final ProviderRegistry registry;
   private final ProviderModelsService modelsService;
+  private final ProviderService providerService;
 
-  public ProviderApiController(ProviderRegistry registry, ProviderModelsService modelsService) {
+  public ProviderApiController(
+      ProviderRegistry registry,
+      ProviderModelsService modelsService,
+      ProviderService providerService) {
     this.registry = registry;
     this.modelsService = modelsService;
+    this.providerService = providerService;
   }
 
   @PostMapping
@@ -117,6 +123,9 @@ public class ProviderApiController {
       throw new ResourceNotFoundException("provider 不存在: " + name); // → 404
     }
     registry.delete(name);
+    // 注册表是唯一真相源，但 provider 侧仍按名缓存着已建的 ChatModel（内含 HTTP 客户端）。不在这里回收，
+    // 每删一个 provider 就永久留下一个不再被任何配置引用的客户端。
+    providerService.evict(name);
     return ApiResponse.ok(null);
   }
 

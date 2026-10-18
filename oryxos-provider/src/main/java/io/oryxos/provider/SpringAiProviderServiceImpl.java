@@ -811,6 +811,24 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         .model();
   }
 
+  /**
+   * 回收：{@code ProviderRegistry} 删除 provider 后，这里丢掉按名缓存的 ChatModel，否则它的 HTTP 客户端会随每次增删累积。
+   *
+   * <p>只摘引用、不 close 实例：删除可能撞上进行中的调用，而正在执行的线程持有自己的 ChatModel 引用，关掉它会把这次调用打断。 摘引用之后旧实例不可达，由 GC
+   * 回收（其客户端不再被新调用复用）。
+   *
+   * <p>残留竞态与「为什么接受」：一条在途调用若在删除前已从注册表取到 {@link ProviderDef}、删除后才走到这里重建模型， 条目会被重新建回去。接受它，因为：①
+   * 每次删除最多残留一个条目（不是每次调用、不是每次删除都累加）；② 它只在删除恰好撞上 一条进行中的调用时发生，而删除是低频的管理动作；③ 彻底关掉要么给每一次 LLM
+   * 调用都加一次注册表查询（热路径上的 DB 代价， 远大于这条竞态的量级），要么引入删除代际计数——不成比例。
+   */
+  @Override
+  public void evict(String providerName) {
+    if (providerName == null || providerName.isBlank()) {
+      return;
+    }
+    cache.remove(providerName);
+  }
+
   /** {@code model} 为本次尝试的模型名（023）：备用候选必须用备用模型名，不再固定取主声明。 */
   private Prompt buildPrompt(Profile profile, ProviderRequest request, String model) {
     OpenAiChatOptions.Builder options =
