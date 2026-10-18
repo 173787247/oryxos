@@ -127,4 +127,50 @@ class WeComChannelAdapterLifecycleTest {
     AtomicReference<WeComWsClient> ref = (AtomicReference<WeComWsClient>) wsRefField.get(adapter);
     ref.set(client);
   }
+
+  @Test
+  @Timeout(20)
+  @DisplayName("stop() 在锁外关闭长连接：close 阻塞期间另一次 stop() 不被监视器挡住")
+  void stopReleasesTheMonitorBeforeClosing() throws Exception {
+    ChannelConfig config =
+        new ChannelConfig("ops-wecom", "wecom", "bot", "secret", "demo-agent", true);
+    WeComChannelAdapter adapter =
+        new WeComChannelAdapter(
+            config,
+            new ProfileRegistry(),
+            mock(InboundMessageService.class),
+            (OutboundGuard) url -> {},
+            workspaceRoot);
+
+    CountDownLatch closeEntered = new CountDownLatch(1);
+    CountDownLatch neverFinishes = new CountDownLatch(1);
+    WeComWsClient neverClosing =
+        new WeComWsClient("bot", "secret", WeComWsClient.DEFAULT_WS_URL, node -> {}, () -> {}) {
+          @Override
+          void closeWebSocket(WebSocket ws) {
+            closeEntered.countDown();
+            try {
+              neverFinishes.await();
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+          }
+        };
+    seedSocket(neverClosing, mock(WebSocket.class));
+    seedClient(adapter, neverClosing);
+
+    Thread first = Thread.ofPlatform().start(adapter::stop);
+    try {
+      assertTrue(closeEntered.await(2, TimeUnit.SECONDS), "第一次 stop 必须真的进入 close");
+
+      // 关键断言：第一次 stop 还卡在 close 里时，第二次 stop 必须能立刻拿到监视器
+      long startedAt = System.nanoTime();
+      adapter.stop();
+      long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
+      assertTrue(elapsedMs < 800, "close 在锁外时第二次 stop 应立即返回，实际 " + elapsedMs + "ms（说明监视器被占住了）");
+    } finally {
+      neverFinishes.countDown();
+      first.join(5_000);
+    }
+  }
 }
