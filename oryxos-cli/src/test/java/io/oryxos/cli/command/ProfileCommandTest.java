@@ -7,7 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.oryxos.cli.OryxOsCli;
 import io.oryxos.core.agent.AgentLoader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -62,7 +65,7 @@ class ProfileCommandTest {
 
     ProfileCommand.ShowCommand show = new ProfileCommand.ShowCommand();
     show.name = "huge";
-    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, show::run);
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, show::call);
     assertTrue(ex.getMessage().contains("10 MiB"));
   }
 
@@ -115,7 +118,7 @@ class ProfileCommandTest {
               () -> {
                 ProfileCommand.ShowCommand show = new ProfileCommand.ShowCommand();
                 show.name = name;
-                show.run();
+                show.call();
               },
               "show " + name + " 必须被拒");
       assertTrue(shown.getMessage().contains("非法 Agent 名"), shown.getMessage());
@@ -135,7 +138,7 @@ class ProfileCommandTest {
 
     ProfileCommand.ShowCommand show = new ProfileCommand.ShowCommand();
     show.name = "escape";
-    IllegalArgumentException shown = assertThrows(IllegalArgumentException.class, show::run);
+    IllegalArgumentException shown = assertThrows(IllegalArgumentException.class, show::call);
     assertTrue(shown.getMessage().contains("越界"), shown.getMessage());
 
     ProfileCommand.CreateCommand create = new ProfileCommand.CreateCommand();
@@ -160,7 +163,7 @@ class ProfileCommandTest {
 
     ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
     delete.name = "ops_1";
-    delete.run();
+    delete.call();
 
     assertFalse(Files.exists(dir), "delete 应删掉 Agent 目录");
   }
@@ -177,10 +180,76 @@ class ProfileCommandTest {
     assertTrue(Files.isRegularFile(db), "工作区文件被删了");
   }
 
+  @Test
+  @DisplayName("CLI：show 不存在的 Agent 退出码 1，且 stderr 写明原因")
+  void cliShowMissingAgentExitsNonZero() {
+    Result result = execute("profile", "show", "ghost");
+
+    assertEquals(1, result.code(), "Agent 不存在必须非零退出（脚本 || echo failed 才会触发）");
+    assertTrue(result.err().contains("Agent 不存在: ghost"), result.err());
+  }
+
+  @Test
+  @DisplayName("CLI：delete 不存在的 Agent 退出码 1，且不产生任何归档")
+  void cliDeleteMissingAgentExitsNonZero() {
+    Result result = execute("profile", "delete", "ghost");
+
+    assertEquals(1, result.code(), "Agent 不存在必须非零退出");
+    assertTrue(result.err().contains("Agent 不存在: ghost"), result.err());
+    assertFalse(Files.exists(root.resolve("archive").resolve("ghost")), "不存在的 Agent 不得产生归档");
+  }
+
+  @Test
+  @DisplayName("CLI：存在的 Agent show/delete 仍退出 0")
+  void cliSuccessPathsStillExitZero() throws Exception {
+    assertEquals(0, execute("profile", "create", "ops").code(), "create 成功应退出 0");
+
+    Result show = execute("profile", "show", "ops");
+    assertEquals(0, show.code(), show.err());
+    assertTrue(show.out().contains("name: ops"), "show 应打印 AGENT.md 内容");
+
+    Result delete = execute("profile", "delete", "ops");
+    assertEquals(0, delete.code(), delete.err());
+    assertTrue(Files.isDirectory(root.resolve("archive").resolve("ops")), "delete 成功应完成归档");
+  }
+
+  @Test
+  @DisplayName("版本号递增失败只是 WARN：归档已经完成，delete 不得判失败（仍返回 0）")
+  void versionBumpFailureDoesNotFailDelete() throws Exception {
+    Path agent = Files.createDirectories(root.resolve("agents").resolve("ops"));
+    Files.writeString(agent.resolve("AGENT.md"), "---\nname: ops\n---\n");
+    ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
+    delete.name = "ops";
+    delete.versionBump =
+        new WorkspaceVersionBump() {
+          @Override
+          protected Connection connect() throws SQLException {
+            throw new SQLException("版本号总线不可用");
+          }
+        };
+
+    ByteArrayOutputStream err = new ByteArrayOutputStream();
+    PrintStream errStream = new PrintStream(err, true, StandardCharsets.UTF_8);
+    PrintStream previous = System.err;
+    System.setErr(errStream);
+    int code;
+    try {
+      code = delete.call();
+    } finally {
+      System.setErr(previous);
+    }
+
+    assertEquals(0, code, "bump 失败不得把已归档的 delete 判为失败");
+    assertTrue(
+        err.toString(StandardCharsets.UTF_8).contains("工作区版本号递增失败"),
+        err.toString(StandardCharsets.UTF_8));
+    assertTrue(Files.isDirectory(root.resolve("archive").resolve("ops")), "归档必须已经完成");
+  }
+
   private static void delete(String name) {
     ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
     delete.name = name;
-    delete.run();
+    delete.call();
   }
 
   private static Path writeFile(Path path, String content) throws IOException {
@@ -199,7 +268,7 @@ class ProfileCommandTest {
     ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
     delete.name = "ops";
     delete.versionBump = noopBump();
-    delete.run();
+    delete.call();
 
     assertFalse(Files.exists(root.resolve("agents").resolve("ops")), "原目录必须消失");
     Path archived = root.resolve("archive").resolve("ops");
@@ -220,7 +289,7 @@ class ProfileCommandTest {
     ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
     delete.name = "ops";
     delete.versionBump = noopBump();
-    delete.run();
+    delete.call();
 
     assertEquals("旧归档", Files.readString(root.resolve("archive/ops/older.md")), "旧归档不得被覆盖");
     try (var dirs = Files.list(root.resolve("archive"))) {
@@ -255,7 +324,7 @@ class ProfileCommandTest {
     ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
     delete.name = "ops";
     delete.versionBump = dbBump;
-    delete.run();
+    delete.call();
     assertEquals(2, readWorkspaceVersion(url, "agents"), "delete 必须 bump agents");
     assertEquals(0, readWorkspaceVersion(url, "knowledge"), "只 bump agents 域，不得碰其他域");
   }
@@ -298,4 +367,27 @@ class ProfileCommandTest {
       }
     }
   }
+
+  private static Result execute(String... args) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    ByteArrayOutputStream err = new ByteArrayOutputStream();
+    PrintStream outStream = new PrintStream(out, true, StandardCharsets.UTF_8);
+    PrintStream errStream = new PrintStream(err, true, StandardCharsets.UTF_8);
+    PrintStream previousOut = System.out;
+    PrintStream previousErr = System.err;
+    System.setOut(outStream);
+    System.setErr(errStream);
+    try {
+      int code = new CommandLine(new OryxOsCli()).execute(args);
+      outStream.flush();
+      errStream.flush();
+      return new Result(
+          code, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
+    } finally {
+      System.setOut(previousOut);
+      System.setErr(previousErr);
+    }
+  }
+
+  private record Result(int code, String out, String err) {}
 }
