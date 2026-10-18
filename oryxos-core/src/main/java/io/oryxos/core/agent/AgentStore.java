@@ -267,8 +267,13 @@ public class AgentStore {
     }
   }
 
+  /** Agent 名的形状（单个目录段）：CLI 的 profile 命令与 web 侧共用这一份判据。 */
+  public static boolean isSafeName(String name) {
+    return name != null && SAFE_NAME.matcher(name).matches();
+  }
+
   private static String safe(String name) {
-    if (name == null || !SAFE_NAME.matcher(name).matches()) {
+    if (!isSafeName(name)) {
       throw new IllegalArgumentException("非法 Agent 名（只允许字母/数字/下划线/连字符）: " + name);
     }
     return name;

@@ -1,6 +1,8 @@
 package io.oryxos.cli.command;
 
 import io.oryxos.core.agent.AgentLoader;
+import io.oryxos.core.agent.AgentStore;
+import io.oryxos.core.fs.RealPathBoundary;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -36,12 +38,29 @@ public class ProfileCommand implements Runnable {
     return Workspace.root().resolve("agents");
   }
 
-  static Path agentDir(String name) {
-    return agentsDir().resolve(name);
+  /**
+   * Agent 目录的唯一入口：名字必须是一个安全目录段（与 {@link AgentStore} 同一口径），且真实路径必须仍在 {@code agents/} 内。
+   *
+   * <p>没有这道校验时 {@code profile delete ..} 会把整个工作区根（{@code .oryxos/} 里的 oryxos.db、memory/ 与
+   * mcp_servers.yaml）递归删掉，{@code delete ../..} 会删到工作区父目录，{@code create ../../x} 会在任意位置 创建 Agent
+   * 目录——delete 对它拿到的路径是真的 {@code Files.walk} 全删。字符集臂挡 {@code ..} 与绝对路径； 真实路径臂挡「agents 下的软链指向根外」。
+   */
+  static Path safeAgentDir(String name) {
+    if (!AgentStore.isSafeName(name)) {
+      throw new IllegalArgumentException("非法 Agent 名（只允许字母/数字/下划线/连字符）: " + name);
+    }
+    Path agents = agentsDir();
+    Path dir = agents.resolve(name).normalize();
+    try {
+      RealPathBoundary.requireWithin(agents, dir);
+    } catch (IllegalArgumentException | UncheckedIOException e) {
+      throw new IllegalArgumentException("Agent 目录越界（真实路径不在 agents/ 内）: " + name, e);
+    }
+    return dir;
   }
 
   static Path agentFile(String name) {
-    return agentDir(name).resolve("AGENT.md");
+    return safeAgentDir(name).resolve("AGENT.md");
   }
 
   @Command(name = "list", description = "列出全部 Agent", mixinStandardHelpOptions = true)
@@ -71,7 +90,8 @@ public class ProfileCommand implements Runnable {
 
     @Override
     public void run() {
-      Path file = agentFile(name);
+      Path dir = safeAgentDir(name);
+      Path file = dir.resolve("AGENT.md");
       if (Files.exists(file)) {
         System.out.println("已存在，未覆盖: " + file);
         return;
@@ -99,7 +119,7 @@ public class ProfileCommand implements Runnable {
           """
               .replace("{name}", name);
       try {
-        Files.createDirectories(agentDir(name));
+        Files.createDirectories(dir);
         Files.writeString(file, template);
       } catch (IOException e) {
         throw new UncheckedIOException("写入 Agent 失败", e);
@@ -145,7 +165,7 @@ public class ProfileCommand implements Runnable {
 
     @Override
     public void run() {
-      Path dir = agentDir(name);
+      Path dir = safeAgentDir(name);
       if (!Files.isDirectory(dir)) {
         System.err.println("Agent 不存在: " + name);
         return;
