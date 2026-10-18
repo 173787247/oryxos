@@ -1,7 +1,9 @@
 package io.oryxos.cli.command;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -133,6 +135,129 @@ class LightDbConfigTest {
     assertFalse(config.isSqlite());
     assertEquals("jdbc:postgresql://db.internal:5432/oryxos", config.describe());
     assertFalse(config.describe().contains("busy_timeout"), "PG 档不得追加 SQLite 连接参数");
+  }
+
+  @Test
+  @DisplayName("缺失且无默认值的占位符_直接报错_不回显原始值")
+  void missingPlaceholderWithoutDefaultFailsClosedWithoutEchoingValue() throws Exception {
+    Path configFile =
+        writeConfig(
+            "spring:\n"
+                + "  datasource:\n"
+                + "    password: secret-hunter2-${ORYXOS_TEST_MISSING_PH_XYZ}\n");
+
+    LightDbConfigException error =
+        assertThrows(LightDbConfigException.class, () -> LightDbConfig.load(configFile));
+
+    String message = error.getMessage();
+    assertTrue(message.contains(configFile.toString()), "要点名配置文件: " + message);
+    assertTrue(message.contains("spring.datasource.password"), "要点名是哪个键: " + message);
+    assertTrue(message.contains("${ORYXOS_TEST_MISSING_PH_XYZ}"), "要点名缺失的占位符: " + message);
+    assertFalse(message.contains("hunter2"), "不得回显原始 value（可能含凭证）: " + message);
+  }
+
+  @Test
+  @DisplayName("占位符名不 trim：带空格的 ${ DB_PASS } 即使有同名变量也不算同一个键")
+  void placeholderNameIsNotTrimmed() throws Exception {
+    System.setProperty("ORYXOS_TEST_TRIMMED_PH_XYZ", "secret");
+    try {
+      Path configFile =
+          writeConfig("spring:\n  datasource:\n    password: ${ ORYXOS_TEST_TRIMMED_PH_XYZ }\n");
+
+      LightDbConfigException error =
+          assertThrows(LightDbConfigException.class, () -> LightDbConfig.load(configFile));
+
+      assertTrue(
+          error.getMessage().contains("${ ORYXOS_TEST_TRIMMED_PH_XYZ }"),
+          "带空格的名字应按未定义处理（与 Spring 7.0.9 实测一致，不 trim）: " + error.getMessage());
+    } finally {
+      System.clearProperty("ORYXOS_TEST_TRIMMED_PH_XYZ");
+    }
+  }
+
+  @Test
+  @DisplayName("嵌套占位符_内层默认值生效")
+  void nestedPlaceholderDefaultResolves() throws Exception {
+    Path configFile =
+        writeConfig(
+            "spring:\n"
+                + "  datasource:\n"
+                + "    url: jdbc:postgresql://${ORYXOS_TEST_NESTED_HOST_XYZ:"
+                + "${ORYXOS_TEST_NESTED_FALLBACK_XYZ:db.internal}}:5432/oryxos\n");
+
+    LightDbConfig config = LightDbConfig.load(configFile);
+
+    assertEquals("jdbc:postgresql://db.internal:5432/oryxos", config.describe());
+  }
+
+  @Test
+  @DisplayName("默认值里的占位符_递归解析")
+  void recursivePlaceholderInDefaultResolves() throws Exception {
+    Path configFile =
+        writeConfig(
+            "spring:\n"
+                + "  datasource:\n"
+                + "    url: jdbc:postgresql://${ORYXOS_TEST_REC_HOST_XYZ:prefix-"
+                + "${ORYXOS_TEST_REC_NAME_XYZ:fallback}}:5432/oryxos\n");
+
+    LightDbConfig config = LightDbConfig.load(configFile);
+
+    assertEquals("jdbc:postgresql://prefix-fallback:5432/oryxos", config.describe());
+  }
+
+  @Test
+  @DisplayName("转义写法的占位符_保持字面量_不解析")
+  void escapedPlaceholderStaysLiteral() throws Exception {
+    Path configFile =
+        writeConfig(
+            "spring:\n  datasource:\n    url: jdbc:sqlite:literal-\\${ORYXOS_TEST_ESCAPED_XYZ}.db\n");
+
+    LightDbConfig config = LightDbConfig.load(configFile);
+
+    assertEquals("literal-${ORYXOS_TEST_ESCAPED_XYZ}.db", config.describe());
+  }
+
+  @Test
+  @DisplayName("取值源：系统属性优先，环境变量次之")
+  void placeholderSourcesSystemPropertyThenEnvironment() throws Exception {
+    System.setProperty("ORYXOS_TEST_SYS_PH_XYZ", "from-system-property");
+    try {
+      Path configFile =
+          writeConfig(
+              "spring:\n  datasource:\n    url: jdbc:postgresql://${ORYXOS_TEST_SYS_PH_XYZ}:5432/x\n");
+      assertEquals(
+          "jdbc:postgresql://from-system-property:5432/x",
+          LightDbConfig.load(configFile).describe());
+    } finally {
+      System.clearProperty("ORYXOS_TEST_SYS_PH_XYZ");
+    }
+
+    String path = System.getenv("PATH");
+    assertNotNull(path, "用例环境必须带 PATH 才能验证环境变量源");
+    Path envConfig = writeConfig("spring:\n  datasource:\n    url: jdbc:sqlite:${PATH}\n");
+    assertEquals(path, LightDbConfig.load(envConfig).describe(), "环境变量源必须仍能解析");
+  }
+
+  @Test
+  @DisplayName("空默认值合法：${MISSING:} 解析为空串，不报未定义")
+  void emptyDefaultPlaceholderIsAllowed() throws Exception {
+    Path configFile =
+        writeConfig("spring:\n  datasource:\n    password: ${ORYXOS_TEST_EMPTY_PH_XYZ:}\n");
+
+    assertDoesNotThrow(() -> LightDbConfig.load(configFile));
+  }
+
+  @Test
+  @DisplayName("url 解析后为空_按显式空 url 报错_不回落默认库")
+  void urlResolvingToBlankFailsClosed() throws Exception {
+    Path configFile =
+        writeConfig("spring:\n  datasource:\n    url: ${ORYXOS_TEST_BLANK_URL_XYZ:}\n");
+
+    LightDbConfigException error =
+        assertThrows(LightDbConfigException.class, () -> LightDbConfig.load(configFile));
+
+    assertTrue(error.getMessage().contains("spring.datasource.url 解析后为空"), error.getMessage());
+    assertTrue(error.getMessage().contains(configFile.toString()), error.getMessage());
   }
 
   private Path writeConfig(String content) throws Exception {

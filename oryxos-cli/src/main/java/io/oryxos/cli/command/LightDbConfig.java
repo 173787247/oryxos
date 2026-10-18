@@ -9,6 +9,9 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.Properties;
+import org.springframework.util.PlaceholderResolutionException;
+import org.springframework.util.PropertyPlaceholderHelper;
+import org.springframework.util.SystemPropertyUtils;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -16,10 +19,19 @@ import org.yaml.snakeyaml.error.MarkedYAMLException;
 
 /**
  * 轻命令的 datasource 解析（025，T017）：不起 Spring，但与重命令读同一份 {@code config/application.yml} （相对
- * CWD，两边看到的必须是同一个库）。缺省/未配置 = 内置 SQLite 档 {@code oryxos.db}；配置为 PG url 时轻命令同口径直连（SQL
- * 已是标准语法两库通用）。密码支持 {@code ${ENV}} / {@code ${ENV:default}} 占位。
+ * CWD，两边看到的必须是同一个库）。缺省/未配置 = 内置 SQLite 档 {@code oryxos.db}；配置为 PG url 时轻命令同口径直连（SQL 已是标准语法两库通用）。
  *
- * <p>失败口径与重命令对齐：外部配置<b>文件不存在</b>时回落内置 SQLite 档；<b>文件存在但读不出 / 解析失败 / 结构非法</b>时抛 {@link
+ * <p>占位符沿用 Spring 自己的 {@link PropertyPlaceholderHelper}（Spring Framework 7.0.9，与 Spring Boot
+ * 绑定用的是同一个类与同一套 参数）：取值源是<b>系统属性优先、环境变量其次</b>；支持 {@code ${ENV:default}}、嵌套、{@code \${literal}}
+ * 转义与默认值递归。 <b>已知与重命令的差异</b>：拿不到 Spring Environment，所以配置文件内的自引用属性与命令行参数 （{@code
+ * --spring.datasource.url=...}）不作为占位符来源；这些值会按"未定义"处理。
+ *
+ * <p><b>比 Boot 绑定更严（fail-closed）</b>：Boot 的 {@code PropertySourcesPlaceholdersResolver} 用 {@code
+ * ignoreUnresolvablePlaceholders=true}，未解析的占位符会原样作为字面量绑定（{@code ${MISSING}} 会成为字面量 {@code
+ * "${MISSING}"}，启动不失败、连接时才炸）；轻命令用 {@code false}，缺失且无默认值直接抛 {@link
+ * LightDbConfigException}——这是唯一能提前说清楚的路径，也避免拿空串或字面量凭证去连接。
+ *
+ * <p>失败口径：外部配置<b>文件不存在</b>时回落内置 SQLite 档；<b>文件存在但读不出 / 解析失败 / 结构非法</b>时抛 {@link
  * LightDbConfigException}，绝不静默换成另一个库——否则轻命令会安静地读"另一个库"的数据，而重命令同一份配置是启动失败。
  */
 final class LightDbConfig {
@@ -28,6 +40,19 @@ final class LightDbConfig {
   private static final String SQLITE_PREFIX = "jdbc:sqlite:";
   private static final String BUSY_TIMEOUT = "busy_timeout";
   private static final Path EXTERNAL_CONFIG = Path.of("config", "application.yml");
+
+  /**
+   * 与 Spring Boot 的 {@code PropertySourcesPlaceholdersResolver} 同参：前缀/后缀/默认值分隔符/转义符完全一致，只把 {@code
+   * ignoreUnresolvablePlaceholders} 设为 {@code false} —— 缺失且无默认值时抛 {@link
+   * PlaceholderResolutionException}，再由 {@link #resolvePlaceholders} 折成 {@link
+   * LightDbConfigException}。
+   *
+   * <p>注意本类<b>不 trim</b> 占位符名：与 Spring 7.0.9 实测一致（{@code ${ DB_PASS }} 交给解析器的名字是 {@code " DB_PASS
+   * "}， Boot 绑定会原样保留为字面量），所以 {@code ${ DB_PASS }} <b>不</b>会因为环境里有 {@code DB_PASS} 而解析。
+   */
+  private static final PropertyPlaceholderHelper PLACEHOLDERS =
+      new PropertyPlaceholderHelper("${", "}", ":", SystemPropertyUtils.ESCAPE_CHARACTER, false);
+
   private final String url;
   private final String username;
   private final String password;
@@ -45,16 +70,25 @@ final class LightDbConfig {
   /** 从指定配置文件解析（生产走 CWD 下的 {@code config/application.yml}；用例可指向临时文件）。 */
   static LightDbConfig load(Path configFile) {
     Map<String, Object> datasource = readDatasourceSection(configFile);
-    String url = resolvePlaceholders(stringValue(datasource.get("url")));
-    if (url == null || url.isBlank()) {
+    String url =
+        resolvePlaceholders(
+            stringValue(datasource.get("url")), "spring.datasource.url", configFile);
+    if (url != null && url.isBlank()) {
+      // 有 url 键但解析后为空（如 url: ${DB_URL:}）：与"显式空 url"同口径——它会把重命令的打包默认覆盖成空，必须报错。
+      throw new LightDbConfigException(
+          configFile + " 的 spring.datasource.url 解析后为空，轻命令无法确定数据库；拒绝回落到内置 SQLite。");
+    }
+    if (url == null) {
       url = SQLITE_PREFIX + DEFAULT_SQLITE_FILE + "?" + BUSY_TIMEOUT + "=5000";
     } else if (url.startsWith(SQLITE_PREFIX) && !url.contains(BUSY_TIMEOUT)) {
       url = url + (url.contains("?") ? "&" : "?") + BUSY_TIMEOUT + "=5000";
     }
     return new LightDbConfig(
         url,
-        resolvePlaceholders(stringValue(datasource.get("username"))),
-        resolvePlaceholders(stringValue(datasource.get("password"))));
+        resolvePlaceholders(
+            stringValue(datasource.get("username")), "spring.datasource.username", configFile),
+        resolvePlaceholders(
+            stringValue(datasource.get("password")), "spring.datasource.password", configFile));
   }
 
   /**
@@ -169,32 +203,32 @@ final class LightDbConfig {
     return value == null ? null : String.valueOf(value);
   }
 
-  private static String resolvePlaceholders(String value) {
+  /**
+   * 解析占位符。失败时只用 {@link PlaceholderResolutionException#getPlaceholder()} 点名缺失项——Spring 的原始消息带着整段
+   * value，可能含凭证，绝不透出。
+   */
+  private static String resolvePlaceholders(String value, String key, Path configFile) {
     if (value == null) {
       return null;
     }
-    StringBuilder resolved = new StringBuilder(value.length());
-    int i = 0;
-    while (i < value.length()) {
-      int start = value.indexOf("${", i);
-      if (start < 0) {
-        resolved.append(value, i, value.length());
-        break;
-      }
-      int end = value.indexOf('}', start + 2);
-      if (end < 0) {
-        resolved.append(value, i, value.length());
-        break;
-      }
-      resolved.append(value, i, start);
-      String token = value.substring(start + 2, end);
-      int colon = token.indexOf(':');
-      String name = colon < 0 ? token : token.substring(0, colon);
-      String fallback = colon < 0 ? "" : token.substring(colon + 1);
-      String env = System.getenv(name);
-      resolved.append(env == null ? fallback : env);
-      i = end + 1;
+    try {
+      return PLACEHOLDERS.replacePlaceholders(value, LightDbConfig::lookupProperty);
+    } catch (PlaceholderResolutionException e) {
+      throw new LightDbConfigException(
+          configFile
+              + " 的 "
+              + key
+              + " 引用了未定义的占位符 ${"
+              + e.getPlaceholder()
+              + "}（无默认值）；轻命令拒绝以空值或字面量连接数据库。"
+              + "设置对应环境变量或 -D 系统属性后重试。",
+          e);
     }
-    return resolved.toString();
+  }
+
+  /** 取值源与 Spring Environment 的两档对齐：系统属性优先，其次环境变量；其余来源见类注释的已知差异。 */
+  private static String lookupProperty(String name) {
+    String fromSystemProperty = System.getProperty(name);
+    return fromSystemProperty != null ? fromSystemProperty : System.getenv(name);
   }
 }
