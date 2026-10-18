@@ -162,7 +162,7 @@ oryxos profile delete <name>
 
 ### oryxos provider list
 
-列出本实例声明的 Provider。轻命令直接从打包的 `application.yml`（`oryxos.providers` 段）读取，打印每个 Provider 的名字和 base URL。（运行时 Provider 由 SQLite 支撑的动态注册表管理，启动时以这些声明为种子。）
+列出本实例实际运行所用的 Provider 注册表。轻命令查的是运行时同一个库——默认 `oryxos.db` 里的 `providers` 表，或 `config/application.yml` 配置的外部数据源——打印每个 Provider 的名字、派生默认标记、base URL 与描述。打包的 `application.yml` 只在服务首次启动时为数据库缺失的条目播种；之后数据库是唯一事实源，管理台（`/api/v1/providers`）的新增/删除在这里立即反映。
 
 ```bash
 oryxos provider list
@@ -171,9 +171,15 @@ oryxos provider list
 示例输出：
 
 ```text
-deepseek     https://api.deepseek.com
-qwen         https://dashscope.aliyuncs.com/compatible-mode/v1
+Provider 注册表（oryxos.db）：
+NAME                 DEFAULT  BASE-URL                                             DESCRIPTION
+deepseek             *        https://api.deepseek.com                             默认 DeepSeek
+mock                          -                                                    内置假模型
+qwen                          https://dashscope.aliyuncs.com/compatible-mode/v1    通义
+default(*) 为运行时派生（注册表内按大小写无关排序的最小名），不是库字段。
 ```
+
+数据库不可达 / 未初始化 / 缺 `providers` 表时命令非零退出，不会回落到打包 YAML。
 
 ### oryxos tool list
 

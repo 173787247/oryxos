@@ -48,6 +48,14 @@ final class LightDbConfig {
         resolvePlaceholders(stringValue(datasource.get("password"))));
   }
 
+  /**
+   * 单测缝：直接指定 url（跳过 {@code config/application.yml} 解析），让轻命令用例指向临时库；同 {@code
+   * KnowledgeWatcher.newWatchService()} 的注入思路。
+   */
+  static LightDbConfig forUrl(String url) {
+    return new LightDbConfig(url, null, null);
+  }
+
   boolean isSqlite() {
     return url.startsWith(SQLITE_PREFIX);
   }

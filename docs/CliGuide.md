@@ -66,7 +66,7 @@ oryxos chat --profile weather      # ⑤ 开聊
 | `oryxos profile create <name>` | 轻 | 创建 Profile（最小模板，不覆盖已有） |
 | `oryxos profile show <name>` | 轻 | 查看 Profile 内容 |
 | `oryxos profile delete <name>` | 轻 | 删除 Profile |
-| `oryxos provider list` | 轻 | 列出实例声明的 Provider |
+| `oryxos provider list` | 轻 | 列出 Provider 注册表（数据库） |
 | `oryxos tool list` | 轻 | 列出可用工具（20 节起为实时清单） |
 | `oryxos session list` | 轻 | 列出会话概览 |
 | `oryxos apikey add <name>` | 轻 | 生成 REST API Key（明文仅显示一次） |
@@ -152,11 +152,12 @@ oryxos profile delete ops-agent   # 删除整个 Agent 目录（不存在则报�
 ### 4.6 provider list / tool list / session list——三张清单
 
 ```bash
-oryxos provider list   # 实例声明的 Provider（name + base-url，读打包配置）
+oryxos provider list   # Provider 注册表（数据库；name / default / base-url / description）
 oryxos tool list       # 可用工具清单（20 节 ToolRegistry 就位后为实时注册表）
 oryxos session list    # 会话概览：session_id / profile / status / last_active_at
 ```
 
+`provider list` 与 `session list` 同一条通道：直连当前目录的 `oryxos.db`（或 `config/application.yml` 指向的外部库）只读查询 `providers` 表；打包 YAML 只在服务首次启动时播种，之后数据库是唯一事实源。
 `session list` 直连当前目录的 `oryxos.db` 只读查询；库还没创建时提示"暂无会话"。
 
 ---
