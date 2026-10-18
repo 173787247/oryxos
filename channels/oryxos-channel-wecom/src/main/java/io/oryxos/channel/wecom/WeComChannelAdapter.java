@@ -123,19 +123,24 @@ public class WeComChannelAdapter implements InboundChannelAdapter {
   }
 
   @Override
-  public synchronized void stop() {
-    running = false;
-    cancelReconnectLocked();
-    shutdownReconnectSchedulerLocked();
-    WeComWsClient ws = wsRef.getAndSet(null);
+  public void stop() {
+    WeComWsClient ws;
+    synchronized (this) {
+      running = false;
+      cancelReconnectLocked();
+      shutdownReconnectSchedulerLocked();
+      ws = wsRef.getAndSet(null);
+      transportRef.set(null);
+      sender = null;
+      normalizer = null;
+      imageResolver = null;
+      state = ChannelStatus.State.DISCONNECTED;
+    }
+    // 锁外关闭：closeQuietly 最多限时 2s，持锁期间会阻塞 handleDisconnected / start / 另一次 stop
+    // （对齐本类 handleDisconnected 的注释与 #993 的关闭时序）。
     if (ws != null) {
       ws.closeQuietly();
     }
-    transportRef.set(null);
-    sender = null;
-    normalizer = null;
-    imageResolver = null;
-    state = ChannelStatus.State.DISCONNECTED;
   }
 
   @Override
