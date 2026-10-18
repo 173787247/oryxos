@@ -1,7 +1,10 @@
 package io.oryxos.web.audit;
 
+import io.oryxos.storage.LlmAuditGroup;
+import io.oryxos.storage.LlmAuditTotals;
 import io.oryxos.storage.LlmCall;
 import io.oryxos.storage.LlmCallRepository;
+import io.oryxos.storage.ToolAuditTotals;
 import io.oryxos.storage.ToolInvocation;
 import io.oryxos.storage.ToolInvocationRepository;
 import io.oryxos.web.controller.dto.AuditGroupView;
@@ -14,12 +17,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import org.springframework.data.domain.PageRequest;
 
 /**
- * 审计聚合（016 审计看板）：只读两张审计表，Java 内存 for 循环聚合（对齐 KnowledgeMetricsService 范式，无 SQL GROUP BY）。
+ * 审计聚合（016 审计看板）：只读两张审计表。
+ *
+ * <p>聚合、分组、明细截断一律下推到 SQL（聚合查询 / {@code GROUP BY} / {@link PageRequest}）——审计表 append-only， 默认窗口 30
+ * 天可以是几十万行，整窗实体进堆会连累同进程的 LLM 服务。这里只做口径归一：成功率、平均耗时取整、 成本「未计量 → null」、以及未归属键的展示文案。
  *
  * <p>成本口径（G2）：未计量（costMicros=null，失败或未定价）的调用不计入 totalCostMicros；无任何已计量调用时返回 null。
  */
@@ -41,78 +45,58 @@ public class AuditMetricsService {
   }
 
   public LlmSummaryView llmSummary(Instant from, Instant to) {
-    List<LlmCall> calls = llmCallRepository.findByCreatedAtBetween(from, to);
-    long count = calls.size();
-    long successCount = calls.stream().filter(LlmCall::isSuccess).count();
-    double successRate = count == 0 ? 0.0 : (double) successCount / count;
-    long totalPromptTokens =
-        calls.stream().mapToLong(c -> c.getPromptTokens() == null ? 0 : c.getPromptTokens()).sum();
-    long totalCompletionTokens =
-        calls.stream()
-            .mapToLong(c -> c.getCompletionTokens() == null ? 0 : c.getCompletionTokens())
-            .sum();
-    Long totalCostMicros = sumCost(calls);
+    LlmAuditTotals totals = llmCallRepository.auditTotals(from, to);
+    long count = zeroIfNull(totals.totalCount());
+    long successCount = zeroIfNull(totals.successCount());
+    long measuredCosts = zeroIfNull(totals.measuredCostCount());
     long avgDurationMs =
-        count == 0
-            ? 0
-            : Math.round(calls.stream().mapToLong(LlmCall::getDurationMs).average().orElse(0));
+        count == 0 ? 0 : Math.round(totals.avgDurationMs() == null ? 0.0 : totals.avgDurationMs());
     return new LlmSummaryView(
         count,
         successCount,
-        successRate,
-        totalPromptTokens,
-        totalCompletionTokens,
-        totalCostMicros,
+        successRate(count, successCount),
+        zeroIfNull(totals.promptTokens()),
+        zeroIfNull(totals.completionTokens()),
+        measuredCosts == 0 ? null : totals.costMicros(),
         avgDurationMs);
   }
 
   public ToolSummaryView toolSummary(Instant from, Instant to) {
-    List<ToolInvocation> invs = toolInvocationRepository.findByCreatedAtBetween(from, to);
-    long count = invs.size();
-    long successCount = invs.stream().filter(ToolInvocation::isSuccess).count();
-    double successRate = count == 0 ? 0.0 : (double) successCount / count;
+    ToolAuditTotals totals = toolInvocationRepository.auditTotals(from, to);
+    long count = zeroIfNull(totals.totalCount());
+    long successCount = zeroIfNull(totals.successCount());
     long avgDurationMs =
-        count == 0
-            ? 0
-            : Math.round(
-                invs.stream().mapToLong(ToolInvocation::getDurationMs).average().orElse(0));
-    return new ToolSummaryView(count, successCount, successRate, avgDurationMs);
+        count == 0 ? 0 : Math.round(totals.avgDurationMs() == null ? 0.0 : totals.avgDurationMs());
+    return new ToolSummaryView(
+        count, successCount, successRate(count, successCount), avgDurationMs);
   }
 
   public List<AuditGroupView> llmByModel(Instant from, Instant to) {
-    return llmGroup(from, to, LlmCall::getModel);
+    return toLlmGroups(llmCallRepository.auditGroupsByModel(from, to));
   }
 
   public List<AuditGroupView> llmByProvider(Instant from, Instant to) {
-    return llmGroup(from, to, LlmCall::getProvider);
+    return toLlmGroups(llmCallRepository.auditGroupsByProvider(from, to));
   }
 
   public List<AuditGroupView> llmByAgent(Instant from, Instant to) {
-    return llmGroup(from, to, LlmCall::getProfileName);
+    return toLlmGroups(llmCallRepository.auditGroupsByAgent(from, to));
   }
 
   public List<AuditGroupView> toolByName(Instant from, Instant to) {
-    Map<String, List<ToolInvocation>> grouped =
-        toolInvocationRepository.findByCreatedAtBetween(from, to).stream()
-            .collect(
-                Collectors.groupingBy(t -> t.getToolName() == null ? UNASSIGNED : t.getToolName()));
-    return grouped.entrySet().stream()
+    return toolInvocationRepository.auditGroupsByName(from, to).stream()
         .map(
-            e -> {
-              List<ToolInvocation> ts = e.getValue();
-              long successCount = ts.stream().filter(ToolInvocation::isSuccess).count();
-              return new AuditGroupView(e.getKey(), ts.size(), successCount, null);
-            })
-        .sorted(Comparator.comparingLong(AuditGroupView::count).reversed())
+            group ->
+                new AuditGroupView(
+                    groupKey(group.key()),
+                    zeroIfNull(group.totalCount()),
+                    zeroIfNull(group.successCount()),
+                    null))
         .toList();
   }
 
   public List<LlmCallView> llmList(Instant from, Instant to, int limit) {
-    return llmCallRepository.findByCreatedAtBetween(from, to).stream()
-        .sorted(
-            Comparator.comparing(
-                LlmCall::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-        .limit(limit)
+    return llmCallRepository.findRecentInWindow(from, to, page(limit)).stream()
         .map(LlmCallView::from)
         .toList();
   }
@@ -131,13 +115,9 @@ public class AuditMetricsService {
    */
   public List<ToolInvocationView> toolList(
       Instant from, Instant to, int limit, String blockedBy, String executionBackend) {
-    return toolInvocationRepository.findByCreatedAtBetween(from, to).stream()
-        .filter(t -> blockedBy == null || blockedBy.equals(t.getBlockedBy()))
-        .filter(t -> executionBackend == null || executionBackend.equals(t.getExecutionBackend()))
-        .sorted(
-            Comparator.comparing(
-                ToolInvocation::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-        .limit(limit)
+    return toolInvocationRepository
+        .findRecentInWindow(from, to, blockedBy, executionBackend, page(limit))
+        .stream()
         .map(ToolInvocationView::from)
         .toList();
   }
@@ -228,24 +208,34 @@ public class AuditMetricsService {
     return Redactor.redact(truncated);
   }
 
-  private List<AuditGroupView> llmGroup(Instant from, Instant to, Function<LlmCall, String> keyFn) {
-    Map<String, List<LlmCall>> grouped =
-        llmCallRepository.findByCreatedAtBetween(from, to).stream()
-            .collect(
-                Collectors.groupingBy(
-                    c -> {
-                      String key = keyFn.apply(c);
-                      return key == null ? UNASSIGNED : key;
-                    }));
-    return grouped.entrySet().stream()
+  /** 分组行 → 视图：排序已在 SQL（count DESC）；成本按组内「是否有已计量调用」判 null。 */
+  private static List<AuditGroupView> toLlmGroups(List<LlmAuditGroup> groups) {
+    return groups.stream()
         .map(
-            e -> {
-              List<LlmCall> cs = e.getValue();
-              long successCount = cs.stream().filter(LlmCall::isSuccess).count();
-              return new AuditGroupView(e.getKey(), cs.size(), successCount, sumCost(cs));
-            })
-        .sorted(Comparator.comparingLong(AuditGroupView::count).reversed())
+            group ->
+                new AuditGroupView(
+                    groupKey(group.key()),
+                    zeroIfNull(group.totalCount()),
+                    zeroIfNull(group.successCount()),
+                    zeroIfNull(group.measuredCostCount()) == 0 ? null : group.costMicros()))
         .toList();
+  }
+
+  /** 未归属只来自 SQL 的 null 键；真叫「(未归属)」的 Agent 是另一个组，不会被合并。 */
+  private static String groupKey(String raw) {
+    return raw == null ? UNASSIGNED : raw;
+  }
+
+  private static double successRate(long count, long successCount) {
+    return count == 0 ? 0.0 : (double) successCount / count;
+  }
+
+  private static long zeroIfNull(Long value) {
+    return value == null ? 0 : value;
+  }
+
+  private static PageRequest page(int limit) {
+    return PageRequest.of(0, limit);
   }
 
   /** 只累加已计量成本；无任何已计量调用时返回 null（未计量，区别于 0）。 */
