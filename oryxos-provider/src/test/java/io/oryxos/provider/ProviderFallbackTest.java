@@ -15,6 +15,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.oryxos.core.profile.Profile;
 import io.oryxos.core.provider.LlmCallAuditor;
 import io.oryxos.core.provider.ProviderDef;
@@ -118,6 +121,30 @@ class ProviderFallbackTest {
 
   private static List<?> userMedia(Prompt prompt) {
     return ((UserMessage) prompt.getInstructions().get(0)).getMedia();
+  }
+
+  /** 只挂 {@link SpringAiProviderServiceImpl} 这个命名 logger，避免收进别处的日志。 */
+  private static ListAppender<ILoggingEvent> attachSwitchLogAppender() {
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    ((ch.qos.logback.classic.Logger)
+            org.slf4j.LoggerFactory.getLogger(SpringAiProviderServiceImpl.class))
+        .addAppender(appender);
+    return appender;
+  }
+
+  private static void detachSwitchLogAppender(ListAppender<ILoggingEvent> appender) {
+    ((ch.qos.logback.classic.Logger)
+            org.slf4j.LoggerFactory.getLogger(SpringAiProviderServiceImpl.class))
+        .detachAppender(appender);
+    appender.stop();
+  }
+
+  private static List<ILoggingEvent> switchWarnings(ListAppender<ILoggingEvent> appender) {
+    return appender.list.stream()
+        .filter(event -> event.getLevel() == Level.WARN)
+        .filter(event -> event.getFormattedMessage().contains("provider 切换"))
+        .toList();
   }
 
   @Test
@@ -290,6 +317,53 @@ class ProviderFallbackTest {
     // 审计恰两条：主失败 + 备成功，而不是 media 重试链打出的更多条
     verify(audit, times(2))
         .record(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyLong());
+  }
+
+  @Test
+  void 同provider不同model_切换日志带完整provider与model_不写成自指() {
+    when(primary.call(any(Prompt.class)))
+        .thenThrow(new ResourceAccessException("first model down"))
+        .thenReturn(reply("换模型接住"));
+
+    ListAppender<ILoggingEvent> appender = attachSwitchLogAppender();
+    try {
+      ProviderResponse response =
+          service.chat(
+              "s-1",
+              profileWithFallback(new Profile.ProviderRef.FallbackRef("primary", "p-model-2")),
+              request());
+      assertThat(response.text()).isEqualTo("换模型接住");
+    } finally {
+      detachSwitchLogAppender(appender);
+    }
+
+    List<ILoggingEvent> switches = switchWarnings(appender);
+    assertThat(switches).hasSize(1);
+    assertThat(switches.get(0).getFormattedMessage())
+        .as("同 provider 不同 model 是合法候选（#1002），日志要能看出不是自指")
+        .contains("provider 切换: primary/p-model → primary/p-model-2")
+        .doesNotContain("primary → primary");
+  }
+
+  @Test
+  void 不同provider_切换日志仍带两段完整标识() {
+    when(primary.call(any(Prompt.class))).thenThrow(new ResourceAccessException("down"));
+    when(backup.call(any(Prompt.class))).thenReturn(reply("备用回复"));
+
+    ListAppender<ILoggingEvent> appender = attachSwitchLogAppender();
+    try {
+      service.chat(
+          "s-1",
+          profileWithFallback(new Profile.ProviderRef.FallbackRef("backup", "b-model")),
+          request());
+    } finally {
+      detachSwitchLogAppender(appender);
+    }
+
+    List<ILoggingEvent> switches = switchWarnings(appender);
+    assertThat(switches).hasSize(1);
+    assertThat(switches.get(0).getFormattedMessage())
+        .contains("provider 切换: primary/p-model → backup/b-model");
   }
 
   @Test
