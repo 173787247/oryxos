@@ -35,4 +35,17 @@ public interface ProviderService {
     }
     return response;
   }
+
+  /**
+   * 忘掉某 provider 名下的已建客户端（生命周期钩子，不是调用契约）。
+   *
+   * <p>实现方按名缓存 ChatModel（内含 HTTP 客户端）时，provider 从注册表删除后 MUST 丢掉对应条目，否则客户端会随增删累积、
+   * 永不释放。**回收是实现方的责任**：这里的 default 空实现只是让无缓存的实现、CLI 运行时的 {@code @Bean} 装配与测试替身
+   * 不必为了签名保持而写空方法——它不代表这一步可选。
+   *
+   * <p>约束：实现方 MUST NOT 在这里关闭仍有请求在途的客户端——删除可能撞上进行中的调用。
+   */
+  default void evict(String providerName) {
+    // 无缓存实现不需要回收
+  }
 }

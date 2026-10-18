@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.oryxos.core.provider.ProviderDef;
 import io.oryxos.core.provider.ProviderRegistry;
+import io.oryxos.core.provider.ProviderService;
 import io.oryxos.web.GlobalExceptionHandler;
 import io.oryxos.web.provider.ProviderModelsService;
 import java.util.Optional;
@@ -32,15 +33,19 @@ import org.springframework.web.client.RestClient;
 class ProviderApiControllerTest {
 
   private ProviderRegistry registry;
+  private ProviderService providerService;
   private MockMvc mvc;
 
   @BeforeEach
   void setUp() {
     registry = mock(ProviderRegistry.class);
+    providerService = mock(ProviderService.class);
     mvc =
         MockMvcBuilders.standaloneSetup(
                 new ProviderApiController(
-                    registry, new ProviderModelsService(registry, RestClient.builder())))
+                    registry,
+                    new ProviderModelsService(registry, RestClient.builder()),
+                    providerService))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
   }
@@ -309,12 +314,25 @@ class ProviderApiControllerTest {
   }
 
   @Test
-  @DisplayName("delete 不存在_返回404_不触发删除")
+  @DisplayName("delete 成功_注册表删除后回收 provider 侧已缓存的客户端")
+  void delete_success_evictsProviderCache() throws Exception {
+    when(registry.exists("kimi")).thenReturn(true);
+
+    mvc.perform(delete("/api/v1/providers/kimi")).andExpect(status().isOk());
+
+    verify(registry).delete("kimi");
+    // 缺陷形态：不调 evict ⇒ 被删 provider 的 ChatModel（内含 OkHttp 客户端）永远留在内存里
+    verify(providerService).evict("kimi");
+  }
+
+  @Test
+  @DisplayName("delete 不存在_返回404_不触发删除也不回收")
   void delete_unknown_returns404() throws Exception {
     when(registry.exists("ghost")).thenReturn(false);
 
     mvc.perform(delete("/api/v1/providers/ghost")).andExpect(status().isNotFound());
     verify(registry, never()).delete(any());
+    verify(providerService, never()).evict(any());
   }
 
   @Test
