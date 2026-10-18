@@ -63,6 +63,8 @@ public class KnowledgeApiController {
   /** 与 KnowledgeIndexService.MAX_FILE_BYTES 对齐：落盘/回滚备份前拒绝超限。 */
   static final long MAX_DOCUMENT_UPLOAD_BYTES = 10L * 1024 * 1024;
 
+  private static final String PARENT_PATH_SEGMENT = "..";
+
   private final Path knowledgeRoot;
 
   private AssetBindGuard assetBindGuard;
@@ -287,20 +289,57 @@ public class KnowledgeApiController {
     KnowledgeManifest manifest = requireBase(name);
     KnowledgeBackend backend = requireBackend(manifest.backend());
     KnowledgeAdmin admin = admin(backend, KnowledgeCapabilities::importDocs, "删除文档");
-    if (relPath == null || relPath.isBlank()) {
-      throw new IllegalArgumentException("文档路径为空");
-    }
-    // getFileName() 依约定可为 null（根路径没有文件名）—— 那种入参没有"文件名"可比，
-    // 交给下面的越界校验去拒绝，不要在这里解引用。
-    Path leaf = Path.of(relPath).getFileName();
-    if (leaf != null) {
-      rejectReservedFileName(leaf.toString());
-    }
-    Path target =
-        RealPathBoundary.requireWithin(knowledgeRoot, knowledgeRoot.resolve(name).resolve(relPath));
+    Path target = documentFile(name, relPath);
     admin.deleteDocument(name, relPath);
     deleteQuietly(target);
     return ApiResponse.ok(null);
+  }
+
+  /**
+   * 解析要删除的文档文件（安全边界）：
+   *
+   * <ol>
+   *   <li><b>形状</b>：非空、非绝对路径、不含 {@code ..} 段、不含 Windows 分隔符 {@code \} 与 NUL、叶子有名字；
+   *   <li><b>库内边界</b>：以**这个库**为根（不是知识库总根）做真实路径投影——{@code ../kb-b/doc.md} 虽然还在 {@code knowledge/}
+   *       里，但已越出本库，必须 400；库内软链指向兄弟库/根外同样被投影挡下；
+   *   <li><b>保留名</b>：{@code KNOWLEDGE.md}（大小写不敏感）是清单，不是文档，任何入口都不得删/写它。
+   * </ol>
+   *
+   * <p>边界用 {@link KnowledgeBaseNames#requireBaseDir} 解析出的真实库目录（#992 口径：库名白名单 + realpath +
+   * 同名别名拒绝），因此库目录自身是软链时仍以它指向的真实目录为界。
+   */
+  private Path documentFile(String name, String relPath) {
+    if (relPath == null || relPath.isBlank()) {
+      throw new IllegalArgumentException("文档路径为空");
+    }
+    if (relPath.indexOf('\\') >= 0 || relPath.indexOf('\0') >= 0) {
+      throw new IllegalArgumentException("非法文档路径（不允许 Windows 分隔符或 NUL）: " + relPath);
+    }
+    Path relative;
+    try {
+      relative = Path.of(relPath);
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("非法文档路径: " + relPath, e);
+    }
+    if (relative.isAbsolute()) {
+      throw new IllegalArgumentException("非法文档路径（不允许绝对路径）: " + relPath);
+    }
+    for (Path segment : relative) {
+      if (PARENT_PATH_SEGMENT.equals(segment.toString())) {
+        throw new IllegalArgumentException("非法文档路径（不允许 .. 段）: " + relPath);
+      }
+    }
+    Path leaf = relative.getFileName();
+    if (leaf == null || leaf.toString().isBlank()) {
+      throw new IllegalArgumentException("非法文档路径（没有文件名）: " + relPath);
+    }
+    Path kbDir = KnowledgeBaseNames.requireBaseDir(knowledgeRoot, name);
+    Path target = kbDir.resolve(relative).toAbsolutePath().normalize();
+    if (!target.startsWith(kbDir)) {
+      throw new IllegalArgumentException("非法文档路径（越出知识库）: " + relPath);
+    }
+    rejectReservedFileName(leaf.toString());
+    return RealPathBoundary.requireWithin(kbDir, target);
   }
 
   @GetMapping("/{name}/status")

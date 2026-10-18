@@ -219,6 +219,66 @@ class KnowledgeApiControllerTest {
   }
 
   @Test
+  @DisplayName("删文档的边界是本库：../兄弟库/doc.md / 反斜杠 / 绝对路径 全部 400，兄弟库文件原样保留")
+  void deleteDocumentRejectsTraversalOutsideTheBase() throws Exception {
+    createBase("kb-a", "库 A");
+    createBase("kb-b", "库 B");
+    Path siblingDoc = kbRoot.resolve("kb-b/doc.md");
+    Files.writeString(siblingDoc, "# 兄弟库文档\n");
+    Path siblingManifest = kbRoot.resolve("kb-b/KNOWLEDGE.md");
+    String manifestBefore = Files.readString(siblingManifest);
+
+    for (String traversal :
+        List.of(
+            "../kb-b/doc.md", // 根内但库外：本用例的核心
+            "..\\kb-b\\doc.md", // Windows 分隔符不得被解释成层级
+            "../kb-b/KNOWLEDGE.md", // 兄弟库清单（形状校验先拒）
+            "../../agents/AGENT.md", // 知识库根之外
+            "/etc/passwd")) { // 绝对路径
+      mvc.perform(delete("/api/v1/knowledge/kb-a/documents").param("path", traversal))
+          .andExpect(status().isBadRequest());
+    }
+
+    assertTrue(Files.exists(siblingDoc), "兄弟库文档不得被删");
+    assertEquals(manifestBefore, Files.readString(siblingManifest), "兄弟库清单不得被删/改");
+    mvc.perform(get("/api/v1/knowledge/kb-b")).andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("库内软链指向兄弟库文档：删链（而非目标）也必须 400（per-KB 真实路径边界）")
+  void deleteDocumentRejectsSymlinkLeavingTheBase() throws Exception {
+    SymlinkAssumptions.assumeSymlinksSupported(root);
+    createBase("kb-a", "库 A");
+    createBase("kb-b", "库 B");
+    Path siblingDoc = kbRoot.resolve("kb-b/doc.md");
+    Files.writeString(siblingDoc, "# 兄弟库文档\n");
+    Path link = kbRoot.resolve("kb-a/alias.md");
+    Files.createSymbolicLink(link, Path.of("../kb-b/doc.md"));
+
+    mvc.perform(delete("/api/v1/knowledge/kb-a/documents").param("path", "alias.md"))
+        .andExpect(status().isBadRequest());
+
+    assertTrue(Files.isSymbolicLink(link), "被拒的删除不得移除库内软链");
+    assertTrue(Files.exists(siblingDoc), "兄弟库文档不得被删");
+  }
+
+  @Test
+  @DisplayName("反向：带 ./ 前缀的本库文档照常删除（形状校验不过度拦截）")
+  void deleteDocumentAcceptsDotPrefixedRelativePath() throws Exception {
+    createBase("ops-manual", "运维手册");
+    mvc.perform(
+            multipart("/api/v1/knowledge/ops-manual/documents")
+                .file(new MockMultipartFile("file", "disk.md", null, "# 内容".getBytes())))
+        .andExpect(status().isOk());
+    Path doc = kbRoot.resolve("ops-manual/disk.md");
+    assertTrue(Files.exists(doc));
+
+    mvc.perform(delete("/api/v1/knowledge/ops-manual/documents").param("path", "./disk.md"))
+        .andExpect(status().isOk());
+    assertFalse(Files.exists(doc));
+  }
+
+  @Test
   @DisplayName("反向：名字里带 knowledge 的正常文档照常上传与删除（校验不过度拦截）")
   void ordinaryDocumentNamesStillWork() throws Exception {
     createBase("ops-manual", "运维手册");
