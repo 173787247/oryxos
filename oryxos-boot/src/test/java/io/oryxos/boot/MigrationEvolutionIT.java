@@ -79,16 +79,17 @@ class MigrationEvolutionIT {
     }
     // 模拟迁移序列尾部被中断的落盘形态：效果未落、history 也未记，重启后应续跑收敛。
     //
-    // 退的是「尾巴」而不是单独一版：只删 V25 会构成 out-of-order（V26 已在 history 里，
+    // 退的是「尾巴」而不是单独一版：只删 V25 会构成 out-of-order（V26/V27 已在 history 里，
     // Flyway 默认拒绝并报 "Detected resolved migration not applied to database: 25"）；
     // 只删 V26 而留着它的效果也不行 —— sqlite 的 ALTER ADD COLUMN 不支持 IF NOT EXISTS，
-    // 重跑必然因列已存在而失败。所以两版的 history 一起删，并把 V26 的加列一并回滚。
+    // 重跑必然因列已存在而失败。所以把尾巴三版（V25/V26/V27）的 history 一起删，并把 V26 的
+    // 加列一并回滚；V27 建的是 IF NOT EXISTS 索引，效果留着重跑也无害。
     try (Connection connection = DriverManager.getConnection(dbUrl);
         Statement statement = connection.createStatement()) {
       assertEquals(
-          2,
+          3,
           statement.executeUpdate(
-              "DELETE FROM flyway_schema_history WHERE version IN ('25','26')"));
+              "DELETE FROM flyway_schema_history WHERE version IN ('25','26','27')"));
       statement.executeUpdate("ALTER TABLE task_executions DROP COLUMN fire_time");
     }
 
@@ -100,9 +101,9 @@ class MigrationEvolutionIT {
         ResultSet rows =
             statement.executeQuery(
                 "SELECT COUNT(*) FROM flyway_schema_history"
-                    + " WHERE version IN ('25','26') AND success = 1")) {
+                    + " WHERE version IN ('25','26','27') AND success = 1")) {
       assertTrue(rows.next());
-      assertEquals(1 + 1, rows.getLong(1), "V25/V26 should have converged on restart");
+      assertEquals(1 + 1 + 1, rows.getLong(1), "V25/V26/V27 should have converged on restart");
     }
   }
 
