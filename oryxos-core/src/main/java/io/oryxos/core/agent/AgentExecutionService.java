@@ -185,8 +185,16 @@ public class AgentExecutionService {
   public void attachScheduledRun(long id, String agentName, String source) {
     runningThreads.put(id, Thread.currentThread());
     AgentRunExecutionContext.set(id);
-    store.markRunning(id, clock.instant());
-    publish(id, AgentRunEventTypes.RUN_STARTED, Map.of("agent", agentName, "source", source));
+    try {
+      store.markRunning(id, clock.instant());
+      publish(id, AgentRunEventTypes.RUN_STARTED, Map.of("agent", agentName, "source", source));
+    } catch (RuntimeException e) {
+      // 登记失败必须回滚内存态。调度线程是**复用**的：残留一条 runningThreads 会让之后对同一 id 的
+      // cancel() 去 interrupt 这个线程 —— 而它此刻可能正在跑**另一个** Agent 的定时任务（或被误会）。
+      runningThreads.remove(id, Thread.currentThread());
+      AgentRunExecutionContext.clear();
+      throw e;
+    }
   }
 
   public void completeScheduledRun(long id, String sessionId, boolean success, String error) {
