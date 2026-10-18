@@ -9,7 +9,7 @@
 > **`docs/ObservabilityModel.md`**（#470），未来 Flow/审批/子任务 span 的挂接规约亦在其中预留。
 >
 > **进展（2026-09-20）**：#472 评测薄刀落地——`io.oryxos.core.eval` fixture 评分（成功率/工具正确率/引用质量/时延/成本）、
-> 基线对比与默认关闭的回归门禁（`oryxos.eval.gate-enabled`，CI 见 `scripts/eval-regression-gate.sh` / specs/048）。
+> 基线对比与回归门禁（由 `scripts/eval-regression-gate.sh` 跑 Surefire 用例执行，阈值在代码里显式传入；`oryxos.eval.*` 目前没有运行时消费者）。
 
 ## 目标
 
