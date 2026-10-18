@@ -13,14 +13,11 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
-import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -80,33 +77,23 @@ class RbacEnabledStartupTest {
    * 在 {@code RbacStartupCheck} 之前播种一个 ADMIN 账号 —— 否则上下文会按 FR-012 fail-fast，那是 {@link
    * RbacStartupRefusalTest} 覆盖的另一半。
    *
-   * <p>必须显式给 {@link Ordered}：两个 {@code ApplicationRunner} 都没有顺序时，谁先跑由 bean 定义顺序决定，
-   * 而这里依赖的正是"先播种、后校验"。
+   * <p>播种必须是**单例实例化期**的一部分：Spring 先实例化全部单例、再统一回调 {@code
+   * SmartInitializingSingleton.afterSingletonsInstantiated()}，所以构造器里的播种一定早于启动校验。原先用 {@code Ordered}
+   * 排 {@code ApplicationRunner} 的写法在检查提前后不再成立（runner 在 refresh 之后才跑，也就是在拒启之后）。
    */
   @TestConfiguration
   static class SeedAdmin {
 
     @Bean
-    ApplicationRunner seedAdminUser(WebUserService users) {
-      return new SeedAdminRunner(users);
+    SeedAdminAccount seedAdminUser(WebUserService users) {
+      return new SeedAdminAccount(users);
     }
   }
 
-  static final class SeedAdminRunner implements ApplicationRunner, Ordered {
+  /** 单例实例化即播种：早于所有 {@code afterSingletonsInstantiated} 回调。 */
+  static final class SeedAdminAccount {
 
-    private final WebUserService users;
-
-    SeedAdminRunner(WebUserService users) {
-      this.users = users;
-    }
-
-    @Override
-    public int getOrder() {
-      return Ordered.HIGHEST_PRECEDENCE;
-    }
-
-    @Override
-    public void run(ApplicationArguments args) {
+    SeedAdminAccount(WebUserService users) {
       if (!users.hasAdminAccount()) {
         users.create("admin", "admin-pass-123");
         users.setRoles("admin", Set.of(Role.ADMIN));

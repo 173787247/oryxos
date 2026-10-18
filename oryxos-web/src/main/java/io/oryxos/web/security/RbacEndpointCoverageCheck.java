@@ -4,17 +4,22 @@ import io.oryxos.web.config.WebRbacProperties;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
-/** RBAC 开启时枚举已注册 handler，未登记的受保护路径拒绝启动（039 SC-005）。关闭时不扫描。 */
+/**
+ * RBAC 开启时枚举已注册 handler，未登记的受保护路径拒绝启动（039 SC-005）。关闭时不扫描。
+ *
+ * <p>用 {@link SmartInitializingSingleton}：枚举发生在全部单例初始化完成后（{@code RequestMappingHandlerMapping} 已
+ * {@code afterPropertiesSet} 完毕）、Web Server 开始监听端口之前。{@code ApplicationRunner} 太晚——端口已经打开， 新端点静默
+ * 403 的窗口会被探针/调度打到。
+ */
 @Component
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-public class RbacEndpointCoverageCheck implements ApplicationRunner {
+public class RbacEndpointCoverageCheck implements SmartInitializingSingleton {
 
   private static final Logger LOG = LoggerFactory.getLogger(RbacEndpointCoverageCheck.class);
 
@@ -39,7 +44,12 @@ public class RbacEndpointCoverageCheck implements ApplicationRunner {
   }
 
   @Override
-  public void run(ApplicationArguments args) {
+  public void afterSingletonsInstantiated() {
+    check();
+  }
+
+  /** 校验主体（包级可见：单测直接调；相位由 {@link #afterSingletonsInstantiated()} 保证在端口打开前）。 */
+  void check() {
     if (!rbacProperties.isEnabled()) {
       LOG.debug("RBAC disabled, endpoint coverage scan skipped");
       return;
