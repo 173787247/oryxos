@@ -3,17 +3,23 @@ package io.oryxos.core.eval;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Eval / regression gate flags (#472). Defaults keep runtime unchanged — gate is opt-in.
+ * Eval / regression-gate thresholds (#472), bound from {@code oryxos.eval.*}.
  *
- * <pre>
- * oryxos.eval.gate-enabled=false
- * oryxos.eval.min-success-rate=0.80
- * </pre>
+ * <p><b>No production consumer yet.</b> The gate runs in tests / CI: {@code
+ * scripts/eval-regression-gate.sh} executes {@code EvalRegressionGateTest}, which passes thresholds
+ * explicitly ({@code EvalThresholds.defaults()} or a constructed instance). Changing {@code
+ * oryxos.eval.*} in a config file therefore does not change what the gate enforces, and the block
+ * was removed from the shipped {@code application.yml} so the file no longer presents it as a live
+ * switch.
+ *
+ * <p>The class stays registered as {@code @ConfigurationProperties} so a future runtime
+ * publish/start gate can bind it without another wiring step; until that feature exists these
+ * properties are bound and unused.
  */
 @ConfigurationProperties(prefix = "oryxos.eval")
 public class EvalProperties {
 
-  /** When true, callers may refuse publish/start if gate fails. Default off. */
+  /** When true, callers may refuse publish/start if gate fails. Default off; no caller yet. */
   private boolean gateEnabled = false;
 
   private double minSuccessRate = 0.80;
