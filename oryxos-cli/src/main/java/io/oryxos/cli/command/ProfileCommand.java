@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -136,16 +137,16 @@ public class ProfileCommand implements Runnable {
   }
 
   @Command(name = "show", description = "查看 Agent 的 AGENT.md", mixinStandardHelpOptions = true)
-  static class ShowCommand implements Runnable {
+  static class ShowCommand implements Callable<Integer> {
     @Parameters(index = "0", description = "Agent 名")
     String name;
 
     @Override
-    public void run() {
+    public Integer call() {
       Path file = agentFile(name);
       if (!Files.exists(file)) {
         System.err.println("Agent 不存在: " + name);
-        return;
+        return 1;
       }
       try {
         long size = Files.size(file);
@@ -162,6 +163,7 @@ public class ProfileCommand implements Runnable {
       } catch (IOException e) {
         throw new UncheckedIOException("读取 Agent 失败", e);
       }
+      return 0;
     }
   }
 
@@ -169,7 +171,7 @@ public class ProfileCommand implements Runnable {
       name = "delete",
       description = "删除 Agent（归档到 .oryxos/archive/，不物理删）",
       mixinStandardHelpOptions = true)
-  static class DeleteCommand implements Runnable {
+  static class DeleteCommand implements Callable<Integer> {
     @Parameters(index = "0", description = "Agent 名")
     String name;
 
@@ -177,17 +179,18 @@ public class ProfileCommand implements Runnable {
     WorkspaceVersionBump versionBump = new WorkspaceVersionBump();
 
     @Override
-    public void run() {
+    public Integer call() {
       Path dir = safeAgentDir(name);
       if (!Files.isDirectory(dir)) {
         System.err.println("Agent 不存在: " + name);
-        return;
+        return 1;
       }
       // 与 API 的 AgentLifecycleService.delete 同口径：不物理删，整个目录移进 <root>/archive/（重名加时间戳），
       // 定义可追溯、MEMORY.md 等文件一并保留。注册表/调度由运行中的实例在重载时收敛，CLI 不持有它们。
       new AgentStore(Workspace.root()).archive(name);
       versionBump.bump("agents");
       System.out.println("已删除（已归档保留）: " + name);
+      return 0;
     }
   }
 }

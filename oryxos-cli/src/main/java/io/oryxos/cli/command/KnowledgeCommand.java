@@ -2,6 +2,7 @@ package io.oryxos.cli.command;
 
 import io.oryxos.core.knowledge.KnowledgeManifest;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -12,6 +13,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
 
 /**
@@ -31,9 +33,12 @@ public class KnowledgeCommand implements Runnable {
   }
 
   @Command(name = "list", description = "列出知识库", mixinStandardHelpOptions = true)
-  static class ListCommand implements Runnable {
+  static class ListCommand implements Callable<Integer> {
 
-    private Path knowledgeDir;
+    private final Path knowledgeDir;
+    private final LightDbConfig db;
+    private final PrintStream out;
+    private final PrintStream err;
 
     /** indexStats 结果各下标：0=文档数 1=片段数 2=失败数 3=进行中数。 */
     private static final int STAT_COUNT = 4;
@@ -41,22 +46,41 @@ public class KnowledgeCommand implements Runnable {
     private static final int STAT_FAILED = 2;
     private static final int STAT_IN_PROGRESS = 3;
 
+    /** picocli 走这个构造：知识库目录来自工作区根，库指向来自 {@code config/application.yml}。 */
+    ListCommand() {
+      this(Workspace.root().resolve("knowledge"), LightDbConfig.load(), System.out, System.err);
+    }
+
+    /** 单测缝：注入知识库目录、库指向与输出流，测试不碰真实 config/application.yml、不改全局 System.out。 */
+    ListCommand(Path knowledgeDir, LightDbConfig db, PrintStream out, PrintStream err) {
+      this.knowledgeDir = knowledgeDir;
+      this.db = db;
+      this.out = out;
+      this.err = err;
+    }
+
     @Override
-    public void run() {
-      knowledgeDir = Workspace.root().resolve("knowledge");
+    public Integer call() {
       if (!Files.isDirectory(knowledgeDir)) {
-        System.out.println("暂无知识库（" + knowledgeDir + " 尚未创建，可先 oryxos init）。");
-        return;
+        out.println("暂无知识库（" + knowledgeDir + " 尚未创建，可先 oryxos init）。");
+        return 0;
       }
       List<KnowledgeManifest> manifests = readManifests();
       if (manifests.isEmpty()) {
-        System.out.println("暂无知识库。");
-        return;
+        out.println("暂无知识库。");
+        return 0;
       }
-      System.out.printf("%-20s %-8s %6s %6s %-6s %s%n", "名称", "后端", "文档数", "片段数", "状态", "描述");
+      out.printf("%-20s %-8s %6s %6s %-6s %s%n", "名称", "后端", "文档数", "片段数", "状态", "描述");
       for (KnowledgeManifest manifest : manifests) {
-        long[] stats = indexStats(manifest.name());
-        System.out.printf(
+        long[] stats;
+        try {
+          stats = indexStats(manifest.name());
+        } catch (SQLException e) {
+          // 索引状态是派生读；查不出来就是命令失败，非零退出（脚本的 `|| echo failed` 才会触发）
+          err.println("查询索引状态失败: " + e.getMessage());
+          return 1;
+        }
+        out.printf(
             "%-20s %-8s %6d %6d %-6s %s%n",
             manifest.name(),
             manifest.backend(),
@@ -65,6 +89,7 @@ public class KnowledgeCommand implements Runnable {
             status(stats),
             manifest.description());
       }
+      return 0;
     }
 
     private List<KnowledgeManifest> readManifests() {
@@ -75,7 +100,8 @@ public class KnowledgeCommand implements Runnable {
           try {
             manifests.add(KnowledgeManifest.read(dir));
           } catch (RuntimeException e) {
-            System.err.println("跳过非法知识库目录 " + dir.getFileName() + ": " + e.getMessage());
+            // WARN 不是错误：一个坏目录不该让整条 list 失败，退出码仍是 0
+            err.println("跳过非法知识库目录 " + dir.getFileName() + ": " + e.getMessage());
           }
         }
       } catch (IOException e) {
@@ -86,10 +112,8 @@ public class KnowledgeCommand implements Runnable {
     }
 
     /** [文档数, 片段数, 失败数, 进行中数]；SQLite 数据文件尚未生成时全 0（远程后端库也落这里）。 */
-    private static long[] indexStats(String kbName) {
+    private long[] indexStats(String kbName) throws SQLException {
       long[] stats = new long[STAT_COUNT];
-      // 与重命令读同一份 config/application.yml——两边看到的必须是同一个库（025：SQLite 或 PG）
-      LightDbConfig db = LightDbConfig.load();
       if (db.sqliteFileMissing()) {
         return stats;
       }
@@ -108,8 +132,6 @@ public class KnowledgeCommand implements Runnable {
             }
           }
         }
-      } catch (SQLException e) {
-        System.err.println("查询索引状态失败: " + e.getMessage());
       }
       return stats;
     }
