@@ -46,13 +46,15 @@ public class ProviderListCommand implements Runnable {
     private static final int BASE_URL_WIDTH = 52;
     private static final String FOOTNOTE = "default(*) 为运行时派生（注册表内按大小写无关排序的最小名），不是库字段。";
 
+    /** null = 执行时再从 {@code config/application.yml} 解析（配置坏了要让异常落在执行期，才能被 CLI 入口收口）。 */
     private final LightDbConfig db;
+
     private final PrintStream out;
     private final PrintStream err;
 
     /** picocli 走这个构造：与重命令读同一份 {@code config/application.yml}（025）。 */
     ListCommand() {
-      this(LightDbConfig.load(), System.out, System.err);
+      this(null, System.out, System.err);
     }
 
     /** 单测缝：注入库指向与输出流，测试不碰真实 config/application.yml、不改全局 System.out。 */
@@ -64,17 +66,18 @@ public class ProviderListCommand implements Runnable {
 
     @Override
     public Integer call() {
+      LightDbConfig config = db == null ? LightDbConfig.load() : db;
       // 必须先判文件缺失再 connect：SQLite 连不存在的路径会顺手建出空库，只读命令不该有这个副作用。
-      if (db.sqliteFileMissing()) {
+      if (config.sqliteFileMissing()) {
         err.println(
             "Provider 注册表不可用：数据库尚未初始化（"
-                + db.describe()
+                + config.describe()
                 + " 不存在）。先运行 `oryxos serve` 完成首次播种，或检查 config/application.yml 的"
                 + " spring.datasource.url。");
         return 1;
       }
       List<ProviderRow> rows = new ArrayList<>();
-      try (Connection conn = db.connect();
+      try (Connection conn = config.connect();
           Statement stmt = conn.createStatement();
           ResultSet rs = stmt.executeQuery(QUERY)) {
         while (rs.next()) {
@@ -86,14 +89,14 @@ public class ProviderListCommand implements Runnable {
                   rs.getString("api_key")));
         }
       } catch (SQLException e) {
-        err.println("查询 Provider 注册表失败（" + db.describe() + "）：" + e.getMessage());
+        err.println("查询 Provider 注册表失败（" + config.describe() + "）：" + e.getMessage());
         if (e.getMessage() != null && e.getMessage().contains("no such table")) {
           err.println("数据库尚未迁移到含 providers 表的版本？先运行 `oryxos serve` 完成迁移与首次播种。");
         }
         return 1;
       }
       if (rows.isEmpty()) {
-        out.println("Provider 注册表为空（" + db.describe() + "）。用管理台或 POST /api/v1/providers 添加。");
+        out.println("Provider 注册表为空（" + config.describe() + "）。用管理台或 POST /api/v1/providers 添加。");
         return 0;
       }
       String defaultName =
@@ -102,7 +105,7 @@ public class ProviderListCommand implements Runnable {
               .filter(name -> name != null && !name.isBlank())
               .min(String::compareToIgnoreCase)
               .orElse(null);
-      out.println("Provider 注册表（" + db.describe() + "）：");
+      out.println("Provider 注册表（" + config.describe() + "）：");
       out.printf(
           "%-" + NAME_WIDTH + "s %-" + DEFAULT_WIDTH + "s %-" + BASE_URL_WIDTH + "s %s%n",
           "NAME",

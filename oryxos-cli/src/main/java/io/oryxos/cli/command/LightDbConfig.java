@@ -12,11 +12,15 @@ import java.util.Properties;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.error.MarkedYAMLException;
 
 /**
  * 轻命令的 datasource 解析（025，T017）：不起 Spring，但与重命令读同一份 {@code config/application.yml} （相对
  * CWD，两边看到的必须是同一个库）。缺省/未配置 = 内置 SQLite 档 {@code oryxos.db}；配置为 PG url 时轻命令同口径直连（SQL
  * 已是标准语法两库通用）。密码支持 {@code ${ENV}} / {@code ${ENV:default}} 占位。
+ *
+ * <p>失败口径与重命令对齐：外部配置<b>文件不存在</b>时回落内置 SQLite 档；<b>文件存在但读不出 / 解析失败 / 结构非法</b>时抛 {@link
+ * LightDbConfigException}，绝不静默换成另一个库——否则轻命令会安静地读"另一个库"的数据，而重命令同一份配置是启动失败。
  */
 final class LightDbConfig {
 
@@ -35,7 +39,12 @@ final class LightDbConfig {
   }
 
   static LightDbConfig load() {
-    Map<String, Object> datasource = readDatasourceSection();
+    return load(EXTERNAL_CONFIG);
+  }
+
+  /** 从指定配置文件解析（生产走 CWD 下的 {@code config/application.yml}；用例可指向临时文件）。 */
+  static LightDbConfig load(Path configFile) {
+    Map<String, Object> datasource = readDatasourceSection(configFile);
     String url = resolvePlaceholders(stringValue(datasource.get("url")));
     if (url == null || url.isBlank()) {
       url = SQLITE_PREFIX + DEFAULT_SQLITE_FILE + "?" + BUSY_TIMEOUT + "=5000";
@@ -88,25 +97,72 @@ final class LightDbConfig {
     return DriverManager.getConnection(url, props);
   }
 
-  private static Map<String, Object> readDatasourceSection() {
-    if (!Files.isRegularFile(EXTERNAL_CONFIG)) {
-      return Map.of();
+  private static Map<String, Object> readDatasourceSection(Path configFile) {
+    if (!Files.isRegularFile(configFile)) {
+      return Map.of(); // 外部配置本就不存在：重命令此时也用打包默认 url，两边同一个库
     }
-    try (InputStream in = Files.newInputStream(EXTERNAL_CONFIG)) {
-      Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
-      Object root = yaml.load(in);
-      Object spring = root instanceof Map<?, ?> map ? map.get("spring") : null;
-      Object datasource = spring instanceof Map<?, ?> map ? map.get("datasource") : null;
-      if (datasource instanceof Map<?, ?> map) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> typed = (Map<String, Object>) map;
-        return typed;
-      }
-      return Map.of();
-    } catch (IOException | RuntimeException e) {
-      // 配置可读性问题交给重命令的 ConfigLoader 严格报错；轻命令按缺省档继续
-      return Map.of();
+    Object root = loadYaml(configFile);
+    if (root == null) {
+      return Map.of(); // 空文件：没有 datasource 覆盖，沿用内置默认
     }
+    if (!(root instanceof Map<?, ?> rootMap)) {
+      throw new LightDbConfigException(configFile + " 顶层不是映射（键值结构），轻命令无法确定数据库；拒绝回落到内置 SQLite。");
+    }
+    Map<?, ?> springMap;
+    Object spring = rootMap.get("spring");
+    if (spring == null) {
+      springMap = null;
+    } else if (spring instanceof Map<?, ?> springValue) {
+      springMap = springValue;
+    } else {
+      throw new LightDbConfigException(
+          configFile + " 的 spring 段不是映射（键值结构），轻命令无法确定数据库；拒绝回落到内置 SQLite。");
+    }
+    Object datasource = springMap == null ? null : springMap.get("datasource");
+    if (datasource == null) {
+      return Map.of(); // 没写 datasource：重命令沿用打包默认，与内置 SQLite 档同一个库
+    }
+    if (!(datasource instanceof Map<?, ?> datasourceMap)) {
+      throw new LightDbConfigException(
+          configFile + " 的 spring.datasource 不是映射（键值结构），轻命令无法确定数据库；拒绝回落到内置 SQLite。");
+    }
+    Object url = datasourceMap.get("url");
+    if (url != null && !(url instanceof String stringUrl && !stringUrl.isBlank())) {
+      throw new LightDbConfigException(
+          configFile + " 的 spring.datasource.url 不是非空字符串，轻命令无法确定数据库；拒绝回落到内置 SQLite。");
+    }
+    @SuppressWarnings("unchecked")
+    Map<String, Object> typed = (Map<String, Object>) datasourceMap;
+    return typed;
+  }
+
+  private static Object loadYaml(Path configFile) {
+    try (InputStream in = Files.newInputStream(configFile)) {
+      return new Yaml(new SafeConstructor(new LoaderOptions())).load(in);
+    } catch (IOException e) {
+      throw new LightDbConfigException(
+          "读取 " + configFile + " 失败：" + e.getMessage() + "；轻命令无法确定数据库，拒绝回落到内置 SQLite。", e);
+    } catch (RuntimeException e) {
+      throw new LightDbConfigException(describeYamlError(configFile, e), e);
+    }
+  }
+
+  /** 把 SnakeYAML 的定位信息折成一行：文件 + 第几行第几列 + problem（有 Mark 时）。 */
+  private static String describeYamlError(Path configFile, RuntimeException e) {
+    if (e instanceof MarkedYAMLException marked
+        && marked.getProblemMark() != null
+        && marked.getProblemMark().getLine() >= 0) {
+      return "解析 "
+          + configFile
+          + " 失败（第 "
+          + (marked.getProblemMark().getLine() + 1)
+          + " 行第 "
+          + (marked.getProblemMark().getColumn() + 1)
+          + " 列）："
+          + marked.getProblem()
+          + "；轻命令无法确定数据库，拒绝回落到内置 SQLite。";
+    }
+    return "解析 " + configFile + " 失败：" + e.getMessage() + "；轻命令无法确定数据库，拒绝回落到内置 SQLite。";
   }
 
   private static String stringValue(Object value) {

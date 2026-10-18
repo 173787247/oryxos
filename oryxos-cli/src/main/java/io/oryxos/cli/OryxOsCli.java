@@ -4,6 +4,7 @@ import io.oryxos.cli.command.AgentCommand;
 import io.oryxos.cli.command.ChatCommand;
 import io.oryxos.cli.command.GatewayCommand;
 import io.oryxos.cli.command.InitCommand;
+import io.oryxos.cli.command.LightDbConfigException;
 import io.oryxos.cli.command.OrgCommand;
 import io.oryxos.cli.command.ProfileCommand;
 import io.oryxos.cli.command.ProviderListCommand;
@@ -50,8 +51,33 @@ import picocli.CommandLine.IVersionProvider;
 public class OryxOsCli implements Runnable {
 
   public static void main(String[] args) {
-    int exitCode = new CommandLine(new OryxOsCli()).execute(args);
-    System.exit(exitCode);
+    System.exit(commandLine().execute(args));
+  }
+
+  /** main 与用例共用同一条 CommandLine（含配置错误的落地形态）。 */
+  static CommandLine commandLine() {
+    return new CommandLine(new OryxOsCli())
+        .setExecutionExceptionHandler(OryxOsCli::handleExecutionException);
+  }
+
+  /**
+   * 轻命令的数据库配置错误（{@link LightDbConfigException}）落成 stderr 一行信息 + 退出码 1，不打堆栈；其余异常保持 picocli 默认形态（堆栈 +
+   * {@code exitCodeOnExecutionException}）。
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "INFORMATION_EXPOSURE_THROUGH_AN_ERROR_MESSAGE",
+      justification =
+          "CLI 把信息打到调用者自己的终端，不是网络响应；消息由 LightDbConfig 构造，只含配置文件路径、" + "YAML 行列与问题描述，不含凭证或配置值。")
+  static int handleExecutionException(
+      Exception exception, CommandLine commandLine, CommandLine.ParseResult parseResult) {
+    if (exception instanceof LightDbConfigException configError) {
+      commandLine.getErr().println(configError.getMessage());
+      commandLine.getErr().flush();
+      return 1;
+    }
+    exception.printStackTrace(commandLine.getErr());
+    commandLine.getErr().flush();
+    return commandLine.getCommandSpec().exitCodeOnExecutionException();
   }
 
   @Override
