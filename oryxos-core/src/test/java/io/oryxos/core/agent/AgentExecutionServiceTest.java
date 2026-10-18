@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
@@ -17,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -104,8 +106,14 @@ class AgentExecutionServiceTest {
       return rows.stream().filter(row -> row.id() == id).findFirst();
     }
 
+    /** 置 true 时 markRunning 抛错（模拟 DB 抖动），供"登记失败要回滚"用例使用。 */
+    volatile boolean failMarkRunning;
+
     @Override
     public synchronized void markRunning(long id, Instant at) {
+      if (failMarkRunning) {
+        throw new IllegalStateException("database is locked");
+      }
       AgentExecution current = require(id);
       if (current.terminal()) {
         return;
@@ -468,5 +476,38 @@ class AgentExecutionServiceTest {
     assertEquals("FAILED", row.status());
     assertEquals(AgentStopReasons.MAX_ITERATIONS, row.stopReason());
     assertEquals(AgentStopReasons.MESSAGE_MAX_ITERATIONS, row.errorMessage());
+  }
+
+  @Test
+  @DisplayName("登记失败要回滚：markRunning 抛错后不残留 runningThreads，之后 cancel 不会打断本线程")
+  void attachFailureRollsBackRegistration() throws Exception {
+    // markRunning 失败（模拟 SQLite database is locked / PG 抖动）
+    FakeStore store = new FakeStore();
+    store.failMarkRunning = true;
+    Instant now = Instant.parse("2026-08-23T04:00:00Z");
+    long id = store.start("demo", "schedule", now, "检查");
+    AgentExecutionService svc =
+        new AgentExecutionService(
+            store, Executors.newSingleThreadExecutor(), Clock.fixed(now, ZoneOffset.UTC));
+    AtomicReference<Long> runIdAfterFailure = new AtomicReference<>(-1L);
+    AtomicBoolean interrupted = new AtomicBoolean(false);
+
+    Thread worker =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  assertThrows(
+                      IllegalStateException.class,
+                      () -> svc.attachScheduledRun(id, "demo", "schedule"));
+                  Long current = AgentRunExecutionContext.currentRunId();
+                  runIdAfterFailure.set(current == null ? 0L : current);
+                  // 登记已回滚 ⇒ 这个线程不再"在跑这条 Run"，cancel 不得打断它
+                  svc.cancel(id);
+                  interrupted.set(Thread.interrupted());
+                });
+    worker.join(2_000);
+
+    assertEquals(0L, runIdAfterFailure.get(), "登记失败后 ThreadLocal 必须已清");
+    assertFalse(interrupted.get(), "登记失败后 cancel 不得打断该线程 —— 调度线程是复用的，它可能在跑别的任务");
   }
 }

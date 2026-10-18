@@ -358,10 +358,12 @@ public class AgentScheduler {
     boolean success = false;
     String error = null;
     long agentExecutionId = startAgentExecution(profile, startedAt, schedule.message());
-    if (agentExecutionService != null && agentExecutionId >= 0) {
-      agentExecutionService.attachScheduledRun(agentExecutionId, profile.name(), "schedule");
-    }
     try {
+      if (agentExecutionService != null && agentExecutionId >= 0) {
+        // 必须留在 try 内：attach 里有 DB 写（markRunning），失败时由 finally 的
+        // completeScheduledRun 收口，否则这条 Run 会永远停在"运行中"且线程登记残留。
+        agentExecutionService.attachScheduledRun(agentExecutionId, profile.name(), "schedule");
+      }
       if (agentExecutionId > 0) {
         ExecutionContext.set(agentExecutionId); // 026：租约行关联 execution（悬空轮留痕）
       }
