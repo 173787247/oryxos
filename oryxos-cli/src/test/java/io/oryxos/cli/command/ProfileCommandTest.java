@@ -10,6 +10,12 @@ import io.oryxos.core.agent.AgentLoader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -181,5 +187,115 @@ class ProfileCommandTest {
     Files.createDirectories(path.getParent());
     Files.writeString(path, content);
     return path;
+  }
+
+  @Test
+  @DisplayName("delete 与 API 同口径：整个目录归档到 <root>/archive/<name>，MEMORY.md 内容原样保留")
+  void deleteArchivesAgentAndKeepsMemory() throws Exception {
+    Path agent = Files.createDirectories(root.resolve("agents").resolve("ops"));
+    Files.writeString(agent.resolve("AGENT.md"), "---\nname: ops\n---\n");
+    Files.writeString(agent.resolve("MEMORY.md"), "# 记忆\n\n长期记忆内容。\n");
+
+    ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
+    delete.name = "ops";
+    delete.versionBump = noopBump();
+    delete.run();
+
+    assertFalse(Files.exists(root.resolve("agents").resolve("ops")), "原目录必须消失");
+    Path archived = root.resolve("archive").resolve("ops");
+    assertTrue(
+        Files.isRegularFile(archived.resolve("AGENT.md")), "归档必须与 API 同源：<root>/archive/<name>");
+    assertEquals(
+        "# 记忆\n\n长期记忆内容。\n", Files.readString(archived.resolve("MEMORY.md")), "长期记忆不得随删除一起丢失");
+  }
+
+  @Test
+  @DisplayName("归档目标被占用时加时间戳后缀（与 AgentStore.archive 同源），旧归档不得被覆盖")
+  void deleteArchiveDoesNotOverwriteExistingArchive() throws Exception {
+    Files.createDirectories(root.resolve("archive").resolve("ops"));
+    Files.writeString(root.resolve("archive/ops/older.md"), "旧归档");
+    Path agent = Files.createDirectories(root.resolve("agents").resolve("ops"));
+    Files.writeString(agent.resolve("AGENT.md"), "---\nname: ops\n---\n");
+
+    ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
+    delete.name = "ops";
+    delete.versionBump = noopBump();
+    delete.run();
+
+    assertEquals("旧归档", Files.readString(root.resolve("archive/ops/older.md")), "旧归档不得被覆盖");
+    try (var dirs = Files.list(root.resolve("archive"))) {
+      Path renamed =
+          dirs.filter(p -> p.getFileName().toString().startsWith("ops-"))
+              .findFirst()
+              .orElseThrow(() -> new AssertionError("重名归档必须加时间戳后缀（AgentStore.uniqueArchivePath）"));
+      assertTrue(Files.isRegularFile(renamed.resolve("AGENT.md")), "新归档目录里必须有 Agent 内容");
+    }
+  }
+
+  @Test
+  @DisplayName("create/delete 落盘后递增 workspace_versions 的 agents 版本号（集群档靠它感知）")
+  void createAndDeleteBumpAgentsVersion() throws Exception {
+    String url = "jdbc:sqlite:" + root.resolve("versions.db");
+    seedWorkspaceVersions(url);
+    WorkspaceVersionBump dbBump =
+        new WorkspaceVersionBump() {
+          @Override
+          protected Connection connect() throws SQLException {
+            return DriverManager.getConnection(url);
+          }
+        };
+
+    ProfileCommand.CreateCommand create = new ProfileCommand.CreateCommand();
+    create.name = "ops";
+    create.versionBump = dbBump;
+    create.run();
+    assertEquals(1, readWorkspaceVersion(url, "agents"), "create 必须 bump agents");
+
+    Files.writeString(root.resolve("agents/ops/MEMORY.md"), "# 记忆\n");
+    ProfileCommand.DeleteCommand delete = new ProfileCommand.DeleteCommand();
+    delete.name = "ops";
+    delete.versionBump = dbBump;
+    delete.run();
+    assertEquals(2, readWorkspaceVersion(url, "agents"), "delete 必须 bump agents");
+    assertEquals(0, readWorkspaceVersion(url, "knowledge"), "只 bump agents 域，不得碰其他域");
+  }
+
+  /** 不碰任何库的写端：用例只想验证文件面行为时用，避免依赖进程 CWD 下的真实配置。 */
+  private static WorkspaceVersionBump noopBump() {
+    return new WorkspaceVersionBump() {
+      @Override
+      protected Connection connect() {
+        return null;
+      }
+    };
+  }
+
+  private static void seedWorkspaceVersions(String url) throws SQLException {
+    try (Connection conn = DriverManager.getConnection(url);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute(
+          "CREATE TABLE IF NOT EXISTS workspace_versions ("
+              + "domain VARCHAR(32) PRIMARY KEY,"
+              + " version BIGINT NOT NULL,"
+              + " updated_by VARCHAR(128) NOT NULL,"
+              + " updated_at TIMESTAMP NOT NULL)");
+      stmt.execute(
+          "INSERT INTO workspace_versions (domain, version, updated_by, updated_at)"
+              + " VALUES ('agents', 0, 'migration', CURRENT_TIMESTAMP)");
+      stmt.execute(
+          "INSERT INTO workspace_versions (domain, version, updated_by, updated_at)"
+              + " VALUES ('knowledge', 0, 'migration', CURRENT_TIMESTAMP)");
+    }
+  }
+
+  private static long readWorkspaceVersion(String url, String domain) throws SQLException {
+    try (Connection conn = DriverManager.getConnection(url);
+        PreparedStatement stmt =
+            conn.prepareStatement("SELECT version FROM workspace_versions WHERE domain = ?")) {
+      stmt.setString(1, domain);
+      try (ResultSet rs = stmt.executeQuery()) {
+        return rs.next() ? rs.getLong(1) : -1L;
+      }
+    }
   }
 }
