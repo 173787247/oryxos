@@ -194,6 +194,34 @@ class SecretEncryptionE2ETest {
     assertEquals("****ss-9", updated.get("config").get("password").asText());
   }
 
+  @Test
+  @Order(6)
+  void webhook渠道_url落库即密文_读接口仍打码_掩码PUT保留原url() throws Exception {
+    String url = "https://open.feishu.cn/open-apis/bot/v2/hook/e2e-hook-id?sign=abc";
+    post(
+        "/api/v1/notify-channels",
+        mapper.writeValueAsString(
+            java.util.Map.of("name", "lark-e2e", "type", "feishu", "url", url)));
+
+    String storedUrl = channels.findById("lark-e2e").orElseThrow().getUrl();
+    assertTrue(storedUrl.startsWith(CIPHERTEXT_PREFIX), "webhook url 落库应为密文: " + storedUrl);
+    assertFalse(storedUrl.contains("e2e-hook-id"));
+
+    JsonNode view = getJson("/api/v1/notify-channels/lark-e2e").get("data");
+    String maskedUrl = view.get("url").asText();
+    assertFalse(maskedUrl.contains("e2e-hook-id"), "查询接口仍须是打码 URL: " + maskedUrl);
+
+    // 掩码原样 PUT = 未修改：controller 在解密后的明文 url 上比较掩码，原 url 必须保留
+    put(
+        "/api/v1/notify-channels/lark-e2e",
+        mapper.writeValueAsString(
+            java.util.Map.of("type", "feishu", "url", maskedUrl, "description", "e2e")));
+    assertEquals(
+        url,
+        cipher.decrypt(channels.findById("lark-e2e").orElseThrow().getUrl()),
+        "掩码原样提交必须保留原 url（解密后比较）");
+  }
+
   // —— helpers ——
 
   /** 直查库中 config JSON 的 password 密文并解密（断言"值"而非"密文字节"）。 */

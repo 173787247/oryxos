@@ -19,8 +19,9 @@ import org.slf4j.LoggerFactory;
  * {@link NotifyChannelRegistry} 的 SQLite/JPA 实现：notify_channels 表 ↔ {@link NotifyChannelDef} 互转。
  * {@code config} 列是 JSON 文本，序列化沿用 {@link JpaSessionManager} 的手工 ObjectMapper 模式。
  *
- * <p>022：config 内命中 {@link SensitiveConfigKeys} 名录的项在此收口逐值加解密（名录外 host/port/from
- * 等保持明文可读）；上游拿到的永远是明文 Def，Registry 契约零改动。单项坏密文 WARN 定位渠道+字段、 该项以 null 返回，不拖垮整体（FR-010）。
+ * <p>022：config 内命中 {@link SensitiveConfigKeys} 名录的项在此收口逐值加解密（名录外 host/port/from 等保持明文可读）。{@code
+ * url} 同属凭证范围（webhook URL 拿到即可推送，展示层早已按此掩码）：由 {@link NotifyChannelUrlPolicy} 按渠道 type 判定，email 的描述性
+ * url 保持明文。上游拿到的永远是明文 Def，Registry 契约零改动。 单项坏密文 WARN 定位渠道+字段、该项以 null 返回，不拖垮整体（FR-010）。
  */
 public class JpaNotifyChannelRegistry implements NotifyChannelRegistry {
 
@@ -78,7 +79,7 @@ public class JpaNotifyChannelRegistry implements NotifyChannelRegistry {
     NotifyChannel entity = repository.findById(channel.name()).orElseGet(NotifyChannel::new);
     entity.setName(channel.name());
     entity.setType(channel.type());
-    entity.setUrl(channel.url());
+    entity.setUrl(encryptUrl(channel.type(), channel.url()));
     entity.setDescription(channel.description());
     entity.setConfig(writeConfig(encryptSensitive(channel.config()))); // 022：敏感项落库即密文
     return toDef(repository.save(entity));
@@ -93,9 +94,28 @@ public class JpaNotifyChannelRegistry implements NotifyChannelRegistry {
     return new NotifyChannelDef(
         e.getName(),
         e.getType(),
-        e.getUrl(),
+        decryptUrl(e.getName(), e.getUrl()),
         e.getDescription(),
         decryptSensitive(e.getName(), readConfig(e.getConfig())));
+  }
+
+  /** url 落库：凭证类渠道（type != email）加密；email 的描述性 url 保持明文。 */
+  private String encryptUrl(String type, String url) {
+    return NotifyChannelUrlPolicy.isCredentialUrl(type) ? cipher.encrypt(url) : url;
+  }
+
+  /** url 读出：前缀判别解密（明文/email/迁移期原样通过）；单条坏密文 WARN 定位渠道并按缺失处理，不拖垮 list（FR-010）。 */
+  private String decryptUrl(String channelName, String stored) {
+    if (!cipher.isEncrypted(stored)) {
+      return stored;
+    }
+    try {
+      return cipher.decrypt(stored);
+    } catch (SecretDecryptException ex) {
+      LOG.warn(
+          "通知渠道 {} 的 url 密文无法解密（{}），本项按缺失处理", sanitize(channelName), sanitize(ex.getMessage()));
+      return null;
+    }
   }
 
   /** config 敏感项逐值加密；名录外原样（host/port/from 保持可读，R5）。 */

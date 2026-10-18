@@ -62,6 +62,142 @@ abstract class SecretStorageContractTest {
   }
 
   @Test
+  void notify渠道_webhook_url落库即密文_find读出明文() {
+    JpaNotifyChannelRegistry registry = new JpaNotifyChannelRegistry(channelRepository, cipher);
+    String url = "https://open.feishu.cn/open-apis/bot/v2/hook/secret-hook-id";
+    registry.save(new NotifyChannelDef("lark-enc", "feishu", url, "d", Map.of("token", "t-1")));
+
+    String storedUrl = channelRepository.findById("lark-enc").orElseThrow().getUrl();
+    assertThat(storedUrl).startsWith(SecretCipher.PREFIX).doesNotContain("secret-hook-id");
+    assertThat(registry.find("lark-enc").orElseThrow().url()).isEqualTo(url);
+  }
+
+  @Test
+  void notify渠道_email的url不加密() {
+    JpaNotifyChannelRegistry registry = new JpaNotifyChannelRegistry(channelRepository, cipher);
+    registry.save(
+        new NotifyChannelDef(
+            "mail-plain-url",
+            "email",
+            "smtp://placeholder",
+            "d",
+            Map.of("host", "smtp.example.com", "password", "p@ss")));
+
+    assertThat(channelRepository.findById("mail-plain-url").orElseThrow().getUrl())
+        .isEqualTo("smtp://placeholder");
+    assertThat(registry.find("mail-plain-url").orElseThrow().url()).isEqualTo("smtp://placeholder");
+  }
+
+  @Test
+  void 存量明文webhook_url_迁移后变密文且幂等_find读出明文() {
+    NotifyChannel legacy = new NotifyChannel();
+    legacy.setName("hook-legacy");
+    legacy.setType("feishu");
+    legacy.setUrl("https://open.feishu.cn/open-apis/bot/v2/hook/plain-hook-id");
+    legacy.setConfig("{\"token\":\"t-legacy\"}");
+    channelRepository.save(legacy);
+
+    SecretMigration migration = new SecretMigration(providerRepository, channelRepository, cipher);
+    migration.run();
+
+    NotifyChannel migrated = channelRepository.findById("hook-legacy").orElseThrow();
+    assertThat(migrated.getUrl()).startsWith(SecretCipher.PREFIX).doesNotContain("plain-hook-id");
+    assertThat(cipher.decrypt(migrated.getUrl()))
+        .isEqualTo("https://open.feishu.cn/open-apis/bot/v2/hook/plain-hook-id");
+    assertThat(migrated.getConfig()).doesNotContain("t-legacy"); // 既有 config 迁移照常
+    assertThat(
+            new JpaNotifyChannelRegistry(channelRepository, cipher)
+                .find("hook-legacy")
+                .orElseThrow()
+                .url())
+        .isEqualTo("https://open.feishu.cn/open-apis/bot/v2/hook/plain-hook-id"); // 读出给适配器的是明文
+
+    String migratedUrl = migrated.getUrl();
+    String migratedConfig = migrated.getConfig();
+    migration.run(); // 幂等：二次运行不改变已密文值
+    assertThat(channelRepository.findById("hook-legacy").orElseThrow().getUrl())
+        .isEqualTo(migratedUrl);
+    assertThat(channelRepository.findById("hook-legacy").orElseThrow().getConfig())
+        .isEqualTo(migratedConfig);
+  }
+
+  @Test
+  void 存量email_url_迁移后仍为明文() {
+    NotifyChannel legacy = new NotifyChannel();
+    legacy.setName("mail-legacy-url");
+    legacy.setType("email");
+    legacy.setUrl("smtp://placeholder");
+    channelRepository.save(legacy);
+
+    new SecretMigration(providerRepository, channelRepository, cipher).run();
+
+    assertThat(channelRepository.findById("mail-legacy-url").orElseThrow().getUrl())
+        .isEqualTo("smtp://placeholder");
+  }
+
+  /**
+   * 独立缺陷（022 范围补齐期间发现）：迁移在 config JSON 解析失败时若按空 Map 回写，会把坏 JSON 覆盖成 {@code {}}—— 数据丢失。这里钉住「只加密
+   * url、config 原文一个字节不变」。
+   */
+  @Test
+  void 坏config_迁移只加密url_config原文字节不变() {
+    String corruptConfig = "{\"host\":\"h\",\"password\":\"legacy-pass\"";
+    NotifyChannel channel = new NotifyChannel();
+    channel.setName("hook-corrupt-config");
+    channel.setType("webhook");
+    channel.setUrl("https://hooks.example.com/T000/B000/plain-webhook");
+    channel.setConfig(corruptConfig);
+    channelRepository.save(channel);
+
+    new SecretMigration(providerRepository, channelRepository, cipher).run();
+
+    NotifyChannel migrated = channelRepository.findById("hook-corrupt-config").orElseThrow();
+    assertThat(migrated.getUrl()).startsWith(SecretCipher.PREFIX);
+    assertThat(migrated.getConfig()).isEqualTo(corruptConfig);
+  }
+
+  @Test
+  void url密文损坏_读出按缺失处理_不拖垮列表() {
+    JpaNotifyChannelRegistry registry = new JpaNotifyChannelRegistry(channelRepository, cipher);
+    registry.save(new NotifyChannelDef("hook-good", "feishu", "https://x/good", "d", Map.of()));
+    NotifyChannel corrupt = new NotifyChannel();
+    corrupt.setName("hook-corrupt");
+    corrupt.setType("feishu");
+    corrupt.setUrl(SecretCipher.PREFIX + "AAAA-corrupted-not-real-ciphertext");
+    channelRepository.save(corrupt);
+
+    var defs = registry.list();
+    assertThat(defs).extracting(NotifyChannelDef::name).contains("hook-good", "hook-corrupt");
+    assertThat(
+            defs.stream().filter(d -> d.name().equals("hook-good")).findFirst().orElseThrow().url())
+        .isEqualTo("https://x/good");
+    assertThat(
+            defs.stream()
+                .filter(d -> d.name().equals("hook-corrupt"))
+                .findFirst()
+                .orElseThrow()
+                .url())
+        .isNull();
+  }
+
+  @Test
+  void 只有url密文且密钥不符_仍拒启() {
+    NotifyChannel channel = new NotifyChannel();
+    channel.setName("hook-guard");
+    channel.setType("feishu");
+    channel.setUrl(SecretCipher.PREFIX + "AAAA-not-real-ciphertext");
+    channelRepository.save(channel);
+
+    SecretMigration wrongKeyMigration =
+        new SecretMigration(
+            providerRepository, channelRepository, new LocalMasterKeyCipher(WRONG_KEY));
+
+    assertThatThrownBy(wrongKeyMigration::run)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("无法解密");
+  }
+
+  @Test
   void 存量明文_迁移后变密文且幂等() {
     LlmProvider legacy = new LlmProvider();
     legacy.setName("p-legacy");
