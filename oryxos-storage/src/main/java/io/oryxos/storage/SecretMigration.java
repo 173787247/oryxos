@@ -47,8 +47,25 @@ public final class SecretMigration {
 
   /** 启动执行：先守卫（密钥不匹配尽早拦截），后迁移明文。025 起表结构先由 Flyway 收敛（V5 保证 config 列就绪），本迁移只做数据面。 */
   public void run() {
+    guard();
+    int migrated = migratePlaintext();
+    if (migrated > 0) {
+      LOG.info("已加密 {} 条凭证（022 存量明文迁移）", migrated);
+    }
+  }
+
+  /**
+   * 密钥守卫（只读）：试解密库中密文——存在密文且<b>全部</b>失败 = 主密钥不匹配，抛 {@link IllegalStateException}； <b>部分</b>失败 =
+   * 单行损坏，WARN 定位后继续。
+   *
+   * <p>为什么单独暴露：装配层要把「守卫通过 → 首启新钥匙落盘 → 迁移明文」排成显式顺序（新钥匙必须晚于守卫落盘）。 **生产入口仍是 {@link #run()}**（= 本方法 +
+   * {@link #migratePlaintext()}）；单独调用本方法只做只读校验，是安全的。
+   *
+   * @return 库中密文条数
+   */
+  public int guard() {
     List<String> undecryptable = new ArrayList<>();
-    int ciphertextCount = guard(undecryptable);
+    int ciphertextCount = scanCiphertexts(undecryptable);
     if (ciphertextCount > 0 && undecryptable.size() == ciphertextCount) {
       // 全部密文都解不开：不是数据坏，是钥匙不对——拒启，绝不静默降级或清数据（FR-006）
       throw new IllegalStateException(
@@ -58,15 +75,11 @@ public final class SecretMigration {
               + "或经管理台删除并重新录入凭证");
     }
     undecryptable.forEach(entry -> LOG.warn("凭证密文损坏（{}），该条按缺失处理，其余凭证不受影响", sanitize(entry)));
-
-    int migrated = migratePlaintext();
-    if (migrated > 0) {
-      LOG.info("已加密 {} 条凭证（022 存量明文迁移）", migrated);
-    }
+    return ciphertextCount;
   }
 
   /** 试解密全部密文值；返回密文总数，解不开的记入清单（"provider <n>" / "channel <n>.<key>"）。 */
-  private int guard(List<String> undecryptable) {
+  private int scanCiphertexts(List<String> undecryptable) {
     int ciphertextCount = 0;
     for (LlmProvider provider : providerRepository.findAll()) {
       if (cipher.isEncrypted(provider.getApiKey())) {
@@ -89,8 +102,13 @@ public final class SecretMigration {
     return ciphertextCount;
   }
 
-  /** 明文敏感值 → 加密回写；前缀判别保证幂等。 */
-  private int migratePlaintext() {
+  /**
+   * 明文敏感值 → 加密回写；前缀判别保证幂等。
+   *
+   * <p>**MUST 只在 {@link #guard()} 通过之后调用**：守卫确认的正是「手里这把钥匙能解开库里已有密文」；跳过它直接迁移，
+   * 会把明文用一把错的钥匙加密，等于把数据永久锁死。单独暴露同样只为让装配层排序，生产入口是 {@link #run()}。
+   */
+  public int migratePlaintext() {
     int migrated = 0;
     for (LlmProvider provider : providerRepository.findAll()) {
       String apiKey = provider.getApiKey();
