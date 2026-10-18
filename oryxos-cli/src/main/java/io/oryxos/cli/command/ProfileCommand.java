@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.stream.Stream;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -15,6 +14,10 @@ import picocli.CommandLine.Parameters;
 /**
  * 轻命令组：Agent 目录管理（一个目录 = 一个 Agent，第 29 节）。直接读写 {@code .oryxos/agents/<name>/AGENT.md}， 零
  * Spring（课件：列个目录不值得等 4 秒）。
+ *
+ * <p>写动作与 API 同口径：删除不物理删——整个目录移进 {@code <root>/archive/}（与 API 的 {@code AgentStore.archive}
+ * 同一个归档器，含 MEMORY.md）；create/delete 落盘后递增 {@code workspace_versions} 的 {@code agents} 版本号，集群档靠它让
+ * 运行中的副本感知文件面变更（单机档由 WatchService 收敛，见 {@link WorkspaceVersionBump}）。
  */
 @Command(
     name = "profile",
@@ -88,6 +91,9 @@ public class ProfileCommand implements Runnable {
     @Parameters(index = "0", description = "Agent 名（= 目录名）")
     String name;
 
+    /** 版本号总线写端（集群档靠它感知；单机档无消费者，写入无害）。用例可替换。 */
+    WorkspaceVersionBump versionBump = new WorkspaceVersionBump();
+
     @Override
     public void run() {
       Path dir = safeAgentDir(name);
@@ -124,6 +130,7 @@ public class ProfileCommand implements Runnable {
       } catch (IOException e) {
         throw new UncheckedIOException("写入 Agent 失败", e);
       }
+      versionBump.bump("agents");
       System.out.println("已创建: " + file);
     }
   }
@@ -158,10 +165,16 @@ public class ProfileCommand implements Runnable {
     }
   }
 
-  @Command(name = "delete", description = "删除 Agent（整个目录）", mixinStandardHelpOptions = true)
+  @Command(
+      name = "delete",
+      description = "删除 Agent（归档到 .oryxos/archive/，不物理删）",
+      mixinStandardHelpOptions = true)
   static class DeleteCommand implements Runnable {
     @Parameters(index = "0", description = "Agent 名")
     String name;
+
+    /** 版本号总线写端（集群档靠它感知；单机档无消费者，写入无害）。用例可替换。 */
+    WorkspaceVersionBump versionBump = new WorkspaceVersionBump();
 
     @Override
     public void run() {
@@ -170,20 +183,11 @@ public class ProfileCommand implements Runnable {
         System.err.println("Agent 不存在: " + name);
         return;
       }
-      try (Stream<Path> walk = Files.walk(dir)) {
-        walk.sorted(Comparator.reverseOrder())
-            .forEach(
-                p -> {
-                  try {
-                    Files.delete(p);
-                  } catch (IOException e) {
-                    throw new UncheckedIOException("删除 Agent 失败: " + p.getFileName(), e);
-                  }
-                });
-      } catch (IOException e) {
-        throw new UncheckedIOException("删除 Agent 失败", e);
-      }
-      System.out.println("已删除: " + name);
+      // 与 API 的 AgentLifecycleService.delete 同口径：不物理删，整个目录移进 <root>/archive/（重名加时间戳），
+      // 定义可追溯、MEMORY.md 等文件一并保留。注册表/调度由运行中的实例在重载时收敛，CLI 不持有它们。
+      new AgentStore(Workspace.root()).archive(name);
+      versionBump.bump("agents");
+      System.out.println("已删除（已归档保留）: " + name);
     }
   }
 }

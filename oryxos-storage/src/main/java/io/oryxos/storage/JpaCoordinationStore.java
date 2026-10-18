@@ -187,6 +187,13 @@ public class JpaCoordinationStore implements CoordinationStore {
     instances.deleteOlderThan(now.minus(instanceDeadAfter));
   }
 
+  /**
+   * 递增工作区域版本号。SQL 在 {@link WorkspaceVersionRepository#bump}。
+   *
+   * <p>同一张 {@code workspace_versions} 表还有第二个写端：CLI 轻命令的 {@code
+   * io.oryxos.cli.command.WorkspaceVersionBump}（零 Spring，原生 JDBC，不经本类）。两处语义必须一致——改这里的 SQL/列名必须同步
+   * CLI 侧，反之亦然；{@code io.oryxos.boot.WorkspaceVersionBumpCrosscheckTest} 把两侧接到同一个库上互认， 任一侧漂移都会红。
+   */
   @Override
   public void bumpWorkspaceVersion(String domain, String owner) {
     if (!WORKSPACE_DOMAINS.contains(domain)) {
