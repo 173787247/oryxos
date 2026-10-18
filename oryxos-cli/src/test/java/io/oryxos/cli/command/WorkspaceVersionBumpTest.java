@@ -41,6 +41,29 @@ class WorkspaceVersionBumpTest {
   }
 
   @Test
+  @DisplayName("数据库配置解析失败只告警不抛：配置错误也不得让已生效的写命令失败")
+  void configParseFailureWarnsButDoesNotThrow() {
+    PrintStream original = System.err;
+    ByteArrayOutputStream captured = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+    try {
+      new WorkspaceVersionBump() {
+        @Override
+        protected Connection connect() {
+          throw new LightDbConfigException(
+              "解析 config/application.yml 失败（第 3 行第 5 列）：mapping values are not allowed"
+                  + " here；轻命令无法确定数据库，拒绝回落到内置 SQLite。");
+        }
+      }.bump("agents");
+    } finally {
+      System.setErr(original);
+    }
+    String warning = captured.toString(StandardCharsets.UTF_8);
+    assertTrue(warning.contains("版本号递增失败"), "应走既有告警路径: " + warning);
+    assertTrue(warning.contains("拒绝回落到内置 SQLite"), "告警应带上配置错误原因: " + warning);
+  }
+
+  @Test
   @DisplayName("告警必须带可执行的兜底下一步（refresh / 重启），不能只说失败")
   void failureWarningCarriesBreakGlassHint() {
     PrintStream original = System.err;
