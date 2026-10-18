@@ -346,12 +346,19 @@ public class SpringAiProviderServiceImpl implements ProviderService {
         && Objects.equals(attempt.model(), profile.provider().model());
   }
 
-  /** 切换留痕（FR-006）：WARN 带 from→to（MDC 自带 traceId）+ 切换计数；指标异常不伤主链路。 */
+  /**
+   * 切换留痕（FR-006）：WARN 带 from→to 的完整候选标识（MDC 自带 traceId）+ 切换计数；指标异常不伤主链路。
+   *
+   * <p>两侧都打 {@code provider/model}：同 provider 的不同 model 是合法候选（#1002 去重键是 (provider, model) 一对），只打
+   * provider 名会把这种重试写成「broken → broken」，读起来像自指/死循环。
+   */
   private void switchWarn(Profile profile, Attempt from, Attempt to, RuntimeException cause) {
     LOG.warn(
-        "provider 切换: {} → {}（原因: {}）",
+        "provider 切换: {}/{} → {}/{}（原因: {}）",
         sanitize(from.provider()),
+        sanitize(from.model()),
         sanitize(to.provider()),
+        sanitize(to.model()),
         sanitize(cause.getMessage()));
     try {
       metrics.recordFallbackSwitch(from.provider(), to.provider());

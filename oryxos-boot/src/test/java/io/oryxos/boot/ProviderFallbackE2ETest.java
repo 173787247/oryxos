@@ -199,21 +199,46 @@ class ProviderFallbackE2ETest {
 
   @Test
   @Order(3)
-  void 全部候选失败_报错且无成功行() {
+  void 全部候选失败_报错且无成功行_换model的切换日志不自指() {
     long maxIdBefore = maxLlmId();
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
-    ResponseEntity<String> response =
-        rest.postForEntity(
-            "/api/v1/agents/doomed-agent/invoke",
-            new HttpEntity<>("{\"content\":\"注定失败\"}", headers),
-            String.class);
+
+    var root =
+        (ch.qos.logback.classic.Logger)
+            org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+    var appender =
+        new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+    appender.start();
+    root.addAppender(appender);
+    ResponseEntity<String> response;
+    try {
+      response =
+          rest.postForEntity(
+              "/api/v1/agents/doomed-agent/invoke",
+              new HttpEntity<>("{\"content\":\"注定失败\"}", headers),
+              String.class);
+    } finally {
+      root.detachAppender(appender);
+    }
     assertTrue(response.getStatusCode().is5xxServerError(), "候选耗尽应报错（现状口径）");
 
     List<LlmCall> round = llmCallsAfter(maxIdBefore);
     assertFalse(round.isEmpty());
     assertTrue(round.stream().noneMatch(LlmCall::isSuccess), "无成功行");
     assertEquals(2, round.size(), "主 + 备各一次失败尝试（同一轮首个 LLM 调用即失败终止）");
+
+    // #1002：doomed-agent 是 broken/broken-model + broken/broken-model-2，同 provider 不同 model 的合法重试。
+    // 日志只打 provider 名时这行会写成「broken → broken」，读起来像自指/死循环。
+    List<String> switches =
+        appender.list.stream()
+            .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+            .filter(message -> message.contains("provider 切换"))
+            .toList();
+    assertEquals(1, switches.size(), "同 provider 换 model 只该记一次切换");
+    assertTrue(
+        switches.get(0).contains("broken/broken-model → broken/broken-model-2"),
+        "切换日志要带两侧 provider/model，不能写成 broken → broken: " + switches.get(0));
   }
 
   @Test
