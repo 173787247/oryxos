@@ -6,7 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.oryxos.core.cost.BudgetExceededException;
+import io.oryxos.core.routing.ResidencyConstraintException;
 import io.oryxos.core.session.SessionUpdateConflictException;
+import io.oryxos.provider.ProviderNotFoundException;
 import io.oryxos.web.error.AgentTimeoutException;
 import io.oryxos.web.error.ProviderUnavailableException;
 import io.oryxos.web.error.ResourceNotFoundException;
@@ -93,6 +96,46 @@ class GlobalExceptionHandlerTest {
   }
 
   @Test
+  @DisplayName("预算拒绝_映射402（不是 429 限流），message 带着预算 reason")
+  void budgetExceeded_maps402() throws Exception {
+    mvc.perform(MockMvcRequestBuilders.get("/throw/budget"))
+        .andExpect(status().isPaymentRequired())
+        .andExpect(jsonPath("$.code").value(402))
+        .andExpect(jsonPath("$.message").value(containsString("月度额度耗尽")));
+  }
+
+  @Test
+  @DisplayName("provider 未注册_映射400（确定性配置错误，客户端不该重试），message 点名 provider")
+  void providerNotRegistered_maps400() throws Exception {
+    mvc.perform(MockMvcRequestBuilders.get("/throw/provider-missing"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value(400))
+        .andExpect(jsonPath("$.message").value(containsString("未知的 provider")))
+        .andExpect(jsonPath("$.message").value(containsString("deepseek")));
+  }
+
+  @Test
+  @DisplayName("驻留白名单拒绝_映射403（策略拒绝，不是服务端故障）")
+  void residencyConstraint_maps403() throws Exception {
+    mvc.perform(MockMvcRequestBuilders.get("/throw/residency"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value(403))
+        .andExpect(jsonPath("$.message").value(containsString("residency")));
+  }
+
+  @Test
+  @DisplayName("未知异常_仍是 500 + 恰好 Internal server error：遮蔽作用由这条断言守着")
+  void unknownException_staysOpaque500() throws Exception {
+    mvc.perform(MockMvcRequestBuilders.get("/throw/internal"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.code").value(500))
+        .andExpect(jsonPath("$.message").value("Internal server error"))
+        .andExpect(content().string(not(containsString("RuntimeException"))))
+        .andExpect(content().string(not(containsString("jdbc:sqlite"))))
+        .andExpect(content().string(not(containsString("at io.oryxos"))));
+  }
+
+  @Test
   @DisplayName("请求体JSON语法错/缺失_映射400而非500（Spring MVC 客户端错误不再落 catch-all）")
   void malformedJson_maps400() throws Exception {
     mvc.perform(
@@ -142,6 +185,22 @@ class GlobalExceptionHandlerTest {
     @GetMapping("/throw/session-conflict")
     void sessionConflict() {
       throw new SessionUpdateConflictException("s-x");
+    }
+
+    @GetMapping("/throw/budget")
+    void budget() {
+      throw new BudgetExceededException("budget exceeded: team t-1 月度额度耗尽");
+    }
+
+    @GetMapping("/throw/provider-missing")
+    void providerMissing() {
+      throw new ProviderNotFoundException("deepseek");
+    }
+
+    @GetMapping("/throw/residency")
+    void residency() {
+      throw new ResidencyConstraintException(
+          "no Agent candidate satisfies data residency allowlist for sensitive data");
     }
 
     @GetMapping("/throw/internal")

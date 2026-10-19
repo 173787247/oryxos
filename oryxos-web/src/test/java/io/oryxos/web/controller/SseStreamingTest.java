@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.agent.AgentService;
 import io.oryxos.core.agent.StreamListener;
+import io.oryxos.core.cost.BudgetExceededException;
 import io.oryxos.core.profile.ProfileRegistry;
 import io.oryxos.core.session.Session;
 import io.oryxos.core.session.SessionManager;
@@ -137,6 +138,35 @@ class SseStreamingTest {
 
     assertThat(events).extracting(e -> e[0]).containsExactly("trace", "token", "error");
     assertThat(events.get(2)[1]).contains("provider call failed").doesNotContain("Exception:");
+  }
+
+  @Test
+  @DisplayName("流中预算拒绝_in-band error 用 402（与 HTTP 边界同一映射），message 带 reason")
+  void streaming_budgetRejectionCarries402() throws Exception {
+    when(agentService.process(any(), anyString(), any(StreamListener.class)))
+        .thenThrow(new BudgetExceededException("budget exceeded: team t-1 月度额度耗尽"));
+
+    var events =
+        parseEvents(performStream("{\"content\":\"hi\"}").getResponse().getContentAsString());
+
+    assertThat(events).extracting(e -> e[0]).containsExactly("trace", "error");
+    assertThat(events.get(1)[1]).contains("\"code\":402").contains("月度额度耗尽");
+  }
+
+  @Test
+  @DisplayName("流中未知异常_仍是 500 + 只带自身 message（遮蔽作用不变）")
+  void streaming_unknownFailureStays500() throws Exception {
+    when(agentService.process(any(), anyString(), any(StreamListener.class)))
+        .thenThrow(new RuntimeException("connect failed"));
+
+    var events =
+        parseEvents(performStream("{\"content\":\"hi\"}").getResponse().getContentAsString());
+
+    assertThat(events).extracting(e -> e[0]).containsExactly("trace", "error");
+    assertThat(events.get(1)[1])
+        .contains("\"code\":500")
+        .contains("connect failed")
+        .doesNotContain("Exception:");
   }
 
   @Test
