@@ -16,6 +16,7 @@
 - 运维提示：集群跑在本地工作区存储上时 CLI 告警（#1018）；路由策略没有信号源时告警（#1015）；MCP 仍使用已弃用 SSE 传输时告警（#1001）。
 
 ### Changed
+- 依赖升级：MCP SDK 迁移到 **2.1.0**（生产代码未改；stdio / SSE / streamable 与 `auto` 回退由工具模块用例与 5 个 MCP E2E 复验）；`git-commit-id` 插件 9 → 10（`/api/v1/health` 的 `build` 字段实测仍由 `git.properties` 填充）；OpenTelemetry BOM、飞书 SDK、SpotBugs、Swagger UI 与 GitHub Actions 的补丁升级（#1027/#1028/#1034/#1036）。
 - 渠道模块归到 `channels/` 聚合（#747）。
 - Maven 最低版本提高到构建实际所需版本；依赖与 GitHub Actions 小版本升级（#939/#948/#949）。
 - 缺省日程时区统一为 UTC（#848）。
