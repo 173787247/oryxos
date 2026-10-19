@@ -95,21 +95,51 @@ public class WorkspaceApiController {
     return ApiResponse.ok(workspaceRefresh.refresh());
   }
 
-  /** 目录树：agents/（每个 Agent 一个可展开目录）+ archive/。 */
+  /**
+   * 目录树：列**可读白名单**里的根（默认 {@code agents/}、{@code skills/}、{@code output/}、 {@code
+   * archive/}），且只列实际存在的目录（缺失的根点进去只会 404）。
+   */
   @GetMapping("/tree")
   public ApiResponse<FileNode> tree() {
     List<FileNode> roots = new ArrayList<>();
-    roots.add(treeOf(oryxosRoot.resolve("agents")));
-    roots.add(
-        treeOf(
-            oryxosRoot.resolve(
-                "skills"))); // 全局 Skill 库：每个 Skill 一个目录（SKILL.md + 可选脚本/子文档），供详情查看文件列表
-    roots.add(treeOf(oryxosRoot.resolve("output"))); // 第 32 节：Agent 产出的共享目录（研报/汇总/导出）
-    roots.add(treeOf(oryxosRoot.resolve("archive")));
+    for (String readableRoot : treeRoots()) {
+      roots.add(treeOf(oryxosRoot.resolve(readableRoot)));
+    }
     // 根节点显示名取实际工作区目录名（自定义 oryxos.root 时不再写死 .oryxos）
     Path rootName = oryxosRoot.getFileName();
     return ApiResponse.ok(
         FileNode.dir(rootName != null ? rootName.toString() : oryxosRoot.toString(), "", roots));
+  }
+
+  /**
+   * 树里列出的根：可读白名单（{@code oryxos.web.workspace.readable-roots}）里实际存在的目录。
+   *
+   * <p>顺序：默认四个根按默认顺序排在前，额外配置的根按字母序追加——自定义配置只增不减时，控制台看到的目录顺序不变。 只列存在的目录：缺失的根在树里出现也点不进去。读取权限本身仍由
+   * {@link #requireUnderAllowlist} 在请求时判定， 这里只决定"列不列"。
+   */
+  private List<String> treeRoots() {
+    java.util.Set<String> readable = readableRoots();
+    List<String> ordered = new ArrayList<>(readable.size());
+    for (String root : parseRoots(DEFAULT_READABLE_ROOTS)) {
+      if (readable.contains(root)) {
+        ordered.add(root);
+      }
+    }
+    List<String> extra = new ArrayList<>();
+    for (String root : readable) {
+      if (!ordered.contains(root)) {
+        extra.add(root);
+      }
+    }
+    java.util.Collections.sort(extra);
+    ordered.addAll(extra);
+    List<String> existing = new ArrayList<>(ordered.size());
+    for (String root : ordered) {
+      if (Files.isDirectory(oryxosRoot.resolve(root))) {
+        existing.add(root);
+      }
+    }
+    return existing;
   }
 
   /** 读文件文本；防目录穿越：越界 → 400，不存在 → 404。 */

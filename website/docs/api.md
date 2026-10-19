@@ -822,7 +822,7 @@ On the timeline, a TOOL step's `inputSummary`/`resultSummary`/`errorMessage` are
 
 ## Workspace file browser
 
-A read-only directory tree plus per-file read/write over the workspace. The tree lists `agents/`, `skills/`, `output/` and `archive/`; reads are allowed only under the configured readable roots (these four by default) and writes only under the configured writable roots (`agents/`, `output/` and `archive/` by default; `skills/` is a read-only view). All paths are relative to the workspace root; a path that escapes the root (path traversal), or one that is inside the root but outside the allowed roots, returns `400`. Both sets can be overridden with `oryxos.web.workspace.readable-roots` / `writable-roots` (comma-separated single-segment names of letters, digits, `_` and `-`; invalid values refuse startup, non-default values log a WARN at startup).
+A read-only directory tree plus per-file read/write over the workspace. The tree lists `agents/`, `skills/`, `output/` and `archive/` (a custom `readable-roots` makes the tree follow that setting; with the default configuration it stays these four); reads are allowed only under the configured readable roots (these four by default) and writes only under the configured writable roots (`agents/`, `output/` and `archive/` by default; `skills/` is a read-only view). All paths are relative to the workspace root; a path that escapes the root (path traversal), or one that is inside the root but outside the allowed roots, returns `400`. Both sets can be overridden with `oryxos.web.workspace.readable-roots` / `writable-roots` (comma-separated single-segment names of letters, digits, `_` and `-`; invalid values refuse startup, non-default values log a WARN at startup).
 
 ### Directory tree
 
