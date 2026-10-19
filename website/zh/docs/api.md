@@ -379,7 +379,7 @@ null
 
 ## 通知渠道
 
-通知渠道动态管理，持久化在 SQLite（`notify_channels` 表）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。`notify` 工具在 `AGENT.md` 正文里以自然语言**按名字**引用渠道（例如"发到 team-lark"），工具据此解析出已注册渠道的适配器和 URL。AGENT.md frontmatter 里没有 `notify_channels` 字段。
+通知渠道动态管理，持久化在 SQLite（`notify_channels` 表）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）与渠道 `url`（`notify_channels.url`——webhook URL 本身就是凭证；email 渠道的描述性 URL 仍为明文）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。config 中密码类敏感项（`password/secret/token/api_key` 等名录）与渠道 `url`（`notify_channels.url`——webhook URL 本身就是凭证；email 渠道的描述性 URL 仍为明文）落库加密（022，`enc:v1:` 前缀）；查询接口对这些项只回显掩码（`****`+末 4 位），编辑时掩码原样提交或留空 = 保持原值（与 Provider 的 api-key 交互范式一致）。`notify` 工具在 `AGENT.md` 正文里以自然语言**按名字**引用渠道（例如"发到 team-lark"），工具据此解析出已注册渠道的适配器和 URL。AGENT.md frontmatter 里没有 `notify_channels` 字段。
 
 `type` 取 `feishu` | `wecom` | `dingtalk` | `webhook`（各由一个适配器实现）。
 
@@ -846,7 +846,7 @@ provider:
 
 ## 工作区文件浏览
 
-工作区（`agents/` 与 `archive/`）的只读目录树，加上按文件读 / 写。所有路径相对工作区根目录；越界路径（路径穿越）返回 `400`。
+工作区的只读目录树，加上按文件读 / 写。目录树列出 `agents/`、`skills/`、`output/`、`archive/`；读只允许在配置的可读根下（默认就是这四个），写只允许在配置的可写根下（默认 `agents/`、`output/`、`archive/`；`skills/` 是只读视图）。所有路径相对工作区根目录；越界路径（路径穿越）、以及根内但不在允许根内的路径返回 `400`。两组根都可用 `oryxos.web.workspace.readable-roots` / `writable-roots` 覆盖（逗号分隔的单段目录名，只允许字母/数字/`_`/`-`；非法值拒绝启动，非默认值启动时打一条 WARN）。
 
 ### 目录树
 
@@ -877,7 +877,7 @@ provider:
 
 **GET** `/api/v1/workspace/file?path=agents/ops-agent/AGENT.md`
 
-以字符串返回文件内容。越界路径返回 `400`。
+以字符串返回文件内容。越界路径、以及根内但不在可读根内的路径返回 `400`。
 
 ```json
 // data —— 文件文本
@@ -888,7 +888,7 @@ provider:
 
 **POST** `/api/v1/workspace/file`
 
-与读文件相同的路径守卫。
+与读文件相同的路径守卫，按可写根判定（默认 `agents/`、`output/`、`archive/`；`skills/` 是只读视图）。
 
 ```json
 // 请求 —— WriteFileRequest

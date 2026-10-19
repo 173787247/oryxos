@@ -152,7 +152,7 @@ oryxos profile show <name>
 
 ### oryxos profile delete
 
-删除指定 Agent 的整个目录。
+删除指定 Agent：整个目录（含 `MEMORY.md`）归档到 `<root>/archive/`，不物理删除。
 
 ```bash
 oryxos profile delete <name>

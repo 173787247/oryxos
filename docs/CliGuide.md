@@ -65,7 +65,7 @@ oryxos chat --profile weather      # ⑤ 开聊
 | `oryxos profile list` | 轻 | 列出全部 Profile |
 | `oryxos profile create <name>` | 轻 | 创建 Profile（最小模板，不覆盖已有） |
 | `oryxos profile show <name>` | 轻 | 查看 Profile 内容 |
-| `oryxos profile delete <name>` | 轻 | 删除 Profile |
+| `oryxos profile delete <name>` | 轻 | 归档 Profile 到 `archive/`（不物理删除） |
 | `oryxos provider list` | 轻 | 列出 Provider 注册表（数据库） |
 | `oryxos tool list` | 轻 | 列出可用工具（20 节起为实时清单） |
 | `oryxos session list` | 轻 | 列出会话概览 |
@@ -144,7 +144,7 @@ oryxos gateway             # 守护进程（多 Channel 挂载属扩展阶段）
 oryxos profile create ops-agent   # 生成最小模板到 .oryxos/agents/ops-agent/AGENT.md
 oryxos profile show ops-agent     # 打印 AGENT.md 内容
 oryxos profile list               # 列出全部（每行一个 Agent 目录名）
-oryxos profile delete ops-agent   # 删除整个 Agent 目录（不存在则报错点名）
+oryxos profile delete ops-agent   # 归档整个 Agent 目录到 .oryxos/archive/（不物理删除；不存在则报错点名）
 ```
 
 **一个目录 = 一个 Agent**：每个 Agent 是 `.oryxos/agents/<name>/` 下的一个目录，核心是 `AGENT.md`——YAML frontmatter（这个 Agent 的 profile：identity/provider/tools/bootstrap/settings）+ 正文（任务指令），外加可选的 `skills/`、`scripts/`、`REFERENCE.md`。**不再有 `.oryxos/profiles/` 目录**。create 生成的模板直接编辑即可定制——**改配置就是改 Agent，不需要写代码**。改完无需重启：下一轮对话即生效（上下文文件每次组装都重新读取）。

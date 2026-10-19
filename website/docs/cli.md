@@ -193,7 +193,7 @@ oryxos profile show ops-agent
 
 ### profile delete
 
-Remove an agent's entire directory from the workspace.
+Archive an agent's entire directory into `<workspace>/archive/` (nothing is physically deleted).
 
 ```bash
 oryxos profile delete <name>
