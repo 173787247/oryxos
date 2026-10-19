@@ -60,7 +60,8 @@ class AssetGovernanceRevisionRecorderSnapshotTest {
     List<AssetGovernanceRevision> rows = repository.findAll();
     assertThat(rows).hasSize(1);
     AssetGovernance restored =
-        AssetGovernanceStore.parseSnapshotYaml(rows.get(0).getSnapshotText());
+        AssetGovernanceStore.parseSnapshotYaml(
+            rows.get(0).getSnapshotText(), "agent:snapshot-test");
     assertThat(restored.visibility()).isEqualTo(governance.visibility());
     assertThat(restored.health()).isEqualTo(governance.health());
     assertThat(restored.version()).isEqualTo(governance.version());
@@ -88,7 +89,8 @@ class AssetGovernanceRevisionRecorderSnapshotTest {
     assertThat(rows).hasSize(1);
     assertThat(rows.get(0).getSnapshotText()).isEqualTo(snapshot);
     AssetGovernance restored =
-        AssetGovernanceStore.parseSnapshotYaml(rows.get(0).getSnapshotText());
+        AssetGovernanceStore.parseSnapshotYaml(
+            rows.get(0).getSnapshotText(), "agent:snapshot-test");
     assertThat(restored).isEqualTo(governance);
   }
 }
