@@ -1,14 +1,18 @@
 package io.oryxos.web;
 
+import io.oryxos.core.cost.BudgetExceededException;
 import io.oryxos.core.durable.ApprovalSuspendedException;
 import io.oryxos.core.profile.ProfileValidationException;
+import io.oryxos.core.routing.ResidencyConstraintException;
 import io.oryxos.core.session.SessionUpdateConflictException;
 import io.oryxos.core.skill.SkillReferencedException;
 import io.oryxos.core.task.TeamTaskApprovalRequiredException;
+import io.oryxos.provider.ProviderNotFoundException;
 import io.oryxos.web.common.ApiResponse;
 import io.oryxos.web.controller.dto.SkillReferenceConflictView;
 import io.oryxos.web.error.AgentTimeoutException;
 import io.oryxos.web.error.ProviderUnavailableException;
+import io.oryxos.web.error.RejectionMapping;
 import io.oryxos.web.error.ResourceNotFoundException;
 import io.oryxos.web.error.ScheduleKeyAmbiguityException;
 import io.oryxos.web.error.SessionNotFoundException;
@@ -186,6 +190,23 @@ public class GlobalExceptionHandler {
     LOG.error("Agent call timed out: {}", sanitize(ex.getMessage()));
     return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
         .body(ApiResponse.error(HttpStatus.GATEWAY_TIMEOUT.value(), ex.getMessage()));
+  }
+
+  /**
+   * 402 / 400 / 403 — 确定性拒绝：预算耗尽（#476）、Agent/Profile 点名的 provider 未注册、驻留白名单拒绝（051）。
+   * 这些拒绝重试同一个请求永远不会成功，因此不能落进 catch-all 的 500；映射表在 {@link RejectionMapping}，与 SSE in-band error
+   * 事件共用同一份（流内异常到不了本类——SSE 响应头在 action 执行前已提交）。
+   */
+  @ExceptionHandler({
+    BudgetExceededException.class,
+    ProviderNotFoundException.class,
+    ResidencyConstraintException.class
+  })
+  public ResponseEntity<ApiResponse<Void>> handleDeterministicRejection(RuntimeException ex) {
+    RejectionMapping.Mapped mapped = RejectionMapping.map(ex);
+    LOG.warn("Deterministic rejection ({}): {}", mapped.status(), sanitize(mapped.message()));
+    return ResponseEntity.status(mapped.status())
+        .body(ApiResponse.error(mapped.status(), mapped.message()));
   }
 
   /** 500 — catch-all for everything else. */

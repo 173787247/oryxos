@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.oryxos.core.agent.StreamListener;
 import io.oryxos.core.agent.TraceContext;
 import io.oryxos.web.config.WebSseProperties;
+import io.oryxos.web.error.RejectionMapping;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -68,8 +69,15 @@ public class SseStreamSupport {
         }
         writer.event("done", json(done));
       } catch (RuntimeException e) {
-        // 流已开始（HTTP 已 200），失败只能以 error 事件表达（FR-009 分层）；信息可读、不带堆栈
-        writer.event("error", json(Map.of("code", 500, "message", safeMessage(e))));
+        // 流已开始（HTTP 已 200），失败只能以 error 事件表达（FR-009 分层）；信息可读、不带堆栈。
+        // 确定性拒绝（预算/provider/residency）与 HTTP 边界共用同一份映射：否则流式客户端会把 4xx 当 500 无限重试。
+        RejectionMapping.Mapped mapped = RejectionMapping.map(e);
+        int code = mapped == null ? 500 : mapped.status();
+        String message = safeMessage(e);
+        if (mapped != null && mapped.message() != null && !mapped.message().isBlank()) {
+          message = mapped.message();
+        }
+        writer.event("error", json(Map.of("code", code, "message", message)));
       }
     } catch (IOException e) {
       // 响应输出流都拿不到：流从未建立，交给容器/全局兜底
