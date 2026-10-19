@@ -37,9 +37,11 @@ public class ChatCommand implements Runnable {
   }
 
   /**
-   * A missing Agent is a configuration error, not a transient turn failure. Checked here so the
-   * session banner never claims a connection that cannot work, and the command exits non-zero
-   * instead of reporting every turn as a per-turn error (specs/003-cli-entry/contracts/cli.md).
+   * A missing Agent is a configuration / user-input error, not a transient turn failure. Checked
+   * here so the session banner never claims a connection that cannot work, and the command exits
+   * non-zero instead of reporting every turn as a per-turn error
+   * (specs/003-cli-entry/contracts/cli.md). Thrown as {@link IllegalArgumentException} so the CLI
+   * reports it as a user-correctable one-liner (same judgement as HTTP 400).
    */
   static void requireProfile(ConfigurableApplicationContext context, String profileName) {
     ProfileRegistry registry = context.getBean(ProfileRegistry.class);
@@ -48,7 +50,7 @@ public class ChatCommand implements Runnable {
     }
     List<String> available =
         registry.all().stream().map(Profile::name).sorted().collect(Collectors.toList());
-    throw new IllegalStateException(
+    throw new IllegalArgumentException(
         "Agent 不存在: "
             + profileName
             + (available.isEmpty()

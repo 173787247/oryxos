@@ -38,9 +38,9 @@ class ChatCommandTest {
     when(registry.get("does-not-exist")).thenReturn(Optional.empty());
     when(registry.all()).thenReturn(List.of());
 
-    IllegalStateException thrown =
+    IllegalArgumentException thrown =
         assertThrows(
-            IllegalStateException.class,
+            IllegalArgumentException.class,
             () -> ChatCommand.requireProfile(context, "does-not-exist"));
     assertTrue(thrown.getMessage().contains("does-not-exist"), thrown.getMessage());
   }
