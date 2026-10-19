@@ -731,7 +731,7 @@ mvn clean package
 
 写完 Agent 目录后走的 `AgentLoader.deriveProfile → ProfileRegistry.register → AgentScheduler.registerProfile`，与启动扫描是**同一段代码**——保证"API 建的 Agent 和手工丢目录建的 Agent 行为一模一样"。`ProfileRegistry`（`register`/`remove`/`exists`）和 `AgentScheduler`（`registerProfile`/`unregisterProfile` + `scheduledTasks` 句柄表）的运行时注册方法在核心阶段（课程第 29 节）就已立好，本阶段直接调；`generate` 走既有 `ProviderService`（并落 `llm_calls` 审计）。
 
-**一个目录、两条录入路径 + 实时监听。** `.oryxos/agents/` 是**唯一真相源**，填充它两条路殊途同归：API 上传（校验 + 写 Agent 目录）、手工丢目录（scp/git/编辑器）。本阶段新增 `WorkspaceWatcher`（装配层一个守护线程，用 JDK `WatchService`；启动全量扫 + 之后实时监听 `.oryxos/agents/` 变更），**它是统一注册入口**：任何 Agent 目录新增/改/删都调 `AgentLifecycleService.register(agentDir)`（与 API 上传写完目录后调的是**同一个方法**）或注销。于是"上传即上线 = 丢目录即上线、全程免重启"。此外 `WorkspaceApiController` 提供**只读**的工作区文件浏览（`GET /workspace/tree` 列 Agent 目录树、`GET /workspace/file?path=` 读文件内容，**必做防目录穿越**：`normalize()` 后 `startsWith(root)` 校验），供管理台"工作区"页钻进一个 Agent 目录看它的 `AGENT.md`/脚本/子指令。
+**一个目录、两条录入路径 + 实时监听。** `.oryxos/agents/` 是**唯一真相源**，填充它两条路殊途同归：API 上传（校验 + 写 Agent 目录）、手工丢目录（scp/git/编辑器）。本阶段新增 `WorkspaceWatcher`（装配层一个守护线程，用 JDK `WatchService`；启动全量扫 + 之后实时监听 `.oryxos/agents/` 变更），**它是统一注册入口**：任何 Agent 目录新增/改/删都调 `AgentLifecycleService.register(agentDir)`（与 API 上传写完目录后调的是**同一个方法**）或注销。于是"上传即上线 = 丢目录即上线、全程免重启"。此外 `WorkspaceApiController` 提供工作区文件浏览与读 / 写（`GET /workspace/tree` 列目录树、`GET /workspace/file?path=` 读文件内容、`POST /workspace/file` 写回；**必做防目录穿越与目录白名单**：真实路径投影越界即拒，且只有 `agents/`、`skills/`、`output/`、`archive/` 可读、`agents/`、`output/`、`archive/` 可写，`oryxos.web.workspace.readable-roots` / `writable-roots` 可覆盖），供管理台"工作区"页钻进一个 Agent 目录看它的 `AGENT.md`/脚本/子指令。
 
 ### 11.4 为什么这几件事要打包在一起交付
 
