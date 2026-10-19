@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +26,14 @@ import org.yaml.snakeyaml.error.YAMLException;
  * channels.yaml} 条目 {@code governance:} 块读取。写入渠道治理只走渠道 Admin → loader.save，本类不另写一份以免被覆盖丢掉。
  *
  * <p>缺文件或未知渠道返回 {@link AssetGovernance#empty()}——调用方不得把「没元数据」当成拒绝。侧车写入用原子改名。
+ *
+ * <p>读不出来（超限 / 非法 YAML / IO 失败）仍是 fail-open：按未设治理继续运行，调用方的门禁随之失效。但这是**安全控制失效**， 不是噪音，所以按 ERROR
+ * 记，并带上资产身份——否则排障时定位不到是哪个资产的门禁悄悄关掉了。这类加载点会被授权判定与入站消息 反复调用，同一份坏文件每个进程只报一次（见 {@link
+ * #reportUnreadable}）。
  */
+@edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+    value = "CRLF_INJECTION_LOGS",
+    justification = "日志里的资产标识 / 文件路径 / 原因已经 sanitize() 消去 CR/LF；taint 分析不跨方法追踪该消毒，故局部抑制")
 public final class AssetGovernanceStore {
 
   private static final Logger LOG = LoggerFactory.getLogger(AssetGovernanceStore.class);
@@ -37,6 +45,17 @@ public final class AssetGovernanceStore {
 
   /** 治理侧车 / channels.yaml 读上限（与其它工作区文本 10 MiB 对齐）；超限按未设治理处理。 */
   static final long MAX_GOVERNANCE_FILE_BYTES = 10L * 1024 * 1024;
+
+  /**
+   * 已报告过的「读不出来」目标（throttle key → 原因）。
+   *
+   * <p>为什么需要：{@code loadAgent}/{@code loadChannel} 会被入站消息门禁（每条消息）与授权判定（每个请求）反复调用， 逐次打 ERROR
+   * 就是刷屏。同一份坏文件每个进程只报一次；读到它恢复正常时清标记，再次坏掉会重新报。
+   *
+   * <p>key 粒度：侧车与 channels.yaml 都用**文件级** key——坏的是文件，不是某一个资产。代价是 channels.yaml 坏掉时，
+   * 日志里只会出现**第一个**撞上它的渠道名，其余渠道共享同一条报告；这是有意为之，改成 channel 级 key 会放大成 N 条。
+   */
+  private static final Map<String, String> REPORTED_UNREADABLE = new ConcurrentHashMap<>();
 
   private static final String DIR_AGENTS = "agents";
 
@@ -80,19 +99,19 @@ public final class AssetGovernanceStore {
     this.workspaceRoot = workspaceRoot.toAbsolutePath().normalize();
   }
 
-  /** 读取 Agent 侧车；缺文件或解析失败返回 empty（解析失败记 WARN，不把脏文件当成拒绝）。 */
+  /** 读取 Agent 侧车；缺文件或解析失败返回 empty（解析失败按 ERROR 记资产标识，不把脏文件当成拒绝）。 */
   public AssetGovernance loadAgent(String name) {
-    return load(path(DIR_AGENTS, name));
+    return load(path(DIR_AGENTS, name), "agent:" + name);
   }
 
   /** 读取 Skill 侧车。 */
   public AssetGovernance loadSkill(String name) {
-    return load(path(DIR_SKILLS, name));
+    return load(path(DIR_SKILLS, name), "skill:" + name);
   }
 
   /** 读取知识库侧车。 */
   public AssetGovernance loadKnowledge(String name) {
-    return load(path(DIR_KNOWLEDGE, name));
+    return load(path(DIR_KNOWLEDGE, name), "knowledge:" + name);
   }
 
   /** 按资源类型加载；未知类型返回 empty。 */
@@ -133,16 +152,19 @@ public final class AssetGovernanceStore {
     if (!Files.isRegularFile(file)) {
       return AssetGovernance.empty();
     }
+    String throttleKey = throttleKey(file);
     try {
       if (Files.size(file) > MAX_GOVERNANCE_FILE_BYTES) {
-        LOG.warn("channels.yaml 过大，按未设治理处理");
+        reportUnreadable(throttleKey, "channel:" + name, file.toString(), "channels.yaml 过大", null);
         return AssetGovernance.empty();
       }
       String yaml = Files.readString(file);
       if (yaml.isBlank()) {
+        markReadable(throttleKey);
         return AssetGovernance.empty();
       }
       Object loaded = new Yaml(new SafeConstructor(new LoaderOptions())).load(yaml);
+      markReadable(throttleKey); // 文件本身能解析：之前的「读不出来」已恢复（结构不符不算读失败）
       if (!(loaded instanceof Map<?, ?> root)) {
         return AssetGovernance.empty();
       }
@@ -160,7 +182,8 @@ public final class AssetGovernanceStore {
       }
       return AssetGovernance.empty();
     } catch (IOException | YAMLException ex) {
-      LOG.warn("读取 channels.yaml 治理块失败，按未设治理处理");
+      reportUnreadable(
+          throttleKey, "channel:" + name, file.toString(), "读取 channels.yaml 治理块失败", ex);
       return AssetGovernance.empty();
     }
   }
@@ -176,27 +199,30 @@ public final class AssetGovernanceStore {
     }
   }
 
-  private AssetGovernance load(Path file) {
+  private AssetGovernance load(Path file, String assetRef) {
     if (!Files.isRegularFile(file)) {
       return AssetGovernance.empty();
     }
+    String throttleKey = throttleKey(file);
     try {
       if (Files.size(file) > MAX_GOVERNANCE_FILE_BYTES) {
-        LOG.warn("GOVERNANCE.yml 过大，按未设治理处理");
+        reportUnreadable(throttleKey, assetRef, file.toString(), "GOVERNANCE.yml 过大", null);
         return AssetGovernance.empty();
       }
       String text = Files.readString(file);
       if (text.isBlank()) {
+        markReadable(throttleKey);
         return AssetGovernance.empty();
       }
       Object loaded = new Yaml(new SafeConstructor(new LoaderOptions())).load(text);
       if (!(loaded instanceof Map<?, ?> raw)) {
-        LOG.warn("GOVERNANCE.yml 不是映射，按未设治理处理");
+        reportUnreadable(throttleKey, assetRef, file.toString(), "GOVERNANCE.yml 不是映射", null);
         return AssetGovernance.empty();
       }
+      markReadable(throttleKey); // 真正解析出治理块才算恢复（「不是映射」仍算读不出来）
       return fromMap(raw);
     } catch (IOException | YAMLException ex) {
-      LOG.warn("读取 GOVERNANCE.yml 失败，按未设治理处理");
+      reportUnreadable(throttleKey, assetRef, file.toString(), "读取 GOVERNANCE.yml 失败", ex);
       return AssetGovernance.empty();
     }
   }
@@ -266,16 +292,23 @@ public final class AssetGovernanceStore {
     return render(governance == null ? AssetGovernance.empty() : governance);
   }
 
-  /** 解析 #537 快照 YAML 回模型（#541 restore）。脏/空文本回落 empty，不因脏快照炸请求。 */
-  public static AssetGovernance parseSnapshotYaml(String text) {
+  /**
+   * 解析 #537 快照 YAML 回模型（#541 restore）。脏/空文本回落 empty，不因脏快照炸请求。
+   *
+   * @param assetRef 快照所属资产（如 {@code agent:ops-skill revision=7}）：解析失败时进 ERROR 日志，排障要知道是哪个资产
+   */
+  public static AssetGovernance parseSnapshotYaml(String text, String assetRef) {
     if (text == null || text.isBlank()) {
       return AssetGovernance.empty();
     }
+    String throttleKey =
+        "snapshot:" + (assetRef == null || assetRef.isBlank() ? "<unknown>" : assetRef);
     try {
       Object loaded = new Yaml(new SafeConstructor(new LoaderOptions())).load(text);
+      markReadable(throttleKey);
       return parseNode(loaded);
     } catch (YAMLException ex) {
-      LOG.warn("解析治理快照 YAML 失败，按未设治理处理");
+      reportUnreadable(throttleKey, assetRef, "治理版本快照", "解析治理快照 YAML 失败", ex);
       return AssetGovernance.empty();
     }
   }
@@ -315,5 +348,48 @@ public final class AssetGovernanceStore {
 
   private static String nullToEmpty(String value) {
     return value == null ? "" : value.strip();
+  }
+
+  /** 节流 key：文件级（见 {@link #REPORTED_UNREADABLE}）。 */
+  private static String throttleKey(Path file) {
+    return "file:" + file;
+  }
+
+  /**
+   * 治理读不出来：按 ERROR 记**一次**，带资产标识与文件，说明这是 fail-open 而不是拒启。
+   *
+   * <p>只打异常类名、不打异常 message：{@code YAMLException} 的 message 会带源文件片段，而 {@code channels.yaml}
+   * 里有渠道凭证——本类从不在日志里回显文件内容。
+   *
+   * <p>同一 throttle key 命中过就不再打；{@link #markReadable} 在读到该文件恢复正常时清标记。
+   */
+  private static void reportUnreadable(
+      String throttleKey, String assetRef, String location, String reason, Throwable cause) {
+    if (REPORTED_UNREADABLE.putIfAbsent(throttleKey, reason) != null) {
+      return;
+    }
+    LOG.error(
+        "资产治理读取失败（fail-open：该资产的治理门禁按未设治理继续运行，不是拒启）：" + "asset={} location={} reason={} cause={}",
+        sanitize(assetRef),
+        sanitize(location),
+        sanitize(reason),
+        cause == null ? "-" : cause.getClass().getSimpleName());
+  }
+
+  /** 读到该文件恢复正常：清掉节流标记，之后再坏会重新报。 */
+  private static void markReadable(String throttleKey) {
+    REPORTED_UNREADABLE.remove(throttleKey);
+  }
+
+  /** 包级可见：仅供测试隔离静态节流表，生产路径不得调用。 */
+  static void clearReportedForTest() {
+    REPORTED_UNREADABLE.clear();
+  }
+
+  private static String sanitize(String value) {
+    if (value == null || value.isBlank()) {
+      return "<unknown>";
+    }
+    return value.replace('\r', '_').replace('\n', '_');
   }
 }

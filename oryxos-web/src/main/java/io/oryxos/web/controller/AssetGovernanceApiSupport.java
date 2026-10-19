@@ -118,7 +118,9 @@ final class AssetGovernanceApiSupport {
       throw new ResourceNotFoundException("version history disabled");
     }
     AssetGovernanceRevision row = requireOwnedRevision(revisions, resource, revisionId);
-    AssetGovernance model = AssetGovernanceStore.parseSnapshotYaml(row.getSnapshotText());
+    AssetGovernance model =
+        AssetGovernanceStore.parseSnapshotYaml(
+            row.getSnapshotText(), resource.describe() + " revision=" + revisionId);
     return writeLive(request, recorder, properties, revisions, resource, model, saver, loader);
   }
 
