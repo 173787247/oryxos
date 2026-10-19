@@ -846,7 +846,7 @@ provider:
 
 ## 工作区文件浏览
 
-工作区的只读目录树，加上按文件读 / 写。目录树列出 `agents/`、`skills/`、`output/`、`archive/`；读只允许在配置的可读根下（默认就是这四个），写只允许在配置的可写根下（默认 `agents/`、`output/`、`archive/`；`skills/` 是只读视图）。所有路径相对工作区根目录；越界路径（路径穿越）、以及根内但不在允许根内的路径返回 `400`。两组根都可用 `oryxos.web.workspace.readable-roots` / `writable-roots` 覆盖（逗号分隔的单段目录名，只允许字母/数字/`_`/`-`；非法值拒绝启动，非默认值启动时打一条 WARN）。
+工作区的只读目录树，加上按文件读 / 写。目录树列出 `agents/`、`skills/`、`output/`、`archive/`（自定义 `readable-roots` 时目录树跟随该配置；默认配置下仍是这四个）；读只允许在配置的可读根下（默认就是这四个），写只允许在配置的可写根下（默认 `agents/`、`output/`、`archive/`；`skills/` 是只读视图）。所有路径相对工作区根目录；越界路径（路径穿越）、以及根内但不在允许根内的路径返回 `400`。两组根都可用 `oryxos.web.workspace.readable-roots` / `writable-roots` 覆盖（逗号分隔的单段目录名，只允许字母/数字/`_`/`-`；非法值拒绝启动，非默认值启动时打一条 WARN）。
 
 ### 目录树
 

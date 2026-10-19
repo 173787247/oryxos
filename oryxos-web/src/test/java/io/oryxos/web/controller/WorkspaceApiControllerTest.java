@@ -30,6 +30,7 @@ class WorkspaceApiControllerTest {
 
   @TempDir Path oryxosRoot;
   private MockMvc mvc;
+  private WorkspaceApiController controller;
   private io.oryxos.core.agent.AgentLifecycleService lifecycle;
 
   @BeforeEach
@@ -40,7 +41,12 @@ class WorkspaceApiControllerTest {
     lifecycle = org.mockito.Mockito.mock(io.oryxos.core.agent.AgentLifecycleService.class);
     bumpedDomains.clear();
     localReloads.set(0);
-    mvc = mvcWith(clusterRefreshService());
+    controller =
+        new WorkspaceApiController(oryxosRoot.toString(), lifecycle, clusterRefreshService());
+    mvc =
+        MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
   }
 
   // 027 refresh 端点：集群档 bump 全域 / 单机档本地重载（可观测的记录桩）
@@ -132,14 +138,67 @@ class WorkspaceApiControllerTest {
   }
 
   @Test
-  @DisplayName("tree 返回 agents/archive 结构、可钻进 Agent 目录列文件")
+  @DisplayName("tree 返回存在的四个默认可读根、可钻进 Agent 目录列文件")
   void tree_returnsAgentsAndArchive() throws Exception {
+    // 树只列存在的目录：这里把四个默认可读根都建出来，验证默认配置下的结构
+    Files.createDirectories(oryxosRoot.resolve("skills"));
+    Files.createDirectories(oryxosRoot.resolve("output"));
     mvc.perform(get("/api/v1/workspace/tree"))
         .andExpect(status().isOk())
         .andExpect(
             jsonPath("$.data.children[*].name")
                 .value(org.hamcrest.Matchers.hasItems("agents", "skills", "output", "archive")))
         .andExpect(jsonPath("$.data.children[0].children[0].name").value("demo"));
+  }
+
+  @Test
+  @DisplayName("tree 跟着 readable-roots 走：改成 agents,custom 后列 custom、不列 output/archive")
+  void tree_followsConfiguredReadableRoots() throws Exception {
+    Files.createDirectories(oryxosRoot.resolve("custom"));
+    Files.createDirectories(oryxosRoot.resolve("output"));
+    setReadableRoots("agents,custom");
+
+    mvc.perform(get("/api/v1/workspace/tree"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.children.length()").value(2))
+        .andExpect(
+            jsonPath("$.data.children[*].name")
+                .value(org.hamcrest.Matchers.hasItems("agents", "custom")))
+        .andExpect(
+            jsonPath(
+                "$.data.children[*].name",
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("output"))))
+        .andExpect(
+            jsonPath(
+                "$.data.children[*].name",
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("archive"))));
+  }
+
+  @Test
+  @DisplayName("tree 只列存在的目录：缺失的根不出现（避免点进去 404）")
+  void tree_omitsMissingRoots() throws Exception {
+    // setUp 建了 archive/；默认配置下 skills/、output/ 不存在 —— 树里只应有 agents 与 archive
+    mvc.perform(get("/api/v1/workspace/tree"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.children.length()").value(2))
+        .andExpect(
+            jsonPath("$.data.children[*].name")
+                .value(org.hamcrest.Matchers.contains("agents", "archive")));
+
+    // 删掉 archive/ 后它也不再出现
+    Files.delete(oryxosRoot.resolve("archive"));
+    mvc.perform(get("/api/v1/workspace/tree"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.children.length()").value(1))
+        .andExpect(jsonPath("$.data.children[0].name").value("agents"));
+  }
+
+  /** 模拟 {@code oryxos.web.workspace.readable-roots} 注入（@Value 字段只在 Spring 装配时赋值）。 */
+  private void setReadableRoots(String setting) throws Exception {
+    java.lang.reflect.Field field =
+        WorkspaceApiController.class.getDeclaredField("readableRootsSetting");
+    field.setAccessible(true);
+    field.set(controller, setting);
   }
 
   @Test
