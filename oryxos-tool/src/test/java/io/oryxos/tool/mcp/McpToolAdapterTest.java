@@ -55,7 +55,7 @@ class McpToolAdapterTest {
     when(client.callTool(org.mockito.ArgumentMatchers.any()))
         .thenReturn(
             new McpSchema.CallToolResult(
-                List.of(new McpSchema.TextContent("found 3 repos")), false));
+                List.of(new McpSchema.TextContent("found 3 repos")), false, null, null));
 
     ToolResult result = adapter.execute(MAPPER.readTree("{\"query\":\"oryxos\"}"));
 
@@ -73,7 +73,8 @@ class McpToolAdapterTest {
   void mcpErrorWrapsAsRetryableFailure() throws Exception {
     when(client.callTool(org.mockito.ArgumentMatchers.any()))
         .thenReturn(
-            new McpSchema.CallToolResult(List.of(new McpSchema.TextContent("rate limited")), true));
+            new McpSchema.CallToolResult(
+                List.of(new McpSchema.TextContent("rate limited")), true, null, null));
 
     ToolResult result = adapter.execute(MAPPER.readTree("{}"));
 
@@ -87,7 +88,9 @@ class McpToolAdapterTest {
   void oversizedContentIsTruncated() throws Exception {
     String big = "x".repeat(64 * 1024 + 100);
     when(client.callTool(org.mockito.ArgumentMatchers.any()))
-        .thenReturn(new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(big)), false));
+        .thenReturn(
+            new McpSchema.CallToolResult(
+                List.of(new McpSchema.TextContent(big)), false, null, null));
 
     ToolResult result = adapter.execute(MAPPER.readTree("{}"));
 
