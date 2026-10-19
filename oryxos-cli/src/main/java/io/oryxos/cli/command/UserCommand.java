@@ -54,11 +54,11 @@ public class UserCommand implements Runnable {
     }
   }
 
-  /** 读密码（不回显）；两次一致且 ≥8 字符返回，否则抛 IllegalStateException。无 console 报错。 */
+  /** 读密码（不回显）：无 tty、两次不一致或过短都抛 {@link IllegalArgumentException}（用户可纠正，CLI 落成一行）。 */
   private static String readConfirmedPassword() {
     Console console = System.console();
     if (console == null) {
-      throw new IllegalStateException("no interactive console available (stdin piped?)");
+      throw new IllegalArgumentException("no interactive console available (stdin piped?)");
     }
     char[] first = console.readPassword("Password (>= 8 chars): ");
     char[] confirm = console.readPassword("Confirm: ");
@@ -70,13 +70,18 @@ public class UserCommand implements Runnable {
     if (confirm != null) {
       java.util.Arrays.fill(confirm, '\0');
     }
-    if (!a.equals(b)) {
-      throw new IllegalStateException("passwords do not match");
+    return requireConfirmedPassword(a, b);
+  }
+
+  /** 校验两次输入（包级可见：无控制台也能单测）。不一致/过短都是用户输入错误。 */
+  static String requireConfirmedPassword(String first, String confirm) {
+    if (!first.equals(confirm)) {
+      throw new IllegalArgumentException("passwords do not match");
     }
-    if (a.length() < MIN_PASSWORD_LENGTH) {
-      throw new IllegalStateException("password must be at least 8 characters");
+    if (first.length() < MIN_PASSWORD_LENGTH) {
+      throw new IllegalArgumentException("password must be at least 8 characters");
     }
-    return a;
+    return first;
   }
 
   @Command(name = "add", description = "创建账号（交互输密码）", mixinStandardHelpOptions = true)
@@ -199,7 +204,7 @@ public class UserCommand implements Runnable {
         role =
             io.oryxos.core.auth.Role.valueOf(roleName.strip().toUpperCase(java.util.Locale.ROOT));
       } catch (RuntimeException ex) {
-        throw new IllegalStateException(
+        throw new IllegalArgumentException(
             "invalid role '" + roleName + "' (expected VIEWER|EDITOR|ADMIN)");
       }
       withService(
