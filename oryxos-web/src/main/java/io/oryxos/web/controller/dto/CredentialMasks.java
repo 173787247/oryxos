@@ -79,12 +79,15 @@ public final class CredentialMasks {
       working = working.substring(0, q);
     }
     int schemeEnd = working.indexOf("://");
-    int pathStart = schemeEnd >= 0 ? working.indexOf('/', schemeEnd + 3) : -1;
+    int pathStart = schemeEnd >= 0 ? working.indexOf('/', schemeEnd + 3) : working.indexOf('/');
     if (pathStart >= 0) {
       int lastSlash = working.lastIndexOf('/');
       if (lastSlash > pathStart) {
         working = working.substring(0, lastSlash + 1) + "****";
       }
+    } else if (schemeEnd < 0) {
+      // 没有 scheme 也没有 path 的裸串本身就是凭证（如只有一个 hook id），整串打码
+      working = maskValue(working);
     }
     return working + query;
   }
