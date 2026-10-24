@@ -23,6 +23,8 @@ public class AuthzEventRecorder {
   private static final int MAX_PATH = 512;
   private static final int MAX_ID = 128;
   private static final int MAX_RESOURCE_ID = 255;
+  private static final int MAX_RESOURCE_TYPE = 32;
+  private static final int MAX_METHOD = 16;
   private static final String TRACE_MDC_KEY = "traceId";
 
   private final AuthzEventRepository repository;
@@ -54,11 +56,11 @@ public class AuthzEventRecorder {
       event.setPrincipalId(truncate(subject.id(), MAX_ID));
       event.setAction(action == null ? "UNKNOWN" : action.name());
       if (resource != null) {
-        event.setResourceType(resource.type());
+        event.setResourceType(truncate(resource.type(), MAX_RESOURCE_TYPE));
         event.setResourceId(truncate(resource.id(), MAX_RESOURCE_ID));
       }
       event.setReason(truncate(reason == null ? "未说明理由" : reason, MAX_REASON));
-      event.setRequestMethod(requestMethod);
+      event.setRequestMethod(truncate(requestMethod, MAX_METHOD));
       event.setRequestPath(truncate(requestPath, MAX_PATH));
       String trace = MDC.get(TRACE_MDC_KEY);
       if (trace != null && !trace.isBlank()) {
