@@ -340,6 +340,11 @@ All endpoints are prefixed with `/api/v1` and every response is wrapped in a uni
 
 First PRs are welcome — see the [Contributing Guide](https://oryxos.robustmq.com/docs/contributing) and the [GitHub workflow primer](https://oryxos.robustmq.com/docs/github-workflow).
 
+## Contact group
+
+<img width="320" height="380" alt="image" src="https://github.com/user-attachments/assets/4a941b64-52c0-4960-b2c2-438e2bf6b267" />
+
+
 ## License
 
 [Apache License 2.0](LICENSE) · [oryx-labs](https://github.com/oryx-labs) · Goal: Apache Software Foundation top-level project
